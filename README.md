@@ -1,8 +1,6 @@
 # Izanami-Lab
 
-Muv-Luv Girls Garden X 战斗模拟器。
-
-> 本工具为粉丝项目，与 âge / aNCHOR / Anchor 无任何关联。
+Muv-Luv Girls Garden 战斗模拟器。
 
 ## 功能
 
@@ -33,7 +31,7 @@ python gui_app.py
 ## 交流反馈
 
 - QQ 群：**1051340041**
-- 用于反馈 Bug 或模拟器使用交流
+- 用于反馈 Bug / 模拟器使用交流
 
 ## 开源协议
 
