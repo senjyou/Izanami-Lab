@@ -2025,6 +2025,11 @@ class BattleFlowController:
     def _parse_memory_skill_value(self, skill_id: int, effect_type: str) -> tuple:
         desc = self.data_loader.get_skill_description(skill_id)
         if not desc:
+            # Fallback: 从skills.json获取描述文本
+            skill_data = self.data_loader.get_skill_by_id(skill_id)
+            if skill_data and hasattr(skill_data, 'get_description_at_level'):
+                desc = skill_data.get_description_at_level(1)
+        if not desc:
             if effect_type == SkillEffectType.STATUS_MAX_HP.value:
                 return 10.0, 0
             return 5.0, 0
