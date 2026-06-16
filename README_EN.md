@@ -2,8 +2,6 @@
 
 Muv-Luv Girls Garden X Battle Simulator.
 
-> This is a fan-made tool and is not affiliated with âge / aNCHOR / Anchor.
-
 ## Features
 
 - Global parameter configuration (school levels, equipment, character levels, rarity, modules, affection, skills)
