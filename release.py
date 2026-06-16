@@ -158,8 +158,16 @@ def main():
         print("已取消发布")
         sys.exit(0)
 
-    # 4. 检查并推送代码
-    print("\n[1/5] 检查并推送代码...")
+    # 4. 更新本地版本号（必须在构建前完成，否则打包的程序版本号不对）
+    print("\n[1/5] 更新本地版本号...")
+    version_file = SCRIPT_DIR / "version.py"
+    version_num = version.lstrip('v')
+    new_content = f'__version__ = "{version_num}"\n__repository__ = "senjyou/Izanami-Lab"\n__release_url__ = "https://github.com/senjyou/Izanami-Lab/releases"'
+    version_file.write_text(new_content, encoding='utf-8')
+    print(f"  已更新 version.py 为 v{version_num}")
+
+    # 5. 检查并推送代码
+    print("\n[2/5] 检查并推送代码...")
     print("  检查 Git 状态...")
     status = run_cmd("git status --short", cwd=SCRIPT_DIR)
     if status:
@@ -179,12 +187,12 @@ def main():
     print("  推送到 GitHub...")
     run_cmd("git push", cwd=SCRIPT_DIR)
 
-    # 5. 打包构建
-    print("\n[2/5] 打包构建...")
+    # 6. 打包构建
+    print("\n[3/5] 打包构建...")
     run_cmd("python build.py", cwd=SCRIPT_DIR)
 
-    # 6. 创建 ZIP
-    print("\n[3/5] 创建压缩包...")
+    # 7. 创建 ZIP
+    print("\n[4/5] 创建压缩包...")
     app_dir = DIST_DIR / APP_NAME
     zip_path = DIST_DIR / f"Izanami-Lab_{version}.zip"
 
@@ -200,8 +208,8 @@ def main():
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
-    # 7. 创建 Release
-    print("\n[4/5] 创建 GitHub Release...")
+    # 8. 创建 Release
+    print("\n[5/5] 创建 GitHub Release...")
 
     notes = format_release_notes(version, new_features)
     notes_file = DIST_DIR / "release_notes.md"
@@ -221,19 +229,6 @@ def main():
         print(f"  错误: {result.stderr}")
         sys.exit(result.returncode)
     print(f"  Release: {result.stdout.strip()}")
-
-    # 8. 更新本地版本号
-    print("\n[5/5] 更新本地版本号...")
-    version_file = SCRIPT_DIR / "version.py"
-    if version_file.exists():
-        version_num = version.lstrip('v')
-        new_content = f'__version__ = "{version_num}"\n__repository__ = "senjyou/Izanami-Lab"\n__release_url__ = "https://github.com/senjyou/Izanami-Lab/releases"'
-        version_file.write_text(new_content, encoding='utf-8')
-        print(f"  已更新 version.py 为 v{version_num}")
-        run_cmd("git add version.py", cwd=SCRIPT_DIR)
-        run_cmd('git commit -m "chore: bump version"', cwd=SCRIPT_DIR)
-        run_cmd("git push", cwd=SCRIPT_DIR)
-        print("  已推送版本号更新")
 
     print(f"\n{'='*60}")
     print(f"  发布完成!")

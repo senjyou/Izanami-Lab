@@ -22,8 +22,14 @@ class UpdateManager:
         self.current_version = current_version.lstrip('v')
         self.release_url = release_url
         self.api_url = f"https://api.github.com/repos/{repository}/releases/latest"
+        self.html_url = f"https://github.com/{repository}/releases"
         self._last_check_time = 0
         self._check_interval = 86400
+        self._session = requests.Session()
+        self._session.headers.update({
+            'User-Agent': f'Izanami-Lab/{current_version}',
+            'Accept': 'application/vnd.github.v3+json',
+        })
 
     def _parse_version(self, version_str: str) -> Tuple[int, int, int]:
         version_str = version_str.lstrip('v')
@@ -38,15 +44,11 @@ class UpdateManager:
         latest_parsed = self._parse_version(latest)
         return latest_parsed > current
 
-    def check_for_updates(self, force: bool = False) -> Optional[UpdateInfo]:
-        now = time.time()
-        if not force and now - self._last_check_time < self._check_interval:
-            return None
-
-        self._last_check_time = now
-
+    def _fetch_via_api(self) -> Optional[UpdateInfo]:
         try:
-            response = requests.get(self.api_url, timeout=10)
+            response = self._session.get(self.api_url, timeout=10)
+            if response.status_code == 403:
+                return None
             response.raise_for_status()
             data = response.json()
 
@@ -65,7 +67,49 @@ class UpdateManager:
                 release_notes=release_notes,
                 published_at=published_at
             )
-        except requests.exceptions.RequestException as e:
+        except (requests.exceptions.RequestException, KeyError, ValueError):
             return None
-        except (KeyError, ValueError) as e:
+
+    def _fetch_via_html(self) -> Optional[UpdateInfo]:
+        try:
+            response = requests.get(self.html_url, timeout=10, headers={
+                'User-Agent': f'Izanami-Lab/{self.current_version}',
+            })
+            response.raise_for_status()
+            html = response.text
+
+            match = re.search(r'/releases/tag/(v[\d.]+)"', html)
+            if not match:
+                return None
+
+            latest_version = match.group(1).lstrip('v')
+
+            notes_match = re.search(r'<div[^>]*class="markdown-body[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+            release_notes = ""
+            if notes_match:
+                release_notes = re.sub(r'<[^>]+>', '', notes_match.group(1)).strip()[:500]
+
+            has_update = self._compare_versions(latest_version)
+
+            return UpdateInfo(
+                has_update=has_update,
+                current_version=self.current_version,
+                latest_version=latest_version,
+                release_url=self.html_url,
+                release_notes=release_notes,
+            )
+        except (requests.exceptions.RequestException, AttributeError):
             return None
+
+    def check_for_updates(self, force: bool = False) -> Optional[UpdateInfo]:
+        now = time.time()
+        if not force and now - self._last_check_time < self._check_interval:
+            return None
+
+        self._last_check_time = now
+
+        result = self._fetch_via_api()
+        if result is not None:
+            return result
+
+        return self._fetch_via_html()
