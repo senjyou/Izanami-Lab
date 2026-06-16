@@ -11,6 +11,7 @@ Izanami Lab 一键发布脚本
 """
 import subprocess
 import sys
+import os
 import zipfile
 from pathlib import Path
 
@@ -104,9 +105,22 @@ See [SUPPORTED_CHARACTERS.md](https://github.com/senjyou/Izanami-Lab/blob/master
     notes_file = DIST_DIR / "release_notes.md"
     notes_file.write_text(notes, encoding='utf-8')
     
-    cmd = f'$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); gh release create {version} "{zip_path}" --title "{version}" --notes-file "{notes_file}" --repo senjyou/Izanami-Lab'
-    output = run_cmd(cmd)
-    print(f"  Release: {output.strip()}")
+    env = os.environ.copy()
+    env['Path'] = os.pathsep.join([
+        os.environ.get('Path', ''),
+        os.environ.get('LOCALAPPDATA', '') + '\\Programs\\GitHub CLI'
+    ])
+    
+    result = subprocess.run(
+        ['gh', 'release', 'create', version, str(zip_path), '--title', version, '--notes-file', str(notes_file), '--repo', 'senjyou/Izanami-Lab'],
+        env=env,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        print(f"  错误: {result.stderr}")
+        sys.exit(result.returncode)
+    print(f"  Release: {result.stdout.strip()}")
 
     print(f"\n{'='*50}")
     print(f"  发布完成!")
