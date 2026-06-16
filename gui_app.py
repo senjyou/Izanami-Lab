@@ -45,6 +45,8 @@ from src.entities_v2.custom_dummy import (
     EFFECT_CATEGORIES,
 )
 from src.entities.memory_card import MemoryCard, MemoryHighlight
+from version import __version__, __repository__, __release_url__
+from src.utils.update_manager import UpdateManager
 
 
 # ── 路径辅助（PyInstaller 兼容） ──
@@ -6523,12 +6525,15 @@ class MGGBattleSimulatorGUI:
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Izanami Lab")
+        self.root.title(f"Izanami Lab v{__version__}")
         self.root.geometry("1400x960")
         # 设置窗口图标
         _icon_path = _BASE_PATH / "icon.ico"
         if _icon_path.exists():
             self.root.iconbitmap(str(_icon_path))
+
+        # 更新管理器
+        self.update_manager = UpdateManager(__repository__, __version__, __release_url__)
 
         # 首次运行：从默认模板复制用户配置
         _ensure_user_config("global_config.default.json", GLOBAL_CONFIG_PATH)
@@ -6578,8 +6583,15 @@ class MGGBattleSimulatorGUI:
         self._theme_combo.bind("<<ComboboxSelected>>", self._on_theme_change)
         self._theme_combo.place(relx=1.0, y=5, anchor="ne", x=-10)
 
+        # 检查更新按钮
+        self._update_btn = ttk.Button(self.root, text="检查更新", command=self._check_updates_ui)
+        self._update_btn.place(relx=1.0, y=5, anchor="ne", x=-110)
+
         # 启动时刷新原生组件颜色（确保浅色主题等非默认主题生效）
         self._refresh_native_widgets()
+
+        # 启动时异步检查更新
+        self._start_update_check()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
@@ -6644,6 +6656,42 @@ class MGGBattleSimulatorGUI:
         if hasattr(self, 'team_tab'):
             for slot in self.team_tab.friend_slots + self.team_tab.enemy_slots:
                 self.team_tab._update_slot_display(slot, slot["cid"])
+
+    def _start_update_check(self):
+        """启动时异步检查更新"""
+        def check():
+            result = self.update_manager.check_for_updates()
+            if result and result.has_update:
+                self.root.after(0, lambda: self._show_update_dialog(result))
+        threading.Thread(target=check, daemon=True).start()
+
+    def _check_updates_ui(self):
+        """手动检查更新按钮回调"""
+        self._update_btn.config(state="disabled", text="检查中...")
+        def check():
+            result = self.update_manager.check_for_updates(force=True)
+            self.root.after(0, lambda: self._update_btn.config(state="normal", text="检查更新"))
+            if result:
+                if result.has_update:
+                    self.root.after(0, lambda: self._show_update_dialog(result))
+                else:
+                    self.root.after(0, lambda: messagebox.showinfo("检查更新", f"当前已是最新版本 v{result.current_version}"))
+            else:
+                self.root.after(0, lambda: messagebox.showwarning("检查更新", "无法连接到服务器，请稍后再试"))
+        threading.Thread(target=check, daemon=True).start()
+
+    def _show_update_dialog(self, update_info):
+        """显示更新提示对话框"""
+        notes = update_info.release_notes[:200] + "..." if len(update_info.release_notes) > 200 else update_info.release_notes
+        message = (
+            f"检测到新版本 v{update_info.latest_version}（当前版本 v{update_info.current_version}）\n\n"
+            f"更新说明:\n{notes}\n\n"
+            f"发布时间: {update_info.published_at[:10] if update_info.published_at else '未知'}"
+        )
+        result = messagebox.askyesno("发现更新", message + "\n\n是否前往下载更新？")
+        if result:
+            import webbrowser
+            webbrowser.open(update_info.release_url)
 
     def _apply_window_style(self):
         """应用 Windows 窗口样式"""
