@@ -667,8 +667,33 @@ class CharacterParamsTab(ttk.Frame):
         right = ttk.Frame(paned)
         paned.add(right, weight=2)
 
-        self.detail_frame = ttk.Frame(right)
-        self.detail_frame.pack(fill=tk.BOTH, expand=True)
+        s = self.app._get_scheme()
+        right_canvas = tk.Canvas(right, bg=s["bg"], highlightthickness=0)
+        right_scrollbar = ttk.Scrollbar(right, orient="vertical", command=right_canvas.yview)
+        self.detail_frame = ttk.Frame(right_canvas)
+        self.detail_frame.bind("<Configure>",
+                               lambda e: right_canvas.configure(scrollregion=right_canvas.bbox("all")))
+        right_canvas.create_window((0, 0), window=self.detail_frame, anchor="nw")
+        right_canvas.configure(yscrollcommand=right_scrollbar.set)
+        right_canvas.pack(side="left", fill="both", expand=True)
+        right_scrollbar.pack(side="right", fill="y")
+
+        def _bind_right_width(event):
+            right_canvas.itemconfig(1, width=event.width)
+
+        right_canvas.bind("<Configure>", _bind_right_width)
+
+        def _on_right_mousewheel(e):
+            right_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _enter_right(e):
+            right_canvas.bind_all("<MouseWheel>", _on_right_mousewheel)
+
+        def _leave_right(e):
+            right_canvas.unbind_all("<MouseWheel>")
+
+        right_canvas.bind("<Enter>", _enter_right)
+        right_canvas.bind("<Leave>", _leave_right)
 
         ttk.Label(self.detail_frame, text="选择左侧角色查看/编辑参数", font=("Microsoft YaHei UI", 10)).pack(pady=20)
 

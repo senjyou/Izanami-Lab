@@ -367,6 +367,7 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
 
         score_data = result.get("score", {})
         results.append({
+            'seed': seed,
             'winner': winner,
             'stages_cleared': stages,
             'total_turns': turns,
@@ -950,8 +951,7 @@ class BatchSimulator:
                     all_enemy_healed.append(stats['enemy_total_hp_healed'])
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
 
-                    seed_for_record = int(time.time() * 1000000 + completed) % (2**31)
-                    score_records.append((stats['score'], completed - 1, seed_for_record, stats))
+                    score_records.append((stats['score'], completed - 1, stats['seed'], stats))
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
