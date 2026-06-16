@@ -11,6 +11,7 @@ Izanami Lab 一键发布脚本
 """
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
@@ -69,7 +70,12 @@ def main():
         print(f"  错误: 打包输出目录不存在: {app_dir}")
         sys.exit(1)
 
-    run_cmd(f'Compress-Archive -Path "{app_dir}" -DestinationPath "{zip_path}" -Force')
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for file in app_dir.rglob("*"):
+            arcname = file.relative_to(app_dir.parent)
+            zf.write(file, arcname)
+            print(f"    添加: {arcname}")
+    
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
