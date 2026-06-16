@@ -1,6 +1,6 @@
-# Izanami-Lab
+# Izanami Lab
 
-Muv-Luv Girls Garden 战斗模拟器。
+Muv-Luv Girls Garden X 战斗模拟器。
 
 ## 功能
 
@@ -15,6 +15,10 @@ Muv-Luv Girls Garden 战斗模拟器。
 - 批量模拟与统计
 - 战斗日志导出
 
+## 支持角色
+
+当前模拟器支持的角色有限，详见 [支持角色列表](SUPPORTED_CHARACTERS.md)。
+
 ## 运行方式
 
 ### 方式一：Python 环境
@@ -26,7 +30,7 @@ python gui_app.py
 
 ### 方式二：独立 EXE（无需 Python）
 
-从 [Releases](https://github.com/izanami-lab/izanami-lab/releases) 下载 `Izanami-Lab_vX.X.X.zip`，解压后双击 `Izanami-Lab.exe` 运行。
+从 [Releases](https://github.com/senjyou/Izanami-Lab/releases) 下载最新版本，解压后双击 `Izanami Lab.exe` 运行。
 
 ## 交流反馈
 

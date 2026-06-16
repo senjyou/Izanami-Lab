@@ -1,4 +1,4 @@
-# Izanami-Lab
+# Izanami Lab
 
 Muv-Luv Girls Garden X Battle Simulator.
 
@@ -15,6 +15,10 @@ Muv-Luv Girls Garden X Battle Simulator.
 - Batch simulation with statistics
 - Battle log export
 
+## Supported Characters
+
+The simulator currently supports a limited set of characters. See [Supported Characters](SUPPORTED_CHARACTERS_EN.md) for the full list.
+
 ## How to Run
 
 ### Option 1: Python Environment
@@ -26,7 +30,7 @@ python gui_app.py
 
 ### Option 2: Standalone EXE (No Python Required)
 
-Download `Izanami-Lab_vX.X.X.zip` from [Releases](https://github.com/izanami-lab/izanami-lab/releases), extract, and run `Izanami-Lab.exe`.
+Download the latest release from [Releases](https://github.com/senjyou/Izanami-Lab/releases), extract, and run `Izanami Lab.exe`.
 
 ## Community
 
