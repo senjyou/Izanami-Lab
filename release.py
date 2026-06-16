@@ -107,8 +107,8 @@ See [SUPPORTED_CHARACTERS.md](https://github.com/senjyou/Izanami-Lab/blob/master
     
     env = os.environ.copy()
     env['Path'] = os.pathsep.join([
-        os.environ.get('Path', ''),
-        os.environ.get('LOCALAPPDATA', '') + '\\Programs\\GitHub CLI'
+        env.get('Path', ''),
+        'C:\\Program Files\\GitHub CLI'
     ])
     
     result = subprocess.run(
