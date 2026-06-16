@@ -1,0 +1,122 @@
+{
+  "11": {
+    "equipment_id": 11,
+    "name": "物理タイプ装備センサー",
+    "character_type": 1,
+    "equipment_type": 1,
+    "hp_bonus": 2420,
+    "attack_bonus": 4810,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。物理タイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "12": {
+    "equipment_id": 12,
+    "name": "物理タイプ装備アクチュエーター",
+    "character_type": 1,
+    "equipment_type": 2,
+    "hp_bonus": 3330,
+    "attack_bonus": 3770,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。物理タイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "13": {
+    "equipment_id": 13,
+    "name": "物理タイプ装備バッテリー",
+    "character_type": 1,
+    "equipment_type": 3,
+    "hp_bonus": 3330,
+    "attack_bonus": 0,
+    "defense_bonus": 1930,
+    "description": "機体に搭載できる装備。物理タイプの生徒のHP・防御力を上昇させることができる。"
+  },
+  "14": {
+    "equipment_id": 14,
+    "name": "物理タイプ装備ジェットエンジン",
+    "character_type": 1,
+    "equipment_type": 4,
+    "hp_bonus": 2420,
+    "attack_bonus": 0,
+    "defense_bonus": 2840,
+    "description": "機体に搭載できる装備。物理タイプの生徒のHP・防御力を上昇させることができる。"
+  },
+  "21": {
+    "equipment_id": 21,
+    "name": "ENタイプ装備センサー",
+    "character_type": 2,
+    "equipment_type": 1,
+    "hp_bonus": 2420,
+    "attack_bonus": 4810,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。ENタイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "22": {
+    "equipment_id": 22,
+    "name": "ENタイプ装備アクチュエーター",
+    "character_type": 2,
+    "equipment_type": 2,
+    "hp_bonus": 3330,
+    "attack_bonus": 3770,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。ENタイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "23": {
+    "equipment_id": 23,
+    "name": "ENタイプ装備バッテリー",
+    "character_type": 2,
+    "equipment_type": 3,
+    "hp_bonus": 3330,
+    "attack_bonus": 0,
+    "defense_bonus": 1930,
+    "description": "機体に搭載できる装備。ENタイプの生徒のHP・防御力を上昇させることができる。"
+  },
+  "24": {
+    "equipment_id": 24,
+    "name": "ENタイプ装備ジェットエンジン",
+    "character_type": 2,
+    "equipment_type": 4,
+    "hp_bonus": 2420,
+    "attack_bonus": 0,
+    "defense_bonus": 2840,
+    "description": "機体に搭載できる装備。ENタイプの生徒のHP・防御力を上昇させることができる。"
+  },
+  "31": {
+    "equipment_id": 31,
+    "name": "敏捷タイプ装備センサー",
+    "character_type": 3,
+    "equipment_type": 1,
+    "hp_bonus": 2420,
+    "attack_bonus": 4810,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。敏捷タイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "32": {
+    "equipment_id": 32,
+    "name": "敏捷タイプ装備アクチュエーター",
+    "character_type": 3,
+    "equipment_type": 2,
+    "hp_bonus": 3330,
+    "attack_bonus": 3770,
+    "defense_bonus": 0,
+    "description": "機体に搭載できる装備。敏捷タイプの生徒のHP・攻撃力を上昇させることができる。"
+  },
+  "33": {
+    "equipment_id": 33,
+    "name": "敏捷タイプ装備バッテリー",
+    "character_type": 3,
+    "equipment_type": 3,
+    "hp_bonus": 3330,
+    "attack_bonus": 0,
+    "defense_bonus": 1930,
+    "description": "機体に搭載できる装備。敏捷タイプの生徒のHP・防御力を上昇させることができる。"
+  },
+  "34": {
+    "equipment_id": 34,
+    "name": "敏捷タイプ装備ジェットエンジン",
+    "character_type": 3,
+    "equipment_type": 4,
+    "hp_bonus": 2420,
+    "attack_bonus": 0,
+    "defense_bonus": 2840,
+    "description": "機体に搭載できる装備。敏捷タイプの生徒のHP・防御力を上昇させることができる。"
+  }
+}

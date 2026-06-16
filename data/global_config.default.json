@@ -1,0 +1,39 @@
+{
+  "character_level": 200,
+  "school_levels": {
+    "physical_level": 90,
+    "en_level": 90,
+    "agility_level": 90,
+    "fire_level": 90,
+    "water_level": 90,
+    "wind_level": 90,
+    "earth_level": 90,
+    "light_level": 20,
+    "dark_level": 20
+  },
+  "equipment": {
+    "1": {
+      "hp": 17610,
+      "attack": 13080,
+      "defense": 7275
+    },
+    "2": {
+      "hp": 17610,
+      "attack": 13080,
+      "defense": 7275
+    },
+    "3": {
+      "hp": 17610,
+      "attack": 13080,
+      "defense": 7275
+    }
+  },
+  "default_rarity": 14,
+  "default_affection": 40,
+  "default_skill_level": 15,
+  "default_mod_tier": 9,
+  "default_mod_level": 50,
+  "default_gear": [],
+  "runs": 100,
+  "max_turns": 5
+}

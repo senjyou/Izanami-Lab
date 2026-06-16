@@ -1,0 +1,56 @@
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+*.spec
+
+# === 用户个人配置 ===
+data/global_config.json
+data/char_config.json
+data/ui_config.json
+
+# === 运行时产物 ===
+data/battle_logs/
+data/crit_sequences/
+
+# === 用户预设 ===
+data/presets/
+data/tactical_presets/
+
+# === 调试/开发工具 ===
+_recycle_bin/
+scripts/
+split_data/
+dump/
+references/
+data/*.bak
+data/*.bak*
+
+# === 设计文档与测试 ===
+docs/
+tests/
+
+# === 原始大图 ===
+data/images/memory_cards_original/
+
+# === 数据库（仅开发脚本使用） ===
+db/
+
+# === IDE ===
+.agent/
+.trae/
+.vscode/
+.idea/
+
+# === 测试缓存 ===
+.pytest_cache/
+.tox/
+
+# === OS ===
+Thumbs.db
+.DS_Store
+desktop.ini

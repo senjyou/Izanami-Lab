@@ -1,0 +1,56 @@
+{
+  "11": {
+    "module_id": 11,
+    "name": "体力モジュール",
+    "character_type": 1,
+    "module_type": 1
+  },
+  "12": {
+    "module_id": 12,
+    "name": "攻撃モジュール",
+    "character_type": 1,
+    "module_type": 2
+  },
+  "13": {
+    "module_id": 13,
+    "name": "防御モジュール",
+    "character_type": 1,
+    "module_type": 3
+  },
+  "21": {
+    "module_id": 21,
+    "name": "体力モジュール",
+    "character_type": 2,
+    "module_type": 1
+  },
+  "22": {
+    "module_id": 22,
+    "name": "攻撃モジュール",
+    "character_type": 2,
+    "module_type": 2
+  },
+  "23": {
+    "module_id": 23,
+    "name": "防御モジュール",
+    "character_type": 2,
+    "module_type": 3
+  },
+  "31": {
+    "module_id": 31,
+    "name": "体力モジュール",
+    "character_type": 3,
+    "module_type": 1
+  },
+  "32": {
+    "module_id": 32,
+    "name": "攻撃モジュール",
+    "character_type": 3,
+    "module_type": 2
+  },
+  "33": {
+    "module_id": 33,
+    "name": "防御モジュール",
+    "character_type": 3,
+    "module_type": 3
+  }
+}

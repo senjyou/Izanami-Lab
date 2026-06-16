@@ -1,0 +1,7073 @@
+{
+  "definitions": {
+    "1": {
+      "actuator_id": 1,
+      "name": "物理タイプLEVEL",
+      "character_type": 1,
+      "character_attribute": null,
+      "description": "物理タイプの生徒のステータスがアップします!"
+    },
+    "2": {
+      "actuator_id": 2,
+      "name": "ENタイプLEVEL",
+      "character_type": 2,
+      "character_attribute": null,
+      "description": "EN型タイプの生徒のステータスがアップします"
+    },
+    "3": {
+      "actuator_id": 3,
+      "name": "敏捷タイプLEVEL",
+      "character_type": 3,
+      "character_attribute": null,
+      "description": "敏捷タイプの生徒のステータスがアップします"
+    },
+    "4": {
+      "actuator_id": 4,
+      "name": "アグレッシブLEVEL",
+      "character_type": null,
+      "character_attribute": 1,
+      "description": "アグレッシブ属性キャラクターのステータスがアップします"
+    },
+    "5": {
+      "actuator_id": 5,
+      "name": "スマートLEVEL",
+      "character_type": null,
+      "character_attribute": 2,
+      "description": "スマート属性キャラクターのステータスがアップします"
+    },
+    "6": {
+      "actuator_id": 6,
+      "name": "シャイLEVEL",
+      "character_type": null,
+      "character_attribute": 3,
+      "description": "シャイ属性キャラクターのステータスがアップします"
+    },
+    "7": {
+      "actuator_id": 7,
+      "name": "キュートLEVEL",
+      "character_type": null,
+      "character_attribute": 4,
+      "description": "キュート属性キャラクターのステータスがアップします"
+    },
+    "8": {
+      "actuator_id": 8,
+      "name": "コミカルLEVEL",
+      "character_type": null,
+      "character_attribute": 5,
+      "description": "コミカル属性キャラクターのステータスがアップします"
+    },
+    "9": {
+      "actuator_id": 9,
+      "name": "クレバーLEVEL",
+      "character_type": null,
+      "character_attribute": 6,
+      "description": "クレバー属性キャラクターのステータスがアップします"
+    }
+  },
+  "bonuses": {
+    "1": {
+      "1": {
+        "group_id": 1,
+        "level": 1,
+        "hp_bonus": 0,
+        "attack_bonus": 0,
+        "defense_bonus": 0
+      },
+      "2": {
+        "group_id": 1,
+        "level": 2,
+        "hp_bonus": 120,
+        "attack_bonus": 0,
+        "defense_bonus": 0
+      },
+      "3": {
+        "group_id": 1,
+        "level": 3,
+        "hp_bonus": 120,
+        "attack_bonus": 90,
+        "defense_bonus": 0
+      },
+      "4": {
+        "group_id": 1,
+        "level": 4,
+        "hp_bonus": 120,
+        "attack_bonus": 90,
+        "defense_bonus": 50
+      },
+      "5": {
+        "group_id": 1,
+        "level": 5,
+        "hp_bonus": 240,
+        "attack_bonus": 90,
+        "defense_bonus": 50
+      },
+      "6": {
+        "group_id": 1,
+        "level": 6,
+        "hp_bonus": 240,
+        "attack_bonus": 180,
+        "defense_bonus": 50
+      },
+      "7": {
+        "group_id": 1,
+        "level": 7,
+        "hp_bonus": 240,
+        "attack_bonus": 180,
+        "defense_bonus": 100
+      },
+      "8": {
+        "group_id": 1,
+        "level": 8,
+        "hp_bonus": 360,
+        "attack_bonus": 180,
+        "defense_bonus": 100
+      },
+      "9": {
+        "group_id": 1,
+        "level": 9,
+        "hp_bonus": 360,
+        "attack_bonus": 270,
+        "defense_bonus": 100
+      },
+      "10": {
+        "group_id": 1,
+        "level": 10,
+        "hp_bonus": 360,
+        "attack_bonus": 270,
+        "defense_bonus": 150
+      },
+      "11": {
+        "group_id": 1,
+        "level": 11,
+        "hp_bonus": 480,
+        "attack_bonus": 270,
+        "defense_bonus": 150
+      },
+      "12": {
+        "group_id": 1,
+        "level": 12,
+        "hp_bonus": 480,
+        "attack_bonus": 360,
+        "defense_bonus": 150
+      },
+      "13": {
+        "group_id": 1,
+        "level": 13,
+        "hp_bonus": 480,
+        "attack_bonus": 360,
+        "defense_bonus": 200
+      },
+      "14": {
+        "group_id": 1,
+        "level": 14,
+        "hp_bonus": 600,
+        "attack_bonus": 360,
+        "defense_bonus": 200
+      },
+      "15": {
+        "group_id": 1,
+        "level": 15,
+        "hp_bonus": 600,
+        "attack_bonus": 450,
+        "defense_bonus": 200
+      },
+      "16": {
+        "group_id": 1,
+        "level": 16,
+        "hp_bonus": 600,
+        "attack_bonus": 450,
+        "defense_bonus": 250
+      },
+      "17": {
+        "group_id": 1,
+        "level": 17,
+        "hp_bonus": 720,
+        "attack_bonus": 450,
+        "defense_bonus": 250
+      },
+      "18": {
+        "group_id": 1,
+        "level": 18,
+        "hp_bonus": 720,
+        "attack_bonus": 540,
+        "defense_bonus": 250
+      },
+      "19": {
+        "group_id": 1,
+        "level": 19,
+        "hp_bonus": 720,
+        "attack_bonus": 540,
+        "defense_bonus": 300
+      },
+      "20": {
+        "group_id": 1,
+        "level": 20,
+        "hp_bonus": 840,
+        "attack_bonus": 540,
+        "defense_bonus": 300
+      },
+      "21": {
+        "group_id": 1,
+        "level": 21,
+        "hp_bonus": 840,
+        "attack_bonus": 630,
+        "defense_bonus": 300
+      },
+      "22": {
+        "group_id": 1,
+        "level": 22,
+        "hp_bonus": 840,
+        "attack_bonus": 630,
+        "defense_bonus": 350
+      },
+      "23": {
+        "group_id": 1,
+        "level": 23,
+        "hp_bonus": 960,
+        "attack_bonus": 630,
+        "defense_bonus": 350
+      },
+      "24": {
+        "group_id": 1,
+        "level": 24,
+        "hp_bonus": 960,
+        "attack_bonus": 720,
+        "defense_bonus": 350
+      },
+      "25": {
+        "group_id": 1,
+        "level": 25,
+        "hp_bonus": 960,
+        "attack_bonus": 720,
+        "defense_bonus": 400
+      },
+      "26": {
+        "group_id": 1,
+        "level": 26,
+        "hp_bonus": 1080,
+        "attack_bonus": 720,
+        "defense_bonus": 400
+      },
+      "27": {
+        "group_id": 1,
+        "level": 27,
+        "hp_bonus": 1080,
+        "attack_bonus": 810,
+        "defense_bonus": 400
+      },
+      "28": {
+        "group_id": 1,
+        "level": 28,
+        "hp_bonus": 1080,
+        "attack_bonus": 810,
+        "defense_bonus": 450
+      },
+      "29": {
+        "group_id": 1,
+        "level": 29,
+        "hp_bonus": 1200,
+        "attack_bonus": 810,
+        "defense_bonus": 450
+      },
+      "30": {
+        "group_id": 1,
+        "level": 30,
+        "hp_bonus": 1200,
+        "attack_bonus": 900,
+        "defense_bonus": 450
+      },
+      "31": {
+        "group_id": 1,
+        "level": 31,
+        "hp_bonus": 1200,
+        "attack_bonus": 900,
+        "defense_bonus": 500
+      },
+      "32": {
+        "group_id": 1,
+        "level": 32,
+        "hp_bonus": 1320,
+        "attack_bonus": 900,
+        "defense_bonus": 500
+      },
+      "33": {
+        "group_id": 1,
+        "level": 33,
+        "hp_bonus": 1320,
+        "attack_bonus": 990,
+        "defense_bonus": 500
+      },
+      "34": {
+        "group_id": 1,
+        "level": 34,
+        "hp_bonus": 1320,
+        "attack_bonus": 990,
+        "defense_bonus": 550
+      },
+      "35": {
+        "group_id": 1,
+        "level": 35,
+        "hp_bonus": 1440,
+        "attack_bonus": 990,
+        "defense_bonus": 550
+      },
+      "36": {
+        "group_id": 1,
+        "level": 36,
+        "hp_bonus": 1440,
+        "attack_bonus": 1080,
+        "defense_bonus": 550
+      },
+      "37": {
+        "group_id": 1,
+        "level": 37,
+        "hp_bonus": 1440,
+        "attack_bonus": 1080,
+        "defense_bonus": 600
+      },
+      "38": {
+        "group_id": 1,
+        "level": 38,
+        "hp_bonus": 1560,
+        "attack_bonus": 1080,
+        "defense_bonus": 600
+      },
+      "39": {
+        "group_id": 1,
+        "level": 39,
+        "hp_bonus": 1560,
+        "attack_bonus": 1170,
+        "defense_bonus": 600
+      },
+      "40": {
+        "group_id": 1,
+        "level": 40,
+        "hp_bonus": 1560,
+        "attack_bonus": 1170,
+        "defense_bonus": 650
+      },
+      "41": {
+        "group_id": 1,
+        "level": 41,
+        "hp_bonus": 1680,
+        "attack_bonus": 1170,
+        "defense_bonus": 650
+      },
+      "42": {
+        "group_id": 1,
+        "level": 42,
+        "hp_bonus": 1680,
+        "attack_bonus": 1260,
+        "defense_bonus": 650
+      },
+      "43": {
+        "group_id": 1,
+        "level": 43,
+        "hp_bonus": 1680,
+        "attack_bonus": 1260,
+        "defense_bonus": 700
+      },
+      "44": {
+        "group_id": 1,
+        "level": 44,
+        "hp_bonus": 1800,
+        "attack_bonus": 1260,
+        "defense_bonus": 700
+      },
+      "45": {
+        "group_id": 1,
+        "level": 45,
+        "hp_bonus": 1800,
+        "attack_bonus": 1350,
+        "defense_bonus": 700
+      },
+      "46": {
+        "group_id": 1,
+        "level": 46,
+        "hp_bonus": 1800,
+        "attack_bonus": 1350,
+        "defense_bonus": 750
+      },
+      "47": {
+        "group_id": 1,
+        "level": 47,
+        "hp_bonus": 1920,
+        "attack_bonus": 1350,
+        "defense_bonus": 750
+      },
+      "48": {
+        "group_id": 1,
+        "level": 48,
+        "hp_bonus": 1920,
+        "attack_bonus": 1440,
+        "defense_bonus": 750
+      },
+      "49": {
+        "group_id": 1,
+        "level": 49,
+        "hp_bonus": 1920,
+        "attack_bonus": 1440,
+        "defense_bonus": 800
+      },
+      "50": {
+        "group_id": 1,
+        "level": 50,
+        "hp_bonus": 2040,
+        "attack_bonus": 1440,
+        "defense_bonus": 800
+      },
+      "51": {
+        "group_id": 1,
+        "level": 51,
+        "hp_bonus": 2040,
+        "attack_bonus": 1530,
+        "defense_bonus": 800
+      },
+      "52": {
+        "group_id": 1,
+        "level": 52,
+        "hp_bonus": 2040,
+        "attack_bonus": 1530,
+        "defense_bonus": 850
+      },
+      "53": {
+        "group_id": 1,
+        "level": 53,
+        "hp_bonus": 2160,
+        "attack_bonus": 1530,
+        "defense_bonus": 850
+      },
+      "54": {
+        "group_id": 1,
+        "level": 54,
+        "hp_bonus": 2160,
+        "attack_bonus": 1620,
+        "defense_bonus": 850
+      },
+      "55": {
+        "group_id": 1,
+        "level": 55,
+        "hp_bonus": 2160,
+        "attack_bonus": 1620,
+        "defense_bonus": 900
+      },
+      "56": {
+        "group_id": 1,
+        "level": 56,
+        "hp_bonus": 2280,
+        "attack_bonus": 1620,
+        "defense_bonus": 900
+      },
+      "57": {
+        "group_id": 1,
+        "level": 57,
+        "hp_bonus": 2280,
+        "attack_bonus": 1710,
+        "defense_bonus": 900
+      },
+      "58": {
+        "group_id": 1,
+        "level": 58,
+        "hp_bonus": 2280,
+        "attack_bonus": 1710,
+        "defense_bonus": 950
+      },
+      "59": {
+        "group_id": 1,
+        "level": 59,
+        "hp_bonus": 2400,
+        "attack_bonus": 1710,
+        "defense_bonus": 950
+      },
+      "60": {
+        "group_id": 1,
+        "level": 60,
+        "hp_bonus": 2400,
+        "attack_bonus": 1800,
+        "defense_bonus": 950
+      },
+      "61": {
+        "group_id": 1,
+        "level": 61,
+        "hp_bonus": 2400,
+        "attack_bonus": 1800,
+        "defense_bonus": 1000
+      },
+      "62": {
+        "group_id": 1,
+        "level": 62,
+        "hp_bonus": 2520,
+        "attack_bonus": 1800,
+        "defense_bonus": 1000
+      },
+      "63": {
+        "group_id": 1,
+        "level": 63,
+        "hp_bonus": 2520,
+        "attack_bonus": 1890,
+        "defense_bonus": 1000
+      },
+      "64": {
+        "group_id": 1,
+        "level": 64,
+        "hp_bonus": 2520,
+        "attack_bonus": 1890,
+        "defense_bonus": 1050
+      },
+      "65": {
+        "group_id": 1,
+        "level": 65,
+        "hp_bonus": 2640,
+        "attack_bonus": 1890,
+        "defense_bonus": 1050
+      },
+      "66": {
+        "group_id": 1,
+        "level": 66,
+        "hp_bonus": 2640,
+        "attack_bonus": 1980,
+        "defense_bonus": 1050
+      },
+      "67": {
+        "group_id": 1,
+        "level": 67,
+        "hp_bonus": 2640,
+        "attack_bonus": 1980,
+        "defense_bonus": 1100
+      },
+      "68": {
+        "group_id": 1,
+        "level": 68,
+        "hp_bonus": 2760,
+        "attack_bonus": 1980,
+        "defense_bonus": 1100
+      },
+      "69": {
+        "group_id": 1,
+        "level": 69,
+        "hp_bonus": 2760,
+        "attack_bonus": 2070,
+        "defense_bonus": 1100
+      },
+      "70": {
+        "group_id": 1,
+        "level": 70,
+        "hp_bonus": 2760,
+        "attack_bonus": 2070,
+        "defense_bonus": 1150
+      },
+      "71": {
+        "group_id": 1,
+        "level": 71,
+        "hp_bonus": 2880,
+        "attack_bonus": 2070,
+        "defense_bonus": 1150
+      },
+      "72": {
+        "group_id": 1,
+        "level": 72,
+        "hp_bonus": 2880,
+        "attack_bonus": 2160,
+        "defense_bonus": 1150
+      },
+      "73": {
+        "group_id": 1,
+        "level": 73,
+        "hp_bonus": 2880,
+        "attack_bonus": 2160,
+        "defense_bonus": 1200
+      },
+      "74": {
+        "group_id": 1,
+        "level": 74,
+        "hp_bonus": 3000,
+        "attack_bonus": 2160,
+        "defense_bonus": 1200
+      },
+      "75": {
+        "group_id": 1,
+        "level": 75,
+        "hp_bonus": 3000,
+        "attack_bonus": 2250,
+        "defense_bonus": 1200
+      },
+      "76": {
+        "group_id": 1,
+        "level": 76,
+        "hp_bonus": 3000,
+        "attack_bonus": 2250,
+        "defense_bonus": 1250
+      },
+      "77": {
+        "group_id": 1,
+        "level": 77,
+        "hp_bonus": 3120,
+        "attack_bonus": 2250,
+        "defense_bonus": 1250
+      },
+      "78": {
+        "group_id": 1,
+        "level": 78,
+        "hp_bonus": 3120,
+        "attack_bonus": 2340,
+        "defense_bonus": 1250
+      },
+      "79": {
+        "group_id": 1,
+        "level": 79,
+        "hp_bonus": 3120,
+        "attack_bonus": 2340,
+        "defense_bonus": 1300
+      },
+      "80": {
+        "group_id": 1,
+        "level": 80,
+        "hp_bonus": 3240,
+        "attack_bonus": 2340,
+        "defense_bonus": 1300
+      },
+      "81": {
+        "group_id": 1,
+        "level": 81,
+        "hp_bonus": 3240,
+        "attack_bonus": 2430,
+        "defense_bonus": 1300
+      },
+      "82": {
+        "group_id": 1,
+        "level": 82,
+        "hp_bonus": 3240,
+        "attack_bonus": 2430,
+        "defense_bonus": 1350
+      },
+      "83": {
+        "group_id": 1,
+        "level": 83,
+        "hp_bonus": 3360,
+        "attack_bonus": 2430,
+        "defense_bonus": 1350
+      },
+      "84": {
+        "group_id": 1,
+        "level": 84,
+        "hp_bonus": 3360,
+        "attack_bonus": 2520,
+        "defense_bonus": 1350
+      },
+      "85": {
+        "group_id": 1,
+        "level": 85,
+        "hp_bonus": 3360,
+        "attack_bonus": 2520,
+        "defense_bonus": 1400
+      },
+      "86": {
+        "group_id": 1,
+        "level": 86,
+        "hp_bonus": 3480,
+        "attack_bonus": 2520,
+        "defense_bonus": 1400
+      },
+      "87": {
+        "group_id": 1,
+        "level": 87,
+        "hp_bonus": 3480,
+        "attack_bonus": 2610,
+        "defense_bonus": 1400
+      },
+      "88": {
+        "group_id": 1,
+        "level": 88,
+        "hp_bonus": 3480,
+        "attack_bonus": 2610,
+        "defense_bonus": 1450
+      },
+      "89": {
+        "group_id": 1,
+        "level": 89,
+        "hp_bonus": 3600,
+        "attack_bonus": 2610,
+        "defense_bonus": 1450
+      },
+      "90": {
+        "group_id": 1,
+        "level": 90,
+        "hp_bonus": 3600,
+        "attack_bonus": 2700,
+        "defense_bonus": 1450
+      },
+      "91": {
+        "group_id": 1,
+        "level": 91,
+        "hp_bonus": 3600,
+        "attack_bonus": 2700,
+        "defense_bonus": 1500
+      },
+      "92": {
+        "group_id": 1,
+        "level": 92,
+        "hp_bonus": 3720,
+        "attack_bonus": 2700,
+        "defense_bonus": 1500
+      },
+      "93": {
+        "group_id": 1,
+        "level": 93,
+        "hp_bonus": 3720,
+        "attack_bonus": 2790,
+        "defense_bonus": 1500
+      },
+      "94": {
+        "group_id": 1,
+        "level": 94,
+        "hp_bonus": 3720,
+        "attack_bonus": 2790,
+        "defense_bonus": 1550
+      },
+      "95": {
+        "group_id": 1,
+        "level": 95,
+        "hp_bonus": 3840,
+        "attack_bonus": 2790,
+        "defense_bonus": 1550
+      },
+      "96": {
+        "group_id": 1,
+        "level": 96,
+        "hp_bonus": 3840,
+        "attack_bonus": 2880,
+        "defense_bonus": 1550
+      },
+      "97": {
+        "group_id": 1,
+        "level": 97,
+        "hp_bonus": 3840,
+        "attack_bonus": 2880,
+        "defense_bonus": 1600
+      },
+      "98": {
+        "group_id": 1,
+        "level": 98,
+        "hp_bonus": 3960,
+        "attack_bonus": 2880,
+        "defense_bonus": 1600
+      },
+      "99": {
+        "group_id": 1,
+        "level": 99,
+        "hp_bonus": 3960,
+        "attack_bonus": 2970,
+        "defense_bonus": 1600
+      },
+      "100": {
+        "group_id": 1,
+        "level": 100,
+        "hp_bonus": 3960,
+        "attack_bonus": 2970,
+        "defense_bonus": 1650
+      },
+      "101": {
+        "group_id": 1,
+        "level": 101,
+        "hp_bonus": 4080,
+        "attack_bonus": 2970,
+        "defense_bonus": 1650
+      },
+      "102": {
+        "group_id": 1,
+        "level": 102,
+        "hp_bonus": 4080,
+        "attack_bonus": 3060,
+        "defense_bonus": 1650
+      },
+      "103": {
+        "group_id": 1,
+        "level": 103,
+        "hp_bonus": 4080,
+        "attack_bonus": 3060,
+        "defense_bonus": 1700
+      },
+      "104": {
+        "group_id": 1,
+        "level": 104,
+        "hp_bonus": 4200,
+        "attack_bonus": 3060,
+        "defense_bonus": 1700
+      },
+      "105": {
+        "group_id": 1,
+        "level": 105,
+        "hp_bonus": 4200,
+        "attack_bonus": 3150,
+        "defense_bonus": 1700
+      },
+      "106": {
+        "group_id": 1,
+        "level": 106,
+        "hp_bonus": 4200,
+        "attack_bonus": 3150,
+        "defense_bonus": 1750
+      },
+      "107": {
+        "group_id": 1,
+        "level": 107,
+        "hp_bonus": 4320,
+        "attack_bonus": 3150,
+        "defense_bonus": 1750
+      },
+      "108": {
+        "group_id": 1,
+        "level": 108,
+        "hp_bonus": 4320,
+        "attack_bonus": 3240,
+        "defense_bonus": 1750
+      },
+      "109": {
+        "group_id": 1,
+        "level": 109,
+        "hp_bonus": 4320,
+        "attack_bonus": 3240,
+        "defense_bonus": 1800
+      },
+      "110": {
+        "group_id": 1,
+        "level": 110,
+        "hp_bonus": 4440,
+        "attack_bonus": 3240,
+        "defense_bonus": 1800
+      },
+      "111": {
+        "group_id": 1,
+        "level": 111,
+        "hp_bonus": 4440,
+        "attack_bonus": 3330,
+        "defense_bonus": 1800
+      },
+      "112": {
+        "group_id": 1,
+        "level": 112,
+        "hp_bonus": 4440,
+        "attack_bonus": 3330,
+        "defense_bonus": 1850
+      },
+      "113": {
+        "group_id": 1,
+        "level": 113,
+        "hp_bonus": 4560,
+        "attack_bonus": 3330,
+        "defense_bonus": 1850
+      },
+      "114": {
+        "group_id": 1,
+        "level": 114,
+        "hp_bonus": 4560,
+        "attack_bonus": 3420,
+        "defense_bonus": 1850
+      },
+      "115": {
+        "group_id": 1,
+        "level": 115,
+        "hp_bonus": 4560,
+        "attack_bonus": 3420,
+        "defense_bonus": 1900
+      },
+      "116": {
+        "group_id": 1,
+        "level": 116,
+        "hp_bonus": 4680,
+        "attack_bonus": 3420,
+        "defense_bonus": 1900
+      },
+      "117": {
+        "group_id": 1,
+        "level": 117,
+        "hp_bonus": 4680,
+        "attack_bonus": 3510,
+        "defense_bonus": 1900
+      },
+      "118": {
+        "group_id": 1,
+        "level": 118,
+        "hp_bonus": 4680,
+        "attack_bonus": 3510,
+        "defense_bonus": 1950
+      },
+      "119": {
+        "group_id": 1,
+        "level": 119,
+        "hp_bonus": 4800,
+        "attack_bonus": 3510,
+        "defense_bonus": 1950
+      },
+      "120": {
+        "group_id": 1,
+        "level": 120,
+        "hp_bonus": 4800,
+        "attack_bonus": 3600,
+        "defense_bonus": 1950
+      },
+      "121": {
+        "group_id": 1,
+        "level": 121,
+        "hp_bonus": 4800,
+        "attack_bonus": 3600,
+        "defense_bonus": 2000
+      },
+      "122": {
+        "group_id": 1,
+        "level": 122,
+        "hp_bonus": 4920,
+        "attack_bonus": 3600,
+        "defense_bonus": 2000
+      },
+      "123": {
+        "group_id": 1,
+        "level": 123,
+        "hp_bonus": 4920,
+        "attack_bonus": 3690,
+        "defense_bonus": 2000
+      },
+      "124": {
+        "group_id": 1,
+        "level": 124,
+        "hp_bonus": 4920,
+        "attack_bonus": 3690,
+        "defense_bonus": 2050
+      },
+      "125": {
+        "group_id": 1,
+        "level": 125,
+        "hp_bonus": 5040,
+        "attack_bonus": 3690,
+        "defense_bonus": 2050
+      },
+      "126": {
+        "group_id": 1,
+        "level": 126,
+        "hp_bonus": 5040,
+        "attack_bonus": 3780,
+        "defense_bonus": 2050
+      },
+      "127": {
+        "group_id": 1,
+        "level": 127,
+        "hp_bonus": 5040,
+        "attack_bonus": 3780,
+        "defense_bonus": 2100
+      },
+      "128": {
+        "group_id": 1,
+        "level": 128,
+        "hp_bonus": 5160,
+        "attack_bonus": 3780,
+        "defense_bonus": 2100
+      },
+      "129": {
+        "group_id": 1,
+        "level": 129,
+        "hp_bonus": 5160,
+        "attack_bonus": 3870,
+        "defense_bonus": 2100
+      },
+      "130": {
+        "group_id": 1,
+        "level": 130,
+        "hp_bonus": 5160,
+        "attack_bonus": 3870,
+        "defense_bonus": 2150
+      },
+      "131": {
+        "group_id": 1,
+        "level": 131,
+        "hp_bonus": 5280,
+        "attack_bonus": 3870,
+        "defense_bonus": 2150
+      },
+      "132": {
+        "group_id": 1,
+        "level": 132,
+        "hp_bonus": 5280,
+        "attack_bonus": 3960,
+        "defense_bonus": 2150
+      },
+      "133": {
+        "group_id": 1,
+        "level": 133,
+        "hp_bonus": 5280,
+        "attack_bonus": 3960,
+        "defense_bonus": 2200
+      },
+      "134": {
+        "group_id": 1,
+        "level": 134,
+        "hp_bonus": 5400,
+        "attack_bonus": 3960,
+        "defense_bonus": 2200
+      },
+      "135": {
+        "group_id": 1,
+        "level": 135,
+        "hp_bonus": 5400,
+        "attack_bonus": 4050,
+        "defense_bonus": 2200
+      },
+      "136": {
+        "group_id": 1,
+        "level": 136,
+        "hp_bonus": 5400,
+        "attack_bonus": 4050,
+        "defense_bonus": 2250
+      },
+      "137": {
+        "group_id": 1,
+        "level": 137,
+        "hp_bonus": 5520,
+        "attack_bonus": 4050,
+        "defense_bonus": 2250
+      },
+      "138": {
+        "group_id": 1,
+        "level": 138,
+        "hp_bonus": 5520,
+        "attack_bonus": 4140,
+        "defense_bonus": 2250
+      },
+      "139": {
+        "group_id": 1,
+        "level": 139,
+        "hp_bonus": 5520,
+        "attack_bonus": 4140,
+        "defense_bonus": 2300
+      },
+      "140": {
+        "group_id": 1,
+        "level": 140,
+        "hp_bonus": 5640,
+        "attack_bonus": 4140,
+        "defense_bonus": 2300
+      },
+      "141": {
+        "group_id": 1,
+        "level": 141,
+        "hp_bonus": 5640,
+        "attack_bonus": 4230,
+        "defense_bonus": 2300
+      },
+      "142": {
+        "group_id": 1,
+        "level": 142,
+        "hp_bonus": 5640,
+        "attack_bonus": 4230,
+        "defense_bonus": 2350
+      },
+      "143": {
+        "group_id": 1,
+        "level": 143,
+        "hp_bonus": 5760,
+        "attack_bonus": 4230,
+        "defense_bonus": 2350
+      },
+      "144": {
+        "group_id": 1,
+        "level": 144,
+        "hp_bonus": 5760,
+        "attack_bonus": 4320,
+        "defense_bonus": 2350
+      },
+      "145": {
+        "group_id": 1,
+        "level": 145,
+        "hp_bonus": 5760,
+        "attack_bonus": 4320,
+        "defense_bonus": 2400
+      },
+      "146": {
+        "group_id": 1,
+        "level": 146,
+        "hp_bonus": 5880,
+        "attack_bonus": 4320,
+        "defense_bonus": 2400
+      },
+      "147": {
+        "group_id": 1,
+        "level": 147,
+        "hp_bonus": 5880,
+        "attack_bonus": 4410,
+        "defense_bonus": 2400
+      },
+      "148": {
+        "group_id": 1,
+        "level": 148,
+        "hp_bonus": 5880,
+        "attack_bonus": 4410,
+        "defense_bonus": 2450
+      },
+      "149": {
+        "group_id": 1,
+        "level": 149,
+        "hp_bonus": 6000,
+        "attack_bonus": 4410,
+        "defense_bonus": 2450
+      },
+      "150": {
+        "group_id": 1,
+        "level": 150,
+        "hp_bonus": 6000,
+        "attack_bonus": 4500,
+        "defense_bonus": 2450
+      },
+      "151": {
+        "group_id": 1,
+        "level": 151,
+        "hp_bonus": 6000,
+        "attack_bonus": 4500,
+        "defense_bonus": 2500
+      },
+      "152": {
+        "group_id": 1,
+        "level": 152,
+        "hp_bonus": 6120,
+        "attack_bonus": 4500,
+        "defense_bonus": 2500
+      },
+      "153": {
+        "group_id": 1,
+        "level": 153,
+        "hp_bonus": 6120,
+        "attack_bonus": 4590,
+        "defense_bonus": 2500
+      },
+      "154": {
+        "group_id": 1,
+        "level": 154,
+        "hp_bonus": 6120,
+        "attack_bonus": 4590,
+        "defense_bonus": 2550
+      },
+      "155": {
+        "group_id": 1,
+        "level": 155,
+        "hp_bonus": 6240,
+        "attack_bonus": 4590,
+        "defense_bonus": 2550
+      },
+      "156": {
+        "group_id": 1,
+        "level": 156,
+        "hp_bonus": 6240,
+        "attack_bonus": 4680,
+        "defense_bonus": 2550
+      },
+      "157": {
+        "group_id": 1,
+        "level": 157,
+        "hp_bonus": 6240,
+        "attack_bonus": 4680,
+        "defense_bonus": 2600
+      },
+      "158": {
+        "group_id": 1,
+        "level": 158,
+        "hp_bonus": 6360,
+        "attack_bonus": 4680,
+        "defense_bonus": 2600
+      },
+      "159": {
+        "group_id": 1,
+        "level": 159,
+        "hp_bonus": 6360,
+        "attack_bonus": 4770,
+        "defense_bonus": 2600
+      },
+      "160": {
+        "group_id": 1,
+        "level": 160,
+        "hp_bonus": 6360,
+        "attack_bonus": 4770,
+        "defense_bonus": 2650
+      },
+      "161": {
+        "group_id": 1,
+        "level": 161,
+        "hp_bonus": 6480,
+        "attack_bonus": 4770,
+        "defense_bonus": 2650
+      },
+      "162": {
+        "group_id": 1,
+        "level": 162,
+        "hp_bonus": 6480,
+        "attack_bonus": 4860,
+        "defense_bonus": 2650
+      },
+      "163": {
+        "group_id": 1,
+        "level": 163,
+        "hp_bonus": 6480,
+        "attack_bonus": 4860,
+        "defense_bonus": 2700
+      },
+      "164": {
+        "group_id": 1,
+        "level": 164,
+        "hp_bonus": 6600,
+        "attack_bonus": 4860,
+        "defense_bonus": 2700
+      },
+      "165": {
+        "group_id": 1,
+        "level": 165,
+        "hp_bonus": 6600,
+        "attack_bonus": 4950,
+        "defense_bonus": 2700
+      },
+      "166": {
+        "group_id": 1,
+        "level": 166,
+        "hp_bonus": 6600,
+        "attack_bonus": 4950,
+        "defense_bonus": 2750
+      },
+      "167": {
+        "group_id": 1,
+        "level": 167,
+        "hp_bonus": 6720,
+        "attack_bonus": 4950,
+        "defense_bonus": 2750
+      },
+      "168": {
+        "group_id": 1,
+        "level": 168,
+        "hp_bonus": 6720,
+        "attack_bonus": 5040,
+        "defense_bonus": 2750
+      },
+      "169": {
+        "group_id": 1,
+        "level": 169,
+        "hp_bonus": 6720,
+        "attack_bonus": 5040,
+        "defense_bonus": 2800
+      },
+      "170": {
+        "group_id": 1,
+        "level": 170,
+        "hp_bonus": 6840,
+        "attack_bonus": 5040,
+        "defense_bonus": 2800
+      },
+      "171": {
+        "group_id": 1,
+        "level": 171,
+        "hp_bonus": 6840,
+        "attack_bonus": 5130,
+        "defense_bonus": 2800
+      },
+      "172": {
+        "group_id": 1,
+        "level": 172,
+        "hp_bonus": 6840,
+        "attack_bonus": 5130,
+        "defense_bonus": 2850
+      },
+      "173": {
+        "group_id": 1,
+        "level": 173,
+        "hp_bonus": 6960,
+        "attack_bonus": 5130,
+        "defense_bonus": 2850
+      },
+      "174": {
+        "group_id": 1,
+        "level": 174,
+        "hp_bonus": 6960,
+        "attack_bonus": 5220,
+        "defense_bonus": 2850
+      },
+      "175": {
+        "group_id": 1,
+        "level": 175,
+        "hp_bonus": 6960,
+        "attack_bonus": 5220,
+        "defense_bonus": 2900
+      },
+      "176": {
+        "group_id": 1,
+        "level": 176,
+        "hp_bonus": 7080,
+        "attack_bonus": 5220,
+        "defense_bonus": 2900
+      },
+      "177": {
+        "group_id": 1,
+        "level": 177,
+        "hp_bonus": 7080,
+        "attack_bonus": 5310,
+        "defense_bonus": 2900
+      },
+      "178": {
+        "group_id": 1,
+        "level": 178,
+        "hp_bonus": 7080,
+        "attack_bonus": 5310,
+        "defense_bonus": 2950
+      },
+      "179": {
+        "group_id": 1,
+        "level": 179,
+        "hp_bonus": 7200,
+        "attack_bonus": 5310,
+        "defense_bonus": 2950
+      },
+      "180": {
+        "group_id": 1,
+        "level": 180,
+        "hp_bonus": 7200,
+        "attack_bonus": 5400,
+        "defense_bonus": 2950
+      },
+      "181": {
+        "group_id": 1,
+        "level": 181,
+        "hp_bonus": 7200,
+        "attack_bonus": 5400,
+        "defense_bonus": 3000
+      },
+      "182": {
+        "group_id": 1,
+        "level": 182,
+        "hp_bonus": 7320,
+        "attack_bonus": 5400,
+        "defense_bonus": 3000
+      },
+      "183": {
+        "group_id": 1,
+        "level": 183,
+        "hp_bonus": 7320,
+        "attack_bonus": 5490,
+        "defense_bonus": 3000
+      },
+      "184": {
+        "group_id": 1,
+        "level": 184,
+        "hp_bonus": 7320,
+        "attack_bonus": 5490,
+        "defense_bonus": 3050
+      },
+      "185": {
+        "group_id": 1,
+        "level": 185,
+        "hp_bonus": 7440,
+        "attack_bonus": 5490,
+        "defense_bonus": 3050
+      },
+      "186": {
+        "group_id": 1,
+        "level": 186,
+        "hp_bonus": 7440,
+        "attack_bonus": 5580,
+        "defense_bonus": 3050
+      },
+      "187": {
+        "group_id": 1,
+        "level": 187,
+        "hp_bonus": 7440,
+        "attack_bonus": 5580,
+        "defense_bonus": 3100
+      },
+      "188": {
+        "group_id": 1,
+        "level": 188,
+        "hp_bonus": 7560,
+        "attack_bonus": 5580,
+        "defense_bonus": 3100
+      },
+      "189": {
+        "group_id": 1,
+        "level": 189,
+        "hp_bonus": 7560,
+        "attack_bonus": 5670,
+        "defense_bonus": 3100
+      },
+      "190": {
+        "group_id": 1,
+        "level": 190,
+        "hp_bonus": 7560,
+        "attack_bonus": 5670,
+        "defense_bonus": 3150
+      },
+      "191": {
+        "group_id": 1,
+        "level": 191,
+        "hp_bonus": 7680,
+        "attack_bonus": 5670,
+        "defense_bonus": 3150
+      },
+      "192": {
+        "group_id": 1,
+        "level": 192,
+        "hp_bonus": 7680,
+        "attack_bonus": 5760,
+        "defense_bonus": 3150
+      },
+      "193": {
+        "group_id": 1,
+        "level": 193,
+        "hp_bonus": 7680,
+        "attack_bonus": 5760,
+        "defense_bonus": 3200
+      },
+      "194": {
+        "group_id": 1,
+        "level": 194,
+        "hp_bonus": 7800,
+        "attack_bonus": 5760,
+        "defense_bonus": 3200
+      },
+      "195": {
+        "group_id": 1,
+        "level": 195,
+        "hp_bonus": 7800,
+        "attack_bonus": 5850,
+        "defense_bonus": 3200
+      },
+      "196": {
+        "group_id": 1,
+        "level": 196,
+        "hp_bonus": 7800,
+        "attack_bonus": 5850,
+        "defense_bonus": 3250
+      },
+      "197": {
+        "group_id": 1,
+        "level": 197,
+        "hp_bonus": 7920,
+        "attack_bonus": 5850,
+        "defense_bonus": 3250
+      },
+      "198": {
+        "group_id": 1,
+        "level": 198,
+        "hp_bonus": 7920,
+        "attack_bonus": 5940,
+        "defense_bonus": 3250
+      },
+      "199": {
+        "group_id": 1,
+        "level": 199,
+        "hp_bonus": 7920,
+        "attack_bonus": 5940,
+        "defense_bonus": 3300
+      },
+      "200": {
+        "group_id": 1,
+        "level": 200,
+        "hp_bonus": 8040,
+        "attack_bonus": 5940,
+        "defense_bonus": 3300
+      },
+      "201": {
+        "group_id": 1,
+        "level": 201,
+        "hp_bonus": 8040,
+        "attack_bonus": 6030,
+        "defense_bonus": 3300
+      },
+      "202": {
+        "group_id": 1,
+        "level": 202,
+        "hp_bonus": 8040,
+        "attack_bonus": 6030,
+        "defense_bonus": 3350
+      },
+      "203": {
+        "group_id": 1,
+        "level": 203,
+        "hp_bonus": 8160,
+        "attack_bonus": 6030,
+        "defense_bonus": 3350
+      },
+      "204": {
+        "group_id": 1,
+        "level": 204,
+        "hp_bonus": 8160,
+        "attack_bonus": 6120,
+        "defense_bonus": 3350
+      },
+      "205": {
+        "group_id": 1,
+        "level": 205,
+        "hp_bonus": 8160,
+        "attack_bonus": 6120,
+        "defense_bonus": 3400
+      },
+      "206": {
+        "group_id": 1,
+        "level": 206,
+        "hp_bonus": 8280,
+        "attack_bonus": 6120,
+        "defense_bonus": 3400
+      },
+      "207": {
+        "group_id": 1,
+        "level": 207,
+        "hp_bonus": 8280,
+        "attack_bonus": 6210,
+        "defense_bonus": 3400
+      },
+      "208": {
+        "group_id": 1,
+        "level": 208,
+        "hp_bonus": 8280,
+        "attack_bonus": 6210,
+        "defense_bonus": 3450
+      },
+      "209": {
+        "group_id": 1,
+        "level": 209,
+        "hp_bonus": 8400,
+        "attack_bonus": 6210,
+        "defense_bonus": 3450
+      },
+      "210": {
+        "group_id": 1,
+        "level": 210,
+        "hp_bonus": 8400,
+        "attack_bonus": 6300,
+        "defense_bonus": 3450
+      },
+      "211": {
+        "group_id": 1,
+        "level": 211,
+        "hp_bonus": 8400,
+        "attack_bonus": 6300,
+        "defense_bonus": 3500
+      },
+      "212": {
+        "group_id": 1,
+        "level": 212,
+        "hp_bonus": 8520,
+        "attack_bonus": 6300,
+        "defense_bonus": 3500
+      },
+      "213": {
+        "group_id": 1,
+        "level": 213,
+        "hp_bonus": 8520,
+        "attack_bonus": 6390,
+        "defense_bonus": 3500
+      },
+      "214": {
+        "group_id": 1,
+        "level": 214,
+        "hp_bonus": 8520,
+        "attack_bonus": 6390,
+        "defense_bonus": 3550
+      },
+      "215": {
+        "group_id": 1,
+        "level": 215,
+        "hp_bonus": 8640,
+        "attack_bonus": 6390,
+        "defense_bonus": 3550
+      },
+      "216": {
+        "group_id": 1,
+        "level": 216,
+        "hp_bonus": 8640,
+        "attack_bonus": 6480,
+        "defense_bonus": 3550
+      },
+      "217": {
+        "group_id": 1,
+        "level": 217,
+        "hp_bonus": 8640,
+        "attack_bonus": 6480,
+        "defense_bonus": 3600
+      },
+      "218": {
+        "group_id": 1,
+        "level": 218,
+        "hp_bonus": 8760,
+        "attack_bonus": 6480,
+        "defense_bonus": 3600
+      },
+      "219": {
+        "group_id": 1,
+        "level": 219,
+        "hp_bonus": 8760,
+        "attack_bonus": 6570,
+        "defense_bonus": 3600
+      },
+      "220": {
+        "group_id": 1,
+        "level": 220,
+        "hp_bonus": 8760,
+        "attack_bonus": 6570,
+        "defense_bonus": 3650
+      },
+      "221": {
+        "group_id": 1,
+        "level": 221,
+        "hp_bonus": 8880,
+        "attack_bonus": 6570,
+        "defense_bonus": 3650
+      },
+      "222": {
+        "group_id": 1,
+        "level": 222,
+        "hp_bonus": 8880,
+        "attack_bonus": 6660,
+        "defense_bonus": 3650
+      },
+      "223": {
+        "group_id": 1,
+        "level": 223,
+        "hp_bonus": 8880,
+        "attack_bonus": 6660,
+        "defense_bonus": 3700
+      },
+      "224": {
+        "group_id": 1,
+        "level": 224,
+        "hp_bonus": 9000,
+        "attack_bonus": 6660,
+        "defense_bonus": 3700
+      },
+      "225": {
+        "group_id": 1,
+        "level": 225,
+        "hp_bonus": 9000,
+        "attack_bonus": 6750,
+        "defense_bonus": 3700
+      },
+      "226": {
+        "group_id": 1,
+        "level": 226,
+        "hp_bonus": 9000,
+        "attack_bonus": 6750,
+        "defense_bonus": 3750
+      },
+      "227": {
+        "group_id": 1,
+        "level": 227,
+        "hp_bonus": 9120,
+        "attack_bonus": 6750,
+        "defense_bonus": 3750
+      },
+      "228": {
+        "group_id": 1,
+        "level": 228,
+        "hp_bonus": 9120,
+        "attack_bonus": 6840,
+        "defense_bonus": 3750
+      },
+      "229": {
+        "group_id": 1,
+        "level": 229,
+        "hp_bonus": 9120,
+        "attack_bonus": 6840,
+        "defense_bonus": 3800
+      },
+      "230": {
+        "group_id": 1,
+        "level": 230,
+        "hp_bonus": 9240,
+        "attack_bonus": 6840,
+        "defense_bonus": 3800
+      },
+      "231": {
+        "group_id": 1,
+        "level": 231,
+        "hp_bonus": 9240,
+        "attack_bonus": 6930,
+        "defense_bonus": 3800
+      },
+      "232": {
+        "group_id": 1,
+        "level": 232,
+        "hp_bonus": 9240,
+        "attack_bonus": 6930,
+        "defense_bonus": 3850
+      },
+      "233": {
+        "group_id": 1,
+        "level": 233,
+        "hp_bonus": 9360,
+        "attack_bonus": 6930,
+        "defense_bonus": 3850
+      },
+      "234": {
+        "group_id": 1,
+        "level": 234,
+        "hp_bonus": 9360,
+        "attack_bonus": 7020,
+        "defense_bonus": 3850
+      },
+      "235": {
+        "group_id": 1,
+        "level": 235,
+        "hp_bonus": 9360,
+        "attack_bonus": 7020,
+        "defense_bonus": 3900
+      },
+      "236": {
+        "group_id": 1,
+        "level": 236,
+        "hp_bonus": 9480,
+        "attack_bonus": 7020,
+        "defense_bonus": 3900
+      },
+      "237": {
+        "group_id": 1,
+        "level": 237,
+        "hp_bonus": 9480,
+        "attack_bonus": 7110,
+        "defense_bonus": 3900
+      },
+      "238": {
+        "group_id": 1,
+        "level": 238,
+        "hp_bonus": 9480,
+        "attack_bonus": 7110,
+        "defense_bonus": 3950
+      },
+      "239": {
+        "group_id": 1,
+        "level": 239,
+        "hp_bonus": 9600,
+        "attack_bonus": 7110,
+        "defense_bonus": 3950
+      },
+      "240": {
+        "group_id": 1,
+        "level": 240,
+        "hp_bonus": 9600,
+        "attack_bonus": 7200,
+        "defense_bonus": 3950
+      },
+      "241": {
+        "group_id": 1,
+        "level": 241,
+        "hp_bonus": 9600,
+        "attack_bonus": 7200,
+        "defense_bonus": 4000
+      },
+      "242": {
+        "group_id": 1,
+        "level": 242,
+        "hp_bonus": 9720,
+        "attack_bonus": 7200,
+        "defense_bonus": 4000
+      },
+      "243": {
+        "group_id": 1,
+        "level": 243,
+        "hp_bonus": 9720,
+        "attack_bonus": 7290,
+        "defense_bonus": 4000
+      },
+      "244": {
+        "group_id": 1,
+        "level": 244,
+        "hp_bonus": 9720,
+        "attack_bonus": 7290,
+        "defense_bonus": 4050
+      },
+      "245": {
+        "group_id": 1,
+        "level": 245,
+        "hp_bonus": 9840,
+        "attack_bonus": 7290,
+        "defense_bonus": 4050
+      },
+      "246": {
+        "group_id": 1,
+        "level": 246,
+        "hp_bonus": 9840,
+        "attack_bonus": 7380,
+        "defense_bonus": 4050
+      },
+      "247": {
+        "group_id": 1,
+        "level": 247,
+        "hp_bonus": 9840,
+        "attack_bonus": 7380,
+        "defense_bonus": 4100
+      },
+      "248": {
+        "group_id": 1,
+        "level": 248,
+        "hp_bonus": 9960,
+        "attack_bonus": 7380,
+        "defense_bonus": 4100
+      },
+      "249": {
+        "group_id": 1,
+        "level": 249,
+        "hp_bonus": 9960,
+        "attack_bonus": 7470,
+        "defense_bonus": 4100
+      },
+      "250": {
+        "group_id": 1,
+        "level": 250,
+        "hp_bonus": 9960,
+        "attack_bonus": 7470,
+        "defense_bonus": 4150
+      },
+      "251": {
+        "group_id": 1,
+        "level": 251,
+        "hp_bonus": 10080,
+        "attack_bonus": 7470,
+        "defense_bonus": 4150
+      },
+      "252": {
+        "group_id": 1,
+        "level": 252,
+        "hp_bonus": 10080,
+        "attack_bonus": 7560,
+        "defense_bonus": 4150
+      },
+      "253": {
+        "group_id": 1,
+        "level": 253,
+        "hp_bonus": 10080,
+        "attack_bonus": 7560,
+        "defense_bonus": 4200
+      },
+      "254": {
+        "group_id": 1,
+        "level": 254,
+        "hp_bonus": 10200,
+        "attack_bonus": 7560,
+        "defense_bonus": 4200
+      },
+      "255": {
+        "group_id": 1,
+        "level": 255,
+        "hp_bonus": 10200,
+        "attack_bonus": 7650,
+        "defense_bonus": 4200
+      },
+      "256": {
+        "group_id": 1,
+        "level": 256,
+        "hp_bonus": 10200,
+        "attack_bonus": 7650,
+        "defense_bonus": 4250
+      },
+      "257": {
+        "group_id": 1,
+        "level": 257,
+        "hp_bonus": 10320,
+        "attack_bonus": 7650,
+        "defense_bonus": 4250
+      },
+      "258": {
+        "group_id": 1,
+        "level": 258,
+        "hp_bonus": 10320,
+        "attack_bonus": 7740,
+        "defense_bonus": 4250
+      },
+      "259": {
+        "group_id": 1,
+        "level": 259,
+        "hp_bonus": 10320,
+        "attack_bonus": 7740,
+        "defense_bonus": 4300
+      },
+      "260": {
+        "group_id": 1,
+        "level": 260,
+        "hp_bonus": 10440,
+        "attack_bonus": 7740,
+        "defense_bonus": 4300
+      },
+      "261": {
+        "group_id": 1,
+        "level": 261,
+        "hp_bonus": 10440,
+        "attack_bonus": 7830,
+        "defense_bonus": 4300
+      },
+      "262": {
+        "group_id": 1,
+        "level": 262,
+        "hp_bonus": 10440,
+        "attack_bonus": 7830,
+        "defense_bonus": 4350
+      },
+      "263": {
+        "group_id": 1,
+        "level": 263,
+        "hp_bonus": 10560,
+        "attack_bonus": 7830,
+        "defense_bonus": 4350
+      },
+      "264": {
+        "group_id": 1,
+        "level": 264,
+        "hp_bonus": 10560,
+        "attack_bonus": 7920,
+        "defense_bonus": 4350
+      },
+      "265": {
+        "group_id": 1,
+        "level": 265,
+        "hp_bonus": 10560,
+        "attack_bonus": 7920,
+        "defense_bonus": 4400
+      },
+      "266": {
+        "group_id": 1,
+        "level": 266,
+        "hp_bonus": 10680,
+        "attack_bonus": 7920,
+        "defense_bonus": 4400
+      },
+      "267": {
+        "group_id": 1,
+        "level": 267,
+        "hp_bonus": 10680,
+        "attack_bonus": 8010,
+        "defense_bonus": 4400
+      },
+      "268": {
+        "group_id": 1,
+        "level": 268,
+        "hp_bonus": 10680,
+        "attack_bonus": 8010,
+        "defense_bonus": 4450
+      },
+      "269": {
+        "group_id": 1,
+        "level": 269,
+        "hp_bonus": 10800,
+        "attack_bonus": 8010,
+        "defense_bonus": 4450
+      },
+      "270": {
+        "group_id": 1,
+        "level": 270,
+        "hp_bonus": 10800,
+        "attack_bonus": 8100,
+        "defense_bonus": 4450
+      },
+      "271": {
+        "group_id": 1,
+        "level": 271,
+        "hp_bonus": 10800,
+        "attack_bonus": 8100,
+        "defense_bonus": 4500
+      },
+      "272": {
+        "group_id": 1,
+        "level": 272,
+        "hp_bonus": 10920,
+        "attack_bonus": 8100,
+        "defense_bonus": 4500
+      },
+      "273": {
+        "group_id": 1,
+        "level": 273,
+        "hp_bonus": 10920,
+        "attack_bonus": 8190,
+        "defense_bonus": 4500
+      },
+      "274": {
+        "group_id": 1,
+        "level": 274,
+        "hp_bonus": 10920,
+        "attack_bonus": 8190,
+        "defense_bonus": 4550
+      },
+      "275": {
+        "group_id": 1,
+        "level": 275,
+        "hp_bonus": 11040,
+        "attack_bonus": 8190,
+        "defense_bonus": 4550
+      },
+      "276": {
+        "group_id": 1,
+        "level": 276,
+        "hp_bonus": 11040,
+        "attack_bonus": 8280,
+        "defense_bonus": 4550
+      },
+      "277": {
+        "group_id": 1,
+        "level": 277,
+        "hp_bonus": 11040,
+        "attack_bonus": 8280,
+        "defense_bonus": 4600
+      },
+      "278": {
+        "group_id": 1,
+        "level": 278,
+        "hp_bonus": 11160,
+        "attack_bonus": 8280,
+        "defense_bonus": 4600
+      },
+      "279": {
+        "group_id": 1,
+        "level": 279,
+        "hp_bonus": 11160,
+        "attack_bonus": 8370,
+        "defense_bonus": 4600
+      },
+      "280": {
+        "group_id": 1,
+        "level": 280,
+        "hp_bonus": 11160,
+        "attack_bonus": 8370,
+        "defense_bonus": 4650
+      },
+      "281": {
+        "group_id": 1,
+        "level": 281,
+        "hp_bonus": 11280,
+        "attack_bonus": 8370,
+        "defense_bonus": 4650
+      },
+      "282": {
+        "group_id": 1,
+        "level": 282,
+        "hp_bonus": 11280,
+        "attack_bonus": 8460,
+        "defense_bonus": 4650
+      },
+      "283": {
+        "group_id": 1,
+        "level": 283,
+        "hp_bonus": 11280,
+        "attack_bonus": 8460,
+        "defense_bonus": 4700
+      },
+      "284": {
+        "group_id": 1,
+        "level": 284,
+        "hp_bonus": 11400,
+        "attack_bonus": 8460,
+        "defense_bonus": 4700
+      },
+      "285": {
+        "group_id": 1,
+        "level": 285,
+        "hp_bonus": 11400,
+        "attack_bonus": 8550,
+        "defense_bonus": 4700
+      },
+      "286": {
+        "group_id": 1,
+        "level": 286,
+        "hp_bonus": 11400,
+        "attack_bonus": 8550,
+        "defense_bonus": 4750
+      },
+      "287": {
+        "group_id": 1,
+        "level": 287,
+        "hp_bonus": 11520,
+        "attack_bonus": 8550,
+        "defense_bonus": 4750
+      },
+      "288": {
+        "group_id": 1,
+        "level": 288,
+        "hp_bonus": 11520,
+        "attack_bonus": 8640,
+        "defense_bonus": 4750
+      },
+      "289": {
+        "group_id": 1,
+        "level": 289,
+        "hp_bonus": 11520,
+        "attack_bonus": 8640,
+        "defense_bonus": 4800
+      },
+      "290": {
+        "group_id": 1,
+        "level": 290,
+        "hp_bonus": 11640,
+        "attack_bonus": 8640,
+        "defense_bonus": 4800
+      },
+      "291": {
+        "group_id": 1,
+        "level": 291,
+        "hp_bonus": 11640,
+        "attack_bonus": 8730,
+        "defense_bonus": 4800
+      },
+      "292": {
+        "group_id": 1,
+        "level": 292,
+        "hp_bonus": 11640,
+        "attack_bonus": 8730,
+        "defense_bonus": 4850
+      },
+      "293": {
+        "group_id": 1,
+        "level": 293,
+        "hp_bonus": 11760,
+        "attack_bonus": 8730,
+        "defense_bonus": 4850
+      },
+      "294": {
+        "group_id": 1,
+        "level": 294,
+        "hp_bonus": 11760,
+        "attack_bonus": 8820,
+        "defense_bonus": 4850
+      },
+      "295": {
+        "group_id": 1,
+        "level": 295,
+        "hp_bonus": 11760,
+        "attack_bonus": 8820,
+        "defense_bonus": 4900
+      },
+      "296": {
+        "group_id": 1,
+        "level": 296,
+        "hp_bonus": 11880,
+        "attack_bonus": 8820,
+        "defense_bonus": 4900
+      },
+      "297": {
+        "group_id": 1,
+        "level": 297,
+        "hp_bonus": 11880,
+        "attack_bonus": 8910,
+        "defense_bonus": 4900
+      },
+      "298": {
+        "group_id": 1,
+        "level": 298,
+        "hp_bonus": 11880,
+        "attack_bonus": 8910,
+        "defense_bonus": 4950
+      },
+      "299": {
+        "group_id": 1,
+        "level": 299,
+        "hp_bonus": 12000,
+        "attack_bonus": 8910,
+        "defense_bonus": 4950
+      },
+      "300": {
+        "group_id": 1,
+        "level": 300,
+        "hp_bonus": 12000,
+        "attack_bonus": 9000,
+        "defense_bonus": 4950
+      },
+      "301": {
+        "group_id": 1,
+        "level": 301,
+        "hp_bonus": 12000,
+        "attack_bonus": 9000,
+        "defense_bonus": 5000
+      },
+      "302": {
+        "group_id": 1,
+        "level": 302,
+        "hp_bonus": 12120,
+        "attack_bonus": 9000,
+        "defense_bonus": 5000
+      },
+      "303": {
+        "group_id": 1,
+        "level": 303,
+        "hp_bonus": 12120,
+        "attack_bonus": 9090,
+        "defense_bonus": 5000
+      },
+      "304": {
+        "group_id": 1,
+        "level": 304,
+        "hp_bonus": 12120,
+        "attack_bonus": 9090,
+        "defense_bonus": 5050
+      },
+      "305": {
+        "group_id": 1,
+        "level": 305,
+        "hp_bonus": 12240,
+        "attack_bonus": 9090,
+        "defense_bonus": 5050
+      },
+      "306": {
+        "group_id": 1,
+        "level": 306,
+        "hp_bonus": 12240,
+        "attack_bonus": 9180,
+        "defense_bonus": 5050
+      },
+      "307": {
+        "group_id": 1,
+        "level": 307,
+        "hp_bonus": 12240,
+        "attack_bonus": 9180,
+        "defense_bonus": 5100
+      },
+      "308": {
+        "group_id": 1,
+        "level": 308,
+        "hp_bonus": 12360,
+        "attack_bonus": 9180,
+        "defense_bonus": 5100
+      },
+      "309": {
+        "group_id": 1,
+        "level": 309,
+        "hp_bonus": 12360,
+        "attack_bonus": 9270,
+        "defense_bonus": 5100
+      },
+      "310": {
+        "group_id": 1,
+        "level": 310,
+        "hp_bonus": 12360,
+        "attack_bonus": 9270,
+        "defense_bonus": 5150
+      },
+      "311": {
+        "group_id": 1,
+        "level": 311,
+        "hp_bonus": 12480,
+        "attack_bonus": 9270,
+        "defense_bonus": 5150
+      },
+      "312": {
+        "group_id": 1,
+        "level": 312,
+        "hp_bonus": 12480,
+        "attack_bonus": 9360,
+        "defense_bonus": 5150
+      },
+      "313": {
+        "group_id": 1,
+        "level": 313,
+        "hp_bonus": 12480,
+        "attack_bonus": 9360,
+        "defense_bonus": 5200
+      },
+      "314": {
+        "group_id": 1,
+        "level": 314,
+        "hp_bonus": 12600,
+        "attack_bonus": 9360,
+        "defense_bonus": 5200
+      },
+      "315": {
+        "group_id": 1,
+        "level": 315,
+        "hp_bonus": 12600,
+        "attack_bonus": 9450,
+        "defense_bonus": 5200
+      },
+      "316": {
+        "group_id": 1,
+        "level": 316,
+        "hp_bonus": 12600,
+        "attack_bonus": 9450,
+        "defense_bonus": 5250
+      },
+      "317": {
+        "group_id": 1,
+        "level": 317,
+        "hp_bonus": 12720,
+        "attack_bonus": 9450,
+        "defense_bonus": 5250
+      },
+      "318": {
+        "group_id": 1,
+        "level": 318,
+        "hp_bonus": 12720,
+        "attack_bonus": 9540,
+        "defense_bonus": 5250
+      },
+      "319": {
+        "group_id": 1,
+        "level": 319,
+        "hp_bonus": 12720,
+        "attack_bonus": 9540,
+        "defense_bonus": 5300
+      },
+      "320": {
+        "group_id": 1,
+        "level": 320,
+        "hp_bonus": 12840,
+        "attack_bonus": 9540,
+        "defense_bonus": 5300
+      },
+      "321": {
+        "group_id": 1,
+        "level": 321,
+        "hp_bonus": 12840,
+        "attack_bonus": 9630,
+        "defense_bonus": 5300
+      },
+      "322": {
+        "group_id": 1,
+        "level": 322,
+        "hp_bonus": 12840,
+        "attack_bonus": 9630,
+        "defense_bonus": 5350
+      },
+      "323": {
+        "group_id": 1,
+        "level": 323,
+        "hp_bonus": 12960,
+        "attack_bonus": 9630,
+        "defense_bonus": 5350
+      },
+      "324": {
+        "group_id": 1,
+        "level": 324,
+        "hp_bonus": 12960,
+        "attack_bonus": 9720,
+        "defense_bonus": 5350
+      },
+      "325": {
+        "group_id": 1,
+        "level": 325,
+        "hp_bonus": 12960,
+        "attack_bonus": 9720,
+        "defense_bonus": 5400
+      },
+      "326": {
+        "group_id": 1,
+        "level": 326,
+        "hp_bonus": 13080,
+        "attack_bonus": 9720,
+        "defense_bonus": 5400
+      },
+      "327": {
+        "group_id": 1,
+        "level": 327,
+        "hp_bonus": 13080,
+        "attack_bonus": 9810,
+        "defense_bonus": 5400
+      },
+      "328": {
+        "group_id": 1,
+        "level": 328,
+        "hp_bonus": 13080,
+        "attack_bonus": 9810,
+        "defense_bonus": 5450
+      },
+      "329": {
+        "group_id": 1,
+        "level": 329,
+        "hp_bonus": 13200,
+        "attack_bonus": 9810,
+        "defense_bonus": 5450
+      },
+      "330": {
+        "group_id": 1,
+        "level": 330,
+        "hp_bonus": 13200,
+        "attack_bonus": 9900,
+        "defense_bonus": 5450
+      },
+      "331": {
+        "group_id": 1,
+        "level": 331,
+        "hp_bonus": 13200,
+        "attack_bonus": 9900,
+        "defense_bonus": 5500
+      },
+      "332": {
+        "group_id": 1,
+        "level": 332,
+        "hp_bonus": 13320,
+        "attack_bonus": 9900,
+        "defense_bonus": 5500
+      },
+      "333": {
+        "group_id": 1,
+        "level": 333,
+        "hp_bonus": 13320,
+        "attack_bonus": 9990,
+        "defense_bonus": 5500
+      },
+      "334": {
+        "group_id": 1,
+        "level": 334,
+        "hp_bonus": 13320,
+        "attack_bonus": 9990,
+        "defense_bonus": 5550
+      },
+      "335": {
+        "group_id": 1,
+        "level": 335,
+        "hp_bonus": 13440,
+        "attack_bonus": 9990,
+        "defense_bonus": 5550
+      },
+      "336": {
+        "group_id": 1,
+        "level": 336,
+        "hp_bonus": 13440,
+        "attack_bonus": 10080,
+        "defense_bonus": 5550
+      },
+      "337": {
+        "group_id": 1,
+        "level": 337,
+        "hp_bonus": 13440,
+        "attack_bonus": 10080,
+        "defense_bonus": 5600
+      },
+      "338": {
+        "group_id": 1,
+        "level": 338,
+        "hp_bonus": 13560,
+        "attack_bonus": 10080,
+        "defense_bonus": 5600
+      },
+      "339": {
+        "group_id": 1,
+        "level": 339,
+        "hp_bonus": 13560,
+        "attack_bonus": 10170,
+        "defense_bonus": 5600
+      },
+      "340": {
+        "group_id": 1,
+        "level": 340,
+        "hp_bonus": 13560,
+        "attack_bonus": 10170,
+        "defense_bonus": 5650
+      },
+      "341": {
+        "group_id": 1,
+        "level": 341,
+        "hp_bonus": 13680,
+        "attack_bonus": 10170,
+        "defense_bonus": 5650
+      },
+      "342": {
+        "group_id": 1,
+        "level": 342,
+        "hp_bonus": 13680,
+        "attack_bonus": 10260,
+        "defense_bonus": 5650
+      },
+      "343": {
+        "group_id": 1,
+        "level": 343,
+        "hp_bonus": 13680,
+        "attack_bonus": 10260,
+        "defense_bonus": 5700
+      },
+      "344": {
+        "group_id": 1,
+        "level": 344,
+        "hp_bonus": 13800,
+        "attack_bonus": 10260,
+        "defense_bonus": 5700
+      },
+      "345": {
+        "group_id": 1,
+        "level": 345,
+        "hp_bonus": 13800,
+        "attack_bonus": 10350,
+        "defense_bonus": 5700
+      },
+      "346": {
+        "group_id": 1,
+        "level": 346,
+        "hp_bonus": 13800,
+        "attack_bonus": 10350,
+        "defense_bonus": 5750
+      },
+      "347": {
+        "group_id": 1,
+        "level": 347,
+        "hp_bonus": 13920,
+        "attack_bonus": 10350,
+        "defense_bonus": 5750
+      },
+      "348": {
+        "group_id": 1,
+        "level": 348,
+        "hp_bonus": 13920,
+        "attack_bonus": 10440,
+        "defense_bonus": 5750
+      },
+      "349": {
+        "group_id": 1,
+        "level": 349,
+        "hp_bonus": 13920,
+        "attack_bonus": 10440,
+        "defense_bonus": 5800
+      },
+      "350": {
+        "group_id": 1,
+        "level": 350,
+        "hp_bonus": 14040,
+        "attack_bonus": 10440,
+        "defense_bonus": 5800
+      },
+      "351": {
+        "group_id": 1,
+        "level": 351,
+        "hp_bonus": 14040,
+        "attack_bonus": 10530,
+        "defense_bonus": 5800
+      },
+      "352": {
+        "group_id": 1,
+        "level": 352,
+        "hp_bonus": 14040,
+        "attack_bonus": 10530,
+        "defense_bonus": 5850
+      },
+      "353": {
+        "group_id": 1,
+        "level": 353,
+        "hp_bonus": 14160,
+        "attack_bonus": 10530,
+        "defense_bonus": 5850
+      },
+      "354": {
+        "group_id": 1,
+        "level": 354,
+        "hp_bonus": 14160,
+        "attack_bonus": 10620,
+        "defense_bonus": 5850
+      },
+      "355": {
+        "group_id": 1,
+        "level": 355,
+        "hp_bonus": 14160,
+        "attack_bonus": 10620,
+        "defense_bonus": 5900
+      },
+      "356": {
+        "group_id": 1,
+        "level": 356,
+        "hp_bonus": 14280,
+        "attack_bonus": 10620,
+        "defense_bonus": 5900
+      },
+      "357": {
+        "group_id": 1,
+        "level": 357,
+        "hp_bonus": 14280,
+        "attack_bonus": 10710,
+        "defense_bonus": 5900
+      },
+      "358": {
+        "group_id": 1,
+        "level": 358,
+        "hp_bonus": 14280,
+        "attack_bonus": 10710,
+        "defense_bonus": 5950
+      },
+      "359": {
+        "group_id": 1,
+        "level": 359,
+        "hp_bonus": 14400,
+        "attack_bonus": 10710,
+        "defense_bonus": 5950
+      },
+      "360": {
+        "group_id": 1,
+        "level": 360,
+        "hp_bonus": 14400,
+        "attack_bonus": 10800,
+        "defense_bonus": 5950
+      },
+      "361": {
+        "group_id": 1,
+        "level": 361,
+        "hp_bonus": 14400,
+        "attack_bonus": 10800,
+        "defense_bonus": 6000
+      },
+      "362": {
+        "group_id": 1,
+        "level": 362,
+        "hp_bonus": 14520,
+        "attack_bonus": 10800,
+        "defense_bonus": 6000
+      },
+      "363": {
+        "group_id": 1,
+        "level": 363,
+        "hp_bonus": 14520,
+        "attack_bonus": 10890,
+        "defense_bonus": 6000
+      },
+      "364": {
+        "group_id": 1,
+        "level": 364,
+        "hp_bonus": 14520,
+        "attack_bonus": 10890,
+        "defense_bonus": 6050
+      },
+      "365": {
+        "group_id": 1,
+        "level": 365,
+        "hp_bonus": 14640,
+        "attack_bonus": 10890,
+        "defense_bonus": 6050
+      },
+      "366": {
+        "group_id": 1,
+        "level": 366,
+        "hp_bonus": 14640,
+        "attack_bonus": 10980,
+        "defense_bonus": 6050
+      },
+      "367": {
+        "group_id": 1,
+        "level": 367,
+        "hp_bonus": 14640,
+        "attack_bonus": 10980,
+        "defense_bonus": 6100
+      },
+      "368": {
+        "group_id": 1,
+        "level": 368,
+        "hp_bonus": 14760,
+        "attack_bonus": 10980,
+        "defense_bonus": 6100
+      },
+      "369": {
+        "group_id": 1,
+        "level": 369,
+        "hp_bonus": 14760,
+        "attack_bonus": 11070,
+        "defense_bonus": 6100
+      },
+      "370": {
+        "group_id": 1,
+        "level": 370,
+        "hp_bonus": 14760,
+        "attack_bonus": 11070,
+        "defense_bonus": 6150
+      },
+      "371": {
+        "group_id": 1,
+        "level": 371,
+        "hp_bonus": 14880,
+        "attack_bonus": 11070,
+        "defense_bonus": 6150
+      },
+      "372": {
+        "group_id": 1,
+        "level": 372,
+        "hp_bonus": 14880,
+        "attack_bonus": 11160,
+        "defense_bonus": 6150
+      },
+      "373": {
+        "group_id": 1,
+        "level": 373,
+        "hp_bonus": 14880,
+        "attack_bonus": 11160,
+        "defense_bonus": 6200
+      },
+      "374": {
+        "group_id": 1,
+        "level": 374,
+        "hp_bonus": 15000,
+        "attack_bonus": 11160,
+        "defense_bonus": 6200
+      },
+      "375": {
+        "group_id": 1,
+        "level": 375,
+        "hp_bonus": 15000,
+        "attack_bonus": 11250,
+        "defense_bonus": 6200
+      },
+      "376": {
+        "group_id": 1,
+        "level": 376,
+        "hp_bonus": 15000,
+        "attack_bonus": 11250,
+        "defense_bonus": 6250
+      },
+      "377": {
+        "group_id": 1,
+        "level": 377,
+        "hp_bonus": 15120,
+        "attack_bonus": 11250,
+        "defense_bonus": 6250
+      },
+      "378": {
+        "group_id": 1,
+        "level": 378,
+        "hp_bonus": 15120,
+        "attack_bonus": 11340,
+        "defense_bonus": 6250
+      },
+      "379": {
+        "group_id": 1,
+        "level": 379,
+        "hp_bonus": 15120,
+        "attack_bonus": 11340,
+        "defense_bonus": 6300
+      },
+      "380": {
+        "group_id": 1,
+        "level": 380,
+        "hp_bonus": 15240,
+        "attack_bonus": 11340,
+        "defense_bonus": 6300
+      },
+      "381": {
+        "group_id": 1,
+        "level": 381,
+        "hp_bonus": 15240,
+        "attack_bonus": 11430,
+        "defense_bonus": 6300
+      },
+      "382": {
+        "group_id": 1,
+        "level": 382,
+        "hp_bonus": 15240,
+        "attack_bonus": 11430,
+        "defense_bonus": 6350
+      },
+      "383": {
+        "group_id": 1,
+        "level": 383,
+        "hp_bonus": 15360,
+        "attack_bonus": 11430,
+        "defense_bonus": 6350
+      },
+      "384": {
+        "group_id": 1,
+        "level": 384,
+        "hp_bonus": 15360,
+        "attack_bonus": 11520,
+        "defense_bonus": 6350
+      },
+      "385": {
+        "group_id": 1,
+        "level": 385,
+        "hp_bonus": 15360,
+        "attack_bonus": 11520,
+        "defense_bonus": 6400
+      },
+      "386": {
+        "group_id": 1,
+        "level": 386,
+        "hp_bonus": 15480,
+        "attack_bonus": 11520,
+        "defense_bonus": 6400
+      },
+      "387": {
+        "group_id": 1,
+        "level": 387,
+        "hp_bonus": 15480,
+        "attack_bonus": 11610,
+        "defense_bonus": 6400
+      },
+      "388": {
+        "group_id": 1,
+        "level": 388,
+        "hp_bonus": 15480,
+        "attack_bonus": 11610,
+        "defense_bonus": 6450
+      },
+      "389": {
+        "group_id": 1,
+        "level": 389,
+        "hp_bonus": 15600,
+        "attack_bonus": 11610,
+        "defense_bonus": 6450
+      },
+      "390": {
+        "group_id": 1,
+        "level": 390,
+        "hp_bonus": 15600,
+        "attack_bonus": 11700,
+        "defense_bonus": 6450
+      },
+      "391": {
+        "group_id": 1,
+        "level": 391,
+        "hp_bonus": 15600,
+        "attack_bonus": 11700,
+        "defense_bonus": 6500
+      },
+      "392": {
+        "group_id": 1,
+        "level": 392,
+        "hp_bonus": 15720,
+        "attack_bonus": 11700,
+        "defense_bonus": 6500
+      },
+      "393": {
+        "group_id": 1,
+        "level": 393,
+        "hp_bonus": 15720,
+        "attack_bonus": 11790,
+        "defense_bonus": 6500
+      },
+      "394": {
+        "group_id": 1,
+        "level": 394,
+        "hp_bonus": 15720,
+        "attack_bonus": 11790,
+        "defense_bonus": 6550
+      },
+      "395": {
+        "group_id": 1,
+        "level": 395,
+        "hp_bonus": 15840,
+        "attack_bonus": 11790,
+        "defense_bonus": 6550
+      },
+      "396": {
+        "group_id": 1,
+        "level": 396,
+        "hp_bonus": 15840,
+        "attack_bonus": 11880,
+        "defense_bonus": 6550
+      },
+      "397": {
+        "group_id": 1,
+        "level": 397,
+        "hp_bonus": 15840,
+        "attack_bonus": 11880,
+        "defense_bonus": 6600
+      },
+      "398": {
+        "group_id": 1,
+        "level": 398,
+        "hp_bonus": 15960,
+        "attack_bonus": 11880,
+        "defense_bonus": 6600
+      },
+      "399": {
+        "group_id": 1,
+        "level": 399,
+        "hp_bonus": 15960,
+        "attack_bonus": 11970,
+        "defense_bonus": 6600
+      },
+      "400": {
+        "group_id": 1,
+        "level": 400,
+        "hp_bonus": 15960,
+        "attack_bonus": 11970,
+        "defense_bonus": 6650
+      },
+      "401": {
+        "group_id": 1,
+        "level": 401,
+        "hp_bonus": 16080,
+        "attack_bonus": 11970,
+        "defense_bonus": 6650
+      },
+      "402": {
+        "group_id": 1,
+        "level": 402,
+        "hp_bonus": 16080,
+        "attack_bonus": 12060,
+        "defense_bonus": 6650
+      },
+      "403": {
+        "group_id": 1,
+        "level": 403,
+        "hp_bonus": 16080,
+        "attack_bonus": 12060,
+        "defense_bonus": 6700
+      },
+      "404": {
+        "group_id": 1,
+        "level": 404,
+        "hp_bonus": 16200,
+        "attack_bonus": 12060,
+        "defense_bonus": 6700
+      },
+      "405": {
+        "group_id": 1,
+        "level": 405,
+        "hp_bonus": 16200,
+        "attack_bonus": 12150,
+        "defense_bonus": 6700
+      },
+      "406": {
+        "group_id": 1,
+        "level": 406,
+        "hp_bonus": 16200,
+        "attack_bonus": 12150,
+        "defense_bonus": 6750
+      },
+      "407": {
+        "group_id": 1,
+        "level": 407,
+        "hp_bonus": 16320,
+        "attack_bonus": 12150,
+        "defense_bonus": 6750
+      },
+      "408": {
+        "group_id": 1,
+        "level": 408,
+        "hp_bonus": 16320,
+        "attack_bonus": 12240,
+        "defense_bonus": 6750
+      },
+      "409": {
+        "group_id": 1,
+        "level": 409,
+        "hp_bonus": 16320,
+        "attack_bonus": 12240,
+        "defense_bonus": 6800
+      },
+      "410": {
+        "group_id": 1,
+        "level": 410,
+        "hp_bonus": 16440,
+        "attack_bonus": 12240,
+        "defense_bonus": 6800
+      },
+      "411": {
+        "group_id": 1,
+        "level": 411,
+        "hp_bonus": 16440,
+        "attack_bonus": 12330,
+        "defense_bonus": 6800
+      },
+      "412": {
+        "group_id": 1,
+        "level": 412,
+        "hp_bonus": 16440,
+        "attack_bonus": 12330,
+        "defense_bonus": 6850
+      },
+      "413": {
+        "group_id": 1,
+        "level": 413,
+        "hp_bonus": 16560,
+        "attack_bonus": 12330,
+        "defense_bonus": 6850
+      },
+      "414": {
+        "group_id": 1,
+        "level": 414,
+        "hp_bonus": 16560,
+        "attack_bonus": 12420,
+        "defense_bonus": 6850
+      },
+      "415": {
+        "group_id": 1,
+        "level": 415,
+        "hp_bonus": 16560,
+        "attack_bonus": 12420,
+        "defense_bonus": 6900
+      },
+      "416": {
+        "group_id": 1,
+        "level": 416,
+        "hp_bonus": 16680,
+        "attack_bonus": 12420,
+        "defense_bonus": 6900
+      },
+      "417": {
+        "group_id": 1,
+        "level": 417,
+        "hp_bonus": 16680,
+        "attack_bonus": 12510,
+        "defense_bonus": 6900
+      },
+      "418": {
+        "group_id": 1,
+        "level": 418,
+        "hp_bonus": 16680,
+        "attack_bonus": 12510,
+        "defense_bonus": 6950
+      },
+      "419": {
+        "group_id": 1,
+        "level": 419,
+        "hp_bonus": 16800,
+        "attack_bonus": 12510,
+        "defense_bonus": 6950
+      },
+      "420": {
+        "group_id": 1,
+        "level": 420,
+        "hp_bonus": 16800,
+        "attack_bonus": 12600,
+        "defense_bonus": 6950
+      },
+      "421": {
+        "group_id": 1,
+        "level": 421,
+        "hp_bonus": 16800,
+        "attack_bonus": 12600,
+        "defense_bonus": 7000
+      },
+      "422": {
+        "group_id": 1,
+        "level": 422,
+        "hp_bonus": 16920,
+        "attack_bonus": 12600,
+        "defense_bonus": 7000
+      },
+      "423": {
+        "group_id": 1,
+        "level": 423,
+        "hp_bonus": 16920,
+        "attack_bonus": 12690,
+        "defense_bonus": 7000
+      },
+      "424": {
+        "group_id": 1,
+        "level": 424,
+        "hp_bonus": 16920,
+        "attack_bonus": 12690,
+        "defense_bonus": 7050
+      },
+      "425": {
+        "group_id": 1,
+        "level": 425,
+        "hp_bonus": 17040,
+        "attack_bonus": 12690,
+        "defense_bonus": 7050
+      },
+      "426": {
+        "group_id": 1,
+        "level": 426,
+        "hp_bonus": 17040,
+        "attack_bonus": 12780,
+        "defense_bonus": 7050
+      },
+      "427": {
+        "group_id": 1,
+        "level": 427,
+        "hp_bonus": 17040,
+        "attack_bonus": 12780,
+        "defense_bonus": 7100
+      },
+      "428": {
+        "group_id": 1,
+        "level": 428,
+        "hp_bonus": 17160,
+        "attack_bonus": 12780,
+        "defense_bonus": 7100
+      },
+      "429": {
+        "group_id": 1,
+        "level": 429,
+        "hp_bonus": 17160,
+        "attack_bonus": 12870,
+        "defense_bonus": 7100
+      },
+      "430": {
+        "group_id": 1,
+        "level": 430,
+        "hp_bonus": 17160,
+        "attack_bonus": 12870,
+        "defense_bonus": 7150
+      },
+      "431": {
+        "group_id": 1,
+        "level": 431,
+        "hp_bonus": 17280,
+        "attack_bonus": 12870,
+        "defense_bonus": 7150
+      },
+      "432": {
+        "group_id": 1,
+        "level": 432,
+        "hp_bonus": 17280,
+        "attack_bonus": 12960,
+        "defense_bonus": 7150
+      },
+      "433": {
+        "group_id": 1,
+        "level": 433,
+        "hp_bonus": 17280,
+        "attack_bonus": 12960,
+        "defense_bonus": 7200
+      },
+      "434": {
+        "group_id": 1,
+        "level": 434,
+        "hp_bonus": 17400,
+        "attack_bonus": 12960,
+        "defense_bonus": 7200
+      },
+      "435": {
+        "group_id": 1,
+        "level": 435,
+        "hp_bonus": 17400,
+        "attack_bonus": 13050,
+        "defense_bonus": 7200
+      },
+      "436": {
+        "group_id": 1,
+        "level": 436,
+        "hp_bonus": 17400,
+        "attack_bonus": 13050,
+        "defense_bonus": 7250
+      },
+      "437": {
+        "group_id": 1,
+        "level": 437,
+        "hp_bonus": 17520,
+        "attack_bonus": 13050,
+        "defense_bonus": 7250
+      },
+      "438": {
+        "group_id": 1,
+        "level": 438,
+        "hp_bonus": 17520,
+        "attack_bonus": 13140,
+        "defense_bonus": 7250
+      },
+      "439": {
+        "group_id": 1,
+        "level": 439,
+        "hp_bonus": 17520,
+        "attack_bonus": 13140,
+        "defense_bonus": 7300
+      },
+      "440": {
+        "group_id": 1,
+        "level": 440,
+        "hp_bonus": 17640,
+        "attack_bonus": 13140,
+        "defense_bonus": 7300
+      },
+      "441": {
+        "group_id": 1,
+        "level": 441,
+        "hp_bonus": 17640,
+        "attack_bonus": 13230,
+        "defense_bonus": 7300
+      },
+      "442": {
+        "group_id": 1,
+        "level": 442,
+        "hp_bonus": 17640,
+        "attack_bonus": 13230,
+        "defense_bonus": 7350
+      },
+      "443": {
+        "group_id": 1,
+        "level": 443,
+        "hp_bonus": 17760,
+        "attack_bonus": 13230,
+        "defense_bonus": 7350
+      },
+      "444": {
+        "group_id": 1,
+        "level": 444,
+        "hp_bonus": 17760,
+        "attack_bonus": 13320,
+        "defense_bonus": 7350
+      },
+      "445": {
+        "group_id": 1,
+        "level": 445,
+        "hp_bonus": 17760,
+        "attack_bonus": 13320,
+        "defense_bonus": 7400
+      },
+      "446": {
+        "group_id": 1,
+        "level": 446,
+        "hp_bonus": 17880,
+        "attack_bonus": 13320,
+        "defense_bonus": 7400
+      },
+      "447": {
+        "group_id": 1,
+        "level": 447,
+        "hp_bonus": 17880,
+        "attack_bonus": 13410,
+        "defense_bonus": 7400
+      },
+      "448": {
+        "group_id": 1,
+        "level": 448,
+        "hp_bonus": 17880,
+        "attack_bonus": 13410,
+        "defense_bonus": 7450
+      },
+      "449": {
+        "group_id": 1,
+        "level": 449,
+        "hp_bonus": 18000,
+        "attack_bonus": 13410,
+        "defense_bonus": 7450
+      },
+      "450": {
+        "group_id": 1,
+        "level": 450,
+        "hp_bonus": 18000,
+        "attack_bonus": 13500,
+        "defense_bonus": 7450
+      },
+      "451": {
+        "group_id": 1,
+        "level": 451,
+        "hp_bonus": 18000,
+        "attack_bonus": 13500,
+        "defense_bonus": 7500
+      },
+      "452": {
+        "group_id": 1,
+        "level": 452,
+        "hp_bonus": 18120,
+        "attack_bonus": 13500,
+        "defense_bonus": 7500
+      },
+      "453": {
+        "group_id": 1,
+        "level": 453,
+        "hp_bonus": 18120,
+        "attack_bonus": 13590,
+        "defense_bonus": 7500
+      },
+      "454": {
+        "group_id": 1,
+        "level": 454,
+        "hp_bonus": 18120,
+        "attack_bonus": 13590,
+        "defense_bonus": 7550
+      },
+      "455": {
+        "group_id": 1,
+        "level": 455,
+        "hp_bonus": 18240,
+        "attack_bonus": 13590,
+        "defense_bonus": 7550
+      },
+      "456": {
+        "group_id": 1,
+        "level": 456,
+        "hp_bonus": 18240,
+        "attack_bonus": 13680,
+        "defense_bonus": 7550
+      },
+      "457": {
+        "group_id": 1,
+        "level": 457,
+        "hp_bonus": 18240,
+        "attack_bonus": 13680,
+        "defense_bonus": 7600
+      },
+      "458": {
+        "group_id": 1,
+        "level": 458,
+        "hp_bonus": 18360,
+        "attack_bonus": 13680,
+        "defense_bonus": 7600
+      },
+      "459": {
+        "group_id": 1,
+        "level": 459,
+        "hp_bonus": 18360,
+        "attack_bonus": 13770,
+        "defense_bonus": 7600
+      },
+      "460": {
+        "group_id": 1,
+        "level": 460,
+        "hp_bonus": 18360,
+        "attack_bonus": 13770,
+        "defense_bonus": 7650
+      },
+      "461": {
+        "group_id": 1,
+        "level": 461,
+        "hp_bonus": 18480,
+        "attack_bonus": 13770,
+        "defense_bonus": 7650
+      },
+      "462": {
+        "group_id": 1,
+        "level": 462,
+        "hp_bonus": 18480,
+        "attack_bonus": 13860,
+        "defense_bonus": 7650
+      },
+      "463": {
+        "group_id": 1,
+        "level": 463,
+        "hp_bonus": 18480,
+        "attack_bonus": 13860,
+        "defense_bonus": 7700
+      },
+      "464": {
+        "group_id": 1,
+        "level": 464,
+        "hp_bonus": 18600,
+        "attack_bonus": 13860,
+        "defense_bonus": 7700
+      },
+      "465": {
+        "group_id": 1,
+        "level": 465,
+        "hp_bonus": 18600,
+        "attack_bonus": 13950,
+        "defense_bonus": 7700
+      },
+      "466": {
+        "group_id": 1,
+        "level": 466,
+        "hp_bonus": 18600,
+        "attack_bonus": 13950,
+        "defense_bonus": 7750
+      },
+      "467": {
+        "group_id": 1,
+        "level": 467,
+        "hp_bonus": 18720,
+        "attack_bonus": 13950,
+        "defense_bonus": 7750
+      },
+      "468": {
+        "group_id": 1,
+        "level": 468,
+        "hp_bonus": 18720,
+        "attack_bonus": 14040,
+        "defense_bonus": 7750
+      },
+      "469": {
+        "group_id": 1,
+        "level": 469,
+        "hp_bonus": 18720,
+        "attack_bonus": 14040,
+        "defense_bonus": 7800
+      },
+      "470": {
+        "group_id": 1,
+        "level": 470,
+        "hp_bonus": 18840,
+        "attack_bonus": 14040,
+        "defense_bonus": 7800
+      },
+      "471": {
+        "group_id": 1,
+        "level": 471,
+        "hp_bonus": 18840,
+        "attack_bonus": 14130,
+        "defense_bonus": 7800
+      },
+      "472": {
+        "group_id": 1,
+        "level": 472,
+        "hp_bonus": 18840,
+        "attack_bonus": 14130,
+        "defense_bonus": 7850
+      },
+      "473": {
+        "group_id": 1,
+        "level": 473,
+        "hp_bonus": 18960,
+        "attack_bonus": 14130,
+        "defense_bonus": 7850
+      },
+      "474": {
+        "group_id": 1,
+        "level": 474,
+        "hp_bonus": 18960,
+        "attack_bonus": 14220,
+        "defense_bonus": 7850
+      },
+      "475": {
+        "group_id": 1,
+        "level": 475,
+        "hp_bonus": 18960,
+        "attack_bonus": 14220,
+        "defense_bonus": 7900
+      },
+      "476": {
+        "group_id": 1,
+        "level": 476,
+        "hp_bonus": 19080,
+        "attack_bonus": 14220,
+        "defense_bonus": 7900
+      },
+      "477": {
+        "group_id": 1,
+        "level": 477,
+        "hp_bonus": 19080,
+        "attack_bonus": 14310,
+        "defense_bonus": 7900
+      },
+      "478": {
+        "group_id": 1,
+        "level": 478,
+        "hp_bonus": 19080,
+        "attack_bonus": 14310,
+        "defense_bonus": 7950
+      },
+      "479": {
+        "group_id": 1,
+        "level": 479,
+        "hp_bonus": 19200,
+        "attack_bonus": 14310,
+        "defense_bonus": 7950
+      },
+      "480": {
+        "group_id": 1,
+        "level": 480,
+        "hp_bonus": 19200,
+        "attack_bonus": 14400,
+        "defense_bonus": 7950
+      },
+      "481": {
+        "group_id": 1,
+        "level": 481,
+        "hp_bonus": 19200,
+        "attack_bonus": 14400,
+        "defense_bonus": 8000
+      },
+      "482": {
+        "group_id": 1,
+        "level": 482,
+        "hp_bonus": 19320,
+        "attack_bonus": 14400,
+        "defense_bonus": 8000
+      },
+      "483": {
+        "group_id": 1,
+        "level": 483,
+        "hp_bonus": 19320,
+        "attack_bonus": 14490,
+        "defense_bonus": 8000
+      },
+      "484": {
+        "group_id": 1,
+        "level": 484,
+        "hp_bonus": 19320,
+        "attack_bonus": 14490,
+        "defense_bonus": 8050
+      },
+      "485": {
+        "group_id": 1,
+        "level": 485,
+        "hp_bonus": 19440,
+        "attack_bonus": 14490,
+        "defense_bonus": 8050
+      },
+      "486": {
+        "group_id": 1,
+        "level": 486,
+        "hp_bonus": 19440,
+        "attack_bonus": 14580,
+        "defense_bonus": 8050
+      },
+      "487": {
+        "group_id": 1,
+        "level": 487,
+        "hp_bonus": 19440,
+        "attack_bonus": 14580,
+        "defense_bonus": 8100
+      },
+      "488": {
+        "group_id": 1,
+        "level": 488,
+        "hp_bonus": 19560,
+        "attack_bonus": 14580,
+        "defense_bonus": 8100
+      },
+      "489": {
+        "group_id": 1,
+        "level": 489,
+        "hp_bonus": 19560,
+        "attack_bonus": 14670,
+        "defense_bonus": 8100
+      },
+      "490": {
+        "group_id": 1,
+        "level": 490,
+        "hp_bonus": 19560,
+        "attack_bonus": 14670,
+        "defense_bonus": 8150
+      },
+      "491": {
+        "group_id": 1,
+        "level": 491,
+        "hp_bonus": 19680,
+        "attack_bonus": 14670,
+        "defense_bonus": 8150
+      },
+      "492": {
+        "group_id": 1,
+        "level": 492,
+        "hp_bonus": 19680,
+        "attack_bonus": 14760,
+        "defense_bonus": 8150
+      },
+      "493": {
+        "group_id": 1,
+        "level": 493,
+        "hp_bonus": 19680,
+        "attack_bonus": 14760,
+        "defense_bonus": 8200
+      },
+      "494": {
+        "group_id": 1,
+        "level": 494,
+        "hp_bonus": 19800,
+        "attack_bonus": 14760,
+        "defense_bonus": 8200
+      },
+      "495": {
+        "group_id": 1,
+        "level": 495,
+        "hp_bonus": 19800,
+        "attack_bonus": 14850,
+        "defense_bonus": 8200
+      },
+      "496": {
+        "group_id": 1,
+        "level": 496,
+        "hp_bonus": 19800,
+        "attack_bonus": 14850,
+        "defense_bonus": 8250
+      },
+      "497": {
+        "group_id": 1,
+        "level": 497,
+        "hp_bonus": 19920,
+        "attack_bonus": 14850,
+        "defense_bonus": 8250
+      },
+      "498": {
+        "group_id": 1,
+        "level": 498,
+        "hp_bonus": 19920,
+        "attack_bonus": 14940,
+        "defense_bonus": 8250
+      },
+      "499": {
+        "group_id": 1,
+        "level": 499,
+        "hp_bonus": 19920,
+        "attack_bonus": 14940,
+        "defense_bonus": 8300
+      },
+      "500": {
+        "group_id": 1,
+        "level": 500,
+        "hp_bonus": 20040,
+        "attack_bonus": 14940,
+        "defense_bonus": 8300
+      }
+    },
+    "2": {
+      "1": {
+        "group_id": 2,
+        "level": 1,
+        "hp_bonus": 0,
+        "attack_bonus": 0,
+        "defense_bonus": 0
+      },
+      "2": {
+        "group_id": 2,
+        "level": 2,
+        "hp_bonus": 240,
+        "attack_bonus": 0,
+        "defense_bonus": 0
+      },
+      "3": {
+        "group_id": 2,
+        "level": 3,
+        "hp_bonus": 240,
+        "attack_bonus": 180,
+        "defense_bonus": 0
+      },
+      "4": {
+        "group_id": 2,
+        "level": 4,
+        "hp_bonus": 240,
+        "attack_bonus": 180,
+        "defense_bonus": 100
+      },
+      "5": {
+        "group_id": 2,
+        "level": 5,
+        "hp_bonus": 480,
+        "attack_bonus": 180,
+        "defense_bonus": 100
+      },
+      "6": {
+        "group_id": 2,
+        "level": 6,
+        "hp_bonus": 480,
+        "attack_bonus": 360,
+        "defense_bonus": 100
+      },
+      "7": {
+        "group_id": 2,
+        "level": 7,
+        "hp_bonus": 480,
+        "attack_bonus": 360,
+        "defense_bonus": 200
+      },
+      "8": {
+        "group_id": 2,
+        "level": 8,
+        "hp_bonus": 720,
+        "attack_bonus": 360,
+        "defense_bonus": 200
+      },
+      "9": {
+        "group_id": 2,
+        "level": 9,
+        "hp_bonus": 720,
+        "attack_bonus": 540,
+        "defense_bonus": 200
+      },
+      "10": {
+        "group_id": 2,
+        "level": 10,
+        "hp_bonus": 720,
+        "attack_bonus": 540,
+        "defense_bonus": 300
+      },
+      "11": {
+        "group_id": 2,
+        "level": 11,
+        "hp_bonus": 960,
+        "attack_bonus": 540,
+        "defense_bonus": 300
+      },
+      "12": {
+        "group_id": 2,
+        "level": 12,
+        "hp_bonus": 960,
+        "attack_bonus": 720,
+        "defense_bonus": 300
+      },
+      "13": {
+        "group_id": 2,
+        "level": 13,
+        "hp_bonus": 960,
+        "attack_bonus": 720,
+        "defense_bonus": 400
+      },
+      "14": {
+        "group_id": 2,
+        "level": 14,
+        "hp_bonus": 1200,
+        "attack_bonus": 720,
+        "defense_bonus": 400
+      },
+      "15": {
+        "group_id": 2,
+        "level": 15,
+        "hp_bonus": 1200,
+        "attack_bonus": 900,
+        "defense_bonus": 400
+      },
+      "16": {
+        "group_id": 2,
+        "level": 16,
+        "hp_bonus": 1200,
+        "attack_bonus": 900,
+        "defense_bonus": 500
+      },
+      "17": {
+        "group_id": 2,
+        "level": 17,
+        "hp_bonus": 1440,
+        "attack_bonus": 900,
+        "defense_bonus": 500
+      },
+      "18": {
+        "group_id": 2,
+        "level": 18,
+        "hp_bonus": 1440,
+        "attack_bonus": 1080,
+        "defense_bonus": 500
+      },
+      "19": {
+        "group_id": 2,
+        "level": 19,
+        "hp_bonus": 1440,
+        "attack_bonus": 1080,
+        "defense_bonus": 600
+      },
+      "20": {
+        "group_id": 2,
+        "level": 20,
+        "hp_bonus": 1680,
+        "attack_bonus": 1080,
+        "defense_bonus": 600
+      },
+      "21": {
+        "group_id": 2,
+        "level": 21,
+        "hp_bonus": 1680,
+        "attack_bonus": 1260,
+        "defense_bonus": 600
+      },
+      "22": {
+        "group_id": 2,
+        "level": 22,
+        "hp_bonus": 1680,
+        "attack_bonus": 1260,
+        "defense_bonus": 700
+      },
+      "23": {
+        "group_id": 2,
+        "level": 23,
+        "hp_bonus": 1920,
+        "attack_bonus": 1260,
+        "defense_bonus": 700
+      },
+      "24": {
+        "group_id": 2,
+        "level": 24,
+        "hp_bonus": 1920,
+        "attack_bonus": 1440,
+        "defense_bonus": 700
+      },
+      "25": {
+        "group_id": 2,
+        "level": 25,
+        "hp_bonus": 1920,
+        "attack_bonus": 1440,
+        "defense_bonus": 800
+      },
+      "26": {
+        "group_id": 2,
+        "level": 26,
+        "hp_bonus": 2160,
+        "attack_bonus": 1440,
+        "defense_bonus": 800
+      },
+      "27": {
+        "group_id": 2,
+        "level": 27,
+        "hp_bonus": 2160,
+        "attack_bonus": 1620,
+        "defense_bonus": 800
+      },
+      "28": {
+        "group_id": 2,
+        "level": 28,
+        "hp_bonus": 2160,
+        "attack_bonus": 1620,
+        "defense_bonus": 900
+      },
+      "29": {
+        "group_id": 2,
+        "level": 29,
+        "hp_bonus": 2400,
+        "attack_bonus": 1620,
+        "defense_bonus": 900
+      },
+      "30": {
+        "group_id": 2,
+        "level": 30,
+        "hp_bonus": 2400,
+        "attack_bonus": 1800,
+        "defense_bonus": 900
+      },
+      "31": {
+        "group_id": 2,
+        "level": 31,
+        "hp_bonus": 2400,
+        "attack_bonus": 1800,
+        "defense_bonus": 1000
+      },
+      "32": {
+        "group_id": 2,
+        "level": 32,
+        "hp_bonus": 2640,
+        "attack_bonus": 1800,
+        "defense_bonus": 1000
+      },
+      "33": {
+        "group_id": 2,
+        "level": 33,
+        "hp_bonus": 2640,
+        "attack_bonus": 1980,
+        "defense_bonus": 1000
+      },
+      "34": {
+        "group_id": 2,
+        "level": 34,
+        "hp_bonus": 2640,
+        "attack_bonus": 1980,
+        "defense_bonus": 1100
+      },
+      "35": {
+        "group_id": 2,
+        "level": 35,
+        "hp_bonus": 2880,
+        "attack_bonus": 1980,
+        "defense_bonus": 1100
+      },
+      "36": {
+        "group_id": 2,
+        "level": 36,
+        "hp_bonus": 2880,
+        "attack_bonus": 2160,
+        "defense_bonus": 1100
+      },
+      "37": {
+        "group_id": 2,
+        "level": 37,
+        "hp_bonus": 2880,
+        "attack_bonus": 2160,
+        "defense_bonus": 1200
+      },
+      "38": {
+        "group_id": 2,
+        "level": 38,
+        "hp_bonus": 3120,
+        "attack_bonus": 2160,
+        "defense_bonus": 1200
+      },
+      "39": {
+        "group_id": 2,
+        "level": 39,
+        "hp_bonus": 3120,
+        "attack_bonus": 2340,
+        "defense_bonus": 1200
+      },
+      "40": {
+        "group_id": 2,
+        "level": 40,
+        "hp_bonus": 3120,
+        "attack_bonus": 2340,
+        "defense_bonus": 1300
+      },
+      "41": {
+        "group_id": 2,
+        "level": 41,
+        "hp_bonus": 3360,
+        "attack_bonus": 2340,
+        "defense_bonus": 1300
+      },
+      "42": {
+        "group_id": 2,
+        "level": 42,
+        "hp_bonus": 3360,
+        "attack_bonus": 2520,
+        "defense_bonus": 1300
+      },
+      "43": {
+        "group_id": 2,
+        "level": 43,
+        "hp_bonus": 3360,
+        "attack_bonus": 2520,
+        "defense_bonus": 1400
+      },
+      "44": {
+        "group_id": 2,
+        "level": 44,
+        "hp_bonus": 3600,
+        "attack_bonus": 2520,
+        "defense_bonus": 1400
+      },
+      "45": {
+        "group_id": 2,
+        "level": 45,
+        "hp_bonus": 3600,
+        "attack_bonus": 2700,
+        "defense_bonus": 1400
+      },
+      "46": {
+        "group_id": 2,
+        "level": 46,
+        "hp_bonus": 3600,
+        "attack_bonus": 2700,
+        "defense_bonus": 1500
+      },
+      "47": {
+        "group_id": 2,
+        "level": 47,
+        "hp_bonus": 3840,
+        "attack_bonus": 2700,
+        "defense_bonus": 1500
+      },
+      "48": {
+        "group_id": 2,
+        "level": 48,
+        "hp_bonus": 3840,
+        "attack_bonus": 2880,
+        "defense_bonus": 1500
+      },
+      "49": {
+        "group_id": 2,
+        "level": 49,
+        "hp_bonus": 3840,
+        "attack_bonus": 2880,
+        "defense_bonus": 1600
+      },
+      "50": {
+        "group_id": 2,
+        "level": 50,
+        "hp_bonus": 4080,
+        "attack_bonus": 2880,
+        "defense_bonus": 1600
+      },
+      "51": {
+        "group_id": 2,
+        "level": 51,
+        "hp_bonus": 4080,
+        "attack_bonus": 3060,
+        "defense_bonus": 1600
+      },
+      "52": {
+        "group_id": 2,
+        "level": 52,
+        "hp_bonus": 4080,
+        "attack_bonus": 3060,
+        "defense_bonus": 1700
+      },
+      "53": {
+        "group_id": 2,
+        "level": 53,
+        "hp_bonus": 4320,
+        "attack_bonus": 3060,
+        "defense_bonus": 1700
+      },
+      "54": {
+        "group_id": 2,
+        "level": 54,
+        "hp_bonus": 4320,
+        "attack_bonus": 3240,
+        "defense_bonus": 1700
+      },
+      "55": {
+        "group_id": 2,
+        "level": 55,
+        "hp_bonus": 4320,
+        "attack_bonus": 3240,
+        "defense_bonus": 1800
+      },
+      "56": {
+        "group_id": 2,
+        "level": 56,
+        "hp_bonus": 4560,
+        "attack_bonus": 3240,
+        "defense_bonus": 1800
+      },
+      "57": {
+        "group_id": 2,
+        "level": 57,
+        "hp_bonus": 4560,
+        "attack_bonus": 3420,
+        "defense_bonus": 1800
+      },
+      "58": {
+        "group_id": 2,
+        "level": 58,
+        "hp_bonus": 4560,
+        "attack_bonus": 3420,
+        "defense_bonus": 1900
+      },
+      "59": {
+        "group_id": 2,
+        "level": 59,
+        "hp_bonus": 4800,
+        "attack_bonus": 3420,
+        "defense_bonus": 1900
+      },
+      "60": {
+        "group_id": 2,
+        "level": 60,
+        "hp_bonus": 4800,
+        "attack_bonus": 3600,
+        "defense_bonus": 1900
+      },
+      "61": {
+        "group_id": 2,
+        "level": 61,
+        "hp_bonus": 4800,
+        "attack_bonus": 3600,
+        "defense_bonus": 2000
+      },
+      "62": {
+        "group_id": 2,
+        "level": 62,
+        "hp_bonus": 5040,
+        "attack_bonus": 3600,
+        "defense_bonus": 2000
+      },
+      "63": {
+        "group_id": 2,
+        "level": 63,
+        "hp_bonus": 5040,
+        "attack_bonus": 3780,
+        "defense_bonus": 2000
+      },
+      "64": {
+        "group_id": 2,
+        "level": 64,
+        "hp_bonus": 5040,
+        "attack_bonus": 3780,
+        "defense_bonus": 2100
+      },
+      "65": {
+        "group_id": 2,
+        "level": 65,
+        "hp_bonus": 5280,
+        "attack_bonus": 3780,
+        "defense_bonus": 2100
+      },
+      "66": {
+        "group_id": 2,
+        "level": 66,
+        "hp_bonus": 5280,
+        "attack_bonus": 3960,
+        "defense_bonus": 2100
+      },
+      "67": {
+        "group_id": 2,
+        "level": 67,
+        "hp_bonus": 5280,
+        "attack_bonus": 3960,
+        "defense_bonus": 2200
+      },
+      "68": {
+        "group_id": 2,
+        "level": 68,
+        "hp_bonus": 5520,
+        "attack_bonus": 3960,
+        "defense_bonus": 2200
+      },
+      "69": {
+        "group_id": 2,
+        "level": 69,
+        "hp_bonus": 5520,
+        "attack_bonus": 4140,
+        "defense_bonus": 2200
+      },
+      "70": {
+        "group_id": 2,
+        "level": 70,
+        "hp_bonus": 5520,
+        "attack_bonus": 4140,
+        "defense_bonus": 2300
+      },
+      "71": {
+        "group_id": 2,
+        "level": 71,
+        "hp_bonus": 5760,
+        "attack_bonus": 4140,
+        "defense_bonus": 2300
+      },
+      "72": {
+        "group_id": 2,
+        "level": 72,
+        "hp_bonus": 5760,
+        "attack_bonus": 4320,
+        "defense_bonus": 2300
+      },
+      "73": {
+        "group_id": 2,
+        "level": 73,
+        "hp_bonus": 5760,
+        "attack_bonus": 4320,
+        "defense_bonus": 2400
+      },
+      "74": {
+        "group_id": 2,
+        "level": 74,
+        "hp_bonus": 6000,
+        "attack_bonus": 4320,
+        "defense_bonus": 2400
+      },
+      "75": {
+        "group_id": 2,
+        "level": 75,
+        "hp_bonus": 6000,
+        "attack_bonus": 4500,
+        "defense_bonus": 2400
+      },
+      "76": {
+        "group_id": 2,
+        "level": 76,
+        "hp_bonus": 6000,
+        "attack_bonus": 4500,
+        "defense_bonus": 2500
+      },
+      "77": {
+        "group_id": 2,
+        "level": 77,
+        "hp_bonus": 6240,
+        "attack_bonus": 4500,
+        "defense_bonus": 2500
+      },
+      "78": {
+        "group_id": 2,
+        "level": 78,
+        "hp_bonus": 6240,
+        "attack_bonus": 4680,
+        "defense_bonus": 2500
+      },
+      "79": {
+        "group_id": 2,
+        "level": 79,
+        "hp_bonus": 6240,
+        "attack_bonus": 4680,
+        "defense_bonus": 2600
+      },
+      "80": {
+        "group_id": 2,
+        "level": 80,
+        "hp_bonus": 6480,
+        "attack_bonus": 4680,
+        "defense_bonus": 2600
+      },
+      "81": {
+        "group_id": 2,
+        "level": 81,
+        "hp_bonus": 6480,
+        "attack_bonus": 4860,
+        "defense_bonus": 2600
+      },
+      "82": {
+        "group_id": 2,
+        "level": 82,
+        "hp_bonus": 6480,
+        "attack_bonus": 4860,
+        "defense_bonus": 2700
+      },
+      "83": {
+        "group_id": 2,
+        "level": 83,
+        "hp_bonus": 6720,
+        "attack_bonus": 4860,
+        "defense_bonus": 2700
+      },
+      "84": {
+        "group_id": 2,
+        "level": 84,
+        "hp_bonus": 6720,
+        "attack_bonus": 5040,
+        "defense_bonus": 2700
+      },
+      "85": {
+        "group_id": 2,
+        "level": 85,
+        "hp_bonus": 6720,
+        "attack_bonus": 5040,
+        "defense_bonus": 2800
+      },
+      "86": {
+        "group_id": 2,
+        "level": 86,
+        "hp_bonus": 6960,
+        "attack_bonus": 5040,
+        "defense_bonus": 2800
+      },
+      "87": {
+        "group_id": 2,
+        "level": 87,
+        "hp_bonus": 6960,
+        "attack_bonus": 5220,
+        "defense_bonus": 2800
+      },
+      "88": {
+        "group_id": 2,
+        "level": 88,
+        "hp_bonus": 6960,
+        "attack_bonus": 5220,
+        "defense_bonus": 2900
+      },
+      "89": {
+        "group_id": 2,
+        "level": 89,
+        "hp_bonus": 7200,
+        "attack_bonus": 5220,
+        "defense_bonus": 2900
+      },
+      "90": {
+        "group_id": 2,
+        "level": 90,
+        "hp_bonus": 7200,
+        "attack_bonus": 5400,
+        "defense_bonus": 2900
+      },
+      "91": {
+        "group_id": 2,
+        "level": 91,
+        "hp_bonus": 7200,
+        "attack_bonus": 5400,
+        "defense_bonus": 3000
+      },
+      "92": {
+        "group_id": 2,
+        "level": 92,
+        "hp_bonus": 7440,
+        "attack_bonus": 5400,
+        "defense_bonus": 3000
+      },
+      "93": {
+        "group_id": 2,
+        "level": 93,
+        "hp_bonus": 7440,
+        "attack_bonus": 5580,
+        "defense_bonus": 3000
+      },
+      "94": {
+        "group_id": 2,
+        "level": 94,
+        "hp_bonus": 7440,
+        "attack_bonus": 5580,
+        "defense_bonus": 3100
+      },
+      "95": {
+        "group_id": 2,
+        "level": 95,
+        "hp_bonus": 7680,
+        "attack_bonus": 5580,
+        "defense_bonus": 3100
+      },
+      "96": {
+        "group_id": 2,
+        "level": 96,
+        "hp_bonus": 7680,
+        "attack_bonus": 5760,
+        "defense_bonus": 3100
+      },
+      "97": {
+        "group_id": 2,
+        "level": 97,
+        "hp_bonus": 7680,
+        "attack_bonus": 5760,
+        "defense_bonus": 3200
+      },
+      "98": {
+        "group_id": 2,
+        "level": 98,
+        "hp_bonus": 7920,
+        "attack_bonus": 5760,
+        "defense_bonus": 3200
+      },
+      "99": {
+        "group_id": 2,
+        "level": 99,
+        "hp_bonus": 7920,
+        "attack_bonus": 5940,
+        "defense_bonus": 3200
+      },
+      "100": {
+        "group_id": 2,
+        "level": 100,
+        "hp_bonus": 7920,
+        "attack_bonus": 5940,
+        "defense_bonus": 3300
+      },
+      "101": {
+        "group_id": 2,
+        "level": 101,
+        "hp_bonus": 8160,
+        "attack_bonus": 5940,
+        "defense_bonus": 3300
+      },
+      "102": {
+        "group_id": 2,
+        "level": 102,
+        "hp_bonus": 8160,
+        "attack_bonus": 6120,
+        "defense_bonus": 3300
+      },
+      "103": {
+        "group_id": 2,
+        "level": 103,
+        "hp_bonus": 8160,
+        "attack_bonus": 6120,
+        "defense_bonus": 3400
+      },
+      "104": {
+        "group_id": 2,
+        "level": 104,
+        "hp_bonus": 8400,
+        "attack_bonus": 6120,
+        "defense_bonus": 3400
+      },
+      "105": {
+        "group_id": 2,
+        "level": 105,
+        "hp_bonus": 8400,
+        "attack_bonus": 6300,
+        "defense_bonus": 3400
+      },
+      "106": {
+        "group_id": 2,
+        "level": 106,
+        "hp_bonus": 8400,
+        "attack_bonus": 6300,
+        "defense_bonus": 3500
+      },
+      "107": {
+        "group_id": 2,
+        "level": 107,
+        "hp_bonus": 8640,
+        "attack_bonus": 6300,
+        "defense_bonus": 3500
+      },
+      "108": {
+        "group_id": 2,
+        "level": 108,
+        "hp_bonus": 8640,
+        "attack_bonus": 6480,
+        "defense_bonus": 3500
+      },
+      "109": {
+        "group_id": 2,
+        "level": 109,
+        "hp_bonus": 8640,
+        "attack_bonus": 6480,
+        "defense_bonus": 3600
+      },
+      "110": {
+        "group_id": 2,
+        "level": 110,
+        "hp_bonus": 8880,
+        "attack_bonus": 6480,
+        "defense_bonus": 3600
+      },
+      "111": {
+        "group_id": 2,
+        "level": 111,
+        "hp_bonus": 8880,
+        "attack_bonus": 6660,
+        "defense_bonus": 3600
+      },
+      "112": {
+        "group_id": 2,
+        "level": 112,
+        "hp_bonus": 8880,
+        "attack_bonus": 6660,
+        "defense_bonus": 3700
+      },
+      "113": {
+        "group_id": 2,
+        "level": 113,
+        "hp_bonus": 9120,
+        "attack_bonus": 6660,
+        "defense_bonus": 3700
+      },
+      "114": {
+        "group_id": 2,
+        "level": 114,
+        "hp_bonus": 9120,
+        "attack_bonus": 6840,
+        "defense_bonus": 3700
+      },
+      "115": {
+        "group_id": 2,
+        "level": 115,
+        "hp_bonus": 9120,
+        "attack_bonus": 6840,
+        "defense_bonus": 3800
+      },
+      "116": {
+        "group_id": 2,
+        "level": 116,
+        "hp_bonus": 9360,
+        "attack_bonus": 6840,
+        "defense_bonus": 3800
+      },
+      "117": {
+        "group_id": 2,
+        "level": 117,
+        "hp_bonus": 9360,
+        "attack_bonus": 7020,
+        "defense_bonus": 3800
+      },
+      "118": {
+        "group_id": 2,
+        "level": 118,
+        "hp_bonus": 9360,
+        "attack_bonus": 7020,
+        "defense_bonus": 3900
+      },
+      "119": {
+        "group_id": 2,
+        "level": 119,
+        "hp_bonus": 9600,
+        "attack_bonus": 7020,
+        "defense_bonus": 3900
+      },
+      "120": {
+        "group_id": 2,
+        "level": 120,
+        "hp_bonus": 9600,
+        "attack_bonus": 7200,
+        "defense_bonus": 3900
+      },
+      "121": {
+        "group_id": 2,
+        "level": 121,
+        "hp_bonus": 9600,
+        "attack_bonus": 7200,
+        "defense_bonus": 4000
+      },
+      "122": {
+        "group_id": 2,
+        "level": 122,
+        "hp_bonus": 9840,
+        "attack_bonus": 7200,
+        "defense_bonus": 4000
+      },
+      "123": {
+        "group_id": 2,
+        "level": 123,
+        "hp_bonus": 9840,
+        "attack_bonus": 7380,
+        "defense_bonus": 4000
+      },
+      "124": {
+        "group_id": 2,
+        "level": 124,
+        "hp_bonus": 9840,
+        "attack_bonus": 7380,
+        "defense_bonus": 4100
+      },
+      "125": {
+        "group_id": 2,
+        "level": 125,
+        "hp_bonus": 10080,
+        "attack_bonus": 7380,
+        "defense_bonus": 4100
+      },
+      "126": {
+        "group_id": 2,
+        "level": 126,
+        "hp_bonus": 10080,
+        "attack_bonus": 7560,
+        "defense_bonus": 4100
+      },
+      "127": {
+        "group_id": 2,
+        "level": 127,
+        "hp_bonus": 10080,
+        "attack_bonus": 7560,
+        "defense_bonus": 4200
+      },
+      "128": {
+        "group_id": 2,
+        "level": 128,
+        "hp_bonus": 10320,
+        "attack_bonus": 7560,
+        "defense_bonus": 4200
+      },
+      "129": {
+        "group_id": 2,
+        "level": 129,
+        "hp_bonus": 10320,
+        "attack_bonus": 7740,
+        "defense_bonus": 4200
+      },
+      "130": {
+        "group_id": 2,
+        "level": 130,
+        "hp_bonus": 10320,
+        "attack_bonus": 7740,
+        "defense_bonus": 4300
+      },
+      "131": {
+        "group_id": 2,
+        "level": 131,
+        "hp_bonus": 10560,
+        "attack_bonus": 7740,
+        "defense_bonus": 4300
+      },
+      "132": {
+        "group_id": 2,
+        "level": 132,
+        "hp_bonus": 10560,
+        "attack_bonus": 7920,
+        "defense_bonus": 4300
+      },
+      "133": {
+        "group_id": 2,
+        "level": 133,
+        "hp_bonus": 10560,
+        "attack_bonus": 7920,
+        "defense_bonus": 4400
+      },
+      "134": {
+        "group_id": 2,
+        "level": 134,
+        "hp_bonus": 10800,
+        "attack_bonus": 7920,
+        "defense_bonus": 4400
+      },
+      "135": {
+        "group_id": 2,
+        "level": 135,
+        "hp_bonus": 10800,
+        "attack_bonus": 8100,
+        "defense_bonus": 4400
+      },
+      "136": {
+        "group_id": 2,
+        "level": 136,
+        "hp_bonus": 10800,
+        "attack_bonus": 8100,
+        "defense_bonus": 4500
+      },
+      "137": {
+        "group_id": 2,
+        "level": 137,
+        "hp_bonus": 11040,
+        "attack_bonus": 8100,
+        "defense_bonus": 4500
+      },
+      "138": {
+        "group_id": 2,
+        "level": 138,
+        "hp_bonus": 11040,
+        "attack_bonus": 8280,
+        "defense_bonus": 4500
+      },
+      "139": {
+        "group_id": 2,
+        "level": 139,
+        "hp_bonus": 11040,
+        "attack_bonus": 8280,
+        "defense_bonus": 4600
+      },
+      "140": {
+        "group_id": 2,
+        "level": 140,
+        "hp_bonus": 11280,
+        "attack_bonus": 8280,
+        "defense_bonus": 4600
+      },
+      "141": {
+        "group_id": 2,
+        "level": 141,
+        "hp_bonus": 11280,
+        "attack_bonus": 8460,
+        "defense_bonus": 4600
+      },
+      "142": {
+        "group_id": 2,
+        "level": 142,
+        "hp_bonus": 11280,
+        "attack_bonus": 8460,
+        "defense_bonus": 4700
+      },
+      "143": {
+        "group_id": 2,
+        "level": 143,
+        "hp_bonus": 11520,
+        "attack_bonus": 8460,
+        "defense_bonus": 4700
+      },
+      "144": {
+        "group_id": 2,
+        "level": 144,
+        "hp_bonus": 11520,
+        "attack_bonus": 8640,
+        "defense_bonus": 4700
+      },
+      "145": {
+        "group_id": 2,
+        "level": 145,
+        "hp_bonus": 11520,
+        "attack_bonus": 8640,
+        "defense_bonus": 4800
+      },
+      "146": {
+        "group_id": 2,
+        "level": 146,
+        "hp_bonus": 11760,
+        "attack_bonus": 8640,
+        "defense_bonus": 4800
+      },
+      "147": {
+        "group_id": 2,
+        "level": 147,
+        "hp_bonus": 11760,
+        "attack_bonus": 8820,
+        "defense_bonus": 4800
+      },
+      "148": {
+        "group_id": 2,
+        "level": 148,
+        "hp_bonus": 11760,
+        "attack_bonus": 8820,
+        "defense_bonus": 4900
+      },
+      "149": {
+        "group_id": 2,
+        "level": 149,
+        "hp_bonus": 12000,
+        "attack_bonus": 8820,
+        "defense_bonus": 4900
+      },
+      "150": {
+        "group_id": 2,
+        "level": 150,
+        "hp_bonus": 12000,
+        "attack_bonus": 9000,
+        "defense_bonus": 4900
+      },
+      "151": {
+        "group_id": 2,
+        "level": 151,
+        "hp_bonus": 12000,
+        "attack_bonus": 9000,
+        "defense_bonus": 5000
+      },
+      "152": {
+        "group_id": 2,
+        "level": 152,
+        "hp_bonus": 12240,
+        "attack_bonus": 9000,
+        "defense_bonus": 5000
+      },
+      "153": {
+        "group_id": 2,
+        "level": 153,
+        "hp_bonus": 12240,
+        "attack_bonus": 9180,
+        "defense_bonus": 5000
+      },
+      "154": {
+        "group_id": 2,
+        "level": 154,
+        "hp_bonus": 12240,
+        "attack_bonus": 9180,
+        "defense_bonus": 5100
+      },
+      "155": {
+        "group_id": 2,
+        "level": 155,
+        "hp_bonus": 12480,
+        "attack_bonus": 9180,
+        "defense_bonus": 5100
+      },
+      "156": {
+        "group_id": 2,
+        "level": 156,
+        "hp_bonus": 12480,
+        "attack_bonus": 9360,
+        "defense_bonus": 5100
+      },
+      "157": {
+        "group_id": 2,
+        "level": 157,
+        "hp_bonus": 12480,
+        "attack_bonus": 9360,
+        "defense_bonus": 5200
+      },
+      "158": {
+        "group_id": 2,
+        "level": 158,
+        "hp_bonus": 12720,
+        "attack_bonus": 9360,
+        "defense_bonus": 5200
+      },
+      "159": {
+        "group_id": 2,
+        "level": 159,
+        "hp_bonus": 12720,
+        "attack_bonus": 9540,
+        "defense_bonus": 5200
+      },
+      "160": {
+        "group_id": 2,
+        "level": 160,
+        "hp_bonus": 12720,
+        "attack_bonus": 9540,
+        "defense_bonus": 5300
+      },
+      "161": {
+        "group_id": 2,
+        "level": 161,
+        "hp_bonus": 12960,
+        "attack_bonus": 9540,
+        "defense_bonus": 5300
+      },
+      "162": {
+        "group_id": 2,
+        "level": 162,
+        "hp_bonus": 12960,
+        "attack_bonus": 9720,
+        "defense_bonus": 5300
+      },
+      "163": {
+        "group_id": 2,
+        "level": 163,
+        "hp_bonus": 12960,
+        "attack_bonus": 9720,
+        "defense_bonus": 5400
+      },
+      "164": {
+        "group_id": 2,
+        "level": 164,
+        "hp_bonus": 13200,
+        "attack_bonus": 9720,
+        "defense_bonus": 5400
+      },
+      "165": {
+        "group_id": 2,
+        "level": 165,
+        "hp_bonus": 13200,
+        "attack_bonus": 9900,
+        "defense_bonus": 5400
+      },
+      "166": {
+        "group_id": 2,
+        "level": 166,
+        "hp_bonus": 13200,
+        "attack_bonus": 9900,
+        "defense_bonus": 5500
+      },
+      "167": {
+        "group_id": 2,
+        "level": 167,
+        "hp_bonus": 13440,
+        "attack_bonus": 9900,
+        "defense_bonus": 5500
+      },
+      "168": {
+        "group_id": 2,
+        "level": 168,
+        "hp_bonus": 13440,
+        "attack_bonus": 10080,
+        "defense_bonus": 5500
+      },
+      "169": {
+        "group_id": 2,
+        "level": 169,
+        "hp_bonus": 13440,
+        "attack_bonus": 10080,
+        "defense_bonus": 5600
+      },
+      "170": {
+        "group_id": 2,
+        "level": 170,
+        "hp_bonus": 13680,
+        "attack_bonus": 10080,
+        "defense_bonus": 5600
+      },
+      "171": {
+        "group_id": 2,
+        "level": 171,
+        "hp_bonus": 13680,
+        "attack_bonus": 10260,
+        "defense_bonus": 5600
+      },
+      "172": {
+        "group_id": 2,
+        "level": 172,
+        "hp_bonus": 13680,
+        "attack_bonus": 10260,
+        "defense_bonus": 5700
+      },
+      "173": {
+        "group_id": 2,
+        "level": 173,
+        "hp_bonus": 13920,
+        "attack_bonus": 10260,
+        "defense_bonus": 5700
+      },
+      "174": {
+        "group_id": 2,
+        "level": 174,
+        "hp_bonus": 13920,
+        "attack_bonus": 10440,
+        "defense_bonus": 5700
+      },
+      "175": {
+        "group_id": 2,
+        "level": 175,
+        "hp_bonus": 13920,
+        "attack_bonus": 10440,
+        "defense_bonus": 5800
+      },
+      "176": {
+        "group_id": 2,
+        "level": 176,
+        "hp_bonus": 14160,
+        "attack_bonus": 10440,
+        "defense_bonus": 5800
+      },
+      "177": {
+        "group_id": 2,
+        "level": 177,
+        "hp_bonus": 14160,
+        "attack_bonus": 10620,
+        "defense_bonus": 5800
+      },
+      "178": {
+        "group_id": 2,
+        "level": 178,
+        "hp_bonus": 14160,
+        "attack_bonus": 10620,
+        "defense_bonus": 5900
+      },
+      "179": {
+        "group_id": 2,
+        "level": 179,
+        "hp_bonus": 14400,
+        "attack_bonus": 10620,
+        "defense_bonus": 5900
+      },
+      "180": {
+        "group_id": 2,
+        "level": 180,
+        "hp_bonus": 14400,
+        "attack_bonus": 10800,
+        "defense_bonus": 5900
+      },
+      "181": {
+        "group_id": 2,
+        "level": 181,
+        "hp_bonus": 14400,
+        "attack_bonus": 10800,
+        "defense_bonus": 6000
+      },
+      "182": {
+        "group_id": 2,
+        "level": 182,
+        "hp_bonus": 14640,
+        "attack_bonus": 10800,
+        "defense_bonus": 6000
+      },
+      "183": {
+        "group_id": 2,
+        "level": 183,
+        "hp_bonus": 14640,
+        "attack_bonus": 10980,
+        "defense_bonus": 6000
+      },
+      "184": {
+        "group_id": 2,
+        "level": 184,
+        "hp_bonus": 14640,
+        "attack_bonus": 10980,
+        "defense_bonus": 6100
+      },
+      "185": {
+        "group_id": 2,
+        "level": 185,
+        "hp_bonus": 14880,
+        "attack_bonus": 10980,
+        "defense_bonus": 6100
+      },
+      "186": {
+        "group_id": 2,
+        "level": 186,
+        "hp_bonus": 14880,
+        "attack_bonus": 11160,
+        "defense_bonus": 6100
+      },
+      "187": {
+        "group_id": 2,
+        "level": 187,
+        "hp_bonus": 14880,
+        "attack_bonus": 11160,
+        "defense_bonus": 6200
+      },
+      "188": {
+        "group_id": 2,
+        "level": 188,
+        "hp_bonus": 15120,
+        "attack_bonus": 11160,
+        "defense_bonus": 6200
+      },
+      "189": {
+        "group_id": 2,
+        "level": 189,
+        "hp_bonus": 15120,
+        "attack_bonus": 11340,
+        "defense_bonus": 6200
+      },
+      "190": {
+        "group_id": 2,
+        "level": 190,
+        "hp_bonus": 15120,
+        "attack_bonus": 11340,
+        "defense_bonus": 6300
+      },
+      "191": {
+        "group_id": 2,
+        "level": 191,
+        "hp_bonus": 15360,
+        "attack_bonus": 11340,
+        "defense_bonus": 6300
+      },
+      "192": {
+        "group_id": 2,
+        "level": 192,
+        "hp_bonus": 15360,
+        "attack_bonus": 11520,
+        "defense_bonus": 6300
+      },
+      "193": {
+        "group_id": 2,
+        "level": 193,
+        "hp_bonus": 15360,
+        "attack_bonus": 11520,
+        "defense_bonus": 6400
+      },
+      "194": {
+        "group_id": 2,
+        "level": 194,
+        "hp_bonus": 15600,
+        "attack_bonus": 11520,
+        "defense_bonus": 6400
+      },
+      "195": {
+        "group_id": 2,
+        "level": 195,
+        "hp_bonus": 15600,
+        "attack_bonus": 11700,
+        "defense_bonus": 6400
+      },
+      "196": {
+        "group_id": 2,
+        "level": 196,
+        "hp_bonus": 15600,
+        "attack_bonus": 11700,
+        "defense_bonus": 6500
+      },
+      "197": {
+        "group_id": 2,
+        "level": 197,
+        "hp_bonus": 15840,
+        "attack_bonus": 11700,
+        "defense_bonus": 6500
+      },
+      "198": {
+        "group_id": 2,
+        "level": 198,
+        "hp_bonus": 15840,
+        "attack_bonus": 11880,
+        "defense_bonus": 6500
+      },
+      "199": {
+        "group_id": 2,
+        "level": 199,
+        "hp_bonus": 15840,
+        "attack_bonus": 11880,
+        "defense_bonus": 6600
+      },
+      "200": {
+        "group_id": 2,
+        "level": 200,
+        "hp_bonus": 16080,
+        "attack_bonus": 11880,
+        "defense_bonus": 6600
+      },
+      "201": {
+        "group_id": 2,
+        "level": 201,
+        "hp_bonus": 16080,
+        "attack_bonus": 12060,
+        "defense_bonus": 6600
+      },
+      "202": {
+        "group_id": 2,
+        "level": 202,
+        "hp_bonus": 16080,
+        "attack_bonus": 12060,
+        "defense_bonus": 6700
+      },
+      "203": {
+        "group_id": 2,
+        "level": 203,
+        "hp_bonus": 16320,
+        "attack_bonus": 12060,
+        "defense_bonus": 6700
+      },
+      "204": {
+        "group_id": 2,
+        "level": 204,
+        "hp_bonus": 16320,
+        "attack_bonus": 12240,
+        "defense_bonus": 6700
+      },
+      "205": {
+        "group_id": 2,
+        "level": 205,
+        "hp_bonus": 16320,
+        "attack_bonus": 12240,
+        "defense_bonus": 6800
+      },
+      "206": {
+        "group_id": 2,
+        "level": 206,
+        "hp_bonus": 16560,
+        "attack_bonus": 12240,
+        "defense_bonus": 6800
+      },
+      "207": {
+        "group_id": 2,
+        "level": 207,
+        "hp_bonus": 16560,
+        "attack_bonus": 12420,
+        "defense_bonus": 6800
+      },
+      "208": {
+        "group_id": 2,
+        "level": 208,
+        "hp_bonus": 16560,
+        "attack_bonus": 12420,
+        "defense_bonus": 6900
+      },
+      "209": {
+        "group_id": 2,
+        "level": 209,
+        "hp_bonus": 16800,
+        "attack_bonus": 12420,
+        "defense_bonus": 6900
+      },
+      "210": {
+        "group_id": 2,
+        "level": 210,
+        "hp_bonus": 16800,
+        "attack_bonus": 12600,
+        "defense_bonus": 6900
+      },
+      "211": {
+        "group_id": 2,
+        "level": 211,
+        "hp_bonus": 16800,
+        "attack_bonus": 12600,
+        "defense_bonus": 7000
+      },
+      "212": {
+        "group_id": 2,
+        "level": 212,
+        "hp_bonus": 17040,
+        "attack_bonus": 12600,
+        "defense_bonus": 7000
+      },
+      "213": {
+        "group_id": 2,
+        "level": 213,
+        "hp_bonus": 17040,
+        "attack_bonus": 12780,
+        "defense_bonus": 7000
+      },
+      "214": {
+        "group_id": 2,
+        "level": 214,
+        "hp_bonus": 17040,
+        "attack_bonus": 12780,
+        "defense_bonus": 7100
+      },
+      "215": {
+        "group_id": 2,
+        "level": 215,
+        "hp_bonus": 17280,
+        "attack_bonus": 12780,
+        "defense_bonus": 7100
+      },
+      "216": {
+        "group_id": 2,
+        "level": 216,
+        "hp_bonus": 17280,
+        "attack_bonus": 12960,
+        "defense_bonus": 7100
+      },
+      "217": {
+        "group_id": 2,
+        "level": 217,
+        "hp_bonus": 17280,
+        "attack_bonus": 12960,
+        "defense_bonus": 7200
+      },
+      "218": {
+        "group_id": 2,
+        "level": 218,
+        "hp_bonus": 17520,
+        "attack_bonus": 12960,
+        "defense_bonus": 7200
+      },
+      "219": {
+        "group_id": 2,
+        "level": 219,
+        "hp_bonus": 17520,
+        "attack_bonus": 13140,
+        "defense_bonus": 7200
+      },
+      "220": {
+        "group_id": 2,
+        "level": 220,
+        "hp_bonus": 17520,
+        "attack_bonus": 13140,
+        "defense_bonus": 7300
+      },
+      "221": {
+        "group_id": 2,
+        "level": 221,
+        "hp_bonus": 17760,
+        "attack_bonus": 13140,
+        "defense_bonus": 7300
+      },
+      "222": {
+        "group_id": 2,
+        "level": 222,
+        "hp_bonus": 17760,
+        "attack_bonus": 13320,
+        "defense_bonus": 7300
+      },
+      "223": {
+        "group_id": 2,
+        "level": 223,
+        "hp_bonus": 17760,
+        "attack_bonus": 13320,
+        "defense_bonus": 7400
+      },
+      "224": {
+        "group_id": 2,
+        "level": 224,
+        "hp_bonus": 18000,
+        "attack_bonus": 13320,
+        "defense_bonus": 7400
+      },
+      "225": {
+        "group_id": 2,
+        "level": 225,
+        "hp_bonus": 18000,
+        "attack_bonus": 13500,
+        "defense_bonus": 7400
+      },
+      "226": {
+        "group_id": 2,
+        "level": 226,
+        "hp_bonus": 18000,
+        "attack_bonus": 13500,
+        "defense_bonus": 7500
+      },
+      "227": {
+        "group_id": 2,
+        "level": 227,
+        "hp_bonus": 18240,
+        "attack_bonus": 13500,
+        "defense_bonus": 7500
+      },
+      "228": {
+        "group_id": 2,
+        "level": 228,
+        "hp_bonus": 18240,
+        "attack_bonus": 13680,
+        "defense_bonus": 7500
+      },
+      "229": {
+        "group_id": 2,
+        "level": 229,
+        "hp_bonus": 18240,
+        "attack_bonus": 13680,
+        "defense_bonus": 7600
+      },
+      "230": {
+        "group_id": 2,
+        "level": 230,
+        "hp_bonus": 18480,
+        "attack_bonus": 13680,
+        "defense_bonus": 7600
+      },
+      "231": {
+        "group_id": 2,
+        "level": 231,
+        "hp_bonus": 18480,
+        "attack_bonus": 13860,
+        "defense_bonus": 7600
+      },
+      "232": {
+        "group_id": 2,
+        "level": 232,
+        "hp_bonus": 18480,
+        "attack_bonus": 13860,
+        "defense_bonus": 7700
+      },
+      "233": {
+        "group_id": 2,
+        "level": 233,
+        "hp_bonus": 18720,
+        "attack_bonus": 13860,
+        "defense_bonus": 7700
+      },
+      "234": {
+        "group_id": 2,
+        "level": 234,
+        "hp_bonus": 18720,
+        "attack_bonus": 14040,
+        "defense_bonus": 7700
+      },
+      "235": {
+        "group_id": 2,
+        "level": 235,
+        "hp_bonus": 18720,
+        "attack_bonus": 14040,
+        "defense_bonus": 7800
+      },
+      "236": {
+        "group_id": 2,
+        "level": 236,
+        "hp_bonus": 18960,
+        "attack_bonus": 14040,
+        "defense_bonus": 7800
+      },
+      "237": {
+        "group_id": 2,
+        "level": 237,
+        "hp_bonus": 18960,
+        "attack_bonus": 14220,
+        "defense_bonus": 7800
+      },
+      "238": {
+        "group_id": 2,
+        "level": 238,
+        "hp_bonus": 18960,
+        "attack_bonus": 14220,
+        "defense_bonus": 7900
+      },
+      "239": {
+        "group_id": 2,
+        "level": 239,
+        "hp_bonus": 19200,
+        "attack_bonus": 14220,
+        "defense_bonus": 7900
+      },
+      "240": {
+        "group_id": 2,
+        "level": 240,
+        "hp_bonus": 19200,
+        "attack_bonus": 14400,
+        "defense_bonus": 7900
+      },
+      "241": {
+        "group_id": 2,
+        "level": 241,
+        "hp_bonus": 19200,
+        "attack_bonus": 14400,
+        "defense_bonus": 8000
+      },
+      "242": {
+        "group_id": 2,
+        "level": 242,
+        "hp_bonus": 19440,
+        "attack_bonus": 14400,
+        "defense_bonus": 8000
+      },
+      "243": {
+        "group_id": 2,
+        "level": 243,
+        "hp_bonus": 19440,
+        "attack_bonus": 14580,
+        "defense_bonus": 8000
+      },
+      "244": {
+        "group_id": 2,
+        "level": 244,
+        "hp_bonus": 19440,
+        "attack_bonus": 14580,
+        "defense_bonus": 8100
+      },
+      "245": {
+        "group_id": 2,
+        "level": 245,
+        "hp_bonus": 19680,
+        "attack_bonus": 14580,
+        "defense_bonus": 8100
+      },
+      "246": {
+        "group_id": 2,
+        "level": 246,
+        "hp_bonus": 19680,
+        "attack_bonus": 14760,
+        "defense_bonus": 8100
+      },
+      "247": {
+        "group_id": 2,
+        "level": 247,
+        "hp_bonus": 19680,
+        "attack_bonus": 14760,
+        "defense_bonus": 8200
+      },
+      "248": {
+        "group_id": 2,
+        "level": 248,
+        "hp_bonus": 19920,
+        "attack_bonus": 14760,
+        "defense_bonus": 8200
+      },
+      "249": {
+        "group_id": 2,
+        "level": 249,
+        "hp_bonus": 19920,
+        "attack_bonus": 14940,
+        "defense_bonus": 8200
+      },
+      "250": {
+        "group_id": 2,
+        "level": 250,
+        "hp_bonus": 19920,
+        "attack_bonus": 14940,
+        "defense_bonus": 8300
+      },
+      "251": {
+        "group_id": 2,
+        "level": 251,
+        "hp_bonus": 20160,
+        "attack_bonus": 14940,
+        "defense_bonus": 8300
+      },
+      "252": {
+        "group_id": 2,
+        "level": 252,
+        "hp_bonus": 20160,
+        "attack_bonus": 15120,
+        "defense_bonus": 8300
+      },
+      "253": {
+        "group_id": 2,
+        "level": 253,
+        "hp_bonus": 20160,
+        "attack_bonus": 15120,
+        "defense_bonus": 8400
+      },
+      "254": {
+        "group_id": 2,
+        "level": 254,
+        "hp_bonus": 20400,
+        "attack_bonus": 15120,
+        "defense_bonus": 8400
+      },
+      "255": {
+        "group_id": 2,
+        "level": 255,
+        "hp_bonus": 20400,
+        "attack_bonus": 15300,
+        "defense_bonus": 8400
+      },
+      "256": {
+        "group_id": 2,
+        "level": 256,
+        "hp_bonus": 20400,
+        "attack_bonus": 15300,
+        "defense_bonus": 8500
+      },
+      "257": {
+        "group_id": 2,
+        "level": 257,
+        "hp_bonus": 20640,
+        "attack_bonus": 15300,
+        "defense_bonus": 8500
+      },
+      "258": {
+        "group_id": 2,
+        "level": 258,
+        "hp_bonus": 20640,
+        "attack_bonus": 15480,
+        "defense_bonus": 8500
+      },
+      "259": {
+        "group_id": 2,
+        "level": 259,
+        "hp_bonus": 20640,
+        "attack_bonus": 15480,
+        "defense_bonus": 8600
+      },
+      "260": {
+        "group_id": 2,
+        "level": 260,
+        "hp_bonus": 20880,
+        "attack_bonus": 15480,
+        "defense_bonus": 8600
+      },
+      "261": {
+        "group_id": 2,
+        "level": 261,
+        "hp_bonus": 20880,
+        "attack_bonus": 15660,
+        "defense_bonus": 8600
+      },
+      "262": {
+        "group_id": 2,
+        "level": 262,
+        "hp_bonus": 20880,
+        "attack_bonus": 15660,
+        "defense_bonus": 8700
+      },
+      "263": {
+        "group_id": 2,
+        "level": 263,
+        "hp_bonus": 21120,
+        "attack_bonus": 15660,
+        "defense_bonus": 8700
+      },
+      "264": {
+        "group_id": 2,
+        "level": 264,
+        "hp_bonus": 21120,
+        "attack_bonus": 15840,
+        "defense_bonus": 8700
+      },
+      "265": {
+        "group_id": 2,
+        "level": 265,
+        "hp_bonus": 21120,
+        "attack_bonus": 15840,
+        "defense_bonus": 8800
+      },
+      "266": {
+        "group_id": 2,
+        "level": 266,
+        "hp_bonus": 21360,
+        "attack_bonus": 15840,
+        "defense_bonus": 8800
+      },
+      "267": {
+        "group_id": 2,
+        "level": 267,
+        "hp_bonus": 21360,
+        "attack_bonus": 16020,
+        "defense_bonus": 8800
+      },
+      "268": {
+        "group_id": 2,
+        "level": 268,
+        "hp_bonus": 21360,
+        "attack_bonus": 16020,
+        "defense_bonus": 8900
+      },
+      "269": {
+        "group_id": 2,
+        "level": 269,
+        "hp_bonus": 21600,
+        "attack_bonus": 16020,
+        "defense_bonus": 8900
+      },
+      "270": {
+        "group_id": 2,
+        "level": 270,
+        "hp_bonus": 21600,
+        "attack_bonus": 16200,
+        "defense_bonus": 8900
+      },
+      "271": {
+        "group_id": 2,
+        "level": 271,
+        "hp_bonus": 21600,
+        "attack_bonus": 16200,
+        "defense_bonus": 9000
+      },
+      "272": {
+        "group_id": 2,
+        "level": 272,
+        "hp_bonus": 21840,
+        "attack_bonus": 16200,
+        "defense_bonus": 9000
+      },
+      "273": {
+        "group_id": 2,
+        "level": 273,
+        "hp_bonus": 21840,
+        "attack_bonus": 16380,
+        "defense_bonus": 9000
+      },
+      "274": {
+        "group_id": 2,
+        "level": 274,
+        "hp_bonus": 21840,
+        "attack_bonus": 16380,
+        "defense_bonus": 9100
+      },
+      "275": {
+        "group_id": 2,
+        "level": 275,
+        "hp_bonus": 22080,
+        "attack_bonus": 16380,
+        "defense_bonus": 9100
+      },
+      "276": {
+        "group_id": 2,
+        "level": 276,
+        "hp_bonus": 22080,
+        "attack_bonus": 16560,
+        "defense_bonus": 9100
+      },
+      "277": {
+        "group_id": 2,
+        "level": 277,
+        "hp_bonus": 22080,
+        "attack_bonus": 16560,
+        "defense_bonus": 9200
+      },
+      "278": {
+        "group_id": 2,
+        "level": 278,
+        "hp_bonus": 22320,
+        "attack_bonus": 16560,
+        "defense_bonus": 9200
+      },
+      "279": {
+        "group_id": 2,
+        "level": 279,
+        "hp_bonus": 22320,
+        "attack_bonus": 16740,
+        "defense_bonus": 9200
+      },
+      "280": {
+        "group_id": 2,
+        "level": 280,
+        "hp_bonus": 22320,
+        "attack_bonus": 16740,
+        "defense_bonus": 9300
+      },
+      "281": {
+        "group_id": 2,
+        "level": 281,
+        "hp_bonus": 22560,
+        "attack_bonus": 16740,
+        "defense_bonus": 9300
+      },
+      "282": {
+        "group_id": 2,
+        "level": 282,
+        "hp_bonus": 22560,
+        "attack_bonus": 16920,
+        "defense_bonus": 9300
+      },
+      "283": {
+        "group_id": 2,
+        "level": 283,
+        "hp_bonus": 22560,
+        "attack_bonus": 16920,
+        "defense_bonus": 9400
+      },
+      "284": {
+        "group_id": 2,
+        "level": 284,
+        "hp_bonus": 22800,
+        "attack_bonus": 16920,
+        "defense_bonus": 9400
+      },
+      "285": {
+        "group_id": 2,
+        "level": 285,
+        "hp_bonus": 22800,
+        "attack_bonus": 17100,
+        "defense_bonus": 9400
+      },
+      "286": {
+        "group_id": 2,
+        "level": 286,
+        "hp_bonus": 22800,
+        "attack_bonus": 17100,
+        "defense_bonus": 9500
+      },
+      "287": {
+        "group_id": 2,
+        "level": 287,
+        "hp_bonus": 23040,
+        "attack_bonus": 17100,
+        "defense_bonus": 9500
+      },
+      "288": {
+        "group_id": 2,
+        "level": 288,
+        "hp_bonus": 23040,
+        "attack_bonus": 17280,
+        "defense_bonus": 9500
+      },
+      "289": {
+        "group_id": 2,
+        "level": 289,
+        "hp_bonus": 23040,
+        "attack_bonus": 17280,
+        "defense_bonus": 9600
+      },
+      "290": {
+        "group_id": 2,
+        "level": 290,
+        "hp_bonus": 23280,
+        "attack_bonus": 17280,
+        "defense_bonus": 9600
+      },
+      "291": {
+        "group_id": 2,
+        "level": 291,
+        "hp_bonus": 23280,
+        "attack_bonus": 17460,
+        "defense_bonus": 9600
+      },
+      "292": {
+        "group_id": 2,
+        "level": 292,
+        "hp_bonus": 23280,
+        "attack_bonus": 17460,
+        "defense_bonus": 9700
+      },
+      "293": {
+        "group_id": 2,
+        "level": 293,
+        "hp_bonus": 23520,
+        "attack_bonus": 17460,
+        "defense_bonus": 9700
+      },
+      "294": {
+        "group_id": 2,
+        "level": 294,
+        "hp_bonus": 23520,
+        "attack_bonus": 17640,
+        "defense_bonus": 9700
+      },
+      "295": {
+        "group_id": 2,
+        "level": 295,
+        "hp_bonus": 23520,
+        "attack_bonus": 17640,
+        "defense_bonus": 9800
+      },
+      "296": {
+        "group_id": 2,
+        "level": 296,
+        "hp_bonus": 23760,
+        "attack_bonus": 17640,
+        "defense_bonus": 9800
+      },
+      "297": {
+        "group_id": 2,
+        "level": 297,
+        "hp_bonus": 23760,
+        "attack_bonus": 17820,
+        "defense_bonus": 9800
+      },
+      "298": {
+        "group_id": 2,
+        "level": 298,
+        "hp_bonus": 23760,
+        "attack_bonus": 17820,
+        "defense_bonus": 9900
+      },
+      "299": {
+        "group_id": 2,
+        "level": 299,
+        "hp_bonus": 24000,
+        "attack_bonus": 17820,
+        "defense_bonus": 9900
+      },
+      "300": {
+        "group_id": 2,
+        "level": 300,
+        "hp_bonus": 24000,
+        "attack_bonus": 18000,
+        "defense_bonus": 9900
+      },
+      "301": {
+        "group_id": 2,
+        "level": 301,
+        "hp_bonus": 24000,
+        "attack_bonus": 18000,
+        "defense_bonus": 10000
+      },
+      "302": {
+        "group_id": 2,
+        "level": 302,
+        "hp_bonus": 24240,
+        "attack_bonus": 18000,
+        "defense_bonus": 10000
+      },
+      "303": {
+        "group_id": 2,
+        "level": 303,
+        "hp_bonus": 24240,
+        "attack_bonus": 18180,
+        "defense_bonus": 10000
+      },
+      "304": {
+        "group_id": 2,
+        "level": 304,
+        "hp_bonus": 24240,
+        "attack_bonus": 18180,
+        "defense_bonus": 10100
+      },
+      "305": {
+        "group_id": 2,
+        "level": 305,
+        "hp_bonus": 24480,
+        "attack_bonus": 18180,
+        "defense_bonus": 10100
+      },
+      "306": {
+        "group_id": 2,
+        "level": 306,
+        "hp_bonus": 24480,
+        "attack_bonus": 18360,
+        "defense_bonus": 10100
+      },
+      "307": {
+        "group_id": 2,
+        "level": 307,
+        "hp_bonus": 24480,
+        "attack_bonus": 18360,
+        "defense_bonus": 10200
+      },
+      "308": {
+        "group_id": 2,
+        "level": 308,
+        "hp_bonus": 24720,
+        "attack_bonus": 18360,
+        "defense_bonus": 10200
+      },
+      "309": {
+        "group_id": 2,
+        "level": 309,
+        "hp_bonus": 24720,
+        "attack_bonus": 18540,
+        "defense_bonus": 10200
+      },
+      "310": {
+        "group_id": 2,
+        "level": 310,
+        "hp_bonus": 24720,
+        "attack_bonus": 18540,
+        "defense_bonus": 10300
+      },
+      "311": {
+        "group_id": 2,
+        "level": 311,
+        "hp_bonus": 24960,
+        "attack_bonus": 18540,
+        "defense_bonus": 10300
+      },
+      "312": {
+        "group_id": 2,
+        "level": 312,
+        "hp_bonus": 24960,
+        "attack_bonus": 18720,
+        "defense_bonus": 10300
+      },
+      "313": {
+        "group_id": 2,
+        "level": 313,
+        "hp_bonus": 24960,
+        "attack_bonus": 18720,
+        "defense_bonus": 10400
+      },
+      "314": {
+        "group_id": 2,
+        "level": 314,
+        "hp_bonus": 25200,
+        "attack_bonus": 18720,
+        "defense_bonus": 10400
+      },
+      "315": {
+        "group_id": 2,
+        "level": 315,
+        "hp_bonus": 25200,
+        "attack_bonus": 18900,
+        "defense_bonus": 10400
+      },
+      "316": {
+        "group_id": 2,
+        "level": 316,
+        "hp_bonus": 25200,
+        "attack_bonus": 18900,
+        "defense_bonus": 10500
+      },
+      "317": {
+        "group_id": 2,
+        "level": 317,
+        "hp_bonus": 25440,
+        "attack_bonus": 18900,
+        "defense_bonus": 10500
+      },
+      "318": {
+        "group_id": 2,
+        "level": 318,
+        "hp_bonus": 25440,
+        "attack_bonus": 19080,
+        "defense_bonus": 10500
+      },
+      "319": {
+        "group_id": 2,
+        "level": 319,
+        "hp_bonus": 25440,
+        "attack_bonus": 19080,
+        "defense_bonus": 10600
+      },
+      "320": {
+        "group_id": 2,
+        "level": 320,
+        "hp_bonus": 25680,
+        "attack_bonus": 19080,
+        "defense_bonus": 10600
+      },
+      "321": {
+        "group_id": 2,
+        "level": 321,
+        "hp_bonus": 25680,
+        "attack_bonus": 19260,
+        "defense_bonus": 10600
+      },
+      "322": {
+        "group_id": 2,
+        "level": 322,
+        "hp_bonus": 25680,
+        "attack_bonus": 19260,
+        "defense_bonus": 10700
+      },
+      "323": {
+        "group_id": 2,
+        "level": 323,
+        "hp_bonus": 25920,
+        "attack_bonus": 19260,
+        "defense_bonus": 10700
+      },
+      "324": {
+        "group_id": 2,
+        "level": 324,
+        "hp_bonus": 25920,
+        "attack_bonus": 19440,
+        "defense_bonus": 10700
+      },
+      "325": {
+        "group_id": 2,
+        "level": 325,
+        "hp_bonus": 25920,
+        "attack_bonus": 19440,
+        "defense_bonus": 10800
+      },
+      "326": {
+        "group_id": 2,
+        "level": 326,
+        "hp_bonus": 26160,
+        "attack_bonus": 19440,
+        "defense_bonus": 10800
+      },
+      "327": {
+        "group_id": 2,
+        "level": 327,
+        "hp_bonus": 26160,
+        "attack_bonus": 19620,
+        "defense_bonus": 10800
+      },
+      "328": {
+        "group_id": 2,
+        "level": 328,
+        "hp_bonus": 26160,
+        "attack_bonus": 19620,
+        "defense_bonus": 10900
+      },
+      "329": {
+        "group_id": 2,
+        "level": 329,
+        "hp_bonus": 26400,
+        "attack_bonus": 19620,
+        "defense_bonus": 10900
+      },
+      "330": {
+        "group_id": 2,
+        "level": 330,
+        "hp_bonus": 26400,
+        "attack_bonus": 19800,
+        "defense_bonus": 10900
+      },
+      "331": {
+        "group_id": 2,
+        "level": 331,
+        "hp_bonus": 26400,
+        "attack_bonus": 19800,
+        "defense_bonus": 11000
+      },
+      "332": {
+        "group_id": 2,
+        "level": 332,
+        "hp_bonus": 26640,
+        "attack_bonus": 19800,
+        "defense_bonus": 11000
+      },
+      "333": {
+        "group_id": 2,
+        "level": 333,
+        "hp_bonus": 26640,
+        "attack_bonus": 19980,
+        "defense_bonus": 11000
+      },
+      "334": {
+        "group_id": 2,
+        "level": 334,
+        "hp_bonus": 26640,
+        "attack_bonus": 19980,
+        "defense_bonus": 11100
+      },
+      "335": {
+        "group_id": 2,
+        "level": 335,
+        "hp_bonus": 26880,
+        "attack_bonus": 19980,
+        "defense_bonus": 11100
+      },
+      "336": {
+        "group_id": 2,
+        "level": 336,
+        "hp_bonus": 26880,
+        "attack_bonus": 20160,
+        "defense_bonus": 11100
+      },
+      "337": {
+        "group_id": 2,
+        "level": 337,
+        "hp_bonus": 26880,
+        "attack_bonus": 20160,
+        "defense_bonus": 11200
+      },
+      "338": {
+        "group_id": 2,
+        "level": 338,
+        "hp_bonus": 27120,
+        "attack_bonus": 20160,
+        "defense_bonus": 11200
+      },
+      "339": {
+        "group_id": 2,
+        "level": 339,
+        "hp_bonus": 27120,
+        "attack_bonus": 20340,
+        "defense_bonus": 11200
+      },
+      "340": {
+        "group_id": 2,
+        "level": 340,
+        "hp_bonus": 27120,
+        "attack_bonus": 20340,
+        "defense_bonus": 11300
+      },
+      "341": {
+        "group_id": 2,
+        "level": 341,
+        "hp_bonus": 27360,
+        "attack_bonus": 20340,
+        "defense_bonus": 11300
+      },
+      "342": {
+        "group_id": 2,
+        "level": 342,
+        "hp_bonus": 27360,
+        "attack_bonus": 20520,
+        "defense_bonus": 11300
+      },
+      "343": {
+        "group_id": 2,
+        "level": 343,
+        "hp_bonus": 27360,
+        "attack_bonus": 20520,
+        "defense_bonus": 11400
+      },
+      "344": {
+        "group_id": 2,
+        "level": 344,
+        "hp_bonus": 27600,
+        "attack_bonus": 20520,
+        "defense_bonus": 11400
+      },
+      "345": {
+        "group_id": 2,
+        "level": 345,
+        "hp_bonus": 27600,
+        "attack_bonus": 20700,
+        "defense_bonus": 11400
+      },
+      "346": {
+        "group_id": 2,
+        "level": 346,
+        "hp_bonus": 27600,
+        "attack_bonus": 20700,
+        "defense_bonus": 11500
+      },
+      "347": {
+        "group_id": 2,
+        "level": 347,
+        "hp_bonus": 27840,
+        "attack_bonus": 20700,
+        "defense_bonus": 11500
+      },
+      "348": {
+        "group_id": 2,
+        "level": 348,
+        "hp_bonus": 27840,
+        "attack_bonus": 20880,
+        "defense_bonus": 11500
+      },
+      "349": {
+        "group_id": 2,
+        "level": 349,
+        "hp_bonus": 27840,
+        "attack_bonus": 20880,
+        "defense_bonus": 11600
+      },
+      "350": {
+        "group_id": 2,
+        "level": 350,
+        "hp_bonus": 28080,
+        "attack_bonus": 20880,
+        "defense_bonus": 11600
+      },
+      "351": {
+        "group_id": 2,
+        "level": 351,
+        "hp_bonus": 28080,
+        "attack_bonus": 21060,
+        "defense_bonus": 11600
+      },
+      "352": {
+        "group_id": 2,
+        "level": 352,
+        "hp_bonus": 28080,
+        "attack_bonus": 21060,
+        "defense_bonus": 11700
+      },
+      "353": {
+        "group_id": 2,
+        "level": 353,
+        "hp_bonus": 28320,
+        "attack_bonus": 21060,
+        "defense_bonus": 11700
+      },
+      "354": {
+        "group_id": 2,
+        "level": 354,
+        "hp_bonus": 28320,
+        "attack_bonus": 21240,
+        "defense_bonus": 11700
+      },
+      "355": {
+        "group_id": 2,
+        "level": 355,
+        "hp_bonus": 28320,
+        "attack_bonus": 21240,
+        "defense_bonus": 11800
+      },
+      "356": {
+        "group_id": 2,
+        "level": 356,
+        "hp_bonus": 28560,
+        "attack_bonus": 21240,
+        "defense_bonus": 11800
+      },
+      "357": {
+        "group_id": 2,
+        "level": 357,
+        "hp_bonus": 28560,
+        "attack_bonus": 21420,
+        "defense_bonus": 11800
+      },
+      "358": {
+        "group_id": 2,
+        "level": 358,
+        "hp_bonus": 28560,
+        "attack_bonus": 21420,
+        "defense_bonus": 11900
+      },
+      "359": {
+        "group_id": 2,
+        "level": 359,
+        "hp_bonus": 28800,
+        "attack_bonus": 21420,
+        "defense_bonus": 11900
+      },
+      "360": {
+        "group_id": 2,
+        "level": 360,
+        "hp_bonus": 28800,
+        "attack_bonus": 21600,
+        "defense_bonus": 11900
+      },
+      "361": {
+        "group_id": 2,
+        "level": 361,
+        "hp_bonus": 28800,
+        "attack_bonus": 21600,
+        "defense_bonus": 12000
+      },
+      "362": {
+        "group_id": 2,
+        "level": 362,
+        "hp_bonus": 29040,
+        "attack_bonus": 21600,
+        "defense_bonus": 12000
+      },
+      "363": {
+        "group_id": 2,
+        "level": 363,
+        "hp_bonus": 29040,
+        "attack_bonus": 21780,
+        "defense_bonus": 12000
+      },
+      "364": {
+        "group_id": 2,
+        "level": 364,
+        "hp_bonus": 29040,
+        "attack_bonus": 21780,
+        "defense_bonus": 12100
+      },
+      "365": {
+        "group_id": 2,
+        "level": 365,
+        "hp_bonus": 29280,
+        "attack_bonus": 21780,
+        "defense_bonus": 12100
+      },
+      "366": {
+        "group_id": 2,
+        "level": 366,
+        "hp_bonus": 29280,
+        "attack_bonus": 21960,
+        "defense_bonus": 12100
+      },
+      "367": {
+        "group_id": 2,
+        "level": 367,
+        "hp_bonus": 29280,
+        "attack_bonus": 21960,
+        "defense_bonus": 12200
+      },
+      "368": {
+        "group_id": 2,
+        "level": 368,
+        "hp_bonus": 29520,
+        "attack_bonus": 21960,
+        "defense_bonus": 12200
+      },
+      "369": {
+        "group_id": 2,
+        "level": 369,
+        "hp_bonus": 29520,
+        "attack_bonus": 22140,
+        "defense_bonus": 12200
+      },
+      "370": {
+        "group_id": 2,
+        "level": 370,
+        "hp_bonus": 29520,
+        "attack_bonus": 22140,
+        "defense_bonus": 12300
+      },
+      "371": {
+        "group_id": 2,
+        "level": 371,
+        "hp_bonus": 29760,
+        "attack_bonus": 22140,
+        "defense_bonus": 12300
+      },
+      "372": {
+        "group_id": 2,
+        "level": 372,
+        "hp_bonus": 29760,
+        "attack_bonus": 22320,
+        "defense_bonus": 12300
+      },
+      "373": {
+        "group_id": 2,
+        "level": 373,
+        "hp_bonus": 29760,
+        "attack_bonus": 22320,
+        "defense_bonus": 12400
+      },
+      "374": {
+        "group_id": 2,
+        "level": 374,
+        "hp_bonus": 30000,
+        "attack_bonus": 22320,
+        "defense_bonus": 12400
+      },
+      "375": {
+        "group_id": 2,
+        "level": 375,
+        "hp_bonus": 30000,
+        "attack_bonus": 22500,
+        "defense_bonus": 12400
+      },
+      "376": {
+        "group_id": 2,
+        "level": 376,
+        "hp_bonus": 30000,
+        "attack_bonus": 22500,
+        "defense_bonus": 12500
+      },
+      "377": {
+        "group_id": 2,
+        "level": 377,
+        "hp_bonus": 30240,
+        "attack_bonus": 22500,
+        "defense_bonus": 12500
+      },
+      "378": {
+        "group_id": 2,
+        "level": 378,
+        "hp_bonus": 30240,
+        "attack_bonus": 22680,
+        "defense_bonus": 12500
+      },
+      "379": {
+        "group_id": 2,
+        "level": 379,
+        "hp_bonus": 30240,
+        "attack_bonus": 22680,
+        "defense_bonus": 12600
+      },
+      "380": {
+        "group_id": 2,
+        "level": 380,
+        "hp_bonus": 30480,
+        "attack_bonus": 22680,
+        "defense_bonus": 12600
+      },
+      "381": {
+        "group_id": 2,
+        "level": 381,
+        "hp_bonus": 30480,
+        "attack_bonus": 22860,
+        "defense_bonus": 12600
+      },
+      "382": {
+        "group_id": 2,
+        "level": 382,
+        "hp_bonus": 30480,
+        "attack_bonus": 22860,
+        "defense_bonus": 12700
+      },
+      "383": {
+        "group_id": 2,
+        "level": 383,
+        "hp_bonus": 30720,
+        "attack_bonus": 22860,
+        "defense_bonus": 12700
+      },
+      "384": {
+        "group_id": 2,
+        "level": 384,
+        "hp_bonus": 30720,
+        "attack_bonus": 23040,
+        "defense_bonus": 12700
+      },
+      "385": {
+        "group_id": 2,
+        "level": 385,
+        "hp_bonus": 30720,
+        "attack_bonus": 23040,
+        "defense_bonus": 12800
+      },
+      "386": {
+        "group_id": 2,
+        "level": 386,
+        "hp_bonus": 30960,
+        "attack_bonus": 23040,
+        "defense_bonus": 12800
+      },
+      "387": {
+        "group_id": 2,
+        "level": 387,
+        "hp_bonus": 30960,
+        "attack_bonus": 23220,
+        "defense_bonus": 12800
+      },
+      "388": {
+        "group_id": 2,
+        "level": 388,
+        "hp_bonus": 30960,
+        "attack_bonus": 23220,
+        "defense_bonus": 12900
+      },
+      "389": {
+        "group_id": 2,
+        "level": 389,
+        "hp_bonus": 31200,
+        "attack_bonus": 23220,
+        "defense_bonus": 12900
+      },
+      "390": {
+        "group_id": 2,
+        "level": 390,
+        "hp_bonus": 31200,
+        "attack_bonus": 23400,
+        "defense_bonus": 12900
+      },
+      "391": {
+        "group_id": 2,
+        "level": 391,
+        "hp_bonus": 31200,
+        "attack_bonus": 23400,
+        "defense_bonus": 13000
+      },
+      "392": {
+        "group_id": 2,
+        "level": 392,
+        "hp_bonus": 31440,
+        "attack_bonus": 23400,
+        "defense_bonus": 13000
+      },
+      "393": {
+        "group_id": 2,
+        "level": 393,
+        "hp_bonus": 31440,
+        "attack_bonus": 23580,
+        "defense_bonus": 13000
+      },
+      "394": {
+        "group_id": 2,
+        "level": 394,
+        "hp_bonus": 31440,
+        "attack_bonus": 23580,
+        "defense_bonus": 13100
+      },
+      "395": {
+        "group_id": 2,
+        "level": 395,
+        "hp_bonus": 31680,
+        "attack_bonus": 23580,
+        "defense_bonus": 13100
+      },
+      "396": {
+        "group_id": 2,
+        "level": 396,
+        "hp_bonus": 31680,
+        "attack_bonus": 23760,
+        "defense_bonus": 13100
+      },
+      "397": {
+        "group_id": 2,
+        "level": 397,
+        "hp_bonus": 31680,
+        "attack_bonus": 23760,
+        "defense_bonus": 13200
+      },
+      "398": {
+        "group_id": 2,
+        "level": 398,
+        "hp_bonus": 31920,
+        "attack_bonus": 23760,
+        "defense_bonus": 13200
+      },
+      "399": {
+        "group_id": 2,
+        "level": 399,
+        "hp_bonus": 31920,
+        "attack_bonus": 23940,
+        "defense_bonus": 13200
+      },
+      "400": {
+        "group_id": 2,
+        "level": 400,
+        "hp_bonus": 31920,
+        "attack_bonus": 23940,
+        "defense_bonus": 13300
+      },
+      "401": {
+        "group_id": 2,
+        "level": 401,
+        "hp_bonus": 32160,
+        "attack_bonus": 23940,
+        "defense_bonus": 13300
+      },
+      "402": {
+        "group_id": 2,
+        "level": 402,
+        "hp_bonus": 32160,
+        "attack_bonus": 24120,
+        "defense_bonus": 13300
+      },
+      "403": {
+        "group_id": 2,
+        "level": 403,
+        "hp_bonus": 32160,
+        "attack_bonus": 24120,
+        "defense_bonus": 13400
+      },
+      "404": {
+        "group_id": 2,
+        "level": 404,
+        "hp_bonus": 32400,
+        "attack_bonus": 24120,
+        "defense_bonus": 13400
+      },
+      "405": {
+        "group_id": 2,
+        "level": 405,
+        "hp_bonus": 32400,
+        "attack_bonus": 24300,
+        "defense_bonus": 13400
+      },
+      "406": {
+        "group_id": 2,
+        "level": 406,
+        "hp_bonus": 32400,
+        "attack_bonus": 24300,
+        "defense_bonus": 13500
+      },
+      "407": {
+        "group_id": 2,
+        "level": 407,
+        "hp_bonus": 32640,
+        "attack_bonus": 24300,
+        "defense_bonus": 13500
+      },
+      "408": {
+        "group_id": 2,
+        "level": 408,
+        "hp_bonus": 32640,
+        "attack_bonus": 24480,
+        "defense_bonus": 13500
+      },
+      "409": {
+        "group_id": 2,
+        "level": 409,
+        "hp_bonus": 32640,
+        "attack_bonus": 24480,
+        "defense_bonus": 13600
+      },
+      "410": {
+        "group_id": 2,
+        "level": 410,
+        "hp_bonus": 32880,
+        "attack_bonus": 24480,
+        "defense_bonus": 13600
+      },
+      "411": {
+        "group_id": 2,
+        "level": 411,
+        "hp_bonus": 32880,
+        "attack_bonus": 24660,
+        "defense_bonus": 13600
+      },
+      "412": {
+        "group_id": 2,
+        "level": 412,
+        "hp_bonus": 32880,
+        "attack_bonus": 24660,
+        "defense_bonus": 13700
+      },
+      "413": {
+        "group_id": 2,
+        "level": 413,
+        "hp_bonus": 33120,
+        "attack_bonus": 24660,
+        "defense_bonus": 13700
+      },
+      "414": {
+        "group_id": 2,
+        "level": 414,
+        "hp_bonus": 33120,
+        "attack_bonus": 24840,
+        "defense_bonus": 13700
+      },
+      "415": {
+        "group_id": 2,
+        "level": 415,
+        "hp_bonus": 33120,
+        "attack_bonus": 24840,
+        "defense_bonus": 13800
+      },
+      "416": {
+        "group_id": 2,
+        "level": 416,
+        "hp_bonus": 33360,
+        "attack_bonus": 24840,
+        "defense_bonus": 13800
+      },
+      "417": {
+        "group_id": 2,
+        "level": 417,
+        "hp_bonus": 33360,
+        "attack_bonus": 25020,
+        "defense_bonus": 13800
+      },
+      "418": {
+        "group_id": 2,
+        "level": 418,
+        "hp_bonus": 33360,
+        "attack_bonus": 25020,
+        "defense_bonus": 13900
+      },
+      "419": {
+        "group_id": 2,
+        "level": 419,
+        "hp_bonus": 33600,
+        "attack_bonus": 25020,
+        "defense_bonus": 13900
+      },
+      "420": {
+        "group_id": 2,
+        "level": 420,
+        "hp_bonus": 33600,
+        "attack_bonus": 25200,
+        "defense_bonus": 13900
+      },
+      "421": {
+        "group_id": 2,
+        "level": 421,
+        "hp_bonus": 33600,
+        "attack_bonus": 25200,
+        "defense_bonus": 14000
+      },
+      "422": {
+        "group_id": 2,
+        "level": 422,
+        "hp_bonus": 33840,
+        "attack_bonus": 25200,
+        "defense_bonus": 14000
+      },
+      "423": {
+        "group_id": 2,
+        "level": 423,
+        "hp_bonus": 33840,
+        "attack_bonus": 25380,
+        "defense_bonus": 14000
+      },
+      "424": {
+        "group_id": 2,
+        "level": 424,
+        "hp_bonus": 33840,
+        "attack_bonus": 25380,
+        "defense_bonus": 14100
+      },
+      "425": {
+        "group_id": 2,
+        "level": 425,
+        "hp_bonus": 34080,
+        "attack_bonus": 25380,
+        "defense_bonus": 14100
+      },
+      "426": {
+        "group_id": 2,
+        "level": 426,
+        "hp_bonus": 34080,
+        "attack_bonus": 25560,
+        "defense_bonus": 14100
+      },
+      "427": {
+        "group_id": 2,
+        "level": 427,
+        "hp_bonus": 34080,
+        "attack_bonus": 25560,
+        "defense_bonus": 14200
+      },
+      "428": {
+        "group_id": 2,
+        "level": 428,
+        "hp_bonus": 34320,
+        "attack_bonus": 25560,
+        "defense_bonus": 14200
+      },
+      "429": {
+        "group_id": 2,
+        "level": 429,
+        "hp_bonus": 34320,
+        "attack_bonus": 25740,
+        "defense_bonus": 14200
+      },
+      "430": {
+        "group_id": 2,
+        "level": 430,
+        "hp_bonus": 34320,
+        "attack_bonus": 25740,
+        "defense_bonus": 14300
+      },
+      "431": {
+        "group_id": 2,
+        "level": 431,
+        "hp_bonus": 34560,
+        "attack_bonus": 25740,
+        "defense_bonus": 14300
+      },
+      "432": {
+        "group_id": 2,
+        "level": 432,
+        "hp_bonus": 34560,
+        "attack_bonus": 25920,
+        "defense_bonus": 14300
+      },
+      "433": {
+        "group_id": 2,
+        "level": 433,
+        "hp_bonus": 34560,
+        "attack_bonus": 25920,
+        "defense_bonus": 14400
+      },
+      "434": {
+        "group_id": 2,
+        "level": 434,
+        "hp_bonus": 34800,
+        "attack_bonus": 25920,
+        "defense_bonus": 14400
+      },
+      "435": {
+        "group_id": 2,
+        "level": 435,
+        "hp_bonus": 34800,
+        "attack_bonus": 26100,
+        "defense_bonus": 14400
+      },
+      "436": {
+        "group_id": 2,
+        "level": 436,
+        "hp_bonus": 34800,
+        "attack_bonus": 26100,
+        "defense_bonus": 14500
+      },
+      "437": {
+        "group_id": 2,
+        "level": 437,
+        "hp_bonus": 35040,
+        "attack_bonus": 26100,
+        "defense_bonus": 14500
+      },
+      "438": {
+        "group_id": 2,
+        "level": 438,
+        "hp_bonus": 35040,
+        "attack_bonus": 26280,
+        "defense_bonus": 14500
+      },
+      "439": {
+        "group_id": 2,
+        "level": 439,
+        "hp_bonus": 35040,
+        "attack_bonus": 26280,
+        "defense_bonus": 14600
+      },
+      "440": {
+        "group_id": 2,
+        "level": 440,
+        "hp_bonus": 35280,
+        "attack_bonus": 26280,
+        "defense_bonus": 14600
+      },
+      "441": {
+        "group_id": 2,
+        "level": 441,
+        "hp_bonus": 35280,
+        "attack_bonus": 26460,
+        "defense_bonus": 14600
+      },
+      "442": {
+        "group_id": 2,
+        "level": 442,
+        "hp_bonus": 35280,
+        "attack_bonus": 26460,
+        "defense_bonus": 14700
+      },
+      "443": {
+        "group_id": 2,
+        "level": 443,
+        "hp_bonus": 35520,
+        "attack_bonus": 26460,
+        "defense_bonus": 14700
+      },
+      "444": {
+        "group_id": 2,
+        "level": 444,
+        "hp_bonus": 35520,
+        "attack_bonus": 26640,
+        "defense_bonus": 14700
+      },
+      "445": {
+        "group_id": 2,
+        "level": 445,
+        "hp_bonus": 35520,
+        "attack_bonus": 26640,
+        "defense_bonus": 14800
+      },
+      "446": {
+        "group_id": 2,
+        "level": 446,
+        "hp_bonus": 35760,
+        "attack_bonus": 26640,
+        "defense_bonus": 14800
+      },
+      "447": {
+        "group_id": 2,
+        "level": 447,
+        "hp_bonus": 35760,
+        "attack_bonus": 26820,
+        "defense_bonus": 14800
+      },
+      "448": {
+        "group_id": 2,
+        "level": 448,
+        "hp_bonus": 35760,
+        "attack_bonus": 26820,
+        "defense_bonus": 14900
+      },
+      "449": {
+        "group_id": 2,
+        "level": 449,
+        "hp_bonus": 36000,
+        "attack_bonus": 26820,
+        "defense_bonus": 14900
+      },
+      "450": {
+        "group_id": 2,
+        "level": 450,
+        "hp_bonus": 36000,
+        "attack_bonus": 27000,
+        "defense_bonus": 14900
+      },
+      "451": {
+        "group_id": 2,
+        "level": 451,
+        "hp_bonus": 36000,
+        "attack_bonus": 27000,
+        "defense_bonus": 15000
+      },
+      "452": {
+        "group_id": 2,
+        "level": 452,
+        "hp_bonus": 36240,
+        "attack_bonus": 27000,
+        "defense_bonus": 15000
+      },
+      "453": {
+        "group_id": 2,
+        "level": 453,
+        "hp_bonus": 36240,
+        "attack_bonus": 27180,
+        "defense_bonus": 15000
+      },
+      "454": {
+        "group_id": 2,
+        "level": 454,
+        "hp_bonus": 36240,
+        "attack_bonus": 27180,
+        "defense_bonus": 15100
+      },
+      "455": {
+        "group_id": 2,
+        "level": 455,
+        "hp_bonus": 36480,
+        "attack_bonus": 27180,
+        "defense_bonus": 15100
+      },
+      "456": {
+        "group_id": 2,
+        "level": 456,
+        "hp_bonus": 36480,
+        "attack_bonus": 27360,
+        "defense_bonus": 15100
+      },
+      "457": {
+        "group_id": 2,
+        "level": 457,
+        "hp_bonus": 36480,
+        "attack_bonus": 27360,
+        "defense_bonus": 15200
+      },
+      "458": {
+        "group_id": 2,
+        "level": 458,
+        "hp_bonus": 36720,
+        "attack_bonus": 27360,
+        "defense_bonus": 15200
+      },
+      "459": {
+        "group_id": 2,
+        "level": 459,
+        "hp_bonus": 36720,
+        "attack_bonus": 27540,
+        "defense_bonus": 15200
+      },
+      "460": {
+        "group_id": 2,
+        "level": 460,
+        "hp_bonus": 36720,
+        "attack_bonus": 27540,
+        "defense_bonus": 15300
+      },
+      "461": {
+        "group_id": 2,
+        "level": 461,
+        "hp_bonus": 36960,
+        "attack_bonus": 27540,
+        "defense_bonus": 15300
+      },
+      "462": {
+        "group_id": 2,
+        "level": 462,
+        "hp_bonus": 36960,
+        "attack_bonus": 27720,
+        "defense_bonus": 15300
+      },
+      "463": {
+        "group_id": 2,
+        "level": 463,
+        "hp_bonus": 36960,
+        "attack_bonus": 27720,
+        "defense_bonus": 15400
+      },
+      "464": {
+        "group_id": 2,
+        "level": 464,
+        "hp_bonus": 37200,
+        "attack_bonus": 27720,
+        "defense_bonus": 15400
+      },
+      "465": {
+        "group_id": 2,
+        "level": 465,
+        "hp_bonus": 37200,
+        "attack_bonus": 27900,
+        "defense_bonus": 15400
+      },
+      "466": {
+        "group_id": 2,
+        "level": 466,
+        "hp_bonus": 37200,
+        "attack_bonus": 27900,
+        "defense_bonus": 15500
+      },
+      "467": {
+        "group_id": 2,
+        "level": 467,
+        "hp_bonus": 37440,
+        "attack_bonus": 27900,
+        "defense_bonus": 15500
+      },
+      "468": {
+        "group_id": 2,
+        "level": 468,
+        "hp_bonus": 37440,
+        "attack_bonus": 28080,
+        "defense_bonus": 15500
+      },
+      "469": {
+        "group_id": 2,
+        "level": 469,
+        "hp_bonus": 37440,
+        "attack_bonus": 28080,
+        "defense_bonus": 15600
+      },
+      "470": {
+        "group_id": 2,
+        "level": 470,
+        "hp_bonus": 37680,
+        "attack_bonus": 28080,
+        "defense_bonus": 15600
+      },
+      "471": {
+        "group_id": 2,
+        "level": 471,
+        "hp_bonus": 37680,
+        "attack_bonus": 28260,
+        "defense_bonus": 15600
+      },
+      "472": {
+        "group_id": 2,
+        "level": 472,
+        "hp_bonus": 37680,
+        "attack_bonus": 28260,
+        "defense_bonus": 15700
+      },
+      "473": {
+        "group_id": 2,
+        "level": 473,
+        "hp_bonus": 37920,
+        "attack_bonus": 28260,
+        "defense_bonus": 15700
+      },
+      "474": {
+        "group_id": 2,
+        "level": 474,
+        "hp_bonus": 37920,
+        "attack_bonus": 28440,
+        "defense_bonus": 15700
+      },
+      "475": {
+        "group_id": 2,
+        "level": 475,
+        "hp_bonus": 37920,
+        "attack_bonus": 28440,
+        "defense_bonus": 15800
+      },
+      "476": {
+        "group_id": 2,
+        "level": 476,
+        "hp_bonus": 38160,
+        "attack_bonus": 28440,
+        "defense_bonus": 15800
+      },
+      "477": {
+        "group_id": 2,
+        "level": 477,
+        "hp_bonus": 38160,
+        "attack_bonus": 28620,
+        "defense_bonus": 15800
+      },
+      "478": {
+        "group_id": 2,
+        "level": 478,
+        "hp_bonus": 38160,
+        "attack_bonus": 28620,
+        "defense_bonus": 15900
+      },
+      "479": {
+        "group_id": 2,
+        "level": 479,
+        "hp_bonus": 38400,
+        "attack_bonus": 28620,
+        "defense_bonus": 15900
+      },
+      "480": {
+        "group_id": 2,
+        "level": 480,
+        "hp_bonus": 38400,
+        "attack_bonus": 28800,
+        "defense_bonus": 15900
+      },
+      "481": {
+        "group_id": 2,
+        "level": 481,
+        "hp_bonus": 38400,
+        "attack_bonus": 28800,
+        "defense_bonus": 16000
+      },
+      "482": {
+        "group_id": 2,
+        "level": 482,
+        "hp_bonus": 38640,
+        "attack_bonus": 28800,
+        "defense_bonus": 16000
+      },
+      "483": {
+        "group_id": 2,
+        "level": 483,
+        "hp_bonus": 38640,
+        "attack_bonus": 28980,
+        "defense_bonus": 16000
+      },
+      "484": {
+        "group_id": 2,
+        "level": 484,
+        "hp_bonus": 38640,
+        "attack_bonus": 28980,
+        "defense_bonus": 16100
+      },
+      "485": {
+        "group_id": 2,
+        "level": 485,
+        "hp_bonus": 38880,
+        "attack_bonus": 28980,
+        "defense_bonus": 16100
+      },
+      "486": {
+        "group_id": 2,
+        "level": 486,
+        "hp_bonus": 38880,
+        "attack_bonus": 29160,
+        "defense_bonus": 16100
+      },
+      "487": {
+        "group_id": 2,
+        "level": 487,
+        "hp_bonus": 38880,
+        "attack_bonus": 29160,
+        "defense_bonus": 16200
+      },
+      "488": {
+        "group_id": 2,
+        "level": 488,
+        "hp_bonus": 39120,
+        "attack_bonus": 29160,
+        "defense_bonus": 16200
+      },
+      "489": {
+        "group_id": 2,
+        "level": 489,
+        "hp_bonus": 39120,
+        "attack_bonus": 29340,
+        "defense_bonus": 16200
+      },
+      "490": {
+        "group_id": 2,
+        "level": 490,
+        "hp_bonus": 39120,
+        "attack_bonus": 29340,
+        "defense_bonus": 16300
+      },
+      "491": {
+        "group_id": 2,
+        "level": 491,
+        "hp_bonus": 39360,
+        "attack_bonus": 29340,
+        "defense_bonus": 16300
+      },
+      "492": {
+        "group_id": 2,
+        "level": 492,
+        "hp_bonus": 39360,
+        "attack_bonus": 29520,
+        "defense_bonus": 16300
+      },
+      "493": {
+        "group_id": 2,
+        "level": 493,
+        "hp_bonus": 39360,
+        "attack_bonus": 29520,
+        "defense_bonus": 16400
+      },
+      "494": {
+        "group_id": 2,
+        "level": 494,
+        "hp_bonus": 39600,
+        "attack_bonus": 29520,
+        "defense_bonus": 16400
+      },
+      "495": {
+        "group_id": 2,
+        "level": 495,
+        "hp_bonus": 39600,
+        "attack_bonus": 29700,
+        "defense_bonus": 16400
+      },
+      "496": {
+        "group_id": 2,
+        "level": 496,
+        "hp_bonus": 39600,
+        "attack_bonus": 29700,
+        "defense_bonus": 16500
+      },
+      "497": {
+        "group_id": 2,
+        "level": 497,
+        "hp_bonus": 39840,
+        "attack_bonus": 29700,
+        "defense_bonus": 16500
+      },
+      "498": {
+        "group_id": 2,
+        "level": 498,
+        "hp_bonus": 39840,
+        "attack_bonus": 29880,
+        "defense_bonus": 16500
+      },
+      "499": {
+        "group_id": 2,
+        "level": 499,
+        "hp_bonus": 39840,
+        "attack_bonus": 29880,
+        "defense_bonus": 16600
+      },
+      "500": {
+        "group_id": 2,
+        "level": 500,
+        "hp_bonus": 40080,
+        "attack_bonus": 29880,
+        "defense_bonus": 16600
+      }
+    }
+  }
+}

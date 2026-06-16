@@ -1,0 +1,556 @@
+{
+  "teams": {
+    "101": "シリウスシュガー",
+    "102": "カラフルブーケ",
+    "201": "カオスメイデン",
+    "202": "インスカーレット",
+    "301": "ピクシス・マスール",
+    "401": "トレブルクインテット",
+    "402": "トリニティ・ジュエル",
+    "501": "プレ・クラス－Ａ",
+    "701": "風紀委員会",
+    "801": "STRANGERS Ⅰ",
+    "803": "The Manor's Favor",
+    "601": "クラスナ"
+  },
+  "character_base": {
+    "100": {
+      "name": "桃園める",
+      "name_ruby": "ももぞのめる",
+      "team_id": 101,
+      "team_name": "シリウスシュガー"
+    },
+    "101": {
+      "name": "鳴滝七彩",
+      "name_ruby": "なるたきなないろ",
+      "team_id": 101,
+      "team_name": "シリウスシュガー"
+    },
+    "102": {
+      "name": "月ヶ瀬ちゆる",
+      "name_ruby": "つきがせちゆる",
+      "team_id": 101,
+      "team_name": "シリウスシュガー"
+    },
+    "103": {
+      "name": "朽葉ラミ",
+      "name_ruby": "くちばらみ",
+      "team_id": 101,
+      "team_name": "シリウスシュガー"
+    },
+    "104": {
+      "name": "一条白奈",
+      "name_ruby": "いちじょうしろな",
+      "team_id": 101,
+      "team_name": "シリウスシュガー"
+    },
+    "105": {
+      "name": "生駒葵",
+      "name_ruby": "いこまあおい",
+      "team_id": 102,
+      "team_name": "カラフルブーケ"
+    },
+    "106": {
+      "name": "波瀬うるう",
+      "name_ruby": "なみせうるう",
+      "team_id": 102,
+      "team_name": "カラフルブーケ"
+    },
+    "107": {
+      "name": "姫川泉花",
+      "name_ruby": "ひめかわせんか",
+      "team_id": 102,
+      "team_name": "カラフルブーケ"
+    },
+    "108": {
+      "name": "綺羅クララ",
+      "name_ruby": "きらくらら",
+      "team_id": 102,
+      "team_name": "カラフルブーケ"
+    },
+    "109": {
+      "name": "夕凪舞亜",
+      "name_ruby": "ゆうなぎまいあ",
+      "team_id": 102,
+      "team_name": "カラフルブーケ"
+    },
+    "110": {
+      "name": "ユリア・バーンズ",
+      "name_ruby": "ゆりあばーんず",
+      "team_id": 201,
+      "team_name": "カオスメイデン"
+    },
+    "111": {
+      "name": "劉翠蘭",
+      "name_ruby": "りゅうすいらん",
+      "team_id": 201,
+      "team_name": "カオスメイデン"
+    },
+    "112": {
+      "name": "紫雲沙耶",
+      "name_ruby": "しうんさや",
+      "team_id": 201,
+      "team_name": "カオスメイデン"
+    },
+    "113": {
+      "name": "フィー・ドレーゼ",
+      "name_ruby": "ふぃーどれーぜ",
+      "team_id": 201,
+      "team_name": "カオスメイデン"
+    },
+    "114": {
+      "name": "アニス・ベネット",
+      "name_ruby": "あにすべねっと",
+      "team_id": 201,
+      "team_name": "カオスメイデン"
+    },
+    "115": {
+      "name": "榊野ヒイロ",
+      "name_ruby": "さかきのひいろ",
+      "team_id": 202,
+      "team_name": "インスカーレット"
+    },
+    "116": {
+      "name": "フルート・メルヴィル",
+      "name_ruby": "ふるーとめるゔぃる",
+      "team_id": 401,
+      "team_name": "トレブルクインテット"
+    },
+    "117": {
+      "name": "エヴィ・レーナルト",
+      "name_ruby": "えゔぃれーなると",
+      "team_id": 401,
+      "team_name": "トレブルクインテット"
+    },
+    "118": {
+      "name": "シエナ・クラーク",
+      "name_ruby": "しえなくらーく",
+      "team_id": 401,
+      "team_name": "トレブルクインテット"
+    },
+    "119": {
+      "name": "レイラ・ジェンキンス",
+      "name_ruby": "れいらじぇんきんす",
+      "team_id": 401,
+      "team_name": "トレブルクインテット"
+    },
+    "120": {
+      "name": "ロージー・ヒューズ",
+      "name_ruby": "ろーじーひゅーず",
+      "team_id": 401,
+      "team_name": "トレブルクインテット"
+    },
+    "121": {
+      "name": "ドロテア・カークランド",
+      "name_ruby": "どろてあかーくらんど",
+      "team_id": 301,
+      "team_name": "ピクシス・マスール"
+    },
+    "122": {
+      "name": "ミリアム・ヘイワード",
+      "name_ruby": "みりあむへいわーど",
+      "team_id": 301,
+      "team_name": "ピクシス・マスール"
+    },
+    "123": {
+      "name": "ハリエット・ミルズ",
+      "name_ruby": "はりえっとみるず",
+      "team_id": 301,
+      "team_name": "ピクシス・マスール"
+    },
+    "124": {
+      "name": "ケイト・フルニエ",
+      "name_ruby": "けいとふるにえ",
+      "team_id": 301,
+      "team_name": "ピクシス・マスール"
+    },
+    "125": {
+      "name": "ジュリー・ステイシー",
+      "name_ruby": "じゅりーすていしー",
+      "team_id": 501,
+      "team_name": "プレ・クラス－Ａ"
+    },
+    "126": {
+      "name": "黒森ラウラ",
+      "name_ruby": "くろもりらうら",
+      "team_id": 501,
+      "team_name": "プレ・クラス－Ａ"
+    },
+    "127": {
+      "name": "樋向心香",
+      "name_ruby": "ひむかいしんか",
+      "team_id": 501,
+      "team_name": "プレ・クラス－Ａ"
+    },
+    "128": {
+      "name": "ノエル・アルエ",
+      "name_ruby": "のえるあるえ",
+      "team_id": 501,
+      "team_name": "プレ・クラス－Ａ"
+    },
+    "129": {
+      "name": "リュシー・ムーアクロフト",
+      "name_ruby": "りゅしーむーあくろふと",
+      "team_id": 301,
+      "team_name": "ピクシス・マスール"
+    },
+    "130": {
+      "name": "リリー・ラヴォア",
+      "name_ruby": "りりーらゔぉあ",
+      "team_id": 701,
+      "team_name": "風紀委員会"
+    },
+    "131": {
+      "name": "姜小花",
+      "name_ruby": "きょうしゃおふぁ",
+      "team_id": 701,
+      "team_name": "風紀委員会"
+    },
+    "132": {
+      "name": "鑑純夏",
+      "name_ruby": "かがみすみか",
+      "team_id": 801,
+      "team_name": "STRANGERS Ⅰ"
+    },
+    "133": {
+      "name": "御剣冥夜",
+      "name_ruby": "みつるぎめいや",
+      "team_id": 801,
+      "team_name": "STRANGERS Ⅰ"
+    },
+    "134": {
+      "name": "珠瀬壬姫",
+      "name_ruby": "たませみき",
+      "team_id": 801,
+      "team_name": "STRANGERS Ⅰ"
+    },
+    "138": {
+      "name": "レイヴェル・ブライトリーフ",
+      "name_ruby": "れいゔぇるぶらいとりーふ",
+      "team_id": 402,
+      "team_name": "トリニティ・ジュエル"
+    },
+    "139": {
+      "name": "ルナ・メロウ",
+      "name_ruby": "るなめろう",
+      "team_id": 402,
+      "team_name": "トリニティ・ジュエル"
+    },
+    "150": {
+      "name": "ステラ・ブレーメル",
+      "name_ruby": "すてらぶれーめる",
+      "team_id": 803,
+      "team_name": "The Manor's Favor"
+    },
+    "143": {
+      "name": "オルガ・ヴォルコワ",
+      "name_ruby": "おるがゔぉるこわ",
+      "team_id": 601,
+      "team_name": "クラスナ"
+    },
+    "148": {
+      "name": "篁唯依",
+      "name_ruby": "たかむらゆい",
+      "team_id": 803,
+      "team_name": "The Manor's Favor"
+    },
+    "149": {
+      "name": "タリサ・マナンダル",
+      "name_ruby": "たりさまなんだる",
+      "team_id": 803,
+      "team_name": "The Manor's Favor"
+    }
+  },
+  "character_variants": {
+    "100": [
+      {
+        "character_id": 100201,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 100301,
+        "rarity": "N/A"
+      }
+    ],
+    "101": [
+      {
+        "character_id": 101201,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 101301,
+        "rarity": "N/A"
+      }
+    ],
+    "102": [
+      {
+        "character_id": 102201,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 102301,
+        "rarity": "N/A"
+      }
+    ],
+    "103": [
+      {
+        "character_id": 103201,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 103301,
+        "rarity": "N/A"
+      }
+    ],
+    "104": [
+      {
+        "character_id": 104201,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 104301,
+        "rarity": "N/A"
+      }
+    ],
+    "105": [
+      {
+        "character_id": 105301,
+        "rarity": "N/A"
+      }
+    ],
+    "106": [
+      {
+        "character_id": 106301,
+        "rarity": "N/A"
+      }
+    ],
+    "107": [
+      {
+        "character_id": 107301,
+        "rarity": "N/A"
+      }
+    ],
+    "108": [
+      {
+        "character_id": 108301,
+        "rarity": "N/A"
+      }
+    ],
+    "109": [
+      {
+        "character_id": 109301,
+        "rarity": "N/A"
+      }
+    ],
+    "110": [
+      {
+        "character_id": 110301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 110302,
+        "rarity": "N/A"
+      }
+    ],
+    "111": [
+      {
+        "character_id": 111301,
+        "rarity": "N/A"
+      }
+    ],
+    "112": [
+      {
+        "character_id": 112301,
+        "rarity": "N/A"
+      }
+    ],
+    "113": [
+      {
+        "character_id": 113301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 113302,
+        "rarity": "N/A"
+      }
+    ],
+    "114": [
+      {
+        "character_id": 114301,
+        "rarity": "N/A"
+      }
+    ],
+    "115": [
+      {
+        "character_id": 115301,
+        "rarity": "N/A"
+      }
+    ],
+    "116": [
+      {
+        "character_id": 116301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 116302,
+        "rarity": "N/A"
+      }
+    ],
+    "117": [
+      {
+        "character_id": 117301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 117302,
+        "rarity": "N/A"
+      }
+    ],
+    "118": [
+      {
+        "character_id": 118301,
+        "rarity": "N/A"
+      }
+    ],
+    "119": [
+      {
+        "character_id": 119301,
+        "rarity": "N/A"
+      }
+    ],
+    "120": [
+      {
+        "character_id": 120301,
+        "rarity": "N/A"
+      }
+    ],
+    "121": [
+      {
+        "character_id": 121301,
+        "rarity": "N/A"
+      }
+    ],
+    "122": [
+      {
+        "character_id": 122201,
+        "rarity": "N/A"
+      }
+    ],
+    "123": [
+      {
+        "character_id": 123201,
+        "rarity": "N/A"
+      }
+    ],
+    "124": [
+      {
+        "character_id": 124201,
+        "rarity": "N/A"
+      }
+    ],
+    "125": [
+      {
+        "character_id": 125101,
+        "rarity": "N/A"
+      }
+    ],
+    "126": [
+      {
+        "character_id": 126101,
+        "rarity": "N/A"
+      }
+    ],
+    "127": [
+      {
+        "character_id": 127101,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 127301,
+        "rarity": "N/A"
+      }
+    ],
+    "128": [
+      {
+        "character_id": 128101,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 128301,
+        "rarity": "N/A"
+      }
+    ],
+    "129": [
+      {
+        "character_id": 129301,
+        "rarity": "N/A"
+      }
+    ],
+    "130": [
+      {
+        "character_id": 130301,
+        "rarity": "N/A"
+      }
+    ],
+    "131": [
+      {
+        "character_id": 131301,
+        "rarity": "N/A"
+      }
+    ],
+    "132": [
+      {
+        "character_id": 132301,
+        "rarity": "N/A"
+      }
+    ],
+    "133": [
+      {
+        "character_id": 133301,
+        "rarity": "N/A"
+      }
+    ],
+    "134": [
+      {
+        "character_id": 134301,
+        "rarity": "N/A"
+      }
+    ],
+    "138": [
+      {
+        "character_id": 138301,
+        "rarity": "N/A"
+      }
+    ],
+    "139": [
+      {
+        "character_id": 139301,
+        "rarity": "N/A"
+      }
+    ],
+    "150": [
+      {
+        "character_id": 150301,
+        "rarity": "N/A"
+      }
+    ],
+    "143": [
+      {
+        "character_id": 143301,
+        "rarity": "N/A"
+      }
+    ],
+    "148": [
+      {
+        "character_id": 148301,
+        "rarity": "N/A"
+      }
+    ],
+    "149": [
+      {
+        "character_id": 149301,
+        "rarity": "N/A"
+      }
+    ]
+  }
+}

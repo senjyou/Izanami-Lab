@@ -1,0 +1,1208 @@
+{
+  "1": {
+    "1": {
+      "affection_level": 1,
+      "character_type": 1,
+      "additional_hp": 0,
+      "additional_attack": 0,
+      "additional_defense": 0,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "2": {
+      "affection_level": 2,
+      "character_type": 1,
+      "additional_hp": 41,
+      "additional_attack": 31,
+      "additional_defense": 17,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "3": {
+      "affection_level": 3,
+      "character_type": 1,
+      "additional_hp": 82,
+      "additional_attack": 62,
+      "additional_defense": 34,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "4": {
+      "affection_level": 4,
+      "character_type": 1,
+      "additional_hp": 123,
+      "additional_attack": 93,
+      "additional_defense": 51,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "5": {
+      "affection_level": 5,
+      "character_type": 1,
+      "additional_hp": 164,
+      "additional_attack": 124,
+      "additional_defense": 68,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "6": {
+      "affection_level": 6,
+      "character_type": 1,
+      "additional_hp": 205,
+      "additional_attack": 155,
+      "additional_defense": 85,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "7": {
+      "affection_level": 7,
+      "character_type": 1,
+      "additional_hp": 246,
+      "additional_attack": 186,
+      "additional_defense": 102,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "8": {
+      "affection_level": 8,
+      "character_type": 1,
+      "additional_hp": 287,
+      "additional_attack": 217,
+      "additional_defense": 119,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "9": {
+      "affection_level": 9,
+      "character_type": 1,
+      "additional_hp": 328,
+      "additional_attack": 248,
+      "additional_defense": 136,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "10": {
+      "affection_level": 10,
+      "character_type": 1,
+      "additional_hp": 369,
+      "additional_attack": 279,
+      "additional_defense": 153,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "11": {
+      "affection_level": 11,
+      "character_type": 1,
+      "additional_hp": 492,
+      "additional_attack": 372,
+      "additional_defense": 204,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "12": {
+      "affection_level": 12,
+      "character_type": 1,
+      "additional_hp": 553,
+      "additional_attack": 418,
+      "additional_defense": 229,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "13": {
+      "affection_level": 13,
+      "character_type": 1,
+      "additional_hp": 614,
+      "additional_attack": 464,
+      "additional_defense": 254,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "14": {
+      "affection_level": 14,
+      "character_type": 1,
+      "additional_hp": 675,
+      "additional_attack": 510,
+      "additional_defense": 279,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "15": {
+      "affection_level": 15,
+      "character_type": 1,
+      "additional_hp": 736,
+      "additional_attack": 556,
+      "additional_defense": 304,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "16": {
+      "affection_level": 16,
+      "character_type": 1,
+      "additional_hp": 797,
+      "additional_attack": 602,
+      "additional_defense": 329,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "17": {
+      "affection_level": 17,
+      "character_type": 1,
+      "additional_hp": 858,
+      "additional_attack": 648,
+      "additional_defense": 354,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "18": {
+      "affection_level": 18,
+      "character_type": 1,
+      "additional_hp": 919,
+      "additional_attack": 694,
+      "additional_defense": 379,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "19": {
+      "affection_level": 19,
+      "character_type": 1,
+      "additional_hp": 980,
+      "additional_attack": 740,
+      "additional_defense": 404,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "20": {
+      "affection_level": 20,
+      "character_type": 1,
+      "additional_hp": 1041,
+      "additional_attack": 786,
+      "additional_defense": 429,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "21": {
+      "affection_level": 21,
+      "character_type": 1,
+      "additional_hp": 1224,
+      "additional_attack": 924,
+      "additional_defense": 504,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "22": {
+      "affection_level": 22,
+      "character_type": 1,
+      "additional_hp": 1306,
+      "additional_attack": 986,
+      "additional_defense": 538,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "23": {
+      "affection_level": 23,
+      "character_type": 1,
+      "additional_hp": 1388,
+      "additional_attack": 1048,
+      "additional_defense": 572,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "24": {
+      "affection_level": 24,
+      "character_type": 1,
+      "additional_hp": 1470,
+      "additional_attack": 1110,
+      "additional_defense": 606,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "25": {
+      "affection_level": 25,
+      "character_type": 1,
+      "additional_hp": 1552,
+      "additional_attack": 1172,
+      "additional_defense": 640,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "26": {
+      "affection_level": 26,
+      "character_type": 1,
+      "additional_hp": 1634,
+      "additional_attack": 1234,
+      "additional_defense": 674,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "27": {
+      "affection_level": 27,
+      "character_type": 1,
+      "additional_hp": 1716,
+      "additional_attack": 1296,
+      "additional_defense": 708,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "28": {
+      "affection_level": 28,
+      "character_type": 1,
+      "additional_hp": 1798,
+      "additional_attack": 1358,
+      "additional_defense": 742,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "29": {
+      "affection_level": 29,
+      "character_type": 1,
+      "additional_hp": 1880,
+      "additional_attack": 1420,
+      "additional_defense": 776,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "30": {
+      "affection_level": 30,
+      "character_type": 1,
+      "additional_hp": 1962,
+      "additional_attack": 1482,
+      "additional_defense": 810,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "31": {
+      "affection_level": 31,
+      "character_type": 1,
+      "additional_hp": 2208,
+      "additional_attack": 1668,
+      "additional_defense": 912,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "32": {
+      "affection_level": 32,
+      "character_type": 1,
+      "additional_hp": 2310,
+      "additional_attack": 1745,
+      "additional_defense": 954,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "33": {
+      "affection_level": 33,
+      "character_type": 1,
+      "additional_hp": 2412,
+      "additional_attack": 1822,
+      "additional_defense": 996,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "34": {
+      "affection_level": 34,
+      "character_type": 1,
+      "additional_hp": 2514,
+      "additional_attack": 1899,
+      "additional_defense": 1038,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "35": {
+      "affection_level": 35,
+      "character_type": 1,
+      "additional_hp": 2616,
+      "additional_attack": 1976,
+      "additional_defense": 1080,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "36": {
+      "affection_level": 36,
+      "character_type": 1,
+      "additional_hp": 2718,
+      "additional_attack": 2053,
+      "additional_defense": 1122,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "37": {
+      "affection_level": 37,
+      "character_type": 1,
+      "additional_hp": 2820,
+      "additional_attack": 2130,
+      "additional_defense": 1164,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "38": {
+      "affection_level": 38,
+      "character_type": 1,
+      "additional_hp": 2922,
+      "additional_attack": 2207,
+      "additional_defense": 1206,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "39": {
+      "affection_level": 39,
+      "character_type": 1,
+      "additional_hp": 3024,
+      "additional_attack": 2284,
+      "additional_defense": 1248,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "40": {
+      "affection_level": 40,
+      "character_type": 1,
+      "additional_hp": 3126,
+      "additional_attack": 2361,
+      "additional_defense": 1290,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    }
+  },
+  "2": {
+    "1": {
+      "affection_level": 1,
+      "character_type": 2,
+      "additional_hp": 0,
+      "additional_attack": 0,
+      "additional_defense": 0,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "2": {
+      "affection_level": 2,
+      "character_type": 2,
+      "additional_hp": 41,
+      "additional_attack": 31,
+      "additional_defense": 17,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "3": {
+      "affection_level": 3,
+      "character_type": 2,
+      "additional_hp": 82,
+      "additional_attack": 62,
+      "additional_defense": 34,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "4": {
+      "affection_level": 4,
+      "character_type": 2,
+      "additional_hp": 123,
+      "additional_attack": 93,
+      "additional_defense": 51,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "5": {
+      "affection_level": 5,
+      "character_type": 2,
+      "additional_hp": 164,
+      "additional_attack": 124,
+      "additional_defense": 68,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "6": {
+      "affection_level": 6,
+      "character_type": 2,
+      "additional_hp": 205,
+      "additional_attack": 155,
+      "additional_defense": 85,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "7": {
+      "affection_level": 7,
+      "character_type": 2,
+      "additional_hp": 246,
+      "additional_attack": 186,
+      "additional_defense": 102,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "8": {
+      "affection_level": 8,
+      "character_type": 2,
+      "additional_hp": 287,
+      "additional_attack": 217,
+      "additional_defense": 119,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "9": {
+      "affection_level": 9,
+      "character_type": 2,
+      "additional_hp": 328,
+      "additional_attack": 248,
+      "additional_defense": 136,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "10": {
+      "affection_level": 10,
+      "character_type": 2,
+      "additional_hp": 369,
+      "additional_attack": 279,
+      "additional_defense": 153,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "11": {
+      "affection_level": 11,
+      "character_type": 2,
+      "additional_hp": 492,
+      "additional_attack": 372,
+      "additional_defense": 204,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "12": {
+      "affection_level": 12,
+      "character_type": 2,
+      "additional_hp": 553,
+      "additional_attack": 418,
+      "additional_defense": 229,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "13": {
+      "affection_level": 13,
+      "character_type": 2,
+      "additional_hp": 614,
+      "additional_attack": 464,
+      "additional_defense": 254,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "14": {
+      "affection_level": 14,
+      "character_type": 2,
+      "additional_hp": 675,
+      "additional_attack": 510,
+      "additional_defense": 279,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "15": {
+      "affection_level": 15,
+      "character_type": 2,
+      "additional_hp": 736,
+      "additional_attack": 556,
+      "additional_defense": 304,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "16": {
+      "affection_level": 16,
+      "character_type": 2,
+      "additional_hp": 797,
+      "additional_attack": 602,
+      "additional_defense": 329,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "17": {
+      "affection_level": 17,
+      "character_type": 2,
+      "additional_hp": 858,
+      "additional_attack": 648,
+      "additional_defense": 354,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "18": {
+      "affection_level": 18,
+      "character_type": 2,
+      "additional_hp": 919,
+      "additional_attack": 694,
+      "additional_defense": 379,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "19": {
+      "affection_level": 19,
+      "character_type": 2,
+      "additional_hp": 980,
+      "additional_attack": 740,
+      "additional_defense": 404,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "20": {
+      "affection_level": 20,
+      "character_type": 2,
+      "additional_hp": 1041,
+      "additional_attack": 786,
+      "additional_defense": 429,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "21": {
+      "affection_level": 21,
+      "character_type": 2,
+      "additional_hp": 1224,
+      "additional_attack": 924,
+      "additional_defense": 504,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "22": {
+      "affection_level": 22,
+      "character_type": 2,
+      "additional_hp": 1306,
+      "additional_attack": 986,
+      "additional_defense": 538,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "23": {
+      "affection_level": 23,
+      "character_type": 2,
+      "additional_hp": 1388,
+      "additional_attack": 1048,
+      "additional_defense": 572,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "24": {
+      "affection_level": 24,
+      "character_type": 2,
+      "additional_hp": 1470,
+      "additional_attack": 1110,
+      "additional_defense": 606,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "25": {
+      "affection_level": 25,
+      "character_type": 2,
+      "additional_hp": 1552,
+      "additional_attack": 1172,
+      "additional_defense": 640,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "26": {
+      "affection_level": 26,
+      "character_type": 2,
+      "additional_hp": 1634,
+      "additional_attack": 1234,
+      "additional_defense": 674,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "27": {
+      "affection_level": 27,
+      "character_type": 2,
+      "additional_hp": 1716,
+      "additional_attack": 1296,
+      "additional_defense": 708,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "28": {
+      "affection_level": 28,
+      "character_type": 2,
+      "additional_hp": 1798,
+      "additional_attack": 1358,
+      "additional_defense": 742,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "29": {
+      "affection_level": 29,
+      "character_type": 2,
+      "additional_hp": 1880,
+      "additional_attack": 1420,
+      "additional_defense": 776,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "30": {
+      "affection_level": 30,
+      "character_type": 2,
+      "additional_hp": 1962,
+      "additional_attack": 1482,
+      "additional_defense": 810,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "31": {
+      "affection_level": 31,
+      "character_type": 2,
+      "additional_hp": 2208,
+      "additional_attack": 1668,
+      "additional_defense": 912,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "32": {
+      "affection_level": 32,
+      "character_type": 2,
+      "additional_hp": 2310,
+      "additional_attack": 1745,
+      "additional_defense": 954,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "33": {
+      "affection_level": 33,
+      "character_type": 2,
+      "additional_hp": 2412,
+      "additional_attack": 1822,
+      "additional_defense": 996,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "34": {
+      "affection_level": 34,
+      "character_type": 2,
+      "additional_hp": 2514,
+      "additional_attack": 1899,
+      "additional_defense": 1038,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "35": {
+      "affection_level": 35,
+      "character_type": 2,
+      "additional_hp": 2616,
+      "additional_attack": 1976,
+      "additional_defense": 1080,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "36": {
+      "affection_level": 36,
+      "character_type": 2,
+      "additional_hp": 2718,
+      "additional_attack": 2053,
+      "additional_defense": 1122,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "37": {
+      "affection_level": 37,
+      "character_type": 2,
+      "additional_hp": 2820,
+      "additional_attack": 2130,
+      "additional_defense": 1164,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "38": {
+      "affection_level": 38,
+      "character_type": 2,
+      "additional_hp": 2922,
+      "additional_attack": 2207,
+      "additional_defense": 1206,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "39": {
+      "affection_level": 39,
+      "character_type": 2,
+      "additional_hp": 3024,
+      "additional_attack": 2284,
+      "additional_defense": 1248,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "40": {
+      "affection_level": 40,
+      "character_type": 2,
+      "additional_hp": 3126,
+      "additional_attack": 2361,
+      "additional_defense": 1290,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    }
+  },
+  "3": {
+    "1": {
+      "affection_level": 1,
+      "character_type": 3,
+      "additional_hp": 0,
+      "additional_attack": 0,
+      "additional_defense": 0,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "2": {
+      "affection_level": 2,
+      "character_type": 3,
+      "additional_hp": 41,
+      "additional_attack": 31,
+      "additional_defense": 17,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "3": {
+      "affection_level": 3,
+      "character_type": 3,
+      "additional_hp": 82,
+      "additional_attack": 62,
+      "additional_defense": 34,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "4": {
+      "affection_level": 4,
+      "character_type": 3,
+      "additional_hp": 123,
+      "additional_attack": 93,
+      "additional_defense": 51,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "5": {
+      "affection_level": 5,
+      "character_type": 3,
+      "additional_hp": 164,
+      "additional_attack": 124,
+      "additional_defense": 68,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "6": {
+      "affection_level": 6,
+      "character_type": 3,
+      "additional_hp": 205,
+      "additional_attack": 155,
+      "additional_defense": 85,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "7": {
+      "affection_level": 7,
+      "character_type": 3,
+      "additional_hp": 246,
+      "additional_attack": 186,
+      "additional_defense": 102,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "8": {
+      "affection_level": 8,
+      "character_type": 3,
+      "additional_hp": 287,
+      "additional_attack": 217,
+      "additional_defense": 119,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "9": {
+      "affection_level": 9,
+      "character_type": 3,
+      "additional_hp": 328,
+      "additional_attack": 248,
+      "additional_defense": 136,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "10": {
+      "affection_level": 10,
+      "character_type": 3,
+      "additional_hp": 369,
+      "additional_attack": 279,
+      "additional_defense": 153,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "11": {
+      "affection_level": 11,
+      "character_type": 3,
+      "additional_hp": 492,
+      "additional_attack": 372,
+      "additional_defense": 204,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "12": {
+      "affection_level": 12,
+      "character_type": 3,
+      "additional_hp": 553,
+      "additional_attack": 418,
+      "additional_defense": 229,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "13": {
+      "affection_level": 13,
+      "character_type": 3,
+      "additional_hp": 614,
+      "additional_attack": 464,
+      "additional_defense": 254,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "14": {
+      "affection_level": 14,
+      "character_type": 3,
+      "additional_hp": 675,
+      "additional_attack": 510,
+      "additional_defense": 279,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "15": {
+      "affection_level": 15,
+      "character_type": 3,
+      "additional_hp": 736,
+      "additional_attack": 556,
+      "additional_defense": 304,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "16": {
+      "affection_level": 16,
+      "character_type": 3,
+      "additional_hp": 797,
+      "additional_attack": 602,
+      "additional_defense": 329,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "17": {
+      "affection_level": 17,
+      "character_type": 3,
+      "additional_hp": 858,
+      "additional_attack": 648,
+      "additional_defense": 354,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "18": {
+      "affection_level": 18,
+      "character_type": 3,
+      "additional_hp": 919,
+      "additional_attack": 694,
+      "additional_defense": 379,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "19": {
+      "affection_level": 19,
+      "character_type": 3,
+      "additional_hp": 980,
+      "additional_attack": 740,
+      "additional_defense": 404,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "20": {
+      "affection_level": 20,
+      "character_type": 3,
+      "additional_hp": 1041,
+      "additional_attack": 786,
+      "additional_defense": 429,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "21": {
+      "affection_level": 21,
+      "character_type": 3,
+      "additional_hp": 1224,
+      "additional_attack": 924,
+      "additional_defense": 504,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "22": {
+      "affection_level": 22,
+      "character_type": 3,
+      "additional_hp": 1306,
+      "additional_attack": 986,
+      "additional_defense": 538,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "23": {
+      "affection_level": 23,
+      "character_type": 3,
+      "additional_hp": 1388,
+      "additional_attack": 1048,
+      "additional_defense": 572,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "24": {
+      "affection_level": 24,
+      "character_type": 3,
+      "additional_hp": 1470,
+      "additional_attack": 1110,
+      "additional_defense": 606,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "25": {
+      "affection_level": 25,
+      "character_type": 3,
+      "additional_hp": 1552,
+      "additional_attack": 1172,
+      "additional_defense": 640,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "26": {
+      "affection_level": 26,
+      "character_type": 3,
+      "additional_hp": 1634,
+      "additional_attack": 1234,
+      "additional_defense": 674,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "27": {
+      "affection_level": 27,
+      "character_type": 3,
+      "additional_hp": 1716,
+      "additional_attack": 1296,
+      "additional_defense": 708,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "28": {
+      "affection_level": 28,
+      "character_type": 3,
+      "additional_hp": 1798,
+      "additional_attack": 1358,
+      "additional_defense": 742,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "29": {
+      "affection_level": 29,
+      "character_type": 3,
+      "additional_hp": 1880,
+      "additional_attack": 1420,
+      "additional_defense": 776,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "30": {
+      "affection_level": 30,
+      "character_type": 3,
+      "additional_hp": 1962,
+      "additional_attack": 1482,
+      "additional_defense": 810,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "31": {
+      "affection_level": 31,
+      "character_type": 3,
+      "additional_hp": 2208,
+      "additional_attack": 1668,
+      "additional_defense": 912,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "32": {
+      "affection_level": 32,
+      "character_type": 3,
+      "additional_hp": 2310,
+      "additional_attack": 1745,
+      "additional_defense": 954,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "33": {
+      "affection_level": 33,
+      "character_type": 3,
+      "additional_hp": 2412,
+      "additional_attack": 1822,
+      "additional_defense": 996,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "34": {
+      "affection_level": 34,
+      "character_type": 3,
+      "additional_hp": 2514,
+      "additional_attack": 1899,
+      "additional_defense": 1038,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "35": {
+      "affection_level": 35,
+      "character_type": 3,
+      "additional_hp": 2616,
+      "additional_attack": 1976,
+      "additional_defense": 1080,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "36": {
+      "affection_level": 36,
+      "character_type": 3,
+      "additional_hp": 2718,
+      "additional_attack": 2053,
+      "additional_defense": 1122,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "37": {
+      "affection_level": 37,
+      "character_type": 3,
+      "additional_hp": 2820,
+      "additional_attack": 2130,
+      "additional_defense": 1164,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "38": {
+      "affection_level": 38,
+      "character_type": 3,
+      "additional_hp": 2922,
+      "additional_attack": 2207,
+      "additional_defense": 1206,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "39": {
+      "affection_level": 39,
+      "character_type": 3,
+      "additional_hp": 3024,
+      "additional_attack": 2284,
+      "additional_defense": 1248,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    },
+    "40": {
+      "affection_level": 40,
+      "character_type": 3,
+      "additional_hp": 3126,
+      "additional_attack": 2361,
+      "additional_defense": 1290,
+      "additional_speed": 0,
+      "additional_action_point": 0,
+      "additional_passive_point": 0
+    }
+  }
+}

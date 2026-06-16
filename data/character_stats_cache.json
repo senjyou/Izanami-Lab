@@ -1,0 +1,2824 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-12-13T15:29:17.363152",
+  "default_config": {
+    "player_config": {
+      "school_level": 1,
+      "school_levels": {
+        "physical_level": 40,
+        "en_level": 40,
+        "agility_level": 40,
+        "fire_level": 40,
+        "water_level": 40,
+        "earth_level": 40,
+        "wind_level": 40,
+        "light_level": 40,
+        "dark_level": 40
+      },
+      "equipment_enabled": true
+    },
+    "character_template": {
+      "level": 200,
+      "rarity": 14,
+      "affection_level": 40,
+      "modules": [
+        {
+          "module_id": 0,
+          "tier": 8,
+          "level": 45,
+          "gear_effects": []
+        },
+        {
+          "module_id": 0,
+          "tier": 8,
+          "level": 45,
+          "gear_effects": []
+        },
+        {
+          "module_id": 0,
+          "tier": 8,
+          "level": 45,
+          "gear_effects": []
+        }
+      ],
+      "default_skill_level": 15
+    }
+  },
+  "characters": {
+    "100201": {
+      "character_id": 100201,
+      "name": "ドジで純粋な未来のエース",
+      "character_type": 2,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "120007": 10,
+          "130006": 10,
+          "130016": 10
+        }
+      },
+      "stats": {
+        "hp": 39036,
+        "attack": 35848,
+        "defense": 17804,
+        "speed": 623,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.358089"
+    },
+    "100301": {
+      "character_id": 100301,
+      "name": "シリウスシュガーのエース",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110003": 15,
+          "120048": 15,
+          "120049": 15,
+          "130054": 15,
+          "130055": 15
+        }
+      },
+      "stats": {
+        "hp": 47099,
+        "attack": 40508,
+        "defense": 19886,
+        "speed": 761,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.358089"
+    },
+    "101201": {
+      "character_id": 101201,
+      "name": "器用貧乏なお嬢様リーダー",
+      "character_type": 2,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "120005": 10,
+          "120030": 10,
+          "130014": 10
+        }
+      },
+      "stats": {
+        "hp": 45000,
+        "attack": 32514,
+        "defense": 18251,
+        "speed": 618,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "101301": {
+      "character_id": 101301,
+      "name": "オールラウンダーな統率者",
+      "character_type": 2,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110016": 15,
+          "120053": 15,
+          "120054": 15,
+          "130061": 15,
+          "130062": 15
+        }
+      },
+      "stats": {
+        "hp": 50365,
+        "attack": 39997,
+        "defense": 23391,
+        "speed": 751,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "102201": {
+      "character_id": 102201,
+      "name": "紙一重なメイズオタク",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "120009": 10,
+          "130007": 10,
+          "130018": 10
+        }
+      },
+      "stats": {
+        "hp": 47987,
+        "attack": 30660,
+        "defense": 18918,
+        "speed": 680,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "102301": {
+      "character_id": 102301,
+      "name": "博識なメイズの探求者",
+      "character_type": 3,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110005": 15,
+          "120050": 15,
+          "120051": 15,
+          "130056": 15,
+          "130057": 15
+        }
+      },
+      "stats": {
+        "hp": 47099,
+        "attack": 40508,
+        "defense": 20026,
+        "speed": 726,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "103201": {
+      "character_id": 103201,
+      "name": "お金大好きな生意気娘",
+      "character_type": 1,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "120011": 10,
+          "130008": 10,
+          "130020": 10
+        }
+      },
+      "stats": {
+        "hp": 47987,
+        "attack": 30660,
+        "defense": 18918,
+        "speed": 715,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "103301": {
+      "character_id": 103301,
+      "name": "負けず嫌いな不屈少女",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110006": 15,
+          "120052": 15,
+          "130058": 15,
+          "130059": 15,
+          "130060": 15
+        }
+      },
+      "stats": {
+        "hp": 47565,
+        "attack": 39833,
+        "defense": 19886,
+        "speed": 750,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "104201": {
+      "character_id": 104201,
+      "name": "ミステリアスガール",
+      "character_type": 3,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "120010": 10,
+          "120032": 10,
+          "130019": 10
+        }
+      },
+      "stats": {
+        "hp": 45378,
+        "attack": 32514,
+        "defense": 18029,
+        "speed": 720,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "104301": {
+      "character_id": 104301,
+      "name": "純白のラッキーガール",
+      "character_type": 1,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110012": 15,
+          "120055": 15,
+          "120056": 15,
+          "130063": 15,
+          "130064": 15
+        }
+      },
+      "stats": {
+        "hp": 55841,
+        "attack": 35260,
+        "defense": 24719,
+        "speed": 713,
+        "critical_rate": 0.15000000223517418,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "105301": {
+      "character_id": 105301,
+      "name": "厳格な規律の守護者",
+      "character_type": 1,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110014": 15,
+          "120022": 15,
+          "120040": 15,
+          "130030": 15,
+          "130046": 15
+        }
+      },
+      "stats": {
+        "hp": 53374,
+        "attack": 36653,
+        "defense": 21300,
+        "speed": 737,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "106301": {
+      "character_id": 106301,
+      "name": "臆病な褒められたがり少女",
+      "character_type": 2,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110002": 15,
+          "120014": 15,
+          "130010": 15,
+          "130023": 15,
+          "130039": 15
+        }
+      },
+      "stats": {
+        "hp": 44345,
+        "attack": 43451,
+        "defense": 20173,
+        "speed": 634,
+        "critical_rate": 0.2500000037252903,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.359090"
+    },
+    "107301": {
+      "character_id": 107301,
+      "name": "自称腹黒の深謀策士",
+      "character_type": 3,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110022": 15,
+          "120029": 15,
+          "120045": 15,
+          "130037": 15,
+          "130053": 15
+        }
+      },
+      "stats": {
+        "hp": 51521,
+        "attack": 38318,
+        "defense": 20451,
+        "speed": 756,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "108301": {
+      "character_id": 108301,
+      "name": "正々堂々なミス・ツンデレ",
+      "character_type": 3,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110009": 15,
+          "120018": 15,
+          "120036": 15,
+          "130027": 15,
+          "130043": 15
+        }
+      },
+      "stats": {
+        "hp": 43886,
+        "attack": 43451,
+        "defense": 19886,
+        "speed": 693,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "109301": {
+      "character_id": 109301,
+      "name": "温厚篤実な面倒くさがり",
+      "character_type": 2,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110013": 15,
+          "120039": 15,
+          "120021": 15,
+          "120046": 15,
+          "120047": 15
+        }
+      },
+      "stats": {
+        "hp": 53366,
+        "attack": 38827,
+        "defense": 20593,
+        "speed": 750,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "110301": {
+      "character_id": 110301,
+      "name": "享楽のワイルドカード",
+      "character_type": 1,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110018": 15,
+          "120025": 15,
+          "120042": 15,
+          "130033": 15,
+          "130049": 15
+        }
+      },
+      "stats": {
+        "hp": 55589,
+        "attack": 35283,
+        "defense": 22258,
+        "speed": 712,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "110302": {
+      "character_id": 110302,
+      "name": "はだけるわんぱく浴衣",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110036": 15,
+          "120081": 15,
+          "120082": 15,
+          "130093": 15,
+          "130094": 15
+        }
+      },
+      "stats": {
+        "hp": 55729,
+        "attack": 36091,
+        "defense": 21017,
+        "speed": 655,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "111301": {
+      "character_id": 111301,
+      "name": "混沌の立役者",
+      "character_type": 2,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110020": 15,
+          "120027": 15,
+          "130013": 15,
+          "130035": 15,
+          "130051": 15
+        }
+      },
+      "stats": {
+        "hp": 55585,
+        "attack": 35716,
+        "defense": 27525,
+        "speed": 651,
+        "critical_rate": 0.15000000223517418,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "112301": {
+      "character_id": 112301,
+      "name": "渇望秘めし淑女",
+      "character_type": 2,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110011": 15,
+          "120020": 15,
+          "120038": 15,
+          "130029": 15,
+          "130045": 15
+        }
+      },
+      "stats": {
+        "hp": 49868,
+        "attack": 41074,
+        "defense": 20173,
+        "speed": 802,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "113301": {
+      "character_id": 113301,
+      "name": "空っぽのアクター",
+      "character_type": 2,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110017": 15,
+          "120024": 15,
+          "130012": 15,
+          "130032": 15,
+          "130048": 15
+        }
+      },
+      "stats": {
+        "hp": 48944,
+        "attack": 40644,
+        "defense": 21017,
+        "speed": 697,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "113302": {
+      "character_id": 113302,
+      "name": "自己に揺れる白湯気",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110035": 15,
+          "120079": 15,
+          "120080": 15,
+          "130091": 15,
+          "130092": 15
+        }
+      },
+      "stats": {
+        "hp": 51336,
+        "attack": 38318,
+        "defense": 20739,
+        "speed": 712,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "114301": {
+      "character_id": 114301,
+      "name": "愛を求めるトラブルメーカー",
+      "character_type": 3,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110008": 15,
+          "120017": 15,
+          "120035": 15,
+          "130026": 15,
+          "130042": 15
+        }
+      },
+      "stats": {
+        "hp": 46190,
+        "attack": 38968,
+        "defense": 20904,
+        "speed": 870,
+        "critical_rate": 0.2500000037252903,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.360112"
+    },
+    "115301": {
+      "character_id": 115301,
+      "name": "緋色の一匹狼",
+      "character_type": 3,
+      "attribute": 6,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110021": 15,
+          "120028": 15,
+          "120044": 15,
+          "130036": 15,
+          "130052": 15
+        }
+      },
+      "stats": {
+        "hp": 51939,
+        "attack": 38514,
+        "defense": 21162,
+        "speed": 786,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "116301": {
+      "character_id": 116301,
+      "name": "ギャルインフルエンサー",
+      "character_type": 2,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110007": 15,
+          "120016": 15,
+          "120034": 15,
+          "130041": 15,
+          "130025": 15
+        }
+      },
+      "stats": {
+        "hp": 55320,
+        "attack": 36091,
+        "defense": 20870,
+        "speed": 646,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "116302": {
+      "character_id": 116302,
+      "name": "#激カワ吸血鬼配信者♪",
+      "character_type": 3,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110028": 15,
+          "120067": 15,
+          "130075": 15,
+          "130076": 15,
+          "130077": 15
+        }
+      },
+      "stats": {
+        "hp": 45362,
+        "attack": 43625,
+        "defense": 20451,
+        "speed": 713,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "117301": {
+      "character_id": 117301,
+      "name": "省エネ主義の天才ハッカ―",
+      "character_type": 1,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110019": 15,
+          "120026": 15,
+          "120043": 15,
+          "130034": 15,
+          "130050": 15
+        }
+      },
+      "stats": {
+        "hp": 59375,
+        "attack": 33033,
+        "defense": 27049,
+        "speed": 630,
+        "critical_rate": 0.15000000223517418,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "117302": {
+      "character_id": 117302,
+      "name": "キョンシーハッカー",
+      "character_type": 2,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110029": 15,
+          "120068": 15,
+          "120069": 15,
+          "130078": 15,
+          "130079": 15
+        }
+      },
+      "stats": {
+        "hp": 52624,
+        "attack": 37301,
+        "defense": 21866,
+        "speed": 745,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "118301": {
+      "character_id": 118301,
+      "name": "舞台を降りた元歌姫",
+      "character_type": 2,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110010": 15,
+          "120019": 15,
+          "120037": 15,
+          "130028": 15,
+          "130044": 15
+        }
+      },
+      "stats": {
+        "hp": 46650,
+        "attack": 42170,
+        "defense": 20739,
+        "speed": 642,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "119301": {
+      "character_id": 119301,
+      "name": "戦うアントレプレナー",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110015": 15,
+          "120023": 15,
+          "120041": 15,
+          "130031": 15,
+          "130047": 15
+        }
+      },
+      "stats": {
+        "hp": 48944,
+        "attack": 37116,
+        "defense": 21578,
+        "speed": 866,
+        "critical_rate": 0.2500000037252903,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "120301": {
+      "character_id": 120301,
+      "name": "空想造形アーティスト",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110004": 15,
+          "120015": 15,
+          "130011": 15,
+          "130024": 15,
+          "130040": 15
+        }
+      },
+      "stats": {
+        "hp": 47565,
+        "attack": 40110,
+        "defense": 19886,
+        "speed": 785,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "121301": {
+      "character_id": 121301,
+      "name": "ノーブル・グレイス",
+      "character_type": 1,
+      "attribute": 5,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110001": 15,
+          "120013": 15,
+          "130009": 15,
+          "130022": 15,
+          "130038": 15
+        }
+      },
+      "stats": {
+        "hp": 50537,
+        "attack": 41054,
+        "defense": 21400,
+        "speed": 796,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "122201": {
+      "character_id": 122201,
+      "name": "腕白メイド娘",
+      "character_type": 3,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "120012": 10,
+          "120033": 10,
+          "130021": 10
+        }
+      },
+      "stats": {
+        "hp": 42763,
+        "attack": 33625,
+        "defense": 18251,
+        "speed": 618,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "123201": {
+      "character_id": 123201,
+      "name": "毒舌メイド娘",
+      "character_type": 2,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "120008": 10,
+          "120031": 10,
+          "130017": 10
+        }
+      },
+      "stats": {
+        "hp": 44258,
+        "attack": 32884,
+        "defense": 18474,
+        "speed": 715,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "124201": {
+      "character_id": 124201,
+      "name": "臆病メイド娘",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 7,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "120006": 10,
+          "130005": 10,
+          "130015": 10
+        }
+      },
+      "stats": {
+        "hp": 40528,
+        "attack": 35108,
+        "defense": 18029,
+        "speed": 680,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 3,
+        "initial_pp": 3,
+        "max_ap": 3,
+        "max_pp": 3
+      },
+      "last_modified": "2025-12-13T15:29:17.361115"
+    },
+    "125101": {
+      "character_id": 125101,
+      "name": "爆走お転婆少女",
+      "character_type": 1,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 5,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "120002": 10,
+          "130002": 10
+        }
+      },
+      "stats": {
+        "hp": 41955,
+        "attack": 30738,
+        "defense": 17061,
+        "speed": 620,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 2,
+        "initial_pp": 2,
+        "max_ap": 2,
+        "max_pp": 2
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "126101": {
+      "character_id": 126101,
+      "name": "プレ・クラス－Ａのお姉さん",
+      "character_type": 2,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 5,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "120001": 10,
+          "130001": 10
+        }
+      },
+      "stats": {
+        "hp": 43320,
+        "attack": 29810,
+        "defense": 17061,
+        "speed": 615,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 2,
+        "initial_pp": 2,
+        "max_ap": 2,
+        "max_pp": 2
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "127101": {
+      "character_id": 127101,
+      "name": "ストイックな努力家",
+      "character_type": 1,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 5,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "120004": 10,
+          "130004": 10
+        }
+      },
+      "stats": {
+        "hp": 39893,
+        "attack": 31667,
+        "defense": 17061,
+        "speed": 620,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 2,
+        "initial_pp": 2,
+        "max_ap": 2,
+        "max_pp": 2
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "127301": {
+      "character_id": 127301,
+      "name": "体育祭のサポート役",
+      "character_type": 2,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 21,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 22,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 23,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          21,
+          22,
+          23,
+          24
+        ],
+        "skill_levels": {
+          "110027": 15,
+          "120066": 15,
+          "130072": 15,
+          "130073": 15,
+          "130074": 15
+        }
+      },
+      "stats": {
+        "hp": 49500,
+        "attack": 39631,
+        "defense": 20626,
+        "speed": 748,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "128101": {
+      "character_id": 128101,
+      "name": "制御不能の破壊者",
+      "character_type": 1,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 5,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "120003": 10,
+          "130003": 10
+        }
+      },
+      "stats": {
+        "hp": 43320,
+        "attack": 29810,
+        "defense": 17061,
+        "speed": 620,
+        "critical_rate": 0.15000000596046448,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 2,
+        "initial_pp": 2,
+        "max_ap": 2,
+        "max_pp": 2
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "128301": {
+      "character_id": 128301,
+      "name": "体育祭の暴れん坊",
+      "character_type": 1,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110026": 15,
+          "120064": 15,
+          "120065": 15,
+          "130070": 15,
+          "130071": 15
+        }
+      },
+      "stats": {
+        "hp": 56880,
+        "attack": 35260,
+        "defense": 25881,
+        "speed": 644,
+        "critical_rate": 0.15000000223517418,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "129301": {
+      "character_id": 129301,
+      "name": "忠義の狂犬メイド",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110025": 15,
+          "120062": 15,
+          "120063": 15,
+          "130068": 15,
+          "130069": 15
+        }
+      },
+      "stats": {
+        "hp": 55320,
+        "attack": 37355,
+        "defense": 19886,
+        "speed": 740,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "130301": {
+      "character_id": 130301,
+      "name": "正義のヒーロー",
+      "character_type": 1,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110024": 15,
+          "120060": 15,
+          "120061": 15,
+          "130066": 15,
+          "130067": 15
+        }
+      },
+      "stats": {
+        "hp": 53084,
+        "attack": 35627,
+        "defense": 21017,
+        "speed": 785,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "131301": {
+      "character_id": 131301,
+      "name": "風紀委員会の策謀家",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110023": 15,
+          "120057": 15,
+          "120058": 15,
+          "120059": 15,
+          "130065": 15
+        }
+      },
+      "stats": {
+        "hp": 46190,
+        "attack": 38968,
+        "defense": 20173,
+        "speed": 751,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "132301": {
+      "character_id": 132301,
+      "name": "唯一無二の幼なじみ",
+      "character_type": 1,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110030": 15,
+          "120070": 15,
+          "120071": 15,
+          "130080": 15,
+          "130081": 15
+        }
+      },
+      "stats": {
+        "hp": 56724,
+        "attack": 36811,
+        "defense": 21125,
+        "speed": 715,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.362147"
+    },
+    "133301": {
+      "character_id": 133301,
+      "name": "天命を受けし剣術乙女",
+      "character_type": 1,
+      "attribute": 3,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110031": 15,
+          "120072": 15,
+          "120073": 15,
+          "130082": 15,
+          "130083": 15
+        }
+      },
+      "stats": {
+        "hp": 49217,
+        "attack": 37116,
+        "defense": 20739,
+        "speed": 772,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.363152"
+    },
+    "134301": {
+      "character_id": 134301,
+      "name": "稀代の狙撃手",
+      "character_type": 3,
+      "attribute": 1,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110032": 15,
+          "120074": 15,
+          "120075": 15,
+          "130084": 15,
+          "130085": 15
+        }
+      },
+      "stats": {
+        "hp": 51896,
+        "attack": 39661,
+        "defense": 20739,
+        "speed": 770,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.363152"
+    },
+    "138301": {
+      "character_id": 138301,
+      "name": "気高きランウェイモデル",
+      "character_type": 3,
+      "attribute": 2,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 31,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 32,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 33,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          31,
+          32,
+          33,
+          34
+        ],
+        "skill_levels": {
+          "110033": 15,
+          "120076": 15,
+          "120077": 15,
+          "130086": 15,
+          "130087": 15
+        }
+      },
+      "stats": {
+        "hp": 45266,
+        "attack": 43266,
+        "defense": 20173,
+        "speed": 751,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.363152"
+    },
+    "139301": {
+      "character_id": 139301,
+      "name": "博識なハングリーガール",
+      "character_type": 1,
+      "attribute": 4,
+      "config": {
+        "level": 200,
+        "rarity": 14,
+        "affection_level": 40,
+        "modules": [
+          {
+            "module_id": 11,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 12,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          },
+          {
+            "module_id": 13,
+            "tier": 8,
+            "level": 45,
+            "gear_effects": []
+          }
+        ],
+        "equipment_ids": [
+          11,
+          12,
+          13,
+          14
+        ],
+        "skill_levels": {
+          "110034": 15,
+          "120078": 15,
+          "130088": 15,
+          "130089": 15,
+          "130090": 15
+        }
+      },
+      "stats": {
+        "hp": 56880,
+        "attack": 35260,
+        "defense": 21833,
+        "speed": 644,
+        "critical_rate": 0.20000000670552254,
+        "critical_damage": 1.5,
+        "advantage_damage": 1.25,
+        "initial_ap": 4,
+        "initial_pp": 4,
+        "max_ap": 4,
+        "max_pp": 4
+      },
+      "last_modified": "2025-12-13T15:29:17.363152"
+    }
+  },
+  "110301_228_14_40": {
+    "character_id": 110301,
+    "level": 228,
+    "rarity": 14,
+    "affection_level": 40,
+    "stats": {
+      "hp": 65568,
+      "attack": 42940,
+      "defense": 26151,
+      "speed": 823,
+      "critical_rate": 0.23590000670552252,
+      "critical_damage": 1.7887,
+      "advantage_damage": 1.47,
+      "initial_ap": 4,
+      "initial_pp": 4,
+      "max_ap": 4,
+      "max_pp": 4
+    }
+  }
+}
