@@ -1,6 +1,8 @@
 # Izanami Lab
 
-Muv-Luv Girls Garden X 战斗模拟器。
+[English](README_EN.md) | 中文
+
+Muv-Luv Girls Garden 战斗模拟器。
 
 ## 功能
 

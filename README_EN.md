@@ -1,6 +1,8 @@
 # Izanami Lab
 
-Muv-Luv Girls Garden X Battle Simulator.
+[中文](README.md) | English
+
+Muv-Luv Girls Garden Battle Simulator.
 
 ## Features
 
