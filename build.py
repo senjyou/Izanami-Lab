@@ -28,6 +28,8 @@ PYINSTALLER_ARGS = [
     "--hidden-import", "PIL",
     "--hidden-import", "PIL._tkinter_finder",
     "--hidden-import", "PIL.ImageTk",
+    "--hidden-import", "src.utils.batch_simulator",
+    "--hidden-import", "src.combat_v2.tactical_exercise_controller",
     "--clean",
     "--noconfirm",
     ENTRY_POINT,
