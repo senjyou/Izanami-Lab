@@ -74,14 +74,12 @@ def main():
         for file in app_dir.rglob("*"):
             arcname = file.relative_to(app_dir.parent)
             zf.write(file, arcname)
-            print(f"    添加: {arcname}")
     
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
     # 4. 创建 Release
     print("\n[4/4] 创建 GitHub Release...")
-    gh_path = "[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')"
     notes = f"""## {version} Release
 
 ### Features
@@ -103,8 +101,10 @@ def main():
 ### Supported Characters
 See [SUPPORTED_CHARACTERS.md](https://github.com/senjyou/Izanami-Lab/blob/master/SUPPORTED_CHARACTERS.md)
 """
-    escaped_notes = notes.replace('`', "\\`").replace('"', '\\"').replace('\n', "`n")
-    cmd = f'$env:Path = {gh_path}; gh release create {version} "{zip_path}" --title "{version}" --notes "{escaped_notes}" --repo senjyou/Izanami-Lab'
+    notes_file = DIST_DIR / "release_notes.md"
+    notes_file.write_text(notes, encoding='utf-8')
+    
+    cmd = f'$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); gh release create {version} "{zip_path}" --title "{version}" --notes-file "{notes_file}" --repo senjyou/Izanami-Lab'
     output = run_cmd(cmd)
     print(f"  Release: {output.strip()}")
 
