@@ -105,15 +105,8 @@ See [SUPPORTED_CHARACTERS.md](https://github.com/senjyou/Izanami-Lab/blob/master
     notes_file = DIST_DIR / "release_notes.md"
     notes_file.write_text(notes, encoding='utf-8')
     
-    env = os.environ.copy()
-    env['Path'] = os.pathsep.join([
-        env.get('Path', ''),
-        'C:\\Program Files\\GitHub CLI'
-    ])
-    
     result = subprocess.run(
-        ['gh', 'release', 'create', version, str(zip_path), '--title', version, '--notes-file', str(notes_file), '--repo', 'senjyou/Izanami-Lab'],
-        env=env,
+        ['C:\\Program Files\\GitHub CLI\\gh.exe', 'release', 'create', version, str(zip_path), '--title', version, '--notes-file', str(notes_file), '--repo', 'senjyou/Izanami-Lab'],
         capture_output=True,
         text=True
     )
