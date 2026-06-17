@@ -136,10 +136,11 @@ class TriggerService:
         return self.check_triggers(TriggerTiming.BEFORE_SKILL_USE, ctx)
 
     def trigger_after_skill_use(self, actor: UnitState, skill_id: int,
-                                 result: Dict, battlefield: BattlefieldState) -> List[TriggerAction]:
+                                 result: Dict, battlefield: BattlefieldState,
+                                 primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
         ctx = TriggerContext(
             TriggerTiming.AFTER_SKILL_USE, battlefield,
-            actor=actor, skill=skill_id,
+            actor=actor, skill=skill_id, primary_target=primary_target,
         )
         return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx)
 

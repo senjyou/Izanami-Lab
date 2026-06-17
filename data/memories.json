@@ -3467,5 +3467,54 @@
     "description": "#破けてる？ #破けてない？",
     "rarity": 3,
     "highlights": []
+  },
+  "20073": {
+    "memory_id": 20073,
+    "name": "知らない姿に目を奪われて",
+    "description": "や、やめてください！ 私の記憶にもないような昔の話など恥ずかしいことを言うのは！",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 105,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400200
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 1,
+        "skill_master_id": 400149
+      }
+    ]
+  },
+  "10025": {
+    "memory_id": 10025,
+    "name": "知らない世界の知らない彼女",
+    "description": "あたしはこんなの滅多に着ないから、 今のうちにその目に焼き付けといたほうがいいよ～？",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": 3,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400199
+      }
+    ]
   }
 }

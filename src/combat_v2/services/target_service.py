@@ -3,7 +3,8 @@ from ...entities_v2.unit_state import UnitState
 from ...entities_v2.battlefield_state import BattlefieldState
 from ...entities_v2.enums import (
     Side, Position,
-    DisplayTargetType, DisplayTargetRange, DisplayTargetPriority
+    DisplayTargetType, DisplayTargetRange, DisplayTargetPriority,
+    SkillEffectType
 )
 from ..battle_logger import battle_logger
 
@@ -44,11 +45,21 @@ class TargetService:
 
         # 传递原始target_type名称，用于LINE范围时显式区分前排/后排
         target_type_name = getattr(skill_data, 'target_type_name', None)
+        # mark_priority: 仅在显式设置且非None时使用
+        # 注意：MagicMock的hasattr/getattr会自动创建属性，需用spec检查
+        mark_priority = None
+        try:
+            mp = object.__getattribute__(skill_data, 'mark_priority')
+            if mp is not None:
+                mark_priority = mp
+        except AttributeError:
+            pass
         final_targets = self._select_targets(
             caster, candidates,
             skill_data.display_target_priority,
             skill_data.display_target_range,
-            target_type_name
+            target_type_name,
+            mark_priority
         )
 
         _log.info("[TARGET]   final_targets=%d: %s",
@@ -87,7 +98,8 @@ class TargetService:
         return []
 
     def _select_targets(self, caster: UnitState, candidates: List[UnitState],
-                        priority, range_type: int, target_type_name: str = None) -> List[UnitState]:
+                        priority, range_type: int, target_type_name: str = None,
+                        mark_priority: str = None) -> List[UnitState]:
         r_type = DisplayTargetRange(range_type)
 
         if r_type == DisplayTargetRange.ALL_PAWNS:
@@ -136,7 +148,12 @@ class TargetService:
             return [u for u in candidates if self._is_front_row(u) == anchor_is_front]
 
         elif r_type == DisplayTargetRange.COLUMN:
-            anchor = ordered[0]
+            if mark_priority:
+                anchor = self._select_anchor_by_mark(candidates, mark_priority)
+                if anchor is None:
+                    anchor = ordered[0]
+            else:
+                anchor = ordered[0]
             anchor_col = self._get_column_index(anchor)
             return [u for u in candidates if self._get_column_index(u) == anchor_col]
 
@@ -263,6 +280,29 @@ class TargetService:
             return 2
         return 1
 
+    def _count_mark(self, unit: UnitState, mark_name: str) -> int:
+        """统计单位身上持有指定 mark_name 的数量（同时检查 debuffs 和 buffs）"""
+        count = sum(1 for b in unit.debuffs
+                    if b.effect_type == SkillEffectType.MARK.value and b.name == mark_name)
+        count += sum(1 for b in unit.buffs
+                     if b.effect_type == SkillEffectType.MARK.value and b.name == mark_name)
+        return count
+
+    def _select_anchor_by_mark(self, candidates: List[UnitState], mark_name: str) -> Optional[UnitState]:
+        """从 candidates 中选择持有指定 mark 最多的单位作为 anchor，无 mark 则返回 None"""
+        best_unit = None
+        best_count = 0
+        for u in candidates:
+            c = self._count_mark(u, mark_name)
+            if c > best_count:
+                best_count = c
+                best_unit = u
+        if best_count > 0:
+            _log.info("[TARGET]   COLUMN mark_priority='%s': anchor=%s (mark_count=%d)",
+                      mark_name, best_unit.name, best_count)
+            return best_unit
+        return None
+
     def _get_adjacent_to_closest(self, enemy_units: List[UnitState], caster: UnitState) -> List[UnitState]:
         if not enemy_units:
             return []
@@ -291,6 +331,16 @@ class TargetService:
             er, ec = _POS_RC[e.position]
             return (er - cr) ** 2 + (ec - cc) ** 2
         return min(enemies, key=_dist)
+
+    def get_nearest_ally(self, caster: UnitState, allies: List[UnitState]) -> Optional[UnitState]:
+        """获取距离施法者最近的友方单位（基于列参考点的欧几里得平方距离）"""
+        if not allies:
+            return None
+        cr, cc = _POS_RC[caster.position]
+        def _dist(a):
+            ar, ac = _POS_RC[a.position]
+            return (ar - cr) ** 2 + (ac - cc) ** 2
+        return min(allies, key=_dist)
 
     def _get_adjacent_positions(self, pos: Position) -> set:
         rc = _POS_RC.get(pos)

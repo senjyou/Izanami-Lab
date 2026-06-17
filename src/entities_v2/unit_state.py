@@ -48,6 +48,7 @@ class BuffState:
     shield_amount: int = 0  # 盾buff贡献的实际盾值，用于叠加盾正确扣除
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
+    mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效
 
 
 from .enums import UnitActionPhase

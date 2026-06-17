@@ -235,14 +235,17 @@ class BattleNarrativeWriter:
     def mark_removed(self, target_name: str, mark_name: str, removed_count: int, source_name: str):
         self._add(f"  [标记清除] {target_name} 的 «{mark_name}» x{removed_count} 被清除 (来源:{source_name})")
 
-    def pp_removed(self, target_name: str, amount: int, pp_after: int, pp_max: int, source_name: str):
-        self._add(f"  [资源削除] {target_name} 被清除 {amount} PP (PP:{pp_after}/{pp_max} 来源:{source_name})")
+    def pp_removed(self, target_name: str, amount: int, pp_after: int, pp_max: int, source_name: str, cover_for: str = ""):
+        cover_str = f" (替{cover_for}援护吸收)" if cover_for else ""
+        self._add(f"  [资源削除] {target_name} 被清除 {amount} PP{cover_str} (PP:{pp_after}/{pp_max} 来源:{source_name})")
 
-    def ap_removed(self, target_name: str, amount: int, ap_after: int, ap_max: int, source_name: str):
-        self._add(f"  [资源削除] {target_name} 被削减 {amount} AP (AP:{ap_after}/{ap_max} 来源:{source_name})")
+    def ap_removed(self, target_name: str, amount: int, ap_after: int, ap_max: int, source_name: str, cover_for: str = ""):
+        cover_str = f" (替{cover_for}援护吸收)" if cover_for else ""
+        self._add(f"  [资源削除] {target_name} 被削减 {amount} AP{cover_str} (AP:{ap_after}/{ap_max} 来源:{source_name})")
 
-    def ep_removed(self, target_name: str, amount: int, ep_after: int, ep_max: int, source_name: str):
-        self._add(f"  [资源削除] {target_name} 被削减 {amount} EP (EP:{ep_after}/{ep_max} 来源:{source_name})")
+    def ep_removed(self, target_name: str, amount: int, ep_after: int, ep_max: int, source_name: str, cover_for: str = ""):
+        cover_str = f" (替{cover_for}援护吸收)" if cover_for else ""
+        self._add(f"  [资源削除] {target_name} 被削减 {amount} EP{cover_str} (EP:{ep_after}/{ep_max} 来源:{source_name})")
 
     def tactical_exercise_stage_up(self, unit_name: str, stage: int,
                                     new_hp: int, new_atk: int, new_def: int, new_spd: int, new_crit: float,
@@ -308,13 +311,14 @@ class BattleNarrativeWriter:
 
     def heal(self, source_name: str, target_name: str, amount: int,
              source_hp: str = "", hp_before: int = 0, target_max_hp: int = 0,
-             is_crit: bool = False):
+             is_crit: bool = False, formula: str = ""):
         hp_after = hp_before + amount
         crit_tag = "【Critical】" if is_crit else ""
+        formula_str = f" {formula}" if formula else ""
         if target_max_hp:
-            self._add(f"  [治疗] {source_name} (HP:{hp_before}/{target_max_hp}) → {target_name} (HP:{hp_after}/{target_max_hp}): +{amount} HP {crit_tag}")
+            self._add(f"  [治疗] {source_name} (HP:{hp_before}/{target_max_hp}) → {target_name} (HP:{hp_after}/{target_max_hp}): +{amount} HP {crit_tag}{formula_str}")
         else:
-            self._add(f"  [治疗] {source_name} ({source_hp}) → {target_name} (HP:{hp_before}/{hp_after}): +{amount} HP {crit_tag}")
+            self._add(f"  [治疗] {source_name} ({source_hp}) → {target_name} (HP:{hp_before}/{hp_after}): +{amount} HP {crit_tag}{formula_str}")
 
     def effect_update(self, unit_name: str, effect: str, duration: int, dur_type: str = "action"):
         unit_label = "行动" if dur_type == "action" else "回合"

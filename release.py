@@ -7,19 +7,24 @@ Izanami Lab 一键发布脚本
 1. 交互式输入版本信息（版本号、分类Features）
 2. 检查 Git 状态并推送代码
 3. 运行 build.py 打包
-4. 创建 ZIP 压缩包
-5. 创建 GitHub Release 并上传
+4. 生成 manifest.json（热更新清单）
+5. 创建 ZIP 压缩包
+6. 创建 GitHub Release 并上传（含 manifest + 变更文件）
 """
 import subprocess
 import sys
 import os
+import json
+import hashlib
 import zipfile
 from pathlib import Path
+from datetime import datetime
 from collections import OrderedDict
 
 SCRIPT_DIR = Path(__file__).parent
 DIST_DIR = SCRIPT_DIR / "dist"
 APP_NAME = "Izanami Lab"
+REPOSITORY = "senjyou/Izanami-Lab"
 
 # Feature 分类
 FEATURE_CATEGORIES = OrderedDict([
@@ -116,6 +121,68 @@ def format_release_notes(version, features):
     return "\n".join(lines)
 
 
+def compute_sha256(file_path: Path) -> str:
+    """计算文件 SHA-256"""
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
+    """生成版本清单（热更新用）"""
+    app_dir = dist_dir / APP_NAME
+    data_dir = app_dir / "data"
+    files = []
+
+    # 扫描 data 目录
+    if data_dir.exists():
+        for file_path in sorted(data_dir.rglob("*")):
+            if file_path.is_file() and not file_path.name.endswith('.default.json'):
+                rel_path = file_path.relative_to(app_dir)
+                path_str = str(rel_path).replace('\\', '/')
+                sha256 = compute_sha256(file_path)
+                size = file_path.stat().st_size
+                category = "hot"  # data 目录下的文件都是热更新
+                files.append({
+                    "path": path_str,
+                    "sha256": sha256,
+                    "size": size,
+                    "category": category,
+                    "url": f"https://github.com/{REPOSITORY}/releases/download/{version}/{path_str}",
+                })
+
+    # 判断更新类型
+    update_type = "hot" if files else "warm"
+
+    # 生成 changelog
+    changelog_zh = ""
+    changelog_en = ""
+    if features:
+        grouped = OrderedDict([(k, []) for k in FEATURE_CATEGORIES])
+        for f in features:
+            grouped[f['category']].append(f['text'])
+        zh_lines = []
+        for cat_key, cat_name in FEATURE_CATEGORIES.items():
+            items = grouped[cat_key]
+            if items:
+                for item in items:
+                    zh_lines.append(f"- {item}")
+        changelog_zh = "\n".join(zh_lines)
+
+    return {
+        "version": version.lstrip('v'),
+        "build_timestamp": datetime.utcnow().isoformat() + "Z",
+        "update_type": update_type,
+        "files": files,
+        "changelog": {
+            "zh": changelog_zh,
+            "en": changelog_en,
+        },
+    }
+
+
 def main():
     # 1. 获取版本号
     if len(sys.argv) >= 2:
@@ -159,7 +226,7 @@ def main():
         sys.exit(0)
 
     # 4. 更新本地版本号（必须在构建前完成，否则打包的程序版本号不对）
-    print("\n[1/5] 更新本地版本号...")
+    print("\n[1/6] 更新本地版本号...")
     version_file = SCRIPT_DIR / "version.py"
     version_num = version.lstrip('v')
     new_content = f'__version__ = "{version_num}"\n__repository__ = "senjyou/Izanami-Lab"\n__release_url__ = "https://github.com/senjyou/Izanami-Lab/releases"'
@@ -167,7 +234,7 @@ def main():
     print(f"  已更新 version.py 为 v{version_num}")
 
     # 5. 检查并推送代码
-    print("\n[2/5] 检查并推送代码...")
+    print("\n[2/6] 检查并推送代码...")
     print("  检查 Git 状态...")
     status = run_cmd("git status --short", cwd=SCRIPT_DIR)
     if status:
@@ -188,11 +255,20 @@ def main():
     run_cmd("git push", cwd=SCRIPT_DIR)
 
     # 6. 打包构建
-    print("\n[3/5] 打包构建...")
+    print("\n[3/6] 打包构建...")
     run_cmd("python build.py", cwd=SCRIPT_DIR)
 
-    # 7. 创建 ZIP
-    print("\n[4/5] 创建压缩包...")
+    # 7. 生成 manifest
+    print("\n[4/6] 生成 manifest.json...")
+    manifest = generate_manifest(DIST_DIR, version, new_features)
+    manifest_path = DIST_DIR / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    file_count = len(manifest["files"])
+    print(f"  已生成 manifest.json（{file_count} 个文件）")
+
+    # 8. 创建 ZIP
+    print("\n[5/6] 创建压缩包...")
     app_dir = DIST_DIR / APP_NAME
     zip_path = DIST_DIR / f"Izanami-Lab_{version}.zip"
 
@@ -208,8 +284,8 @@ def main():
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
-    # 8. 创建 Release
-    print("\n[5/5] 创建 GitHub Release...")
+    # 9. 创建 Release（上传 ZIP + manifest + 变更文件）
+    print("\n[6/6] 创建 GitHub Release...")
 
     notes = format_release_notes(version, new_features)
     notes_file = DIST_DIR / "release_notes.md"
@@ -220,11 +296,29 @@ def main():
     print(notes)
     print("-" * 40)
 
-    result = subprocess.run(
-        ['C:\\Program Files\\GitHub CLI\\gh.exe', 'release', 'create', version, str(zip_path), '--title', version, '--notes-file', str(notes_file), '--repo', 'senjyou/Izanami-Lab'],
-        capture_output=True,
-        text=True
-    )
+    # 构建上传资产列表：ZIP + manifest.json + 变更的数据文件
+    assets = [str(zip_path), str(manifest_path)]
+
+    # 添加变更的 data 文件（用于增量下载）
+    app_data_dir = app_dir / "data"
+    if app_data_dir.exists():
+        for file_entry in manifest["files"]:
+            file_path = app_dir / file_entry["path"]
+            if file_path.exists():
+                assets.append(str(file_path))
+
+    print(f"  上传资产: {len(assets)} 个文件")
+
+    # 使用 gh CLI 创建 Release
+    gh_cmd = [
+        'C:\\Program Files\\GitHub CLI\\gh.exe', 'release', 'create',
+        version,
+        *assets,
+        '--title', version,
+        '--notes-file', str(notes_file),
+        '--repo', REPOSITORY,
+    ]
+    result = subprocess.run(gh_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"  错误: {result.stderr}")
         sys.exit(result.returncode)
@@ -233,7 +327,8 @@ def main():
     print(f"\n{'='*60}")
     print(f"  发布完成!")
     print(f"  版本: {version}")
-    print(f"  Release: https://github.com/senjyou/Izanami-Lab/releases/tag/{version}")
+    print(f"  Release: https://github.com/{REPOSITORY}/releases/tag/{version}")
+    print(f"  热更新文件: {file_count} 个")
     print(f"{'='*60}")
 
 

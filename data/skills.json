@@ -70990,5 +70990,429 @@
     ],
     "template_tags": {},
     "display_info": {}
+  },
+  "110066": {
+    "skill_id": 110066,
+    "name": "衣擦れの調べ",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "所持している「浮足」の数が最も多い敵を優先し、敵前後列に威力{威力}で攻撃する。対象が「浮足」を所持している場合、2行動の間攻撃力を15%低下させる（重複可）。\nさらにスキル「優雅な足取り」のクールタイムをリセットして再び使用できるようにする"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          },
+          {
+            "level": 3,
+            "value": 90.27999877929688
+          },
+          {
+            "level": 4,
+            "value": 100.8499984741211
+          },
+          {
+            "level": 6,
+            "value": 106.12999725341797
+          },
+          {
+            "level": 7,
+            "value": 116.69999694824219
+          },
+          {
+            "level": 9,
+            "value": 121.9800033569336
+          },
+          {
+            "level": 10,
+            "value": 132.60000610351562
+          },
+          {
+            "level": 15,
+            "value": 180.1999969482422
+          }
+        ]
+      }
+    }
+  },
+  "120147": {
+    "skill_id": 120147,
+    "name": "百花繚乱",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も残りHPが多い敵単体に威力{威力}で攻撃し、「浮足」を1つ付与する。\nこの攻撃によって付与された「浮足」が3つ以上になった場合、「浮足」を全て解除して「高揚」を1つ付与する。「高揚」は1つにつき対象の会心率を{crt}%低下させ（重複可）、行動時に攻撃力×{dmg}%のダメージを受けるデバフを付与する。会心率デバフと継続ダメージデバフは解除不可だが、「高揚」が解除されると同時に解除される。\n「高揚」は付与者が倒れると同時に解除される"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 95.5999984741211
+          },
+          {
+            "level": 4,
+            "value": 106.80000305175781
+          },
+          {
+            "level": 6,
+            "value": 112.4000015258789
+          },
+          {
+            "level": 7,
+            "value": 123.5999984741211
+          },
+          {
+            "level": 9,
+            "value": 129.1999969482422
+          },
+          {
+            "level": 10,
+            "value": 140.39999389648438
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          },
+          {
+            "level": 15,
+            "value": 37.5
+          }
+        ]
+      }
+    }
+  },
+  "120148": {
+    "skill_id": 120148,
+    "name": "清廉なる一撃",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身から最も遠い位置にいる敵単体、および対象に隣接する2体に対し威力{威力}で攻撃し、自身が2回行動を終えるまでの間「浮足」を1つ付与する。\n対象が「浮足」を所持している場合、追加で対象の現在HP×20%のダメージを与える。このダメージは自身の攻撃力×50%を上限とする"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.47999954223633
+          },
+          {
+            "level": 4,
+            "value": 47.45000076293945
+          },
+          {
+            "level": 6,
+            "value": 49.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 54.900001525878906
+          },
+          {
+            "level": 9,
+            "value": 57.380001068115234
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 15,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "130147": {
+    "skill_id": 130147,
+    "name": "優雅な足取り",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に威力{威力}で反撃し、2行動の間対象の攻撃力を{atk}%低下させる。このスキルは戦闘中に1度しか発動できないが、条件を満たした場合再び使用できる"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 115.0
+          },
+          {
+            "level": 3,
+            "value": 121.83999633789062
+          },
+          {
+            "level": 4,
+            "value": 135.52000427246094
+          },
+          {
+            "level": 6,
+            "value": 142.36000061035156
+          },
+          {
+            "level": 7,
+            "value": 156.0399932861328
+          },
+          {
+            "level": 9,
+            "value": 162.8800048828125
+          },
+          {
+            "level": 10,
+            "value": 179.39999389648438
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          },
+          {
+            "level": 15,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "130148": {
+    "skill_id": 130148,
+    "name": "高貴な一礼",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 1,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。敵単体の会心率を{crt}%、会心ダメージを{crtdmg}%低下させる。\nまた「高揚」を2つ以上所持している敵がいた場合、対象から「高揚」を全て解除する"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。敵単体の会心率を{crt}%、会心ダメージを{crtdmg}%低下させ、「浮足」を1つ付与する。\nさらに自身に対し、「浮足」を所持している敵から受ける攻撃の被ダメージを{dmg}%減少させる効果を付与する。\nまた「高揚」を2つ以上所持している敵がいた場合、対象から「高揚」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          },
+          {
+            "level": 3,
+            "value": 3.940000057220459
+          },
+          {
+            "level": 4,
+            "value": 4.820000171661377
+          },
+          {
+            "level": 6,
+            "value": 5.260000228881836
+          },
+          {
+            "level": 7,
+            "value": 6.139999866485596
+          },
+          {
+            "level": 9,
+            "value": 6.579999923706055
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 18.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 19.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 21.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 22.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 30.0
+          },
+          {
+            "level": 15,
+            "value": 40.0
+          }
+        ]
+      }
+    }
+  },
+  "400200": {
+    "skill_id": 400200,
+    "name": "攻撃上昇【葵】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。生駒葵の攻撃力を1000上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400199": {
+    "skill_id": 400199,
+    "name": "回復2T終了【敏捷タイプ】",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "2ターンごとのターン終了時に発動。敏捷タイプの味方のHPを最大HPの2%回復する"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
   }
 }

@@ -34,7 +34,8 @@ _log = battle_logger()
 
 
 class BattleConfig:
-    max_turns: int = 15
+    def __init__(self, max_turns: int = 15):
+        self.max_turns = max_turns
 
 
 class BattleFlowController:
@@ -542,6 +543,9 @@ class BattleFlowController:
             unit_count_actions = self.trigger_service.trigger_unit_count_below(self.battlefield)
             self._execute_global_trigger_actions(unit_count_actions)
 
+            # 4.5 清除死亡单位施加的「高揚」mark及其linked debuff
+            self._remove_marks_from_dead_caster(newly_dead)
+
             # 5. 钩子：击杀触发器处理完毕后，允许子类（如战术演习）在此执行复活等逻辑
             self._on_deaths_resolved(newly_dead)
 
@@ -601,8 +605,11 @@ class BattleFlowController:
                     all_post_as_actions.extend(after_ally_as)
 
                     # 自身AS攻击后触发（如諸元修正）也属于同时机，需与after_ally_as_attack合并排序
+                    # 传递primary_target给after_self_as触发器，使PS技能（如アーマー・ジャム）能获取AS攻击目标
+                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
                     after_self_as = self.trigger_service.trigger_after_skill_use(
-                        unit, selected_skill, skill_result, self.battlefield
+                        unit, selected_skill, skill_result, self.battlefield,
+                        primary_target=_as_primary_target
                     )
                     all_post_as_actions.extend(after_self_as)
 
@@ -895,6 +902,38 @@ class BattleFlowController:
             newly_dead: 本次行动中新阵亡的单位列表
         """
         pass
+
+    def _remove_marks_from_dead_caster(self, newly_dead: list) -> None:
+        """清除死亡单位施加的「高揚」mark及其linked debuff。
+        当施加者被击败时，其施加的所有「高揚」mark及绑定的debuff应立即消失。
+        """
+        dead_ids = {u.unit_id for u in newly_dead}
+        all_units = self.battlefield.get_all_units()
+        for alive_unit in all_units:
+            if alive_unit.unit_id in dead_ids:
+                continue
+            # 查找由死亡单位施加的「高揚」mark
+            marks_to_remove = [
+                d for d in alive_unit.debuffs
+                if d.effect_type == SkillEffectType.MARK.value
+                and getattr(d, 'name', '') == '高揚'
+                and getattr(d, 'source_unit_id', None) in dead_ids
+            ]
+            for mark in marks_to_remove:
+                mark_name = mark.name
+                # 移除linked debuff
+                linked_debuffs = [
+                    d for d in alive_unit.debuffs
+                    if getattr(d, 'linked_buff_id', '') == mark_name
+                    and getattr(d, 'source_unit_id', None) in dead_ids
+                ]
+                for ld in linked_debuffs:
+                    alive_unit.debuffs.remove(ld)
+                    _log.info("[MARK_DEATH] %s: linked debuff '%s' removed (caster %d died)",
+                              alive_unit.name, ld.name, mark.source_unit_id)
+                alive_unit.debuffs.remove(mark)
+                _log.info("[MARK_DEATH] %s: mark '高揚' removed (caster %d died)",
+                          alive_unit.name, mark.source_unit_id)
 
     def _on_death_narrative_complete(self, newly_dead: list) -> None:
         """死亡通知叙事输出完毕后的钩子。子类可覆写此方法输出复活等叙事。
@@ -1645,6 +1684,7 @@ class BattleFlowController:
                         amount=h['amount'],
                         target_max_hp=target_max,
                         is_crit=h.get('is_crit', False),
+                        formula=h.get('heal_formula', ''),
                     )
             elif applied.get("effect_type") == "aura":
                 for a in applied.get("auras", []):
@@ -1775,17 +1815,29 @@ class BattleFlowController:
                         ap_targets = applied.get("targets", [])
                         for at in ap_targets:
                             target_dname = self._get_display_name(at.get('target_id', at.get('target')))
-                            self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname)
+                            cover_for = at.get('cover_replaced_for')
+                            if cover_for:
+                                self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname, cover_for)
+                            else:
+                                self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname)
             elif applied.get("effect_type") == "remove_pp":
                 pp_targets = applied.get("targets", [])
                 for pt in pp_targets:
                     target_dname = self._get_display_name(pt.get('target_id', pt.get('target')))
-                    self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname)
+                    cover_for = pt.get('cover_replaced_for')
+                    if cover_for:
+                        self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname, cover_for)
+                    else:
+                        self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname)
             elif applied.get("effect_type") == "remove_ep":
                 ep_targets = applied.get("targets", [])
                 for et in ep_targets:
                     target_dname = self._get_display_name(et.get('target_id', et.get('target')))
-                    self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname)
+                    cover_for = et.get('cover_replaced_for')
+                    if cover_for:
+                        self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname, cover_for)
+                    else:
+                        self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname)
             elif applied.get("effect_type") == "remove_mark":
                 for rm in applied.get("targets", []):
                     target_dname = self._get_display_name(rm.get('target_id', rm.get('target')))

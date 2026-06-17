@@ -43,7 +43,8 @@ class DamageService:
 
     @staticmethod
     def _aggregate_buff_value(buffs: List[BuffState], effect_type: str, is_debuff_list: bool = False,
-                              value_tag: int = None, unit: UnitState = None) -> float:
+                              value_tag: int = None, unit: UnitState = None,
+                              attacker: UnitState = None) -> float:
         """
         按三类buff规则汇总某effect_type的总值：
         - 记忆卡buff (is_memory_buff): 无条件可叠加，全部求和
@@ -54,6 +55,7 @@ class DamageService:
         Args:
             value_tag: 可选过滤器，None=不区分，0=仅聚合百分比buff，1=仅聚合固定值buff
             unit: 可选，用于hp_threshold条件检查
+            attacker: 可选，用于mark_condition条件检查
         """
         memory_sum = 0.0
         stackable_sum = 0.0
@@ -74,6 +76,24 @@ class DamageService:
                     _log.info("[CONDITIONAL_BUFF] %s: %s skipped (HP %.1f%% < threshold %.1f%%)",
                               unit.name, buff.name, hp_pct, hp_threshold)
                     continue
+            # 条件性buff：mark_condition检查，仅当攻击者持有指定mark时生效
+            mark_cond = getattr(buff, 'mark_condition', '')
+            if mark_cond:
+                if attacker is None:
+                    _log.info("[CONDITIONAL_BUFF] %s: %s skipped (no attacker for mark_condition='%s')",
+                              getattr(unit, 'name', '?'), buff.name, mark_cond)
+                    continue
+                attacker_has_mark = any(
+                    (b.effect_type == SkillEffectType.MARK.value and b.name == mark_cond)
+                    for b in attacker.buffs
+                ) or any(
+                    (d.effect_type == SkillEffectType.MARK.value and d.name == mark_cond)
+                    for d in attacker.debuffs
+                )
+                if not attacker_has_mark:
+                    _log.info("[CONDITIONAL_BUFF] %s: %s skipped (attacker %s lacks mark '%s')",
+                              getattr(unit, 'name', '?'), buff.name, attacker.name, mark_cond)
+                    continue
             # 可选：按value_tag过滤（0=百分比，1=固定值）
             if value_tag is not None:
                 tag = getattr(buff, "value_tag", 0)
@@ -93,22 +113,24 @@ class DamageService:
         return result
 
     def _aggregate_buff_value_signed(self, buffs: List[BuffState], debuffs: List[BuffState],
-                                      effect_type: str, value_tag: int = None, unit: UnitState = None) -> float:
+                                      effect_type: str, value_tag: int = None, unit: UnitState = None,
+                                      attacker: UnitState = None) -> float:
         """汇总buff和debuff的净值：buff加，debuff减"""
-        buff_val = self._aggregate_buff_value(buffs, effect_type, value_tag=value_tag, unit=unit)
-        debuff_val = self._aggregate_buff_value(debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, unit=unit)
+        buff_val = self._aggregate_buff_value(buffs, effect_type, value_tag=value_tag, unit=unit, attacker=attacker)
+        debuff_val = self._aggregate_buff_value(debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, unit=unit, attacker=attacker)
         return buff_val - debuff_val
 
     def _aggregate_buff_value_signed_filtered(self, buffs: List[BuffState], debuffs: List[BuffState],
                                                effect_type: str, damage_element: int = 0,
-                                               value_tag: int = None, unit: UnitState = None) -> float:
+                                               value_tag: int = None, unit: UnitState = None,
+                                               attacker: UnitState = None) -> float:
         """汇总buff和debuff的净值，根据damage_element过滤DealtDamage类型buff
-        
+
         Args:
             damage_element: 0=全属性(不过滤), 1=仅物理, 2=仅能量
         """
         if damage_element == 0:
-            return self._aggregate_buff_value_signed(buffs, debuffs, effect_type, value_tag)
+            return self._aggregate_buff_value_signed(buffs, debuffs, effect_type, value_tag, attacker=attacker)
 
         # 过滤buffs：仅保留damage_element=0(全属性)或damage_element匹配的buff
         filtered_buffs = []
@@ -129,8 +151,8 @@ class DamageService:
             else:
                 filtered_debuffs.append(d)
 
-        buff_val = self._aggregate_buff_value(filtered_buffs, effect_type, value_tag=value_tag)
-        debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag)
+        buff_val = self._aggregate_buff_value(filtered_buffs, effect_type, value_tag=value_tag, attacker=attacker)
+        debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, attacker=attacker)
         return buff_val - debuff_val
 
     def calculate_damage(self, attacker: UnitState, defender: UnitState, skill_data: Any, is_cover_damage: bool = False) -> DamageResult:
@@ -192,7 +214,7 @@ class DamageService:
         _log.info("[DMG_CALC] step4_dealt_mult: %.4f", damage_dealt_mult)
         
         # 6. 受击方增减伤倍率（根据技能伤害类型过滤）
-        damage_received_mult = self._get_damage_received_multiplier(defender, damage_element=skill_damage_element)
+        damage_received_mult = self._get_damage_received_multiplier(defender, damage_element=skill_damage_element, attacker=attacker)
         _log.info("[DMG_CALC] step5_received_mult: %.4f", damage_received_mult)
 
         # 7. 格挡(Guard)倍率
@@ -431,12 +453,14 @@ class DamageService:
 
         return 1.0 + mult
 
-    def _get_damage_received_multiplier(self, unit: UnitState, damage_element: int = 0) -> float:        
+    def _get_damage_received_multiplier(self, unit: UnitState, damage_element: int = 0,
+                                         attacker: UnitState = None) -> float:
         """受击方增减伤乘区: 1.0 - 减伤Buff总和 + 易伤Debuff总和（三类buff规则）
-        
+
         Args:
             unit: 受击方
             damage_element: 伤害属性过滤 0=全属性(默认), 1=仅物理, 2=仅能量
+            attacker: 攻击方，用于mark_condition条件检查
         """
         target_type = SkillEffectType.RECEIVED_DAMAGE.value
 
@@ -447,9 +471,9 @@ class DamageService:
         # 根据damage_element过滤dmg_taken_up/dmg_taken_down
         if damage_element != 0:
             net = self._aggregate_buff_value_signed_filtered(
-                unit.buffs, unit.debuffs, target_type, damage_element, unit=unit)
+                unit.buffs, unit.debuffs, target_type, damage_element, unit=unit, attacker=attacker)
         else:
-            net = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_type, unit=unit)
+            net = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_type, unit=unit, attacker=attacker)
         result = max(0.0, 1.0 - net)
         _log.info("[DEBUG_RCVD] %s: net=%.4f result=%.4f",
                   unit.name, net, result)

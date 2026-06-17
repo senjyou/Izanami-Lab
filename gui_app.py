@@ -46,12 +46,21 @@ from src.entities_v2.custom_dummy import (
 )
 from src.entities.memory_card import MemoryCard, MemoryHighlight
 from version import __version__, __repository__, __release_url__
-from src.utils.update_manager import UpdateManager
+from src.utils.update_daemon import UpdateDaemon, UpdateProgress
+from src.utils.version_checker import UpdateType
 
 
 # ── 路径辅助（PyInstaller 兼容） ──
 def get_base_path():
-    """获取打包后的资源根目录（开发环境为脚本所在目录）"""
+    """获取应用根目录（打包后为 exe 所在目录，开发环境为脚本所在目录）"""
+    if getattr(sys, 'frozen', False):
+        # 打包模式：exe 同级目录（data/ 外置在 exe 旁边）
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+def get_internal_path():
+    """获取 PyInstaller 内部资源路径（icon 等）"""
     if getattr(sys, 'frozen', False):
         return Path(sys._MEIPASS)
     return Path(__file__).parent
@@ -67,7 +76,10 @@ def get_user_data_path():
 def _ensure_user_config(src_name, dst_path):
     """如果用户配置不存在，从默认模板复制"""
     if not dst_path.exists():
-        default_src = get_base_path() / "data" / src_name
+        # 优先从外置 data 目录查找，回退到内部资源
+        default_src = _BASE_PATH / "data" / src_name
+        if not default_src.exists():
+            default_src = get_internal_path() / "data" / src_name
         if default_src.exists():
             import shutil
             shutil.copy(default_src, dst_path)
@@ -1688,6 +1700,7 @@ class CharacterParamsTab(ttk.Frame):
             "rarity": cfg.get("rarity", 14),
             "affection": cfg.get("affection", 40),
             "skill_level": cfg.get("skill_level", 15),
+            "skill_levels": cfg.get("skill_levels", {}),
             "mod_tier": cfg.get("mod_tier", 9),
             "mod_level": cfg.get("mod_level", 50),
             "gear": cfg.get("gear", []),
@@ -6646,12 +6659,23 @@ class MGGBattleSimulatorGUI:
         self.root.title(f"Izanami Lab v{__version__}")
         self.root.geometry("1400x960")
         # 设置窗口图标
-        _icon_path = _BASE_PATH / "icon.ico"
+        _icon_path = get_internal_path() / "icon.ico"
+        if not _icon_path.exists():
+            _icon_path = _BASE_PATH / "icon.ico"
         if _icon_path.exists():
             self.root.iconbitmap(str(_icon_path))
 
-        # 更新管理器
-        self.update_manager = UpdateManager(__repository__, __version__, __release_url__)
+        # 更新守护进程
+        self.update_daemon = UpdateDaemon(
+            app_data_dir=str(_BASE_PATH),
+            user_data_dir=str(_USER_DATA),
+            repository=__repository__,
+            current_version=__version__,
+            release_url=__release_url__,
+            data_loader=None,  # DataLoader 尚未创建，后续设置
+        )
+        self.update_daemon.set_progress_callback(self._on_update_progress)
+        self.update_daemon.set_refresh_callback(self._on_data_refresh)
 
         # 首次运行：从默认模板复制用户配置
         _ensure_user_config("global_config.default.json", GLOBAL_CONFIG_PATH)
@@ -6671,6 +6695,9 @@ class MGGBattleSimulatorGUI:
         self.data_loader = DataLoader(base_path=str(_BASE_PATH), user_data_dir=str(_USER_DATA))
         self.data_loader.load_all()
         self.data_loader.load_custom_dummies()
+
+        # 设置 UpdateDaemon 的 DataLoader 引用
+        self.update_daemon._patch_engine._data_loader = self.data_loader
 
         chars_data = self.data_loader.load_characters()
         self.char_ids = sorted([int(k) for k in chars_data.keys()])
@@ -6776,40 +6803,85 @@ class MGGBattleSimulatorGUI:
                 self.team_tab._update_slot_display(slot, slot["cid"])
 
     def _start_update_check(self):
-        """启动时异步检查更新"""
-        def check():
-            result = self.update_manager.check_for_updates()
-            if result and result.has_update:
-                self.root.after(0, lambda: self._show_update_dialog(result))
-        threading.Thread(target=check, daemon=True).start()
+        """启动时启动更新守护进程"""
+        self.update_daemon.start()
 
     def _check_updates_ui(self):
         """手动检查更新按钮回调"""
         self._update_btn.config(state="disabled", text="检查中...")
         def check():
-            result = self.update_manager.check_for_updates(force=True)
-            self.root.after(0, lambda: self._update_btn.config(state="normal", text="检查更新"))
-            if result:
-                if result.has_update:
-                    self.root.after(0, lambda: self._show_update_dialog(result))
-                else:
-                    self.root.after(0, lambda: messagebox.showinfo("检查更新", f"当前已是最新版本 v{result.current_version}"))
+            result = self.update_daemon.check_now()
+            # 仅在无更新时恢复按钮（有更新时由进度回调管理按钮状态）
+            if result is None:
+                self.root.after(0, lambda: self._update_btn.config(state="normal", text="检查更新"))
+                self.root.after(0, lambda: messagebox.showinfo("检查更新", f"当前已是最新版本 v{__version__}"))
+            elif result.status == "COLD_UPDATE_REQUIRED":
+                self.root.after(0, lambda: self._update_btn.config(state="normal", text="检查更新"))
+                self.root.after(0, lambda: self._show_cold_update_dialog(result))
             else:
-                self.root.after(0, lambda: messagebox.showwarning("检查更新", "无法连接到服务器，请稍后再试"))
+                # 有热/温更新，进度回调会管理按钮状态
+                self.root.after(0, lambda: self._update_btn.config(state="normal"))
         threading.Thread(target=check, daemon=True).start()
 
-    def _show_update_dialog(self, update_info):
-        """显示更新提示对话框"""
-        notes = update_info.release_notes[:200] + "..." if len(update_info.release_notes) > 200 else update_info.release_notes
+    def _on_update_progress(self, progress: UpdateProgress):
+        """更新进度回调（在后台线程中调用，需通过 root.after 回到主线程）"""
+        self.root.after(0, lambda: self._handle_update_progress(progress))
+
+    def _handle_update_progress(self, progress: UpdateProgress):
+        """在主线程中处理更新进度"""
+        status_text = {
+            "IDLE": "检查更新",
+            "CHECKING": "正在检查更新...",
+            "READY": f"发现更新 v{progress.target_version}",
+            "DOWNLOADING": f"正在更新 v{progress.target_version} ({progress.completed_files}/{progress.total_files})",
+            "VERIFYING": "正在校验文件...",
+            "APPLYING": "正在应用更新...",
+            "COMPLETED": f"已更新至 v{progress.target_version}",
+            "FAILED": f"更新失败",
+            "ROLLING_BACK": "正在回滚...",
+            "COLD_UPDATE_REQUIRED": f"发现新版本 v{progress.target_version}",
+        }.get(progress.status, "检查更新")
+
+        self._update_btn.config(text=status_text[:20])
+
+        if progress.status == "COMPLETED":
+            warm_count = len(progress.warm_files) if progress.warm_files else 0
+            hot_count = len(progress.hot_files) if progress.hot_files else 0
+            msg = f"已成功更新至 v{progress.target_version}\n\n"
+            if hot_count > 0:
+                msg += f"数据更新: {hot_count} 个文件（已即时生效）\n"
+            if warm_count > 0:
+                msg += f"代码更新: {warm_count} 个文件（重启后生效）\n"
+            if warm_count > 0:
+                msg += "\n建议重启应用以完成更新。"
+            messagebox.showinfo("更新完成", msg)
+            self._update_btn.config(text="检查更新")
+
+        elif progress.status == "FAILED":
+            messagebox.showwarning("更新失败", progress.error_message or "未知错误")
+            self._update_btn.config(text="检查更新")
+
+        elif progress.status == "COLD_UPDATE_REQUIRED":
+            self._show_cold_update_dialog(progress)
+
+    def _show_cold_update_dialog(self, progress: UpdateProgress):
+        """显示冷更新（完整包下载）对话框"""
         message = (
-            f"检测到新版本 v{update_info.latest_version}（当前版本 v{update_info.current_version}）\n\n"
-            f"更新说明:\n{notes}\n\n"
-            f"发布时间: {update_info.published_at[:10] if update_info.published_at else '未知'}"
+            f"检测到新版本 v{progress.target_version}（当前版本 v{progress.current_version}）\n\n"
+            f"此更新包含重大变更，需要下载完整安装包。\n\n"
+            f"是否前往下载更新？"
         )
-        result = messagebox.askyesno("发现更新", message + "\n\n是否前往下载更新？")
+        result = messagebox.askyesno("发现更新", message)
         if result:
             import webbrowser
-            webbrowser.open(update_info.release_url)
+            webbrowser.open(f"https://github.com/{__repository__}/releases")
+
+    def _on_data_refresh(self, updated_files: list):
+        """数据刷新回调（热更新后通知 UI 刷新）"""
+        # 通知各 Tab 刷新数据
+        if hasattr(self, 'char_tab'):
+            # 清除角色相关缓存，触发重新加载
+            pass  # 各 Tab 在下次访问时会自动从 DataLoader 重新加载
 
     def _apply_window_style(self):
         """应用 Windows 窗口样式"""
@@ -6981,6 +7053,7 @@ class MGGBattleSimulatorGUI:
             pass
 
     def _on_close(self):
+        self.update_daemon.stop()
         self._save_char_config()
         self.data_loader.save_custom_dummies()
         self.root.destroy()
@@ -7042,7 +7115,14 @@ class MGGBattleSimulatorGUI:
                     for grp_idx, mid in enumerate(tid)
                 ]
                 skill_ids = self.data_loader.load_character_skills().get(cid, [])
-                panel.skill_levels[cid] = {sid: cc["skill_level"] for sid in skill_ids}
+                saved_levels = cc.get("skill_levels", {})
+                if saved_levels:
+                    panel.skill_levels[cid] = {
+                        sid: saved_levels.get(sid, saved_levels.get(str(sid), cc.get("skill_level", 15)))
+                        for sid in skill_ids
+                    }
+                else:
+                    panel.skill_levels[cid] = {sid: cc.get("skill_level", 15) for sid in skill_ids}
             else:
                 panel.rarities[cid] = default_rarity
                 panel.affection_levels[cid] = default_affection
