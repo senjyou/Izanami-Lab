@@ -296,17 +296,8 @@ def main():
     print(notes)
     print("-" * 40)
 
-    # 构建上传资产列表：ZIP + manifest.json + 变更的数据文件
+    # 只上传 ZIP + manifest.json（热更新文件已在 ZIP 中）
     assets = [str(zip_path), str(manifest_path)]
-
-    # 添加变更的 data 文件（用于增量下载）
-    app_data_dir = app_dir / "data"
-    if app_data_dir.exists():
-        for file_entry in manifest["files"]:
-            file_path = app_dir / file_entry["path"]
-            if file_path.exists():
-                assets.append(str(file_path))
-
     print(f"  上传资产: {len(assets)} 个文件")
 
     # 使用 gh CLI 创建 Release
