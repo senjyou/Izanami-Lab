@@ -2257,25 +2257,8 @@
             "ignore_shield": 0
           },
           {
-            "effect_type": "add_status",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "burn",
-            "value_source": null,
-            "duration": 3,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
             "effect_type": "damage",
-            "target_type": "enemy_single",
+            "target_type": "adjacent_enemies",
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
@@ -2287,6 +2270,50 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "target_survived"
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "add",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "burn",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "burn_damage_pct": 30
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -7156,7 +7183,15 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "conditional_power_bonus": {
+                "condition": {
+                  "type": "target_has_burn"
+                },
+                "value_tag": "dmg",
+                "value_type": "percent"
+              }
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -12616,7 +12651,7 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
+    "trigger_type": "after_as_attack",
     "global_condition": null,
     "effect_blocks": [
       {
@@ -12630,7 +12665,34 @@
             "value": 0.0,
             "value_tag": "atk",
             "value_source": null,
-            "duration": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "level_min": 11,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
             "duration_type": null,
             "duration_tag": null,
             "hit_count": null,
@@ -12662,14 +12724,18 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
-    "global_condition": null,
+    "global_condition": {
+      "type": "round_number",
+      "operator": ">",
+      "value": 1
+    },
     "effect_blocks": [
       {
         "block_id": 1,
         "condition": null,
         "effects": [
           {
-            "effect_type": "remove_buff",
+            "effect_type": "remove_all_buffs",
             "target_type": "self",
             "target_identifier": null,
             "value": null,
@@ -12691,24 +12757,7 @@
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "remove_buff",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": null,
-            "value_source": null,
+            "value_source": "attack",
             "duration": null,
             "duration_type": null,
             "duration_tag": null,

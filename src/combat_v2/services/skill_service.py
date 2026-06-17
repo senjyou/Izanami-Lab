@@ -390,6 +390,20 @@ class SkillService:
             result["error"] = "Insufficient resources"
             return result
 
+        # 评估global_condition（如round_number等）
+        gc = getattr(resolved, 'global_condition', None)
+        if gc and isinstance(gc, dict):
+            gc_type = gc.get('type')
+            gc_op = gc.get('operator', '==')
+            gc_val = gc.get('value', 0)
+            if gc_type == 'round_number':
+                cur_round = battlefield.turn_number
+                if not _eval_block_condition(cur_round, gc_op, gc_val):
+                    _log.info("[SKILL_EXEC] %s: [%s] global_condition round_number %d %s %d failed, skipping",
+                              caster.name, resolved.name, cur_round, gc_op, gc_val)
+                    result["error"] = "global_condition not met"
+                    return result
+
         deferred_effects = []
         kills_occurred = False
         self._debuffs_applied_this_skill = set()
@@ -461,27 +475,24 @@ class SkillService:
             if block_condition and isinstance(block_condition, dict):
                 cond_type = block_condition.get('type')
                 if cond_type == 'target_survived':
-                    # target_survived：只检查前序block的攻击目标是否存活，不检查友方
-                    # 使用_prev_block_damage_targets（前序block的攻击目标）
-                    any_target_dead = False
-                    prev_targets = getattr(self, '_prev_block_damage_targets', {})
-                    if prev_targets:
+                    # target_survived：只检查前序block的主目标是否存活
+                    # 使用_last_primary_target（前序block的主攻击目标）
+                    primary_target = getattr(self, '_last_primary_target', None)
+                    if primary_target is None:
+                        # 回退：检查_prev_block_damage_targets中的第一个目标类型
+                        prev_targets = getattr(self, '_prev_block_damage_targets', {})
+                        if prev_targets:
+                            first_key = next(iter(prev_targets))
+                            primary_target = prev_targets[first_key][0] if prev_targets[first_key] else None
+                    if primary_target is not None:
                         if self._tactical_exercise_mode:
-                            # 战术演习模式：使用is_alive判断（阵亡flag延后生效，确保第二段伤害能打出）
-                            for tt, targets in prev_targets.items():
-                                if any(not t.is_alive for t in targets):
-                                    any_target_dead = True
-                                    break
+                            is_dead = not primary_target.is_alive
                         else:
-                            # 普通模式：使用current_hp判断（death deferred但HP已归零）
-                            for tt, targets in prev_targets.items():
-                                if any(t.current_hp <= 0 for t in targets):
-                                    any_target_dead = True
-                                    break
-                    if any_target_dead:
-                        _log.info("[SKILL_EXEC] %s: skipping block %d (target_survived: attack target is dead)",
-                                  caster.name, block.block_id)
-                        continue
+                            is_dead = primary_target.current_hp <= 0
+                        if is_dead:
+                            _log.info("[SKILL_EXEC] %s: skipping block %d (target_survived: primary target %s is dead)",
+                                      caster.name, block.block_id, primary_target.name)
+                            continue
                 elif cond_type == 'target_killed':
                     if not kills_occurred:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (target_killed condition failed, no kills)",
@@ -1238,6 +1249,12 @@ class SkillService:
         elif etype == "remove_debuff":
             return self._apply_remove_debuff(caster, effect, battlefield)
 
+        elif etype == "remove_all_buffs":
+            return self._apply_remove_all_buffs(caster, effect, battlefield)
+
+        elif etype == "remove_buff":
+            return self._apply_remove_buff(caster, effect, battlefield)
+
         elif etype == "reset_cooldown":
             return self._apply_reset_cooldown(caster, effect)
 
@@ -1499,48 +1516,74 @@ class SkillService:
         if cond_power_bonus and isinstance(cond_power_bonus, dict) and targets:
             cond = cond_power_bonus.get('condition', {})
             cond_type = cond.get('type', '')
+            cond_met = False
+            cond_desc = ""
+
             if cond_type == 'target_hp_below' and targets:
                 first_target = targets[0]
                 pre_dmg_hp = getattr(self, '_pre_damage_hp', {}).get(first_target.unit_id, first_target.current_hp)
                 hp_pct = pre_dmg_hp / first_target.max_hp * 100 if first_target.max_hp > 0 else 100
                 threshold = cond.get('value', 0)
-                if hp_pct <= threshold:
-                    value_tag = cond_power_bonus.get('value_tag', 'dmg')
-                    # 通过resolver解析tag值（如dmg tag对应技能等级的增伤百分比）
-                    bonus_pct = 50.0  # 默认值
-                    if value_tag and hasattr(self, '_resolver') and self._resolver:
-                        _skill_level = caster.skill_levels.get(self._current_skill_id, 1)
-                        meta = self.data_loader.get_skill_by_id(self._current_skill_id)
-                        if meta:
-                            tag_values = self._resolver._resolve_template_tags(meta, _skill_level)
-                            resolved = tag_values.get(value_tag)
-                            if resolved is not None:
-                                bonus_pct = float(resolved)
-                    bonus_type = cond_power_bonus.get('bonus_type', 'power')
-                    if bonus_type == 'dealt_damage':
-                        # 造成伤害乘区：添加临时dmg_dealt_up buff（attack_limited=1，仅本次攻击生效）
-                        temp_aura = BuffState(
-                            buff_id=f"{caster.unit_id}_DealtDamage_{caster.unit_id}_cond",
-                            name="DealtDamage",
-                            effect_type=SkillEffectType.DEALT_DAMAGE.value,
-                            value=bonus_pct,
-                            duration=1,
-                            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
-                            source_unit_id=caster.unit_id,
-                            source_skill_id=self._current_skill_id,
-                            caster_attack=0,
-                            is_debuff=False,
-                            attack_limited=1,
-                        )
-                        caster.buffs.append(temp_aura)
-                        _log.info("[CONDITIONAL_POWER_BONUS] %s: target_hp_below(%.1f%%<=%d%%) -> dmg_dealt_up +%.1f%% (dealt_damage乘区)",
-                                  caster.name, hp_pct, threshold, bonus_pct)
-                    elif cond_power_bonus.get('value_type') == 'percent':
-                        # percent: bonus_pct是百分比值，直接作为power加成（独立倍率乘区）
-                        original_power = dmg_skill_obj.power
-                        dmg_skill_obj.power = original_power * (1.0 + bonus_pct / 100.0)
-                        _log.info("[CONDITIONAL_POWER_BONUS] %s: target_hp_below(%.1f%%<=%d%%) -> power %.1f * %.2f = %.1f",
-                                  caster.name, hp_pct, threshold, original_power, 1.0 + bonus_pct / 100.0, dmg_skill_obj.power)
+                cond_met = hp_pct <= threshold
+                cond_desc = f"target_hp_below({hp_pct:.1f}%<={threshold}%)"
+
+            elif cond_type == 'target_has_status_ailment' and targets:
+                # 检查目标是否有状态异常（炎上/毒/凍結/眩暈）
+                first_target = targets[0]
+                status_ailment_types = {
+                    SkillEffectType.CONFLAGRATION.value,
+                    SkillEffectType.POISON.value,
+                    SkillEffectType.FREEZE.value,
+                    SkillEffectType.KNOCKOUT.value,
+                }
+                has_ailment = any(d.effect_type in status_ailment_types for d in first_target.debuffs)
+                cond_met = has_ailment
+                cond_desc = f"target_has_status_ailment({has_ailment})"
+
+            elif cond_type == 'target_has_burn' and targets:
+                # 检查目标是否处于炎上状态
+                first_target = targets[0]
+                has_burn = any(d.effect_type == SkillEffectType.CONFLAGRATION.value for d in first_target.debuffs)
+                cond_met = has_burn
+                cond_desc = f"target_has_burn({has_burn})"
+
+            if cond_met:
+                value_tag = cond_power_bonus.get('value_tag', 'dmg')
+                # 通过resolver解析tag值
+                bonus_pct = 50.0  # 默认值
+                if value_tag and hasattr(self, '_resolver') and self._resolver:
+                    _skill_level = caster.skill_levels.get(self._current_skill_id, 1)
+                    meta = self.data_loader.get_skill_by_id(self._current_skill_id)
+                    if meta:
+                        tag_values = self._resolver._resolve_template_tags(meta, _skill_level)
+                        resolved = tag_values.get(value_tag)
+                        if resolved is not None:
+                            bonus_pct = float(resolved)
+                bonus_type = cond_power_bonus.get('bonus_type', 'power')
+                if bonus_type == 'dealt_damage':
+                    # 造成伤害乘区：添加临时dmg_dealt_up buff（attack_limited=1，仅本次攻击生效）
+                    temp_aura = BuffState(
+                        buff_id=f"{caster.unit_id}_DealtDamage_{caster.unit_id}_cond",
+                        name="DealtDamage",
+                        effect_type=SkillEffectType.DEALT_DAMAGE.value,
+                        value=bonus_pct,
+                        duration=1,
+                        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                        source_unit_id=caster.unit_id,
+                        source_skill_id=self._current_skill_id,
+                        caster_attack=0,
+                        is_debuff=False,
+                        attack_limited=1,
+                    )
+                    caster.buffs.append(temp_aura)
+                    _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> dmg_dealt_up +%.1f%% (dealt_damage乘区)",
+                              caster.name, cond_desc, bonus_pct)
+                elif cond_power_bonus.get('value_type') == 'percent':
+                    # percent: bonus_pct是百分比值，直接作为power加成（独立倍率乘区）
+                    original_power = dmg_skill_obj.power
+                    dmg_skill_obj.power = original_power * (1.0 + bonus_pct / 100.0)
+                    _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> power %.1f * %.2f = %.1f",
+                              caster.name, cond_desc, original_power, 1.0 + bonus_pct / 100.0, dmg_skill_obj.power)
 
         hp_below_crit_flag = effect_flags.get('target_hp_below_crit')
         bonus_crit_applied = 0.0
@@ -2790,6 +2833,10 @@ class SkillService:
             _log.info("[AURA_APPLY] %s: limited targets by target_count=%d -> %s",
                       caster.name, aura_target_count, [t.name for t in targets])
 
+        # cover替换：如果cover生效，debuff目标也应替换为cover者
+        if is_debuff:
+            targets = self._apply_cover_debuff_replacement(caster, targets, battlefield)
+
         value = effect.value or 0
         hp_scaling_buff = effect_flags_aura.get('hp_scaling')
         if hp_scaling_buff and value > 0:
@@ -3292,18 +3339,9 @@ class SkillService:
         else:
             targets = self.target_service.select_targets(st_skill_obj, caster, battlefield)
 
-        # cover替换：如果cover生效，debuff目标也应替换为cover者B
-        # 遍历所有存活友方，检查是否有cover_target指向当前targets中的某个目标
-        if is_debuff and self._has_active_cover(battlefield):
-            ally_team = battlefield.friend_team if caster.side != battlefield.friend_team[0].side else battlefield.enemy_team
-            for ally in ally_team:
-                if ally.is_alive and ally.cover_target is not None:
-                    for i, t in enumerate(targets):
-                        if t.unit_id == ally.cover_target:
-                            targets[i] = ally
-                            _log.info("[ADD_STATUS_COVER] %s: replacing debuff target %s with coverer %s",
-                                      caster.name, t.name, ally.name)
-                            break
+        # cover替换：如果cover生效，debuff目标也应替换为cover者
+        if is_debuff:
+            targets = self._apply_cover_debuff_replacement(caster, targets, battlefield)
 
         # hp_threshold_cross: 如果目标已被击杀，target_service 会过滤掉死亡单位
         # 需要从 _last_damage_hp_before 中找到被伤害的目标来施加状态
@@ -3484,6 +3522,97 @@ class SkillService:
 
         return {
             "effect_type": "remove_debuff",
+            "target_count": len(targets),
+            "total_removed": total_removed,
+            "removed_details": removed_details,
+        }
+
+    def _apply_remove_all_buffs(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
+        """解除目标所有buff，排除回忆卡buff和不可解除buff"""
+        if not self.target_service:
+            _log.info("[REMOVE_ALL_BUFFS] %s: target_service unavailable", caster.name)
+            return None
+
+        target_skill_obj = type('obj', (object,), {
+            'display_target_type': self._resolve_target_type(effect.target_type),
+            'display_target_range': self._resolve_target_range(effect.target_type),
+            'display_target_priority': None,
+            'target_type_name': effect.target_type,
+        })()
+        targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+
+        total_removed = 0
+        removed_details = []
+        for target in targets:
+            if not target.is_alive:
+                continue
+            # 排除回忆卡buff和不可解除buff
+            to_remove = [b for b in target.buffs
+                         if not b.is_memory_buff and not b.unremovable]
+            removed_names = [b.name for b in to_remove]
+            for b in to_remove:
+                target.buffs.remove(b)
+            count = len(to_remove)
+            total_removed += count
+            if count > 0:
+                removed_details.append({
+                    "target_id": target.unit_id,
+                    "target": target.name,
+                    "removed_count": count,
+                    "removed_names": removed_names,
+                })
+            _log.info("[REMOVE_ALL_BUFFS] %s: removed %d buffs from %s (kept %d memory/unremovable)",
+                      caster.name, count, target.name,
+                      len([b for b in target.buffs if b.is_memory_buff or b.unremovable]))
+
+        return {
+            "effect_type": "remove_all_buffs",
+            "target_count": len(targets),
+            "total_removed": total_removed,
+            "removed_details": removed_details,
+        }
+
+    def _apply_remove_buff(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
+        """解除目标1个buff，排除回忆卡buff和不可解除buff"""
+        if not self.target_service:
+            _log.info("[REMOVE_BUFF] %s: target_service unavailable", caster.name)
+            return None
+
+        target_skill_obj = type('obj', (object,), {
+            'display_target_type': self._resolve_target_type(effect.target_type),
+            'display_target_range': self._resolve_target_range(effect.target_type),
+            'display_target_priority': None,
+            'target_type_name': effect.target_type,
+        })()
+        targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+
+        total_removed = 0
+        removed_details = []
+        for target in targets:
+            if not target.is_alive:
+                continue
+            # 排除回忆卡buff和不可解除buff，移除1个
+            removable = [b for b in target.buffs
+                         if not b.is_memory_buff and not b.unremovable]
+            if removable:
+                b = removable[0]
+                removed_name = b.name
+                target.buffs.remove(b)
+                total_removed += 1
+                removed_details.append({
+                    "target_id": target.unit_id,
+                    "target": target.name,
+                    "removed_count": 1,
+                    "removed_names": [removed_name],
+                })
+                _log.info("[REMOVE_BUFF] %s: removed 1 buff '%s' from %s",
+                          caster.name, removed_name, target.name)
+            else:
+                _log.info("[REMOVE_BUFF] %s: no removable buff on %s",
+                          caster.name, target.name)
+
+        return {
+            "effect_type": "remove_buff",
             "target_count": len(targets),
             "total_removed": total_removed,
             "removed_details": removed_details,
@@ -3708,6 +3837,8 @@ class SkillService:
                     targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
             elif effect.target_type in ("self",):
                 targets = [caster]
+            # cover替换：如果cover生效，remove_ap目标也应替换为cover者
+            targets = self._apply_cover_debuff_replacement(caster, targets, battlefield)
             # enemy_all: 对所有存活敌人削减AP；其他类型: 仅对第一个目标
             if effect.target_type == "enemy_all":
                 result_targets = []
@@ -3758,6 +3889,10 @@ class SkillService:
                                   caster.name, char_type_filter, len(targets))
                     if targets:
                         target = targets[0]
+            # cover替换：如果cover生效，remove_pp目标也应替换为cover者
+            if target is not None:
+                replaced = self._apply_cover_debuff_replacement(caster, [target], battlefield)
+                target = replaced[0] if replaced else None
             if target is not None and target.is_alive:
                 pp_flags = getattr(effect, 'flags', None) or {}
                 # pp_threshold: 仅当目标PP>=阈值时才削减
@@ -3806,6 +3941,10 @@ class SkillService:
                 if trigger_attacker and trigger_attacker.is_alive:
                     target = trigger_attacker
                     _log.info("[RESOURCE_EFFECT] %s: remove_ep using trigger_attacker=%s", caster.name, target.name)
+            # cover替换：如果cover生效，remove_ep目标也应替换为cover者
+            if target is not None:
+                replaced = self._apply_cover_debuff_replacement(caster, [target], battlefield)
+                target = replaced[0] if replaced else None
             if target is not None and target.is_alive:
                 amount = value if value else 1
                 self.resource_service.consume_ep(target, amount)
@@ -4664,6 +4803,27 @@ class SkillService:
             if unit.is_alive and unit.cover_target is not None:
                 return True
         return False
+
+    def _apply_cover_debuff_replacement(self, caster: UnitState, targets: List[UnitState],
+                                         battlefield: BattlefieldState) -> List[UnitState]:
+        """cover替换：如果cover生效，debuff目标也应替换为cover者
+
+        当技能对目标施加debuff（包括aura debuff、add_status、remove_ap/pp/ep等）时，
+        如果目标正被cover保护，则debuff应施加到cover者身上。
+        """
+        if not self._has_active_cover(battlefield):
+            return targets
+        ally_team = battlefield.friend_team if caster.side != battlefield.friend_team[0].side else battlefield.enemy_team
+        result = list(targets)
+        for ally in ally_team:
+            if ally.is_alive and ally.cover_target is not None:
+                for i, t in enumerate(result):
+                    if t.unit_id == ally.cover_target:
+                        result[i] = ally
+                        _log.info("[COVER_DEBUFF] %s: replacing debuff target %s with coverer %s",
+                                  caster.name, t.name, ally.name)
+                        break
+        return result
 
     def _apply_cover_to_targets(self, attacker: UnitState, targets: List[UnitState], battlefield: BattlefieldState) -> None:
         """

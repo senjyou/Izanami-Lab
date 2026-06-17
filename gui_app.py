@@ -727,10 +727,12 @@ class CharacterParamsTab(ttk.Frame):
             self.char_listbox.delete(0, tk.END)
             for cid in self._filtered_char_ids:
                 char = self.app.data_loader.get_character_by_id(cid)
+                is_locked = self.app.char_config.get(cid, {}).get("locked", False)
+                lock_mark = "🔒 " if is_locked else ""
                 if self.app.is_developer_mode():
-                    self.char_listbox.insert(tk.END, f"[{cid}] {self.app.format_char_name(char)}")
+                    self.char_listbox.insert(tk.END, f"{lock_mark}[{cid}] {self.app.format_char_name(char)}")
                 else:
-                    self.char_listbox.insert(tk.END, self.app.format_char_name(char))
+                    self.char_listbox.insert(tk.END, f"{lock_mark}{self.app.format_char_name(char)}")
         else:
             self._refresh_grid_view()
 
@@ -798,8 +800,11 @@ class CharacterParamsTab(ttk.Frame):
                                        font=("Microsoft YaHei UI", 8))
                 placeholder.pack()
 
-            # 角色名
+            # 角色名（锁定角色显示🔒标识）
             name = self.app.format_char_name(char)
+            is_locked = self.app.char_config.get(cid, {}).get("locked", False)
+            if is_locked:
+                name = "🔒" + name
             # 截断过长名字
             if len(name) > 12:
                 name = name[:11] + "…"
@@ -888,8 +893,19 @@ class CharacterParamsTab(ttk.Frame):
         info_frame.grid(row=0, column=0, sticky="s")
 
         char_display_name = f"{self.app.format_char_name(char)} [{cid}]" if self.app.is_developer_mode() else self.app.format_char_name(char)
-        ttk.Label(info_frame, text=char_display_name,
-                  font=("Microsoft YaHei UI", 14, "bold"), anchor="center").pack(fill="x", pady=(0, 2))
+        name_row = ttk.Frame(info_frame)
+        name_row.pack(fill="x", pady=(0, 2))
+        ttk.Label(name_row, text=char_display_name,
+                  font=("Microsoft YaHei UI", 14, "bold"), anchor="center").pack(side="left", fill="x", expand=True)
+
+        # 锁定按钮
+        is_locked = self.app.char_config.get(cid, {}).get("locked", False)
+        lock_btn = ttk.Button(name_row, width=3,
+                              text="🔒" if is_locked else "🔓",
+                              command=lambda c=cid: self._toggle_lock(c))
+        lock_btn.pack(side="right", padx=(5, 0))
+        lock_tooltip = "已锁定 - 点击解锁" if is_locked else "未锁定 - 点击锁定"
+        self._create_tooltip(lock_btn, lock_tooltip)
         ttk.Label(info_frame, text=f"类型: {type_name} | 属性: {attr_name} | 默认稀有度: {char.default_rarity}",
                   font=("Microsoft YaHei UI", 11), anchor="center").pack(fill="x", pady=1)
         ttk.Label(info_frame, text=f"定位: {role_name} | 位置适应性: {pos_name}",
@@ -911,8 +927,9 @@ class CharacterParamsTab(ttk.Frame):
 
         # ── 参数配置（左侧基础参数1/3，右侧模块设置2/3）──
         cfg = self.app.char_config.get(cid, {"override": False})
-
-        config_frame = ttk.LabelFrame(f, text="参数配置")
+        is_locked = self.app.char_config.get(cid, {}).get("locked", False)
+        config_title = "参数配置 🔒 已锁定" if is_locked else "参数配置"
+        config_frame = ttk.LabelFrame(f, text=config_title)
         config_frame.pack(fill="x", padx=5, pady=5)
 
         # 左侧：基础参数（1/3宽度，上下分割）
@@ -1434,7 +1451,14 @@ class CharacterParamsTab(ttk.Frame):
         self.app._save_char_config()
 
     def _reset_to_global(self, cid, char):
+        if self.app.char_config.get(cid, {}).get("locked"):
+            messagebox.showwarning("操作被阻止", f"角色 [{self._get_char_display_name(cid)}] 已锁定，无法重置。\n请先解锁后再操作。")
+            return
+        # 保留锁定状态
+        was_locked = self.app.char_config.get(cid, {}).get("locked", False)
         self.app.char_config[cid] = {"override": False}
+        if was_locked:
+            self.app.char_config[cid]["locked"] = True
         self._show_detail(cid)
         self.app._save_char_config()
 
@@ -1539,27 +1563,121 @@ class CharacterParamsTab(ttk.Frame):
         if not sel:
             return
         cid = self._filtered_char_ids[sel[0]]
+        if self.app.char_config.get(cid, {}).get("locked"):
+            messagebox.showwarning("操作被阻止", f"角色 [{self._get_char_display_name(cid)}] 已锁定，无法重置。\n请先解锁后再操作。")
+            return
+        if not messagebox.askyesno("确认重置",
+                f"确定要重置角色 [{self._get_char_display_name(cid)}] 的配置吗？\n\n"
+                "该操作将清除该角色的所有自定义参数\n"
+                "（稀有度、好感度、技能等级、模块等级、模块词条等），\n"
+                "恢复为全局默认参数。此操作不可撤销。",
+                icon="warning"):
+            return
         if cid in self.char_override_vars:
             del self.char_override_vars[cid]
-            self.app.char_config[cid] = {"override": False}
+        # 保留锁定状态
+        was_locked = self.app.char_config.get(cid, {}).get("locked", False)
+        self.app.char_config[cid] = {"override": False}
+        if was_locked:
+            self.app.char_config[cid]["locked"] = True
         self._show_detail(cid)
         self.app._save_char_config()
 
     def _reset_all(self):
-        self.char_override_vars.clear()
-        self.app.char_config = {cid: {"override": False} for cid in self.app.char_ids}
-        messagebox.showinfo("重置", "所有角色已恢复为全局默认参数")
+        locked_cids = [cid for cid in self.app.char_ids if self.app.char_config.get(cid, {}).get("locked")]
+        if locked_cids:
+            locked_names = "、".join(self._get_char_display_name(cid) for cid in locked_cids[:5])
+            if len(locked_cids) > 5:
+                locked_names += f" 等{len(locked_cids)}个角色"
+            suffix = f"\n\n以下角色已锁定，将不会被重置：\n{locked_names}"
+        else:
+            suffix = ""
+        if not messagebox.askyesno("确认全部重置",
+                f"确定要重置所有角色的配置吗？\n\n"
+                "该操作将清除所有角色的自定义参数\n"
+                "（稀有度、好感度、技能等级、模块等级、模块词条等），\n"
+                "恢复为全局默认参数。此操作不可撤销。" + suffix,
+                icon="warning"):
+            return
+        for cid in self.app.char_ids:
+            if self.app.char_config.get(cid, {}).get("locked"):
+                continue
+            if cid in self.char_override_vars:
+                del self.char_override_vars[cid]
+            self.app.char_config[cid] = {"override": False}
+        messagebox.showinfo("重置", "所有未锁定角色已恢复为全局默认参数")
         if self._filtered_char_ids:
             self._show_detail(self._filtered_char_ids[0])
+        self._refresh_list()
         self.app._save_char_config()
 
     def _apply_global_all(self):
-        self.char_override_vars.clear()
-        self.app.char_config = {cid: {"override": False} for cid in self.app.char_ids}
-        messagebox.showinfo("应用", "所有角色已应用全局默认参数")
+        locked_cids = [cid for cid in self.app.char_ids if self.app.char_config.get(cid, {}).get("locked")]
+        if locked_cids:
+            locked_names = "、".join(self._get_char_display_name(cid) for cid in locked_cids[:5])
+            if len(locked_cids) > 5:
+                locked_names += f" 等{len(locked_cids)}个角色"
+            suffix = f"\n\n以下角色已锁定，将不会被应用全局参数：\n{locked_names}"
+        else:
+            suffix = ""
+        if not messagebox.askyesno("确认全部应用全局",
+                f"确定要将所有角色应用全局默认参数吗？\n\n"
+                "该操作将清除所有角色的自定义参数\n"
+                "（稀有度、好感度、技能等级、模块等级、模块词条等），\n"
+                "统一使用全局默认参数。此操作不可撤销。" + suffix,
+                icon="warning"):
+            return
+        for cid in self.app.char_ids:
+            if self.app.char_config.get(cid, {}).get("locked"):
+                continue
+            if cid in self.char_override_vars:
+                del self.char_override_vars[cid]
+            self.app.char_config[cid] = {"override": False}
+        messagebox.showinfo("应用", "所有未锁定角色已应用全局默认参数")
         if self._filtered_char_ids:
             self._show_detail(self._filtered_char_ids[0])
+        self._refresh_list()
         self.app._save_char_config()
+
+    def _get_char_display_name(self, cid):
+        """获取角色的显示名称"""
+        char = self.app.data_loader.get_character_by_id(cid)
+        if char:
+            return self.app.format_char_name(char)
+        return str(cid)
+
+    def _toggle_lock(self, cid):
+        """切换角色的锁定状态"""
+        cfg = self.app.char_config.setdefault(cid, {"override": False})
+        new_locked = not cfg.get("locked", False)
+        cfg["locked"] = new_locked
+        self.app._save_char_config()
+        # 刷新详情页以更新锁定按钮状态
+        self._show_detail(cid)
+        # 刷新列表/网格视图以更新锁定标识
+        self._refresh_list()
+
+    def _create_tooltip(self, widget, text):
+        """为控件创建简单的悬浮提示"""
+        def _show(event):
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+            s = self.app._get_scheme()
+            label = tk.Label(tooltip, text=text, bg=s["surface"], fg=s["fg"],
+                             relief="solid", borderwidth=1,
+                             font=("Microsoft YaHei UI", 9), padx=4, pady=2)
+            label.pack()
+            widget._tooltip = tooltip
+
+        def _hide(event):
+            tooltip = getattr(widget, '_tooltip', None)
+            if tooltip:
+                tooltip.destroy()
+                widget._tooltip = None
+
+        widget.bind("<Enter>", _show)
+        widget.bind("<Leave>", _hide)
 
     def get_char_config(self, cid) -> Dict[str, Any]:
         cfg = self.app.char_config.get(cid, {"override": False})

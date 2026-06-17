@@ -286,21 +286,21 @@ class TriggerService:
             # 获取当前HP百分比
             current_hp_percent = (unit.current_hp / unit.max_hp) * 100
             
-            # 从技能配置中读取HP阈值，而非硬编码
-            # 查找该单位拥有的on_hp_below类型PS技能的global_condition阈值
-            threshold = self._get_hp_below_threshold(unit)
+            # 收集所有同阵营PS技能的HP阈值，确保每个阈值都能被检测到
+            # 例如：受伤单位自身PS阈值为40%，但友方PS（再起律動）阈值为50%
+            # 如果HP从55%降到45%，只检查40%阈值不会触发，但50%阈值应该触发
+            thresholds = self._get_all_hp_below_thresholds(unit, battlefield)
             
-            # 检查是否跨越了HP阈值（从高于阈值降到低于阈值）
-            # 只有满足这个条件时才触发on_hp_below触发器
-            # 注意：第一次检查时prev_hp_percent为100.0，所以首次进入战斗就低于阈值的单位不会触发
-            crossed_threshold = unit.prev_hp_percent > threshold and current_hp_percent <= threshold
-            
-            # 如果跨越了阈值，触发HP_BELOW触发器
-            if crossed_threshold:
-                _log.info("[HP_BELOW] %s: HP从%.1f%%降至%.1f%%（阈值%.0f%%），触发阈值跨越", 
-                          unit.name, unit.prev_hp_percent, current_hp_percent, threshold)
-                ctx = TriggerContext(TriggerTiming.HP_BELOW, battlefield, triggered_by=unit)
-                actions.extend(self.check_triggers(TriggerTiming.HP_BELOW, ctx))
+            triggered = False
+            for threshold in sorted(thresholds, reverse=True):
+                crossed_threshold = unit.prev_hp_percent > threshold and current_hp_percent <= threshold
+                if crossed_threshold:
+                    _log.info("[HP_BELOW] %s: HP从%.1f%%降至%.1f%%（阈值%.0f%%），触发阈值跨越", 
+                              unit.name, unit.prev_hp_percent, current_hp_percent, threshold)
+                    ctx = TriggerContext(TriggerTiming.HP_BELOW, battlefield, triggered_by=unit)
+                    actions.extend(self.check_triggers(TriggerTiming.HP_BELOW, ctx))
+                    triggered = True
+                    break  # 每个单位每次伤害事件只触发一次
             
             # 更新prev_hp_percent为当前值（放在最后，确保日志输出正确）
             unit.prev_hp_percent = current_hp_percent
@@ -333,6 +333,55 @@ class TriggerService:
                     val = condition.get('value', 40)
                     return float(val)
         return 40.0  # 默认值
+
+    def _get_all_hp_below_thresholds(self, unit: UnitState, battlefield: BattlefieldState) -> set:
+        """收集所有同阵营PS技能的on_hp_below阈值，确保每个阈值都能被检测到跨越事件
+
+        例如：受伤单位自身PS阈值为40%，但友方PS（再起律動）阈值为50%。
+        如果HP从55%降到45%，只检查40%阈值不会触发，但50%阈值应该触发。
+        """
+        thresholds = set()
+        same_side_units = [u for u in battlefield.get_all_units()
+                           if u.side == unit.side and u.is_alive]
+        for other_unit in same_side_units:
+            if not self.data_loader:
+                continue
+            char_skills = self.data_loader.get_character_skills(other_unit.character_id)
+            if not char_skills:
+                if hasattr(other_unit, 'skills') and other_unit.skills:
+                    char_skills = []
+                    for sid in other_unit.skills:
+                        sk = self.data_loader.get_skill_by_id(sid)
+                        if sk:
+                            char_skills.append(sk)
+            if not char_skills:
+                continue
+            for skill in char_skills:
+                if skill.skill_type != SkillType.PS.value:
+                    continue
+                parsed = self.data_loader.get_parsed_skill_data(skill.skill_id)
+                if not parsed:
+                    continue
+                trigger_type = parsed.get('trigger_type')
+                if trigger_type == 'on_hp_below':
+                    condition = parsed.get('global_condition')
+                    if isinstance(condition, dict):
+                        cond_type = condition.get('type', '')
+                        val = condition.get('value', 40)
+                        # self_hp_percent: 仅当受伤单位就是PS持有者时才相关
+                        if cond_type == 'self_hp_percent':
+                            if other_unit.unit_id == unit.unit_id:
+                                thresholds.add(float(val))
+                        # front_ally_hp_below: 仅当受伤单位是PS持有者正前方友方时才相关
+                        elif cond_type == 'front_ally_hp_below':
+                            front_pos = _get_front_position(other_unit.position)
+                            if front_pos and unit.position == front_pos:
+                                thresholds.add(float(val))
+                        else:
+                            thresholds.add(float(val))
+        if not thresholds:
+            thresholds.add(40.0)
+        return thresholds
 
     def trigger_skill_use_count(self, actor: UnitState,
                                   battlefield: BattlefieldState) -> List[TriggerAction]:
@@ -817,16 +866,21 @@ class TriggerService:
         val = condition.get('value', 0)
 
         if cond_type == "self_hp_percent":
+            # self_hp_percent 始终检查PS持有者自身的HP，不替换为triggered_by
             hp_unit = owner
-            if context.timing == TriggerTiming.HP_BELOW and context.triggered_by:
-                if context.triggered_by.side == owner.side:
-                    hp_unit = context.triggered_by
-                else:
-                    hp_unit = owner
             hp_pct = hp_unit.current_hp / hp_unit.max_hp * 100 if hp_unit.max_hp > 0 else 0
             result = _eval_condition(hp_pct, op, val)
-            _log.info("[TRIGGER_COND] %s: self_hp_percent %.1f%% %s %.0f%% => %s (checking %s)",
-                      owner.name, hp_pct, op, val, result, hp_unit.name)
+            # 仅当触发类型为on_hp_below且运算符为<=/<时，需要验证HP跨越阈值
+            # 其他触发类型（before_skill_use/on_turn_start/on_battle_start等）只需检查当前状态
+            if result and context.timing == TriggerTiming.HP_BELOW and op in ('<=', '<'):
+                prev_pct = getattr(hp_unit, 'prev_hp_percent', 100.0)
+                crossed = prev_pct > val and hp_pct <= val
+                result = result and crossed
+                _log.info("[TRIGGER_COND] %s: self_hp_percent %.1f%% %s %.0f%% => %s (checking %s, prev=%.1f%%, crossed=%s)",
+                          owner.name, hp_pct, op, val, result, hp_unit.name, prev_pct, crossed)
+            else:
+                _log.info("[TRIGGER_COND] %s: self_hp_percent %.1f%% %s %.0f%% => %s (checking %s)",
+                          owner.name, hp_pct, op, val, result, hp_unit.name)
             return result
 
         if cond_type == "cumulative_damage_percent":
@@ -1013,11 +1067,18 @@ class TriggerService:
                           owner.name, hp_unit.name, hp_unit.position, front_pos)
                 return False
 
-            # HP阈值检查
+            # HP阈值检查 + 阈值跨越验证（仅on_hp_below + <=/<时需要跨越）
             hp_pct = hp_unit.current_hp / hp_unit.max_hp * 100 if hp_unit.max_hp > 0 else 0
             result = _eval_condition(hp_pct, op, val)
-            _log.info("[TRIGGER_COND] %s: front_ally_hp_below %s hp=%.1f%% %s %.0f%% => %s",
-                      owner.name, hp_unit.name, hp_pct, op, val, result)
+            if result and context.timing == TriggerTiming.HP_BELOW and op in ('<=', '<'):
+                prev_pct = getattr(hp_unit, 'prev_hp_percent', 100.0)
+                crossed = prev_pct > val and hp_pct <= val
+                result = result and crossed
+                _log.info("[TRIGGER_COND] %s: front_ally_hp_below %s hp=%.1f%% %s %.0f%% => %s (prev=%.1f%%, crossed=%s)",
+                          owner.name, hp_unit.name, hp_pct, op, val, result, prev_pct, crossed)
+            else:
+                _log.info("[TRIGGER_COND] %s: front_ally_hp_below %s hp=%.1f%% %s %.0f%% => %s",
+                          owner.name, hp_unit.name, hp_pct, op, val, result)
             return result
 
         if cond_type == "target_is_back_row":
