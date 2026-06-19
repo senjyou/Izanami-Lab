@@ -155,7 +155,8 @@ class DamageService:
         debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, attacker=attacker)
         return buff_val - debuff_val
 
-    def calculate_damage(self, attacker: UnitState, defender: UnitState, skill_data: Any, is_cover_damage: bool = False) -> DamageResult:
+    def calculate_damage(self, attacker: UnitState, defender: UnitState, skill_data: Any,
+                         is_cover_damage: bool = False, on_crit_callback=None) -> DamageResult:
         """
         核心伤害计算
         Formula:
@@ -163,6 +164,8 @@ class DamageService:
 
         Args:
             is_cover_damage: 是否是cover替换伤害（享受新版guard），默认False
+            on_crit_callback: 暴击时的回调函数 callback(attacker, defender, hit_number)，
+                              用于在多hit中暴击后立即施加易伤等debuff，使后续hit享受该效果
         """
         
         _log.info("[DMG_CALC] %s -> %s | base_ATK=%d base_DEF=%d power=%.1f hits=%d elem=%d ignore_def=%s ignore_shield=%s",
@@ -321,7 +324,16 @@ class DamageService:
             hits.append(final_hit_damage)
             hit_crits.append(is_crit)
             hit_evades.append(False)
-        
+
+            # 暴击回调：在当前hit伤害计算完毕后调用，使后续hit能享受易伤效果
+            # 回调可能修改defender的debuffs（如施加dmg_taken_up），需重算damage_received_mult
+            if is_crit and on_crit_callback:
+                on_crit_callback(attacker, defender, i_hit + 1)
+                damage_received_mult = self._get_damage_received_multiplier(
+                    defender, damage_element=skill_damage_element, attacker=attacker)
+                _log.info("[DMG_CALC] on_crit_callback: recalculated received_mult=%.4f for subsequent hits",
+                          damage_received_mult)
+
         _log.info("[DMG_CALC] RESULT: total=%d crit=%s hit_details=%s",
                   total_damage, is_any_crit, hits)
 

@@ -4151,18 +4151,50 @@ class StepCritTab(ttk.Frame):
         self._last_battle_sel = None
         self._last_battle_seed = None
         self._last_battle_preset_type = None
+        # 分支决策状态
+        self._branch_btns = []  # 动态生成的分支候选按钮列表
+        self._branch_candidate_block_ids = []  # 当前分支决策点的候选 block_id 列表
+        # Canvas 引用（用于滚动）
+        self._left_canvas = None
         self._build()
 
     def _build(self):
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
 
-        # ── 左侧：配置面板 ──
+        # ── 左侧：配置面板（带滚动条） ──
         left_frame = ttk.Frame(paned)
         paned.add(left_frame, weight=3)
 
-        f = ttk.Frame(left_frame)
-        f.pack(fill=tk.BOTH, expand=True)
+        # Canvas + Scrollbar 实现滚动
+        left_canvas = tk.Canvas(left_frame, bg="#2b2b2b", highlightthickness=0)
+        left_scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+
+        left_scrollbar.pack(side="right", fill="y")
+        left_canvas.pack(side="left", fill=tk.BOTH, expand=True)
+
+        f = ttk.Frame(left_canvas)
+        f.bind("<Configure>", lambda e: left_canvas.configure(
+            scrollregion=left_canvas.bbox("all")
+        ))
+        _canvas_window = left_canvas.create_window((0, 0), window=f, anchor="nw",
+                                                    width=left_canvas.winfo_width())
+        # Canvas 宽度变化时同步更新内部 frame 宽度
+        def _on_canvas_resize(event):
+            left_canvas.itemconfig(_canvas_window, width=event.width)
+        left_canvas.bind("<Configure>", _on_canvas_resize)
+        # 鼠标滚轮支持（参考其他页面：Enter/Leave + bind_all/unbind_all）
+        def _on_mousewheel(event):
+            left_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _enter_canvas(event):
+            left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        def _leave_canvas(event):
+            left_canvas.unbind_all("<MouseWheel>")
+        left_canvas.bind("<Enter>", _enter_canvas)
+        left_canvas.bind("<Leave>", _leave_canvas)
+        # 记录以便清理
+        self._left_canvas = left_canvas
 
         # ── 模式选择 ──
         mode_frame = ttk.LabelFrame(f, text="模式选择")
@@ -4291,6 +4323,29 @@ class StepCritTab(ttk.Frame):
         ttk.Label(seq_action_frame, textvariable=self.seq_progress_var, font=("Microsoft YaHei UI", 8),
                   foreground="gray", wraplength=350, justify="left").pack(side="left", padx=5)
 
+        # ── 分支决策面板（random_choice / probability 分支选择） ──
+        self.branch_frame = ttk.LabelFrame(f, text="分支决策")
+        self.branch_frame.pack(fill="x", padx=10, pady=5)
+
+        # 分支预填序列
+        branch_prefill_frame = ttk.Frame(self.branch_frame)
+        branch_prefill_frame.pack(fill="x", padx=5, pady=2)
+        ttk.Label(branch_prefill_frame, text="分支预填:").pack(side="left")
+        self.branch_prefill_var = tk.StringVar(value="")
+        self.branch_prefill_entry = ttk.Entry(branch_prefill_frame, textvariable=self.branch_prefill_var, width=30)
+        self.branch_prefill_entry.pack(side="left", padx=2, fill="x", expand=True)
+        ttk.Label(branch_prefill_frame, text="(block_id逗号分隔, 如 1,2,5,6)",
+                  font=("Microsoft YaHei UI", 7), foreground="gray").pack(side="left", padx=2)
+
+        # 当前分支决策点信息
+        self.branch_decision_label = ttk.Label(self.branch_frame, text="等待分支决策点...",
+                                               font=("Microsoft YaHei UI", 10), wraplength=400, justify="left")
+        self.branch_decision_label.pack(fill="x", padx=5, pady=5)
+
+        # 候选分支按钮容器（动态生成）
+        self._branch_btn_frame = ttk.Frame(self.branch_frame)
+        self._branch_btn_frame.pack(fill="x", padx=5, pady=2)
+
         # ── 操作按钮 ──
         action_frame = ttk.Frame(f)
         action_frame.pack(fill="x", padx=10, pady=5)
@@ -4325,6 +4380,10 @@ class StepCritTab(ttk.Frame):
         self.output_text.bind("<Key-c>", lambda e: self._make_decision(True))
         self.output_text.bind("<Key-n>", lambda e: self._make_decision(False))
         self.output_text.bind("<Key-z>", lambda e: self._undo_step())
+        # 数字键 1-9 快速选择分支候选
+        for i in range(1, 10):
+            self.bind(f"<Key-{i}>", lambda e, idx=i - 1: self._branch_quick_select(idx))
+            self.output_text.bind(f"<Key-{i}>", lambda e, idx=i - 1: self._branch_quick_select(idx))
 
         self._on_mode_change()
 
@@ -4433,6 +4492,55 @@ class StepCritTab(ttk.Frame):
             self._append_output(f"\n  → 用户选择: {label}\n")
             self._update_seq_progress()
 
+    # ─── 分支决策方法 ───
+
+    def _make_branch_decision(self, block_id: int):
+        """用户选择分支"""
+        if self._simulator and self._simulator.is_interactive_running():
+            self._simulator.make_interactive_branch_decision(block_id)
+            self._append_output(f"\n  → 用户选择分支: block {block_id}\n")
+            # 禁用分支按钮
+            for btn in self._branch_btns:
+                btn.config(state="disabled")
+            self.branch_decision_label.config(text="分支已选择，继续战斗...")
+            # 恢复暴击按钮（如果还在交互模式）
+            if self._simulator.is_interactive_running():
+                self.crit_btn.config(state="normal")
+                self.no_crit_btn.config(state="normal")
+
+    def _branch_quick_select(self, idx: int):
+        """数字键快速选择分支候选"""
+        if idx < len(self._branch_btns):
+            btn = self._branch_btns[idx]
+            if str(btn.cget('state')) == 'normal' and idx < len(self._branch_candidate_block_ids):
+                self._make_branch_decision(self._branch_candidate_block_ids[idx])
+
+    def _show_branch_candidates(self, point):
+        """显示分支候选按钮"""
+        # 清空旧按钮
+        for widget in self._branch_btn_frame.winfo_children():
+            widget.destroy()
+        self._branch_btns = []
+        self._branch_candidate_block_ids = []
+
+        # 动态生成候选按钮
+        for i, cand in enumerate(point.candidates):
+            btn_text = f"[{i+1}] {cand.probability * 100:.1f}% {cand.description}"
+            btn = ttk.Button(self._branch_btn_frame, text=btn_text,
+                             command=lambda b=cand.block_id: self._make_branch_decision(b),
+                             state="normal")
+            btn.pack(fill="x", padx=2, pady=1)
+            self._branch_btns.append(btn)
+            self._branch_candidate_block_ids.append(cand.block_id)
+
+    def _clear_branch_candidates(self):
+        """清空分支候选按钮"""
+        for widget in self._branch_btn_frame.winfo_children():
+            widget.destroy()
+        self._branch_btns = []
+        self._branch_candidate_block_ids = []
+        self.branch_decision_label.config(text="等待分支决策点...")
+
     def _undo_step(self):
         """回退一步：停止当前战斗，用去掉最后一步的序列重启"""
         if not self._simulator:
@@ -4518,6 +4626,15 @@ class StepCritTab(ttk.Frame):
         if prefill_seq.strip():
             self._simulator.set_interactive_prefill(prefill_seq)
 
+        # 设置分支预填序列（回退时保留之前的分支预填）
+        branch_prefill_str = self.branch_prefill_var.get().strip()
+        if branch_prefill_str:
+            try:
+                branch_prefill_ids = [int(x.strip()) for x in branch_prefill_str.split(",") if x.strip()]
+                self._simulator.set_interactive_branch_prefill(branch_prefill_ids)
+            except ValueError:
+                pass
+
         # 设置随机种子
         random.seed(seed)
 
@@ -4547,6 +4664,7 @@ class StepCritTab(ttk.Frame):
         self.report_btn.config(state="disabled")
         self.current_decision_label.config(text=f"预填序列执行中... ({prefill_count} 步)")
         self._narrative_line_count = 0
+        self._clear_branch_candidates()
 
         # 保存参数供线程使用
         self._interactive_sel = sel
@@ -4582,6 +4700,10 @@ class StepCritTab(ttk.Frame):
             override_func = self._simulator.create_crit_override_func("interactive")
             controller.damage_service.set_crit_override(override_func)
 
+            # 设置分支选择覆盖
+            branch_override_func = self._simulator.create_branch_override_func("interactive")
+            controller.skill_service.set_branch_override(branch_override_func)
+
             self._interactive_controller = controller
             self._interactive_narrative = narrative
 
@@ -4589,6 +4711,7 @@ class StepCritTab(ttk.Frame):
 
             # 清除覆盖
             controller.damage_service.clear_crit_override()
+            controller.skill_service.clear_branch_override()
 
             return result
 
@@ -4767,6 +4890,7 @@ class StepCritTab(ttk.Frame):
         self.start_btn.config(state="normal")
         self.report_btn.config(state="normal")
         self.current_decision_label.config(text="已停止")
+        self._clear_branch_candidates()
         self._append_output("\n=== 用户停止模拟 ===\n")
         # 取消轮询
         if self._poll_after_id:
@@ -4931,10 +5055,22 @@ class StepCritTab(ttk.Frame):
             override_func = self._simulator.create_crit_override_func("sequence")
             controller.damage_service.set_crit_override(override_func)
 
+            # 设置分支选择覆盖（序列模式使用 sequence 模式，无暂停）
+            branch_prefill_str = self.branch_prefill_var.get().strip()
+            if branch_prefill_str:
+                try:
+                    branch_prefill_ids = [int(x.strip()) for x in branch_prefill_str.split(",") if x.strip()]
+                    self._simulator.set_interactive_branch_prefill(branch_prefill_ids)
+                except ValueError:
+                    self._append_output("警告: 分支预填序列格式错误，已忽略（应为逗号分隔的block_id）\n")
+            branch_override_func = self._simulator.create_branch_override_func("sequence")
+            controller.skill_service.set_branch_override(branch_override_func)
+
             result = controller.execute_battle()
 
             # 清除覆盖
             controller.damage_service.clear_crit_override()
+            controller.skill_service.clear_branch_override()
 
             # 输出结果
             self._append_output(self._simulator.generate_report())
@@ -4988,11 +5124,21 @@ class StepCritTab(ttk.Frame):
         self.save_seq_btn.config(state="disabled")
         self.current_decision_label.config(text="等待第一个暴击决策点...")
         self._narrative_line_count = 0  # 叙事日志行数追踪
+        self._clear_branch_candidates()
 
         # 保存参数供线程使用
         self._interactive_sel = sel
         self._interactive_seed = seed
         self._interactive_preset_type = preset_type
+
+        # 设置分支预填序列
+        branch_prefill_str = self.branch_prefill_var.get().strip()
+        if branch_prefill_str:
+            try:
+                branch_prefill_ids = [int(x.strip()) for x in branch_prefill_str.split(",") if x.strip()]
+                self._simulator.set_interactive_branch_prefill(branch_prefill_ids)
+            except ValueError:
+                self._append_output("警告: 分支预填序列格式错误，已忽略（应为逗号分隔的block_id）\n")
 
         def battle_func():
             global_vals = self.app.global_tab.get_values()
@@ -5023,6 +5169,10 @@ class StepCritTab(ttk.Frame):
             override_func = self._simulator.create_crit_override_func("interactive")
             controller.damage_service.set_crit_override(override_func)
 
+            # 设置分支选择覆盖
+            branch_override_func = self._simulator.create_branch_override_func("interactive")
+            controller.skill_service.set_branch_override(branch_override_func)
+
             self._interactive_controller = controller
             self._interactive_narrative = narrative
 
@@ -5030,6 +5180,7 @@ class StepCritTab(ttk.Frame):
 
             # 清除覆盖
             controller.damage_service.clear_crit_override()
+            controller.skill_service.clear_branch_override()
 
             return result
 
@@ -5146,6 +5297,11 @@ class StepCritTab(ttk.Frame):
                 seq_str = self._simulator.generate_sequence_string()
                 self._append_output(f"\n暴击序列（可用于复现）: {seq_str}\n")
 
+                # 分支序列字符串
+                if self._simulator.get_branch_decision_points():
+                    branch_seq_str = self._simulator.generate_branch_sequence_string()
+                    self._append_output(f"分支序列（可用于复现）: {branch_seq_str}\n")
+
                 # 写入叙事日志
                 if hasattr(self, '_interactive_narrative') and self._interactive_narrative:
                     log_dir = _BASE_PATH / "data" / "battle_logs"
@@ -5162,6 +5318,7 @@ class StepCritTab(ttk.Frame):
                 self.start_btn.config(state="normal")
                 self.report_btn.config(state="normal")
                 self.current_decision_label.config(text="战斗结束")
+                self._clear_branch_candidates()
 
                 # 更新统计
                 dps = self._simulator.get_decision_points()
@@ -5183,7 +5340,33 @@ class StepCritTab(ttk.Frame):
                 self.save_seq_btn.config(state="normal")
                 self.start_btn.config(state="normal")
                 self.current_decision_label.config(text="战斗出错")
+                self._clear_branch_candidates()
                 return  # 停止轮询
+
+        # 处理分支事件
+        if self._simulator and self._simulator.is_interactive_running():
+            branch_infos = self._simulator.poll_branch_interactive_info()
+            branch_infos = branch_infos[:max_events_per_poll]
+            for event_type, data in branch_infos:
+                if event_type == "branch_decision":
+                    # 需要用户选择分支
+                    bp = data
+                    info_text = (
+                        f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})\n"
+                        f"  分组: group={bp.group_id}"
+                    )
+                    self.branch_decision_label.config(text=info_text)
+                    self._show_branch_candidates(bp)
+                    self._append_output(f"\n[#{bp.index:03d}] 分支决策: {bp.caster_name} - {bp.skill_name} "
+                                        f"(group={bp.group_id}, {len(bp.candidates)}个候选)\n", scroll=False)
+                    # 禁用暴击按钮，强制用户先完成分支选择
+                    self.crit_btn.config(state="disabled")
+                    self.no_crit_btn.config(state="disabled")
+
+                elif event_type == "branch_prefill_step":
+                    # 预填分支选择已执行
+                    bp = data
+                    self._append_output(f"  [预填] 分支选择: block {bp.selected_block_id}\n", scroll=False)
 
         # 不自动滚动，让用户自由查看历史日志
 

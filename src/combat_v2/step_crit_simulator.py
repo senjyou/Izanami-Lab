@@ -57,6 +57,28 @@ class StepResult:
     battle_state_summary: str          # 战场状态摘要
 
 
+@dataclass
+class BranchCandidate:
+    """分支候选项"""
+    block_id: int                # block ID
+    weight: int                  # 权重
+    probability: float           # 概率（0-1）
+    description: str             # 效果描述（从 effects 自动生成）
+
+
+@dataclass
+class BranchDecisionPoint:
+    """分支决策点（random_choice / probability 分支选择）"""
+    index: int                         # 决策点序号（从1开始）
+    caster_name: str                   # 施法者名称
+    caster_id: str                     # 施法者unit_id
+    skill_name: str                    # 技能名称
+    skill_id: int                      # 技能ID
+    group_id: int                      # 分组ID
+    candidates: List[BranchCandidate] = field(default_factory=list)  # 候选分支列表
+    selected_block_id: Optional[int] = None  # 选中的block_id（事后填充）
+
+
 class StepCritSimulator:
     """
     逐步暴击模拟器
@@ -94,6 +116,15 @@ class StepCritSimulator:
         # 交互式模式的预填序列（自动应用到指定步骤后切换为交互式）
         self._interactive_prefill: List[bool] = []
         self._interactive_prefill_index: int = 0
+
+        # 分支选择交互式模式（random_choice / probability 分支）
+        self._branch_info_queue: queue.Queue = queue.Queue()      # Battle -> GUI
+        self._branch_decision_queue: queue.Queue = queue.Queue()  # GUI -> Battle
+        self._branch_decision_points: List[BranchDecisionPoint] = []
+        self._branch_decision_index: int = 0
+        # 分支预填序列（block_id 列表，按决策点顺序）
+        self._interactive_branch_prefill: List[int] = []
+        self._interactive_branch_prefill_index: int = 0
 
         # 回调
         self._on_decision_made: Optional[Callable[[CritDecisionPoint], None]] = None
@@ -145,6 +176,8 @@ class StepCritSimulator:
         self._decision_index = 0
         self._narrative_snapshot = 0
         self._narrative = narrative
+        self._branch_decision_points = []
+        self._branch_decision_index = 0
 
         # 清空队列
         while not self._interactive_queue.empty():
@@ -155,6 +188,16 @@ class StepCritSimulator:
         while not self._info_queue.empty():
             try:
                 self._info_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self._branch_info_queue.empty():
+            try:
+                self._branch_info_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self._branch_decision_queue.empty():
+            try:
+                self._branch_decision_queue.get_nowait()
             except queue.Empty:
                 break
 
@@ -209,6 +252,11 @@ class StepCritSimulator:
         # 发送一个默认决策以解锁等待的线程
         try:
             self._interactive_queue.put(False)
+        except Exception:
+            pass
+        # 解锁分支决策等待（-1 表示无效 block_id，触发 fallback）
+        try:
+            self._branch_decision_queue.put(-1)
         except Exception:
             pass
 
@@ -343,6 +391,183 @@ class StepCritSimulator:
         self._decision_points.append(point)
         return is_crit
 
+    # ─── 分支选择覆盖函数（由SkillService调用） ───
+
+    def create_branch_override_func(self, mode: str = "interactive") -> Callable[[Dict], int]:
+        """
+        创建分支选择覆盖函数，供SkillService使用
+
+        Args:
+            mode: "sequence" - 预填序列模式（无暂停，按预填序列或随机）
+                  "interactive" - 交互式模式（暂停等待用户决策）
+
+        Returns:
+            分支选择覆盖函数，接收context dict，返回选中的block_id
+        """
+        if mode == "sequence":
+            return self._sequence_branch_override
+        elif mode == "interactive":
+            return self._interactive_branch_override
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+    def _sequence_branch_override(self, context: Dict) -> int:
+        """预填序列模式的分支选择覆盖（无暂停，按预填序列或随机）"""
+        self._branch_decision_index += 1
+
+        candidates_raw = context.get('candidates', [])
+        total_weight = sum(c.get('weight', 1) for c in candidates_raw) or 1
+        candidates = [
+            BranchCandidate(
+                block_id=c.get('block_id', 0),
+                weight=c.get('weight', 1),
+                probability=c.get('weight', 1) / total_weight,
+                description=c.get('description', ''),
+            )
+            for c in candidates_raw
+        ]
+
+        point = BranchDecisionPoint(
+            index=self._branch_decision_index,
+            caster_name=context.get('caster_name', ''),
+            caster_id=context.get('caster_id', ''),
+            skill_name=context.get('skill_name', ''),
+            skill_id=context.get('skill_id', 0),
+            group_id=context.get('group_id', 0),
+            candidates=candidates,
+        )
+
+        # 从预填序列获取决策
+        if self._interactive_branch_prefill_index < len(self._interactive_branch_prefill):
+            selected = self._interactive_branch_prefill[self._interactive_branch_prefill_index]
+            self._interactive_branch_prefill_index += 1
+            # 验证 selected 是否在候选 block_id 中
+            valid_ids = {c.block_id for c in candidates}
+            if selected not in valid_ids:
+                # 无效 block_id，回退随机
+                weights = [c.weight for c in candidates]
+                ids = [c.block_id for c in candidates]
+                selected = random.choices(ids, weights=weights, k=1)[0]
+        else:
+            # 预填用完，回退随机
+            weights = [c.weight for c in candidates]
+            ids = [c.block_id for c in candidates]
+            selected = random.choices(ids, weights=weights, k=1)[0]
+
+        point.selected_block_id = selected
+        self._branch_decision_points.append(point)
+        return selected
+
+    def _interactive_branch_override(self, context: Dict) -> int:
+        """交互式模式的分支选择覆盖（暂停等待用户决策）"""
+        # 如果已停止，直接返回随机结果
+        if not self._running:
+            candidates_raw = context.get('candidates', [])
+            weights = [c.get('weight', 1) for c in candidates_raw]
+            ids = [c.get('block_id', 0) for c in candidates_raw]
+            if ids:
+                return random.choices(ids, weights=weights, k=1)[0]
+            return -1
+
+        self._branch_decision_index += 1
+
+        candidates_raw = context.get('candidates', [])
+        total_weight = sum(c.get('weight', 1) for c in candidates_raw) or 1
+        candidates = [
+            BranchCandidate(
+                block_id=c.get('block_id', 0),
+                weight=c.get('weight', 1),
+                probability=c.get('weight', 1) / total_weight,
+                description=c.get('description', ''),
+            )
+            for c in candidates_raw
+        ]
+
+        point = BranchDecisionPoint(
+            index=self._branch_decision_index,
+            caster_name=context.get('caster_name', ''),
+            caster_id=context.get('caster_id', ''),
+            skill_name=context.get('skill_name', ''),
+            skill_id=context.get('skill_id', 0),
+            group_id=context.get('group_id', 0),
+            candidates=candidates,
+        )
+
+        # 优先使用预填序列（自动应用，不暂停）
+        if self._interactive_branch_prefill_index < len(self._interactive_branch_prefill):
+            selected = self._interactive_branch_prefill[self._interactive_branch_prefill_index]
+            self._interactive_branch_prefill_index += 1
+            # 验证 selected 是否在候选 block_id 中
+            valid_ids = {c.block_id for c in candidates}
+            if selected not in valid_ids:
+                # 无效 block_id，回退随机
+                weights = [c.weight for c in candidates]
+                ids = [c.block_id for c in candidates]
+                selected = random.choices(ids, weights=weights, k=1)[0]
+            point.selected_block_id = selected
+            self._branch_decision_points.append(point)
+            # 通知GUI预填步骤已执行
+            self._branch_info_queue.put(("branch_prefill_step", point))
+            return selected
+
+        # 预填序列用完，切换为交互式（暂停等待用户决策）
+        # 发送决策点到GUI
+        self._branch_info_queue.put(("branch_decision", point))
+
+        # 等待用户决策（带超时循环，可被stop中断）
+        selected = -1
+        while self._running:
+            try:
+                selected = self._branch_decision_queue.get(timeout=0.2)
+                break
+            except queue.Empty:
+                continue
+
+        if not self._running or selected == -1:
+            # 战斗已被停止，返回随机结果让战斗线程尽快结束
+            weights = [c.weight for c in candidates]
+            ids = [c.block_id for c in candidates]
+            selected = random.choices(ids, weights=weights, k=1)[0]
+
+        point.selected_block_id = selected
+        self._branch_decision_points.append(point)
+        return selected
+
+    def make_interactive_branch_decision(self, block_id: int):
+        """从GUI线程提供交互式分支决策"""
+        self._branch_decision_queue.put(block_id)
+
+    def poll_branch_interactive_info(self) -> List[Tuple[str, Any]]:
+        """
+        从GUI线程轮询分支交互信息
+
+        Returns:
+            List of (event_type, data) tuples:
+            - ("branch_decision", BranchDecisionPoint) - 需要用户决策
+            - ("branch_prefill_step", BranchDecisionPoint) - 预填步骤已执行
+        """
+        infos = []
+        while not self._branch_info_queue.empty():
+            try:
+                infos.append(self._branch_info_queue.get_nowait())
+            except queue.Empty:
+                break
+        return infos
+
+    def set_interactive_branch_prefill(self, block_ids: List[int]):
+        """设置交互式模式的分支预填序列（block_id 列表）"""
+        self._interactive_branch_prefill = list(block_ids)
+        self._interactive_branch_prefill_index = 0
+
+    def get_branch_decision_points(self) -> List[BranchDecisionPoint]:
+        """获取所有已记录的分支决策点"""
+        return list(self._branch_decision_points)
+
+    def generate_branch_sequence_string(self) -> str:
+        """从已记录的分支决策点生成分支序列字符串（block_id 逗号分隔）"""
+        return ",".join(str(dp.selected_block_id) for dp in self._branch_decision_points
+                         if dp.selected_block_id is not None)
+
     # ─── 结果查询 ───
 
     def get_decision_points(self) -> List[CritDecisionPoint]:
@@ -411,6 +636,30 @@ class StepCritSimulator:
             lines.append(f"  实际暴击率: {crit_count / total * 100:.1f}%")
         lines.append("=" * 70)
 
+        # 分支决策点记录
+        if self._branch_decision_points:
+            lines.append("")
+            lines.append("=" * 70)
+            lines.append("  分支决策记录（random_choice / probability）")
+            lines.append("=" * 70)
+            lines.append("")
+
+            for bp in self._branch_decision_points:
+                lines.append(f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})")
+                lines.append(f"      分组: group={bp.group_id}")
+                for i, cand in enumerate(bp.candidates):
+                    marker = " ★" if cand.block_id == bp.selected_block_id else ""
+                    lines.append(f"      候选[{i+1}] block={cand.block_id} "
+                                 f"概率={cand.probability * 100:.1f}% "
+                                 f"权重={cand.weight}{marker} {cand.description}")
+                lines.append(f"      → 选择: block {bp.selected_block_id}")
+                lines.append("")
+
+            lines.append("-" * 70)
+            lines.append(f"  分支决策点总数: {len(self._branch_decision_points)}")
+            lines.append(f"  分支序列: {self.generate_branch_sequence_string()}")
+            lines.append("=" * 70)
+
         return "\n".join(lines)
 
     def generate_sequence_string(self) -> str:
@@ -429,6 +678,10 @@ class StepCritSimulator:
         self._running = False
         self._interactive_prefill_index = 0
         # 注意：不重置 _interactive_prefill，允许跨次复用
+        self._branch_decision_points = []
+        self._branch_decision_index = 0
+        self._interactive_branch_prefill_index = 0
+        # 注意：不重置 _interactive_branch_prefill，允许跨次复用
 
         # 清空队列
         while not self._interactive_queue.empty():
@@ -439,5 +692,15 @@ class StepCritSimulator:
         while not self._info_queue.empty():
             try:
                 self._info_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self._branch_info_queue.empty():
+            try:
+                self._branch_info_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self._branch_decision_queue.empty():
+            try:
+                self._branch_decision_queue.get_nowait()
             except queue.Empty:
                 break

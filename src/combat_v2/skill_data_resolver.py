@@ -139,7 +139,7 @@ class SkillDataResolver:
             skill_type=meta.skill_type if hasattr(meta, 'skill_type') else parsed.get('skill_type', 1),
             resource_cost=meta.resource_cost if hasattr(meta, 'resource_cost') else parsed.get('resource_cost', 0),
             cooldown=parsed.get('cooldown') or (meta.cooldown if hasattr(meta, 'cooldown') else 0),
-            cooldown_update_timing=meta.cooldown_update_timing if hasattr(meta, 'cooldown_update_timing') else parsed.get('cooldown_update_timing'),
+            cooldown_update_timing=meta.cooldown_update_timing if hasattr(meta, 'cooldown_update_timing') and meta.cooldown_update_timing is not None else parsed.get('cooldown_update_timing'),
             power=tag_values.get('威力', 100.0),
             hit_count=int(tag_values.get('攻撃回数', 1)),
             display_target_type=parsed.get('display_target_type'),

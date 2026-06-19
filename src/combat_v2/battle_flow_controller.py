@@ -185,6 +185,12 @@ class BattleFlowController:
 
         self._restore_ap_pp_for_all()
 
+        # 快照所有存活单位的冷却（用于回合结束冷却递减判断）
+        self._turn_start_cooldowns_snapshot = {
+            u.unit_id: dict(u.skill_cooldowns)
+            for u in self.battlefield.get_all_units() if u.is_alive
+        }
+
         if self.narrative:
             for u in self.battlefield.get_all_units():
                 if u.is_alive:
@@ -269,6 +275,12 @@ class BattleFlowController:
                 self.narrative.global_trigger(self._get_display_name(owner), skill_name, "回合结束")
         self._execute_global_trigger_actions(turn_end_actions)
         self.battlefield.current_trigger_phase = None
+
+        # 回合结束冷却递减 (cooldown_update_timing: 1)
+        snapshot = getattr(self, '_turn_start_cooldowns_snapshot', {})
+        for u in self.battlefield.get_all_units():
+            if u.is_alive:
+                self.skill_service.update_turn_end_cooldowns(u, snapshot.get(u.unit_id, {}))
 
         if self.narrative:
             all_alive = [u for u in self.battlefield.friend_team + self.battlefield.enemy_team if u.is_alive]

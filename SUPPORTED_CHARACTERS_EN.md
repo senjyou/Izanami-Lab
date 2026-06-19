@@ -30,7 +30,9 @@ The simulator currently supports a limited set of characters. More will be added
 | 世界への反逆者       | コトハ         |
 | 体育祭の暴れん坊      | ノエル・アルエ     |
 | 正々堂々なミス・ツンデレ  | 綺羅クララ       |
-| 優雅なる規律の花      | **生駒葵**     |
+| 優雅なる規律の花      | 生駒葵         |
+| 人見知りの聖騎士      | ケイト・フルニエ    |
+| 臆病な褒められたがり少女  | 波瀬うるう       |
 
 ## Tactical Exercise Enemies
 

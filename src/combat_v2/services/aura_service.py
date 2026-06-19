@@ -115,7 +115,7 @@ class AuraService:
                               unit.name, aura.effect_type, old_aura.value, aura.value)
             else:
                 target_list.append(aura)
-                _log.info("[AURA] %s add non-stackable %s [%s] val=%.1f dur=%d -> APPEND",
+                _log.info("[AURA] %s add non-stackable %s [%s] val=%s dur=%d -> APPEND",
                           unit.name, aura.effect_type, list_name, aura.value, aura.duration)
 
         return True

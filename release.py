@@ -5,11 +5,12 @@ Izanami Lab 一键发布脚本
 
 功能:
 1. 交互式输入版本信息（版本号、分类Features）
-2. 检查 Git 状态并推送代码
-3. 运行 build.py 打包
-4. 生成 manifest.json（热更新清单）
-5. 创建 ZIP 压缩包
-6. 创建 GitHub Release 并上传（含 manifest + 变更文件）
+2. 更新 CHANGELOG.md
+3. 检查 Git 状态并推送代码
+4. 运行 build.py 打包
+5. 生成 manifest.json（热更新清单）
+6. 创建 ZIP 压缩包
+7. 创建 GitHub Release 并上传（含 manifest + 变更文件）
 """
 import subprocess
 import sys
@@ -233,8 +234,39 @@ def main():
     version_file.write_text(new_content, encoding='utf-8')
     print(f"  已更新 version.py 为 v{version_num}")
 
-    # 5. 检查并推送代码
-    print("\n[2/6] 检查并推送代码...")
+    # 5. 更新 CHANGELOG.md
+    print("\n[2/6] 更新 CHANGELOG.md...")
+    changelog_path = SCRIPT_DIR / "CHANGELOG.md"
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    changelog_lines = [f"## {version} ({today})", ""]
+    if new_features:
+        grouped = OrderedDict([(k, []) for k in FEATURE_CATEGORIES])
+        for f in new_features:
+            grouped[f['category']].append(f['text'])
+        for cat_key, cat_name in FEATURE_CATEGORIES.items():
+            items = grouped[cat_key]
+            if items:
+                for item in items:
+                    changelog_lines.append(f"- {item}")
+                changelog_lines.append("")
+    else:
+        changelog_lines.append("- 无更新内容")
+        changelog_lines.append("")
+    
+    changelog_new_section = "\n".join(changelog_lines)
+    
+    if changelog_path.exists():
+        existing_content = changelog_path.read_text(encoding='utf-8')
+        new_content = changelog_new_section + existing_content
+    else:
+        new_content = "# Changelog\n\n" + changelog_new_section
+    
+    changelog_path.write_text(new_content, encoding='utf-8')
+    print(f"  已更新 CHANGELOG.md")
+
+    # 6. 检查并推送代码
+    print("\n[3/6] 检查并推送代码...")
     print("  检查 Git 状态...")
     status = run_cmd("git status --short", cwd=SCRIPT_DIR)
     if status:
@@ -254,12 +286,12 @@ def main():
     print("  推送到 GitHub...")
     run_cmd("git push", cwd=SCRIPT_DIR)
 
-    # 6. 打包构建
-    print("\n[3/6] 打包构建...")
+    # 7. 打包构建
+    print("\n[4/7] 打包构建...")
     run_cmd("python build.py", cwd=SCRIPT_DIR)
 
-    # 7. 生成 manifest
-    print("\n[4/6] 生成 manifest.json...")
+    # 8. 生成 manifest
+    print("\n[5/7] 生成 manifest.json...")
     manifest = generate_manifest(DIST_DIR, version, new_features)
     manifest_path = DIST_DIR / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -267,8 +299,8 @@ def main():
     file_count = len(manifest["files"])
     print(f"  已生成 manifest.json（{file_count} 个文件）")
 
-    # 8. 创建 ZIP
-    print("\n[5/6] 创建压缩包...")
+    # 9. 创建 ZIP
+    print("\n[6/7] 创建压缩包...")
     app_dir = DIST_DIR / APP_NAME
     zip_path = DIST_DIR / f"Izanami-Lab_{version}.zip"
 
@@ -284,8 +316,8 @@ def main():
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
-    # 9. 创建 Release（上传 ZIP + manifest + 变更文件）
-    print("\n[6/6] 创建 GitHub Release...")
+    # 10. 创建 Release（上传 ZIP + manifest + 变更文件）
+    print("\n[7/7] 创建 GitHub Release...")
 
     notes = format_release_notes(version, new_features)
     notes_file = DIST_DIR / "release_notes.md"
