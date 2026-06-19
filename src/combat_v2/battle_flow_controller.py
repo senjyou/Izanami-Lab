@@ -558,6 +558,11 @@ class BattleFlowController:
             # 4.5 清除死亡单位施加的「高揚」mark及其linked debuff
             self._remove_marks_from_dead_caster(newly_dead)
 
+            # 4.6 清除死亡单位相关的ダメージリンクbuff
+            # 死亡者自身のdamage_link buffと、死亡者をsourceとするdamage_link buffを全て削除
+            # トリガー検査の後に実行され、self_damage_link_active条件は死亡者のbuff残存を考慮済み
+            self._remove_damage_link_from_dead(newly_dead)
+
             # 5. 钩子：击杀触发器处理完毕后，允许子类（如战术演习）在此执行复活等逻辑
             self._on_deaths_resolved(newly_dead)
 
@@ -947,6 +952,53 @@ class BattleFlowController:
                 _log.info("[MARK_DEATH] %s: mark '高揚' removed (caster %d died)",
                           alive_unit.name, mark.source_unit_id)
 
+    def _remove_damage_link_from_dead(self, newly_dead: list) -> None:
+        """清除死亡单位相关的ダメージリンクbuff。
+        - 死亡者自身のdamage_link buffを削除
+        - 死亡者をsource_unit_idとするdamage_link buffを全ユニットから削除（双方向リンクの片側解除）
+        """
+        dead_ids = {u.unit_id for u in newly_dead}
+        all_units = self.battlefield.get_all_units()
+        for unit in all_units:
+            # 死亡者自身のbuff削除（死亡者はaliveでない可能性があるが、buffリストは残っている）
+            to_remove = []
+            for buff in unit.buffs + unit.debuffs:
+                if buff.effect_type != "damage_link":
+                    continue
+                # 死亡者自身のbuff、または死亡者をsourceとするbuffを削除
+                if unit.unit_id in dead_ids or buff.source_unit_id in dead_ids:
+                    to_remove.append(buff.buff_id)
+                    _log.info("[DAMAGE_LINK_DEATH] %s: damage_link buff removed (buff_id=%s, source=%s, unit_dead=%s)",
+                              unit.name, buff.buff_id, buff.source_unit_id,
+                              unit.unit_id in dead_ids)
+            if to_remove:
+                unit.buffs = [b for b in unit.buffs if b.buff_id not in to_remove]
+                unit.debuffs = [b for b in unit.debuffs if b.buff_id not in to_remove]
+
+    def _trigger_damage_link_for_dot(self, unit: UnitState, dot_damage: int) -> None:
+        """DoT（炎上/毒）ダメージに対するダメージリンク転送。
+        公式仕様: DoTリンクダメージはシールドで吸収不可、直接HPに適用。
+        リンクダメージは再度リンクされない（再帰防止）。
+        """
+        if dot_damage <= 0:
+            return
+        damage_link_buffs = [b for b in unit.buffs + unit.debuffs if b.effect_type == "damage_link"]
+        if not damage_link_buffs:
+            return
+        all_units = self.battlefield.get_all_units()
+        for dl in damage_link_buffs:
+            linker = next((u for u in all_units if u.unit_id == dl.source_unit_id), None)
+            if linker and linker.is_alive and linker.unit_id != unit.unit_id:
+                transfer_dmg = int(dot_damage * dl.value / 100)
+                if transfer_dmg <= 0:
+                    continue
+                # DoTリンクダメージはシールド吸収不可、直接HP減少
+                linker.current_hp = max(0, linker.current_hp - transfer_dmg)
+                linker.damage_taken_total += transfer_dmg
+                _log.info("[DAMAGE_LINK_DOT] %s -> %s: transferred %d dmg (DoT, %.0f%% of %d), linker hp %d->%d",
+                          unit.name, linker.name, transfer_dmg, dl.value,
+                          dot_damage, linker.current_hp + transfer_dmg, linker.current_hp)
+
     def _on_death_narrative_complete(self, newly_dead: list) -> None:
         """死亡通知叙事输出完毕后的钩子。子类可覆写此方法输出复活等叙事。
 
@@ -1021,6 +1073,11 @@ class BattleFlowController:
                     )
             if self.narrative:
                 self.narrative.poison_damage(self._get_display_name(unit), poison_dmg, unit.current_hp, unit.max_hp, poison_calc)
+
+        # ダメージリンク転送（DoT用）: 炎上/毒のダメージもリンク対象
+        # ただしDoTリンクダメージはシールドで吸収不可（公式仕様）
+        if (burn_dmg > 0 or poison_dmg > 0) and unit.is_alive:
+            self._trigger_damage_link_for_dot(unit, burn_dmg + poison_dmg)
 
         # 行動時ダメージ：行动时受到施法者攻击力x%的EN伤害
         action_dmg, action_shield_absorbed = self.status_service.apply_action_damage(unit)

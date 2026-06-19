@@ -140,19 +140,33 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
     # 扫描 data 目录
     if data_dir.exists():
         for file_path in sorted(data_dir.rglob("*")):
-            if file_path.is_file() and not file_path.name.endswith('.default.json'):
-                rel_path = file_path.relative_to(app_dir)
-                path_str = str(rel_path).replace('\\', '/')
-                sha256 = compute_sha256(file_path)
-                size = file_path.stat().st_size
-                category = "hot"  # data 目录下的文件都是热更新
-                files.append({
-                    "path": path_str,
-                    "sha256": sha256,
-                    "size": size,
-                    "category": category,
-                    "url": f"https://github.com/{REPOSITORY}/releases/download/{version}/{path_str}",
-                })
+            if not file_path.is_file() or file_path.name.endswith('.default.json'):
+                continue
+            rel_path = file_path.relative_to(app_dir)
+            path_str = str(rel_path).replace('\\', '/')
+            # 跳过运行时生成的文件（不在 git 仓库中，无法通过 CDN 分发）
+            if path_str.startswith('data/battle_logs/'):
+                continue
+            if path_str == 'data/character_stats_cache.json':
+                continue
+            sha256 = compute_sha256(file_path)
+            size = file_path.stat().st_size
+            # 与 git blob 保持一致：文本文件使用 LF 行尾
+            # (autocrlf=true 时 git 在 commit 时将 CRLF 转为 LF，jsDelivr 从 git blob 提供文件)
+            # 若不归一化，客户端下载后 SHA-256 校验会失败
+            if file_path.suffix.lower() in ('.json', '.txt'):
+                content = file_path.read_bytes().replace(b'\r\n', b'\n')
+                sha256 = hashlib.sha256(content).hexdigest()
+                size = len(content)
+            category = "hot"  # data 目录下的文件都是热更新
+            files.append({
+                "path": path_str,
+                "sha256": sha256,
+                "size": size,
+                "category": category,
+                # 通过 jsDelivr CDN 从 git tag 分发，无需上传单个文件到 Release 资产
+                "url": f"https://cdn.jsdelivr.net/gh/{REPOSITORY}@{version}/{path_str}",
+            })
 
     # 判断更新类型
     update_type = "hot" if files else "warm"

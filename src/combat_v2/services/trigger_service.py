@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from ...entities_v2.unit_state import UnitState
 from ...entities_v2.battlefield_state import BattlefieldState
-from ...entities_v2.enums import TriggerTiming, SkillType, Position
+from ...entities_v2.enums import TriggerTiming, SkillType, Position, SkillEffectType
 from ..battle_logger import battle_logger
 
 _log = battle_logger()
@@ -24,6 +24,7 @@ TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "on_turn_start": TriggerTiming.TURN_START,
     "on_turn_end": TriggerTiming.TURN_END,
     "on_ally_killed": TriggerTiming.PAWN_DIED,
+    "on_linked_enemy_killed": TriggerTiming.PAWN_DIED,
     "on_kill": TriggerTiming.PAWN_KILLED,
     "on_any_kill": TriggerTiming.PAWN_ANY_KILL,
     "on_critical": TriggerTiming.PAWN_CAUSED_CRITICAL,
@@ -765,6 +766,23 @@ class TriggerService:
             if trigger_type == "on_ally_killed":
                 return (owner.side == context.targets[0].side and
                         owner.unit_id not in {t.unit_id for t in context.targets})
+            # on_linked_enemy_killed → 敵方かつダメージリンク保持者が死亡した時
+            # 双方向リンク: 死亡者がdamage_link buffを持っている、または死亡者をsourceとするdamage_link buffが存在
+            if trigger_type == "on_linked_enemy_killed":
+                dead_units = context.targets
+                # ownerと逆陣営の死亡者のみ対象
+                relevant_dead = [d for d in dead_units if d.side != owner.side]
+                if not relevant_dead:
+                    return False
+                # 死亡者がdamage_link buffを持っているか確認
+                for dead in relevant_dead:
+                    dead_link_buffs = [b for b in (dead.buffs + dead.debuffs)
+                                       if b.effect_type == "damage_link"]
+                    if dead_link_buffs:
+                        _log.info("[TRIGGER_MATCH] %s: on_linked_enemy_killed matched (dead=%s has damage_link)",
+                                  owner.name, dead.name)
+                        return True
+                return False
             return any(t.unit_id == owner.unit_id for t in context.targets)
 
         if timing == TriggerTiming.PAWN_KILLED:
@@ -902,6 +920,20 @@ class TriggerService:
                       owner.name, count, op, val, result)
             return result
 
+        if cond_type == "self_damage_link_active":
+            # ダメージリンク効果が場に残っているか確認（PS2触发条件）
+            # 死亡单位的buff清除在触发器检查之后执行，因此死亡者的damage_link buff仍存在
+            all_units = context.battlefield.get_all_units()
+            has_link = False
+            for u in all_units:
+                link_buffs = [b for b in (u.buffs + u.debuffs) if b.effect_type == "damage_link"]
+                if link_buffs:
+                    has_link = True
+                    break
+            _log.info("[TRIGGER_COND] %s: self_damage_link_active => %s (damage_link buffs on battlefield)",
+                      owner.name, has_link)
+            return has_link
+
         if cond_type == "ally_alive_count":
             allies = [u for u in context.battlefield.friend_team if u.is_alive]
             count = len(allies)
@@ -1000,6 +1032,19 @@ class TriggerService:
             result = any(t.unit_id == owner.unit_id for t in context.targets)
             _log.info("[TRIGGER_COND] %s: target_is_self => %s", owner.name, result)
             return result
+
+        if cond_type == "self_has_mark":
+            # 检查PS持有者自身是否持有指定mark（用于如ストイックリコイル的前置条件）
+            mark_name = condition.get('mark_name', '')
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in owner.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in owner.debuffs
+            )
+            _log.info("[TRIGGER_COND] %s: self_has_mark '%s' => %s", owner.name, mark_name, has_mark)
+            return has_mark
 
         if cond_type == "actor_element":
             actor = context.actor

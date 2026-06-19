@@ -33,6 +33,8 @@ The simulator currently supports a limited set of characters. More will be added
 | 優雅なる規律の花      | 生駒葵         |
 | 人見知りの聖騎士      | ケイト・フルニエ    |
 | 臆病な褒められたがり少女  | 波瀬うるう       |
+| 体育祭のサポート役     | 樋向心香        |
+| 新たなる時代の導き手    | ドロテア・カークランド |
 
 ## Tactical Exercise Enemies
 

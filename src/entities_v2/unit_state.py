@@ -49,6 +49,7 @@ class BuffState:
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效
+    link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
 
 
 from .enums import UnitActionPhase
@@ -145,6 +146,9 @@ class UnitState:
 
     # ========== 累计伤害计数（用于on_cumulative_damage触发）==========
     cumulative_hp_damage: int = 0  # 累计受到的HP伤害（仅HP部分，不含盾吸收），成功触发PS后清除
+
+    # ========== 最近受到的伤害（用于反撃系PS，如ストイックリコイル）==========
+    last_received_damage: int = 0  # 最近一次受到的伤害（包括被盾吸收的部分，不含溢出）
 
     def validate(self) -> tuple[bool, str]:
         """

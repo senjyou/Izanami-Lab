@@ -178,25 +178,40 @@ class DamageService:
                   getattr(skill_data, 'ignore_shield', 0))
 
         # 1. 基础攻防差
-        atk = self._calculate_final_stat(attacker, "attack")
-        defense = self._calculate_final_stat(defender, "defense")
+        # base_value_source="received_damage": 反撃系PS（如ストイックリコイル）
+        # base值 = 受到伤害 × 威力%，替换一般公式的 (atk-def) × 威力%
+        # 享受所有乘区（暴击、克制、增减伤），可作用于盾上
+        penetrate = 0.0
+        skill_ignore_def = 0
+        base_value_source = getattr(skill_data, 'base_value_source', None)
+        if base_value_source == "received_damage":
+            received_dmg = getattr(attacker, 'last_received_damage', 0)
+            base_diff = max(1, received_dmg)
+            # 反撃模式仍需atk/defense用于calc_detail记录（不参与base_diff计算）
+            atk = self._calculate_final_stat(attacker, "attack")
+            defense = self._calculate_final_stat(defender, "defense")
+            _log.info("[DMG_CALC] step1_base_diff: RECEIVED_DAMAGE mode, last_received_damage=%d => base_diff=%d",
+                      received_dmg, base_diff)
+        else:
+            atk = self._calculate_final_stat(attacker, "attack")
+            defense = self._calculate_final_stat(defender, "defense")
 
-        penetrate = self._aggregate_buff_value_signed(attacker.buffs, attacker.debuffs,
-                                                     SkillEffectType.PENETRATE_DEFENSE.value)
+            penetrate = self._aggregate_buff_value_signed(attacker.buffs, attacker.debuffs,
+                                                         SkillEffectType.PENETRATE_DEFENSE.value)
 
-        skill_ignore_def = getattr(skill_data, 'ignore_defense', 0) or 0
-        if skill_ignore_def > 0:
-            penetrate += skill_ignore_def / 100.0
+            skill_ignore_def = getattr(skill_data, 'ignore_defense', 0) or 0
+            if skill_ignore_def > 0:
+                penetrate += skill_ignore_def / 100.0
 
-        if penetrate > 0:
-            orig = defense
-            defense = max(0, int(defense * (1 - min(penetrate, 1.0))))
-            if defense != orig:
-                _log.info("[DMG_CALC] penetrate_defense: def %d → %d (%.0f%%)",
-                          orig, defense, penetrate * 100)
+            if penetrate > 0:
+                orig = defense
+                defense = max(0, int(defense * (1 - min(penetrate, 1.0))))
+                if defense != orig:
+                    _log.info("[DMG_CALC] penetrate_defense: def %d → %d (%.0f%%)",
+                              orig, defense, penetrate * 100)
 
-        base_diff = max(1, atk - defense)
-        _log.info("[DMG_CALC] step1_base_diff: final_atk=%d final_def=%d => base_diff=%d", atk, defense, base_diff)
+            base_diff = max(1, atk - defense)
+            _log.info("[DMG_CALC] step1_base_diff: final_atk=%d final_def=%d => base_diff=%d", atk, defense, base_diff)
         
         # 2. 技能威力因子
         skill_power_val = getattr(skill_data, "power", 100) or 100

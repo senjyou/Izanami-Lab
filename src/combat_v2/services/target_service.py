@@ -110,6 +110,21 @@ class TargetService:
         if not ordered:
             return []
 
+        # enemy_nearest_and_farthest: 选取距离施法者最近和最远的两个敌方单位（如PS1ダメージリンク）
+        if target_type_name == 'enemy_nearest_and_farthest':
+            if len(ordered) == 1:
+                _log.info("[TARGET]   enemy_nearest_and_farthest: only 1 candidate, returning single target")
+                return [ordered[0]]
+            nearest = ordered[0]
+            # 使用_get_farthest_key正确破平局（同距离优先左列），参考カオスキャノン的furthest filter
+            farthest = min(candidates, key=lambda u: self._get_farthest_key(caster.position, u))
+            # 防止最近和最远是同一单位（理论上不会，但安全检查）
+            if nearest.unit_id == farthest.unit_id:
+                return [nearest]
+            _log.info("[TARGET]   enemy_nearest_and_farthest: nearest=%s, farthest=%s",
+                      nearest.name, farthest.name)
+            return [nearest, farthest]
+
         if r_type == DisplayTargetRange.ONE_PAWN:
             return [ordered[0]]
 
@@ -141,6 +156,12 @@ class TargetService:
                 result = [u for u in candidates if self._is_back_row(u)]
                 _log.info("[TARGET]   LINE: target_type_name=%s -> force BACK row (%d units)",
                           target_type_name, len(result))
+                return result
+            # 显式检查 enemy_back_row（endswith在某些环境下可能不生效）
+            if target_type_name == 'enemy_back_row':
+                result = [u for u in candidates if self._is_back_row(u)]
+                _log.info("[TARGET]   LINE: enemy_back_row explicit -> force BACK row (%d units)",
+                          len(result))
                 return result
             # 默认行为：按anchor所在排选择
             anchor = ordered[0]
@@ -302,6 +323,22 @@ class TargetService:
                       mark_name, best_unit.name, best_count)
             return best_unit
         return None
+
+    def select_fewest_mark_target(self, caster: UnitState, candidates: List[UnitState],
+                                   mark_name: str) -> Optional[UnitState]:
+        """从 candidates 中选择持有指定 mark 最少的单位（含0个），平局按距离最近优先"""
+        if not candidates:
+            return None
+        # 按 (mark_count, distance) 排序，mark数最少+距离最近优先
+        def _sort_key(u):
+            c = self._count_mark(u, mark_name)
+            d = self._get_sort_key(caster.position, u)
+            return (c, d)
+        best_unit = min(candidates, key=_sort_key)
+        best_count = self._count_mark(best_unit, mark_name)
+        _log.info("[TARGET]   fewest_mark_priority='%s': target=%s (mark_count=%d)",
+                  mark_name, best_unit.name, best_count)
+        return best_unit
 
     def _get_adjacent_to_closest(self, enemy_units: List[UnitState], caster: UnitState) -> List[UnitState]:
         if not enemy_units:
