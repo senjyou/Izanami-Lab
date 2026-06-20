@@ -156,6 +156,22 @@ class AuraService:
         """
         pass
 
+    def process_turn_end(self, unit: UnitState):
+        """
+        回合结束时递减 duration_type="turn" 的buff/debuff持续时间
+        （如damage_link等回合制效果，不在单位行动结束时递减）
+        """
+        expired_before = [b.effect_type for b in unit.buffs + unit.debuffs if b.duration <= 0]
+        for b in unit.buffs + unit.debuffs:
+            if getattr(b, 'original_duration_type', '') == 'turn' and b.duration > 0:
+                b.duration -= 1
+                _log.info("[AURA_TURN_END] %s: %s duration %d->%d (turn制)",
+                          unit.name, b.effect_type, b.duration + 1, b.duration)
+        expired_after = [b.effect_type for b in unit.buffs + unit.debuffs if b.duration <= 0]
+        newly_expired = set(expired_after) - set(expired_before)
+        if newly_expired:
+            _log.info("[AURA_TURN_END] %s expired: %s", unit.name, list(newly_expired))
+
     def check_expiration(self, unit: UnitState):
         """清理过期 Aura (Duration == 0 表示已过期, Duration < 0 表示永久)"""
         # 先收集过期的buff，用于联动检查（排除unremovable）

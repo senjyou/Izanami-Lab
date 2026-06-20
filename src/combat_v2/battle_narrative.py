@@ -206,6 +206,15 @@ class BattleNarrativeWriter:
         shield_info = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         self._add(f"  [行動時ダメージ] {target_name} 行动时受到伤害: -{damage} HP{shield_info} → (HP:{hp_after}/{max_hp})")
 
+    def damage_link_transfer(self, source_target_name: str, linker_name: str,
+                              transfer_dmg: int, hp_before: int, hp_after: int, max_hp: int,
+                              damage_type: str, link_value: float, source_actual_damage: int,
+                              shield_absorbed: int = 0):
+        """ダメージリンク転送の叙事ログ出力"""
+        shield_info = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
+        self._add(f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
+                  f"{transfer_dmg} 点{damage_type}链接伤害 (源伤害:{source_actual_damage} × {link_value:.0f}%){shield_info}")
+
     def enchant_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                        hp_before: int, hp_after: int, damage: int, damage_type: str,
                        modifiers: List[str] = None, calc_detail: dict = None, max_hp: int = 0):

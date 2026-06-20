@@ -2323,7 +2323,9 @@ class SkillService:
 
         # ダメージリンク転送: リンクされたダメージは物理/EN区分を保持し、対応するシールドで吸収可能
         # リンクダメージは再度リンクされない（再帰防止）、ダメージ軽減/増加buffの影響を受けない
+        # 叙事日志由battle_flow_controller._log_narrative_effects统一输出（skill_service无narrative访问权）
         _is_en_attack = bool(effect_flags.get('is_en_attack', False)) if effect_flags else False
+        damage_link_transfers = []  # 收集链接伤害转移信息供叙事日志输出
         for target in targets_hit:
             target_unit = next((u for u in battlefield.get_all_units() if u.unit_id == target["target_id"]), None)
             if target_unit and target_unit.is_alive:
@@ -2334,6 +2336,7 @@ class SkillService:
                         transfer_dmg = int(target["actual_damage"] * dl.value / 100)
                         if transfer_dmg <= 0:
                             continue
+                        linker_hp_before = linker.current_hp
                         # 対応するシールドで吸収（物理=physical_shield, EN=en_shield）
                         shield_absorbed = 0
                         if _is_en_attack and linker.en_shield > 0:
@@ -2355,7 +2358,22 @@ class SkillService:
                                   target_unit.name, linker.name, transfer_dmg,
                                   "EN" if _is_en_attack else "物理", dl.value,
                                   target["actual_damage"], shield_absorbed,
-                                  linker.current_hp + hp_damage, linker.current_hp)
+                                  linker_hp_before, linker.current_hp)
+                        # 收集叙事日志信息
+                        damage_link_transfers.append({
+                            "source_target_id": target["target_id"],
+                            "source_target_name": target_unit.name,
+                            "linker_id": linker.unit_id,
+                            "linker_name": linker.name,
+                            "transfer_dmg": transfer_dmg,
+                            "shield_absorbed": shield_absorbed,
+                            "hp_before": linker_hp_before,
+                            "hp_after": linker.current_hp,
+                            "max_hp": linker.max_hp,
+                            "damage_type": "EN" if _is_en_attack else "物理",
+                            "link_value": dl.value,
+                            "source_actual_damage": target["actual_damage"],
+                        })
 
         self._most_recent_damage = total_damage
 
@@ -2389,6 +2407,7 @@ class SkillService:
             "total_damage": total_damage,
             "damage": total_damage,
             "bonus_crit_applied": bonus_crit_applied,
+            "damage_link_transfers": damage_link_transfers,
         }
 
     def _process_enchant_damage(self, caster: UnitState, targets_hit: list,
@@ -3412,6 +3431,11 @@ class SkillService:
             # Guard: use DURABLE_WHEN_USED timing (never expires on turn/action boundaries)
             # Cleaned up immediately after the triggering skill ends
             timing = AuraUpdateTiming.DURABLE_WHEN_USED.value
+        elif dur_type == "turn":
+            # 回合制: 不在行动结束时递减（DURABLE_WHEN_USED不被process_maneuver_end处理）
+            # 由aura_service.process_turn_end在回合结束时统一递减
+            timing = AuraUpdateTiming.DURABLE_WHEN_USED.value
+            _log.info("[AURA_APPLY] %s: duration_type=turn -> timing=DURABLE_WHEN_USED (decrement at turn end)", caster.name)
         else:
             timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
 

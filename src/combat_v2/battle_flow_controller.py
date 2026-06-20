@@ -281,6 +281,10 @@ class BattleFlowController:
         for u in self.battlefield.get_all_units():
             if u.is_alive:
                 self.skill_service.update_turn_end_cooldowns(u, snapshot.get(u.unit_id, {}))
+                # 回合制buff/debuff持续时间递减 (duration_type="turn"，如damage_link)
+                self.aura_service.process_turn_end(u)
+                # 清理过期buff/debuff
+                self.aura_service.check_expiration(u)
 
         if self.narrative:
             all_alive = [u for u in self.battlefield.friend_team + self.battlefield.enemy_team if u.is_alive]
@@ -1740,6 +1744,22 @@ class BattleFlowController:
                     if shield_expired:
                         target_dname = self._get_display_name(t.get('target_id', t['target']))
                         self.narrative.effect_expired(target_dname, shield_expired, is_debuff=False)
+                # ダメージリンク転送叙事ログ出力
+                for dl_transfer in applied.get("damage_link_transfers", []):
+                    source_dname = self._get_display_name(dl_transfer["source_target_id"])
+                    linker_dname = self._get_display_name(dl_transfer["linker_id"])
+                    self.narrative.damage_link_transfer(
+                        source_target_name=source_dname,
+                        linker_name=linker_dname,
+                        transfer_dmg=dl_transfer["transfer_dmg"],
+                        hp_before=dl_transfer["hp_before"],
+                        hp_after=dl_transfer["hp_after"],
+                        max_hp=dl_transfer["max_hp"],
+                        damage_type=dl_transfer["damage_type"],
+                        link_value=dl_transfer["link_value"],
+                        source_actual_damage=dl_transfer["source_actual_damage"],
+                        shield_absorbed=dl_transfer["shield_absorbed"],
+                    )
             elif applied.get("effect_type") == "heal":
                 for h in applied.get("heals", []):
                     target_unit = self._find_unit(h)

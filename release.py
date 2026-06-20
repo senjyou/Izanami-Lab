@@ -137,6 +137,17 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
     data_dir = app_dir / "data"
     files = []
 
+    # 获取 git 跟踪的文件列表
+    # jsDelivr 从 git 仓库提供文件，未跟踪的文件（运行时生成、用户配置等）会 404
+    try:
+        result = subprocess.run(
+            ['git', 'ls-files', '--', 'data/'],
+            capture_output=True, text=True, cwd=SCRIPT_DIR
+        )
+        git_tracked = set(line.strip() for line in result.stdout.splitlines() if line.strip())
+    except Exception:
+        git_tracked = None  # git 不可用时跳过此检查
+
     # 扫描 data 目录
     if data_dir.exists():
         for file_path in sorted(data_dir.rglob("*")):
@@ -144,9 +155,10 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
                 continue
             rel_path = file_path.relative_to(app_dir)
             path_str = str(rel_path).replace('\\', '/')
-            # 跳过运行时生成的文件（不在 git 仓库中，无法通过 CDN 分发）
-            if path_str.startswith('data/battle_logs/'):
+            # 跳过未被 git 跟踪的文件（jsDelivr 无法提供）
+            if git_tracked is not None and path_str not in git_tracked:
                 continue
+            # 跳过缓存文件（虽在 git 中，但属于本地缓存，不应分发）
             if path_str == 'data/character_stats_cache.json':
                 continue
             sha256 = compute_sha256(file_path)
