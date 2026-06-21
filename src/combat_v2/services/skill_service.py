@@ -73,6 +73,7 @@ _JSON_EFFECT_TO_ENUM: Dict[str, str] = {
     "critical_forbidden": SkillEffectType.CRITICAL_FORBIDDEN.value,
     "sub_unit": SkillEffectType.SUB_UNIT.value,
     "dmg_invulnerable": SkillEffectType.DMG_INVULNERABLE.value,
+    "block_specific_aura": SkillEffectType.BLOCK_SPECIFIC_AURA.value,
 }
 
 
@@ -1847,6 +1848,13 @@ class SkillService:
                 cond_met = has_burn
                 cond_desc = f"target_has_burn({has_burn})"
 
+            elif cond_type == 'target_has_debuff' and targets:
+                # 检查目标是否有任何debuff（不限状态异常）
+                first_target = targets[0]
+                has_debuff = len(first_target.debuffs) > 0
+                cond_met = has_debuff
+                cond_desc = f"target_has_debuff({has_debuff}, count={len(first_target.debuffs)})"
+
             if cond_met:
                 value_tag = cond_power_bonus.get('value_tag', 'dmg')
                 # 通过resolver解析tag值
@@ -3067,23 +3075,33 @@ class SkillService:
             if not target.is_alive:
                 continue
             hp_before = target.current_hp
+            target_effective_max_hp = self.damage_service._calculate_final_stat(target, "max_hp")
             if heal_base == 'max_hp':
                 heal_amount = int(effective_max_hp * heal_pct / 100)
+            elif heal_base == 'lost_hp':
+                # 基于目标已损失HP计算治疗量
+                lost_hp = target_effective_max_hp - target.current_hp
+                heal_amount = int(lost_hp * heal_pct / 100)
+                _log.info("[HEAL] %s -> %s: heal_base=lost_hp lost_hp=%d heal_pct=%d%%",
+                          caster.name, target.name, lost_hp, heal_pct)
             else:
                 heal_amount = int(effective_atk * heal_pct / 100)
 
             # 治疗暴击判定：暴击率引用治疗发起者，暴击时治疗量1.5倍
-            is_heal_crit = self.damage_service.check_heal_crit(caster, {
-                'healer_name': caster.name,
-                'target_name': target.name,
-                'target_id': target.unit_id,
-                'skill_name': skill_name,
-                'skill_id': self._current_skill_id,
-            })
-            if is_heal_crit:
-                heal_amount = int(heal_amount * 1.5)
-                _log.info("[HEAL_CRIT] %s -> %s: heal CRIT! heal_amount=%d (x1.5)",
-                          caster.name, target.name, heal_amount)
+            # HP百分比治疗（max_hp/lost_hp）不可暴击，仅ATK基数治疗可暴击
+            is_heal_crit = False
+            if heal_base == 'atk':
+                is_heal_crit = self.damage_service.check_heal_crit(caster, {
+                    'healer_name': caster.name,
+                    'target_name': target.name,
+                    'target_id': target.unit_id,
+                    'skill_name': skill_name,
+                    'skill_id': self._current_skill_id,
+                })
+                if is_heal_crit:
+                    heal_amount = int(heal_amount * 1.5)
+                    _log.info("[HEAL_CRIT] %s -> %s: heal CRIT! heal_amount=%d (x1.5)",
+                              caster.name, target.name, heal_amount)
 
             # 受到治疗量乘区：目标身上的ReceivedHealing buff/debuff
             heal_received_mult = self.damage_service._get_heal_received_multiplier(target)
@@ -3093,7 +3111,6 @@ class SkillService:
                           caster.name, target.name, heal_received_mult, heal_amount)
 
             # 实际回血量：不超过缺失HP
-            target_effective_max_hp = self.damage_service._calculate_final_stat(target, "max_hp")
             missing_hp = target_effective_max_hp - target.current_hp
             actual_heal = min(heal_amount, missing_hp)
             target.current_hp = min(target_effective_max_hp, target.current_hp + heal_amount)
@@ -3105,7 +3122,7 @@ class SkillService:
                 "hp_after": target.current_hp,
                 "amount": actual_heal,
                 "is_crit": is_heal_crit,
-                "heal_formula": f"[ATK:{effective_atk} base:{'max_hp' if heal_base == 'max_hp' else 'atk'} pct:{heal_pct}% crit:{'1.5' if is_heal_crit else '1.0'} efficacy:{heal_received_mult:.4f} raw:{heal_amount}]",
+                "heal_formula": f"[ATK:{effective_atk} base:{heal_base} pct:{heal_pct}% crit:{'1.5' if is_heal_crit else '1.0'} efficacy:{heal_received_mult:.4f} raw:{heal_amount}]",
             })
             crit_tag = "【Critical】" if is_heal_crit else ""
             _log.info("[HEAL] %s -> %s: hp %d→%d (+%d, raw=%d) %s",
@@ -3730,6 +3747,11 @@ class SkillService:
                 aura.unremovable = True
                 _log.info("[AURA_APPLY] %s: unremovable flag set on %s", caster.name, mapped_effect_type)
 
+            # skip_restore标记：当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」）
+            if effect_flags_aura.get('skip_restore'):
+                aura.skip_restore = True
+                _log.info("[AURA_APPLY] %s: skip_restore flag set on %s", caster.name, mapped_effect_type)
+
             # hp_threshold_tag: 条件性减伤，仅当HP≥阈值时减伤生效
             hp_threshold_tag = effect_flags_aura.get('hp_threshold_tag')
             if hp_threshold_tag:
@@ -3762,6 +3784,20 @@ class SkillService:
             # 保存原始duration_type（如"attacker_action"），用于攻击者行动结束时精确清理
             if original_dur_type:
                 aura.original_duration_type = original_dur_type
+
+            # BlockSpecificAura: 存储被免疫的状态类型列表
+            if mapped_effect_type == SkillEffectType.BLOCK_SPECIFIC_AURA.value:
+                block_status = effect_flags_aura.get('block_status', []) if effect_flags_aura else []
+                aura.block_status_list = list(block_status)
+                _log.info("[AURA_APPLY] %s -> %s: BlockSpecificAura block_status=%s",
+                          caster.name, target.name, aura.block_status_list)
+
+            # HOT: 存储治疗基数来源（heal_base）
+            if mapped_effect_type == SkillEffectType.HEAL_OVER_TIME.value:
+                hot_heal_base = effect_flags_aura.get('heal_base', 'atk') if effect_flags_aura else 'atk'
+                aura.heal_base = hot_heal_base
+                _log.info("[AURA_APPLY] %s -> %s: HOT heal_base=%s",
+                          caster.name, target.name, aura.heal_base)
 
             # Knockout refresh rule: if target already has a Knockout debuff,
             # keep the one with longer duration and mark whether this is a NEW knockout
@@ -4140,7 +4176,9 @@ class SkillService:
         }
 
     def _apply_remove_buff(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
-        """解除目标1个buff，排除回忆卡buff和不可解除buff"""
+        """解除目标指定数量buff，排除回忆卡buff和不可解除buff。
+        采用后施加先移除（LIFO）逻辑：列表末尾的buff（最近施加）优先被移除。
+        """
         if not self.target_service:
             _log.info("[REMOVE_BUFF] %s: target_service unavailable", caster.name)
             return None
@@ -4153,30 +4191,34 @@ class SkillService:
         })()
         targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
 
+        # 解除数量：优先使用effect.value，其次使用flags.count，默认1
+        remove_buff_flags = getattr(effect, 'flags', {}) or {}
+        count = int(effect.value) if effect.value else remove_buff_flags.get('count', 1)
+
         total_removed = 0
         removed_details = []
         for target in targets:
             if not target.is_alive:
                 continue
-            # 排除回忆卡buff和不可解除buff，移除1个
+            # 排除回忆卡buff和不可解除buff
             removable = [b for b in target.buffs
                          if not b.is_memory_buff and not b.unremovable]
-            if removable:
-                b = removable[0]
-                removed_name = b.name
+            # LIFO: 从列表末尾（最近施加）开始移除
+            to_remove = removable[-count:] if count > 0 else removable
+            removed_names = [b.name for b in to_remove]
+            for b in to_remove:
                 target.buffs.remove(b)
-                total_removed += 1
+            removed_count = len(to_remove)
+            total_removed += removed_count
+            if removed_count > 0:
                 removed_details.append({
                     "target_id": target.unit_id,
                     "target": target.name,
-                    "removed_count": 1,
-                    "removed_names": [removed_name],
+                    "removed_count": removed_count,
+                    "removed_names": removed_names,
                 })
-                _log.info("[REMOVE_BUFF] %s: removed 1 buff '%s' from %s",
-                          caster.name, removed_name, target.name)
-            else:
-                _log.info("[REMOVE_BUFF] %s: no removable buff on %s",
-                          caster.name, target.name)
+            _log.info("[REMOVE_BUFF] %s: removed %d/%d buffs (LIFO) from %s: %s",
+                      caster.name, removed_count, count, target.name, removed_names)
 
         return {
             "effect_type": "remove_buff",
@@ -4424,12 +4466,17 @@ class SkillService:
                 result_targets = []
                 for t in targets:
                     if t.is_alive:
-                        self.resource_service.consume_ap(t, value)
-                        _log.info("[RESOURCE_EFFECT] %s: remove_ap from %s: value=%d ap_after=%d",
-                                  caster.name, t.name, value, t.current_ap)
+                        actual_ap = min(value, t.current_ap)
+                        if actual_ap <= 0:
+                            _log.info("[RESOURCE_EFFECT] %s: remove_ap skipped (target %s has 0 AP)",
+                                      caster.name, t.name)
+                            continue
+                        self.resource_service.consume_ap(t, actual_ap)
+                        _log.info("[RESOURCE_EFFECT] %s: remove_ap from %s: requested=%d actual=%d ap_after=%d",
+                                  caster.name, t.name, value, actual_ap, t.current_ap)
                         entry = {
                             "target_id": t.unit_id, "target": t.unit_id,
-                            "amount": value, "ap_after": t.current_ap, "ap_max": t.initial_active_point
+                            "amount": actual_ap, "ap_after": t.current_ap, "ap_max": t.initial_active_point
                         }
                         cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(t.unit_id)
                         if cover_replaced_for:
@@ -4442,16 +4489,22 @@ class SkillService:
             else:
                 target = targets[0] if targets else None
                 if target is not None and target.is_alive:
-                    self.resource_service.consume_ap(target, value)
-                    _log.info("[RESOURCE_EFFECT] %s: remove_ap from %s: value=%d", caster.name, target.name, value)
-                    entry = {"effect_type": "remove_ap", "targets": [{
-                        "target_id": target.unit_id, "target": target.unit_id,
-                        "amount": value, "ap_after": target.current_ap, "ap_max": target.initial_active_point
-                    }]}
-                    cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(target.unit_id)
-                    if cover_replaced_for:
-                        entry["targets"][0]["cover_replaced_for"] = cover_replaced_for
-                    return entry
+                    actual_ap = min(value, target.current_ap)
+                    if actual_ap <= 0:
+                        _log.info("[RESOURCE_EFFECT] %s: remove_ap skipped (target %s has 0 AP)",
+                                  caster.name, target.name)
+                    else:
+                        self.resource_service.consume_ap(target, actual_ap)
+                        _log.info("[RESOURCE_EFFECT] %s: remove_ap from %s: requested=%d actual=%d",
+                                  caster.name, target.name, value, actual_ap)
+                        entry = {"effect_type": "remove_ap", "targets": [{
+                            "target_id": target.unit_id, "target": target.unit_id,
+                            "amount": actual_ap, "ap_after": target.current_ap, "ap_max": target.initial_active_point
+                        }]}
+                        cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(target.unit_id)
+                        if cover_replaced_for:
+                            entry["targets"][0]["cover_replaced_for"] = cover_replaced_for
+                        return entry
                 else:
                     _log.info("[RESOURCE_EFFECT] %s: remove_ap skipped, no valid target", caster.name)
         elif etype == "remove_pp":
@@ -4483,6 +4536,11 @@ class SkillService:
                     covered_targets = self._apply_cover_debuff_replacement(caster, targets, battlefield) if targets else []
                     for target in covered_targets:
                         if target is not None and target.is_alive:
+                            # hp_threshold_cross等条件检查
+                            effect_condition = getattr(effect, 'condition', None)
+                            if effect_condition and isinstance(effect_condition, dict):
+                                if not self._check_target_condition(target, effect_condition):
+                                    continue
                             pp_flags = getattr(effect, 'flags', None) or {}
                             pp_threshold = pp_flags.get('pp_threshold', 0)
                             if pp_threshold > 0 and target.current_pp < pp_threshold:
@@ -4493,11 +4551,18 @@ class SkillService:
                                 amount = target.current_pp
                             else:
                                 amount = value if value else 1
-                            self.resource_service.consume_pp(target, amount)
-                            _log.info("[RESOURCE_EFFECT] %s: remove_pp from %s: value=%d", caster.name, target.name, amount)
+                            # cap amount at current_pp: consume_pp在current_pp<amount时会失败
+                            actual_amount = min(amount, target.current_pp)
+                            if actual_amount <= 0:
+                                _log.info("[RESOURCE_EFFECT] %s: remove_pp skipped (target %s has 0 PP)",
+                                          caster.name, target.name)
+                                continue
+                            self.resource_service.consume_pp(target, actual_amount)
+                            _log.info("[RESOURCE_EFFECT] %s: remove_pp from %s: requested=%d actual=%d",
+                                      caster.name, target.name, amount, actual_amount)
                             entry = {
                                 "target_id": target.unit_id, "target": target.unit_id,
-                                "amount": amount, "pp_after": target.current_pp, "pp_max": target.initial_passive_point
+                                "amount": actual_amount, "pp_after": target.current_pp, "pp_max": target.initial_passive_point
                             }
                             cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(target.unit_id)
                             if cover_replaced_for:
@@ -4616,6 +4681,7 @@ class SkillService:
             "good_luck",
             "max_hp_up",
             "dmg_invulnerable",
+            "block_specific_aura",
             # guard作为buff类型保留，但通过不同的机制触发
             # - 旧版guard（如130009）：通过buff系统生效
             # - 新版cover附带的guard：通过unit.guard_active生效
@@ -4629,7 +4695,7 @@ class SkillService:
             SkillEffectType.FREEZE.value, SkillEffectType.KNOCKOUT.value,
             SkillEffectType.MARK.value, SkillEffectType.ACTION_DAMAGE.value,
             "received_damage", "attribute_attack", "attribute_defense",
-            "block_auras", "block_specific_aura", "block_evade",
+            "block_auras", "block_evade",
             "stun", "spd_down", "dmg_dealt_down",
             "atk_down", "def_down", "crit_rate_down", "crit_dmg_down", "dmg_taken_up",
             "critical_forbidden",

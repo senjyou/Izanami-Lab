@@ -50,6 +50,9 @@ class BuffState:
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
+    block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
+    heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
+    skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」）
 
 
 from .enums import UnitActionPhase

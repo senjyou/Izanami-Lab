@@ -201,6 +201,11 @@ class BattleFlowController:
         # Phase 1: 先制技能（is_preemptive）优先于非先制技能，先收集并执行
         # Phase 2: 在先制技能执行后重新收集非先制技能（状态可能已因先制技能改变）
         self.battlefield.current_trigger_phase = TriggerTiming.TURN_START
+
+        # 回忆卡 turn_start / periodic_start 触发
+        self._apply_memory_card_effects_by_trigger("turn_start")
+        self._apply_memory_card_effects_by_trigger("periodic_start")
+
         preemptive_actions = self.trigger_service.trigger_turn_start_preemptive(self.battlefield)
         if self.narrative and preemptive_actions:
             for action in preemptive_actions:
@@ -266,6 +271,11 @@ class BattleFlowController:
                 _log.info("[HP] %s", hp_line)
 
         self.battlefield.current_trigger_phase = TriggerTiming.TURN_END
+
+        # 回忆卡 turn_end / periodic_end 触发
+        self._apply_memory_card_effects_by_trigger("turn_end")
+        self._apply_memory_card_effects_by_trigger("periodic_end")
+
         turn_end_actions = self.trigger_service.trigger_turn_end(self.battlefield)
         if self.narrative and turn_end_actions:
             for action in turn_end_actions:
@@ -295,6 +305,14 @@ class BattleFlowController:
     def _execute_unit_action(self, unit: UnitState, turn: int) -> None:
         self._pre_action_buff_ids = {id(b) for b in unit.buffs + unit.debuffs}
         self.battlefield.round_number += 1
+
+        # 更新所有存活单位的prev_hp_percent为当前HP百分比
+        # 修复: 行动间治疗（HOT/技能治疗）后prev_hp_percent未更新，
+        # 导致下次DOT降血时阈值跨越检测失效（如「再起律動」不触发）
+        for u in self.battlefield.get_all_units():
+            if u.is_alive and u.max_hp > 0:
+                u.prev_hp_percent = (u.current_hp / u.max_hp) * 100
+
         _log.info("[ACT] --------------------------------------------------")
         _log.info("[ACT] T%dR%d %s (HP:%d/%d AP:%d EP:%d/%d) 开始行动",
                   turn, self.battlefield.round_number, unit.name, unit.current_hp, unit.max_hp,
@@ -607,9 +625,10 @@ class BattleFlowController:
                     )
                     all_post_as_actions.extend(after_self)
 
-                    # 自身被AS攻击后触发（如フレンジーキャノン）
+                    # 自身被AS攻击后触发（如フレンジーキャノン、捲土重来）
+                    # 仅AS技能主目标触发
                     after_as_attacked = self.trigger_service.trigger_after_as_attacked(
-                        damaged_targets, self.battlefield, actor=unit
+                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
                     all_post_as_actions.extend(after_as_attacked)
 
@@ -1097,6 +1116,19 @@ class BattleFlowController:
                 self.narrative.action_damage(self._get_display_name(unit), action_dmg, unit.current_hp, unit.max_hp,
                                              shield_absorbed=action_shield_absorbed)
 
+        # DOT/行動時ダメージ处理后、HOT回復前にHP阈值触发器检查（如再起律動、リカバリーブースト）
+        # 必须在HOT回復前检查，否则DOT将HP打到阈值以下后HOT又把HP拉回阈值以上，
+        # trigger_hp_below会因prev和current都高于阈值而检测不到跨越（如技能「再起律動」bug）
+        if burn_dmg > 0 or poison_dmg > 0 or action_dmg > 0:
+            hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield, [unit])
+            if hp_below_actions:
+                self._execute_global_trigger_actions(hp_below_actions)
+
+            # 累计伤害触发器检查
+            cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield, [unit])
+            if cumulative_dmg_actions:
+                self._execute_global_trigger_actions(cumulative_dmg_actions)
+
         regen_amount, regen_details = self.status_service.apply_regen(unit, self.damage_service, self.battlefield)
         if regen_amount > 0:
             # 计分追踪：记录回复（敌方回复需要从得分中扣除）
@@ -1117,18 +1149,6 @@ class BattleFlowController:
                                        source_hp=f"HP:{unit.current_hp}/{unit.max_hp}",
                                        hp_before=unit.current_hp - regen_amount if len(regen_details) == 1 else unit.current_hp - rd['amount'],
                                        target_max_hp=unit.max_hp)
-
-        # DOT/HOT处理后检查HP阈值触发器（如リカバリーブースト）
-        # 确保HP因DOT伤害跨越阈值时，PS技能在行动开始时立即触发，而非等到技能执行后
-        if burn_dmg > 0 or poison_dmg > 0 or action_dmg > 0:
-            hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield, [unit])
-            if hp_below_actions:
-                self._execute_global_trigger_actions(hp_below_actions)
-
-            # 累计伤害触发器检查
-            cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield, [unit])
-            if cumulative_dmg_actions:
-                self._execute_global_trigger_actions(cumulative_dmg_actions)
 
     def _collect_debuff_trigger_data(self, skill_result: Dict) -> Tuple[List[str], Set[str], Set[str]]:
         """从技能结果中收集debuff触发器数据（同时处理aura和add_status两种类型）"""
@@ -2014,14 +2034,30 @@ class BattleFlowController:
                 if not skill_id:
                     continue
 
+                skill_name = self.data_loader.get_skill_name(skill_id)
+
+                # 优先尝试结构化效果路径（新路径，从 memory_effects.json 读取）
+                applied = self._apply_memory_card_structured_effect(
+                    card_name, highlight, skill_id, skill_name,
+                    expected_trigger="battle_start"
+                )
+                if applied:
+                    continue
+
+                # 检查是否有其他trigger类型的结构化数据，有则跳过旧路径
+                effect_data = self.data_loader.get_memory_effect(skill_id)
+                if effect_data:
+                    other_trigger = effect_data.get("trigger", {}).get("type", "")
+                    if other_trigger in ("turn_start", "turn_end", "periodic_start", "periodic_end"):
+                        continue  # 由回合开始/结束逻辑处理，不走旧路径
+
+                # 回退到旧路径（正则解析 + execute_skill）
                 matched_units = self._resolve_memory_card_targets(highlight)
                 if not matched_units:
                     _log.info("[MEMORY]   highlight skill=%d -> 无匹配单位", skill_id)
                     continue
 
-                skill_name = self.data_loader.get_skill_name(skill_id)
-
-                _log.info("[MEMORY]   skill=%d [%s] -> %d 个单位匹配",
+                _log.info("[MEMORY]   skill=%d [%s] -> 旧路径 %d 个单位匹配",
                           skill_id, skill_name, len(matched_units))
 
                 for target_unit in matched_units:
@@ -2050,6 +2086,36 @@ class BattleFlowController:
 
         _log.info("[MEMORY] ============ 回忆卡效果处理完成 ============")
 
+    def _apply_memory_card_effects_by_trigger(self, trigger_type: str) -> None:
+        """根据trigger类型应用回忆卡结构化效果（用于turn_start/turn_end/periodic_start/periodic_end）
+
+        Args:
+            trigger_type: 要处理的trigger类型（turn_start/turn_end/periodic_start/periodic_end）
+        """
+        if not self.battlefield.memory_cards:
+            return
+
+        _log.info("[MEMORY] ============ 回忆卡效果处理 (trigger=%s, turn=%d) ============",
+                  trigger_type, self.battlefield.turn_number)
+
+        for card in self.battlefield.memory_cards:
+            card_name = getattr(card, 'name', f"回忆卡#{getattr(card, 'card_id', '?')}")
+
+            for highlight in card.highlights:
+                skill_id = highlight.skill_master_id
+                if not skill_id:
+                    continue
+
+                skill_name = self.data_loader.get_skill_name(skill_id)
+
+                # 只处理匹配trigger类型的结构化效果
+                self._apply_memory_card_structured_effect(
+                    card_name, highlight, skill_id, skill_name,
+                    expected_trigger=trigger_type
+                )
+
+        _log.info("[MEMORY] ============ 回忆卡效果处理完成 (trigger=%s) ============", trigger_type)
+
     def _resolve_memory_card_targets(self, highlight) -> list:
         targets = []
 
@@ -2065,6 +2131,69 @@ class BattleFlowController:
             targets.append(unit)
 
         return targets
+
+    def _resolve_memory_card_targets_with_position(self, highlight,
+                                                     block_party_position: int) -> list:
+        """使用block级别的位置位掩码过滤目标
+
+        与 _resolve_memory_card_targets 类似，但使用 block_party_position
+        覆盖 highlight 的 party_position 进行位置过滤。
+        用于"変動"类技能对不同位置施加不同效果。
+        """
+        targets = []
+
+        team = self.battlefield.friend_team if highlight.is_targeting_friendly_party else self.battlefield.enemy_team
+
+        for unit in team:
+            if not unit.is_alive:
+                continue
+
+            # 复用highlight的其他过滤条件（角色/属性/队伍等），但位置过滤使用block级别
+            if not self._match_memory_card_unit_with_position(unit, highlight, block_party_position):
+                continue
+
+            targets.append(unit)
+
+        return targets
+
+    def _match_memory_card_unit_with_position(self, unit: UnitState, highlight,
+                                                block_party_position: int) -> bool:
+        """与 _match_memory_card_unit 类似，但位置过滤使用 block_party_position"""
+        if highlight.character_master_id is not None:
+            if unit.character_id != highlight.character_master_id:
+                return False
+
+        if highlight.character_base_master_id is not None:
+            char_data = self.data_loader.get_character(unit.character_id)
+            if char_data:
+                if char_data.character_base_id != highlight.character_base_master_id:
+                    return False
+            else:
+                _log.info("[MEMORY]     无法获取角色数据 unit=%d, 跳过 base_master_id 检查", unit.character_id)
+                return False
+
+        if highlight.character_attribute is not None:
+            if unit.element != highlight.character_attribute:
+                return False
+
+        if highlight.character_role is not None:
+            if unit.role_type != highlight.character_role:
+                return False
+
+        if highlight.character_type is not None:
+            if unit.character_type != highlight.character_type:
+                return False
+
+        if highlight.character_team_master_id is not None:
+            if not self._check_character_team(unit, highlight.character_team_master_id):
+                return False
+
+        # 使用block级别的位置过滤
+        pos_bit = self._POSITION_BITMASK_MAP.get(unit.position, 0)
+        if pos_bit == 0 or (block_party_position & pos_bit) == 0:
+            return False
+
+        return True
 
     def _match_memory_card_unit(self, unit: UnitState, highlight) -> bool:
         if highlight.character_master_id is not None:
@@ -2186,6 +2315,223 @@ class BattleFlowController:
         if effect_type == SkillEffectType.STATUS_MAX_HP.value:
             return 10.0, 0
         return 5.0, 0
+
+    def _apply_memory_card_structured_effect(self, card_name: str, highlight,
+                                              skill_id: int, skill_name: str,
+                                              expected_trigger: str = "battle_start") -> bool:
+        """应用回忆卡结构化效果（新路径）
+
+        从 memory_effects.json 读取结构化数据，独立施加效果，不经过 skill_service.execute_skill。
+
+        Args:
+            expected_trigger: 期望的trigger类型，只处理匹配的trigger
+
+        Returns:
+            True if 成功应用结构化效果；False if 无结构化数据需回退旧路径
+        """
+        effect_data = self.data_loader.get_memory_effect(skill_id)
+        if not effect_data:
+            return False  # 无结构化数据，回退到旧路径
+
+        trigger = effect_data.get("trigger", {})
+        trigger_type = trigger.get("type", "battle_start")
+
+        # 只处理匹配的trigger类型
+        if trigger_type != expected_trigger:
+            return False  # 不匹配，不处理也不回退（由调用方决定）
+
+        # 周期触发检查：判断当前回合是否是触发周期
+        if trigger_type in ("periodic_start", "periodic_end"):
+            periodic_turn = trigger.get("periodic_turn", 1)
+            if self.battlefield.turn_number % periodic_turn != 0:
+                return True  # 本回合不触发，但算作已处理（不回退旧路径）
+
+        blocks = effect_data.get("blocks", [])
+        if not blocks:
+            _log.info("[MEMORY]     skill=%d 无blocks定义，回退旧路径", skill_id)
+            return False
+
+        _log.info("[MEMORY]   skill=%d [%s] -> 结构化路径 (trigger=%s)", skill_id, skill_name, trigger_type)
+
+        for block in blocks:
+            target_type = block.get("target_type", "highlight_targets")
+            effects = block.get("effects", [])
+            block_party_position = block.get("party_position")
+
+            targets = self._select_memory_card_targets(highlight, target_type, block_party_position)
+            if not targets:
+                _log.info("[MEMORY]     target_type=%s 无匹配单位", target_type)
+                continue
+
+            _log.info("[MEMORY]     target_type=%s -> %d 个单位", target_type, len(targets))
+
+            for target_unit in targets:
+                if not target_unit.is_alive:
+                    continue
+                _log.info("[MEMORY]       -> %s (position=%s)", target_unit.name, target_unit.position)
+                for effect in effects:
+                    self._apply_structured_effect_to_unit(
+                        card_name, target_unit, skill_id, skill_name, effect
+                    )
+
+        return True
+
+    def _select_memory_card_targets(self, highlight, target_type: str,
+                                      block_party_position: int = None) -> list:
+        """根据 target_type 选取目标单位
+
+        highlight_targets / ally_position / enemy_position 使用 highlight 条件过滤；
+        其他类型按描述语义直接选取。
+
+        Args:
+            block_party_position: block级别的位置位掩码，当target_type=ally_position且
+                                  此值不为None时，覆盖highlight的party_position进行位置过滤。
+                                  用于"変動"类技能对不同位置施加不同效果。
+        """
+        if target_type in ("highlight_targets", "ally_position", "enemy_position"):
+            if block_party_position is not None and target_type == "ally_position":
+                return self._resolve_memory_card_targets_with_position(
+                    highlight, block_party_position
+                )
+            return self._resolve_memory_card_targets(highlight)
+
+        if target_type == "ally_all":
+            return [u for u in self.battlefield.friend_team if u.is_alive]
+
+        if target_type == "ally_front_row":
+            front = {Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT}
+            return [u for u in self.battlefield.friend_team if u.is_alive and u.position in front]
+
+        if target_type == "ally_back_row":
+            back = {Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK}
+            return [u for u in self.battlefield.friend_team if u.is_alive and u.position in back]
+
+        if target_type == "enemy_front_row":
+            front = {Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT}
+            return [u for u in self.battlefield.enemy_team if u.is_alive and u.position in front]
+
+        if target_type == "enemy_back_row":
+            back = {Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK}
+            return [u for u in self.battlefield.enemy_team if u.is_alive and u.position in back]
+
+        # 动态单目标选取
+        enemies = [u for u in self.battlefield.enemy_team if u.is_alive]
+        if not enemies:
+            return []
+
+        if target_type == "enemy_single_highest_hp":
+            return [max(enemies, key=lambda u: u.max_hp)]
+        if target_type == "enemy_single_lowest_hp":
+            return [min(enemies, key=lambda u: u.max_hp)]
+        if target_type == "enemy_single_highest_atk":
+            return [max(enemies, key=lambda u: u.attack)]
+        if target_type == "enemy_single_highest_spd":
+            return [max(enemies, key=lambda u: u.speed)]
+        if target_type == "enemy_single_lowest_hp_ratio":
+            return [min(enemies, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+
+        # 未知 target_type，回退到 highlight 条件
+        _log.info("[MEMORY]     未知 target_type=%s，回退 highlight_targets", target_type)
+        return self._resolve_memory_card_targets(highlight)
+
+    def _apply_structured_effect_to_unit(self, card_name: str, target_unit: UnitState,
+                                          skill_id: int, skill_name: str, effect: dict) -> None:
+        """对单个单位施加一个结构化效果"""
+        effect_type = effect.get("effect_type")
+        value = effect.get("value", 0)
+        value_tag = effect.get("value_tag", 0)
+        is_buff = effect.get("is_buff", True)
+        duration = effect.get("duration", -1)
+        timing_type = effect.get("timing_type", 3)
+        damage_element = effect.get("damage_element", 0)
+        value_source = effect.get("value_source", "")
+        attack_limited = effect.get("attack_limited", 0)
+
+        # AcquireMark 类型：获得mark标记
+        if effect_type == "AcquireMark":
+            mark_name = effect.get("mark_name", "")
+            if not mark_name:
+                _log.info("[MEMORY]       AcquireMark 缺少 mark_name，跳过")
+                return
+            mark_buff = BuffState(
+                buff_id=f"memory_{skill_id}_{target_unit.unit_id}_{mark_name}",
+                name=mark_name,
+                effect_type=SkillEffectType.MARK.value,
+                value=0,
+                duration=-1,
+                timing_type=3,
+                stack_count=1,
+                source_unit_id=target_unit.unit_id,
+                is_debuff=False,
+                is_memory_buff=True,
+            )
+            success = self.aura_service.add_aura(target_unit, mark_buff)
+            _log.info("[MEMORY]       acquire_mark: %s -> %s mark=%s ok=%s",
+                      card_name, target_unit.name, mark_name, success)
+            if self.narrative:
+                target_dname = self._get_display_name(target_unit)
+                self.narrative.memory_effect(card_name, target_dname, f"获得标记「{mark_name}」")
+            return
+
+        # Heal 类型：直接治疗，不创建 buff
+        if effect_type == SkillEffectType.HEAL.value:
+            heal_amount = self._calculate_memory_heal(target_unit, value, value_tag, value_source)
+            if heal_amount > 0:
+                actual_heal = min(heal_amount, target_unit.max_hp - target_unit.current_hp)
+                target_unit.current_hp += actual_heal
+                _log.info("[MEMORY]       heal: %s -> %s val=%d (actual=%d)",
+                          card_name, target_unit.name, heal_amount, actual_heal)
+                if self.narrative:
+                    target_dname = self._get_display_name(target_unit)
+                    self.narrative.memory_effect(card_name, target_dname, f"HP回复 {actual_heal}")
+            return
+
+        # buff/debuff 类型：创建 BuffState 施加
+        is_debuff = not is_buff
+        final_value = -abs(value) if is_debuff else abs(value)
+
+        buff = BuffState(
+            buff_id=f"memory_{skill_id}_{target_unit.unit_id}",
+            name=skill_name,
+            effect_type=effect_type,
+            value=final_value,
+            duration=duration,
+            timing_type=timing_type,
+            stack_count=1,
+            value_tag=value_tag,
+            source_unit_id=target_unit.unit_id,
+            is_debuff=is_debuff,
+            is_memory_buff=True,
+            damage_element=damage_element,
+            attack_limited=attack_limited,
+        )
+
+        success = self.aura_service.add_aura(target_unit, buff)
+
+        if value_tag == 1:
+            _log.info("[MEMORY]       structured: %s -> %s type=%s val=%d(fixed) buff=%s ok=%s",
+                      card_name, target_unit.name, effect_type, int(abs(final_value)), is_buff, success)
+        else:
+            _log.info("[MEMORY]       structured: %s -> %s type=%s val=%.1f%% buff=%s ok=%s",
+                      card_name, target_unit.name, effect_type, abs(final_value), is_buff, success)
+
+        if self.narrative:
+            target_dname = self._get_display_name(target_unit)
+            effect_label = "减益" if is_debuff else "增益"
+            self.narrative.memory_effect(card_name, target_dname,
+                                         f"获得 «{skill_name}» [{effect_label}]")
+
+    def _calculate_memory_heal(self, target_unit: UnitState, value: float,
+                                value_tag: int, value_source: str) -> int:
+        """计算回忆卡治疗量"""
+        if value_source == "target_max_hp":
+            # 基于目标最大HP的百分比治疗（如"最大HPの10.5%回復"）
+            return int(target_unit.max_hp * value / 100)
+        if value_tag == 0:
+            # 百分比治疗（基于最大HP）
+            return int(target_unit.max_hp * value / 100)
+        # 固定值治疗
+        return int(value)
 
     def _apply_memory_card_direct_effect(self, card_name: str, target_unit: UnitState,
                                           skill_id: int, skill_name: str) -> None:
@@ -2399,7 +2745,7 @@ class BattleFlowController:
         self.aura_service.process_maneuver_end(unit)
         for buff_obj, kind, etype, prev_dur in prev_alive_durations.values():
             if prev_dur > 0:
-                if id(buff_obj) not in existing_ids:
+                if id(buff_obj) not in existing_ids and not getattr(buff_obj, 'skip_restore', False):
                     buff_obj.duration = prev_dur
                 elif buff_obj.duration <= 0:
                     if self.narrative:

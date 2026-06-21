@@ -105,7 +105,15 @@ class StatusService:
                         _log.info("[CASTER_ALIVE] %s: HOT removed (caster %s is dead)", unit.name, source_unit.name)
                         continue
 
-                heal = int(buff.caster_attack * buff.value / 100)
+                # 根据heal_base计算治疗基数
+                hot_heal_base = getattr(buff, 'heal_base', '') or 'atk'
+                if hot_heal_base == 'max_hp':
+                    heal = int(unit.max_hp * buff.value / 100)
+                elif hot_heal_base == 'lost_hp':
+                    lost_hp = unit.max_hp - unit.current_hp
+                    heal = int(lost_hp * buff.value / 100)
+                else:
+                    heal = int(buff.caster_attack * buff.value / 100)
                 # HOT不暴击，只有即时治疗允许暴击
                 # 受到治疗量乘区
                 if damage_service is not None:

@@ -58,6 +58,7 @@ class DataLoader:
         self._enemies: Optional[Dict[int, EnemyData]] = None
         self._enemy_skills: Optional[Dict[int, List[int]]] = None
         self._memories: Optional[Dict[int, MemoryData]] = None
+        self._memory_effects: Optional[Dict[str, Any]] = None
         self._team_data: Optional[Dict[int, str]] = None
         self._skill_master_names: Optional[Dict[int, str]] = None
         self._skill_master_descriptions: Optional[Dict[int, str]] = None
@@ -97,6 +98,7 @@ class DataLoader:
         self.load_enchant_types()
         self.load_enemies()
         self.load_memories()
+        self.load_memory_effects()
         self.load_character_base_names()
         self.load_tactical_exercise_enemies()
         self.load_custom_dummies()
@@ -541,6 +543,32 @@ class DataLoader:
         if self._memories is None:
             self.load_memories()
         return self._memories.get(memory_id)
+
+    def load_memory_effects(self) -> Dict[str, Any]:
+        """加载回忆卡结构化效果数据（memory_effects.json）
+
+        Schema 参考 docs/memory_card_system_refactor.md 第3章。
+        若文件不存在或为空，返回空dict（回退到旧正则路径）。
+        """
+        if self._memory_effects is not None:
+            return self._memory_effects
+        raw = self._load_json("memory_effects.json")
+        self._memory_effects = raw if raw else {}
+        print(f"[OK] 已加载 {len(self._memory_effects)} 个回忆卡结构化效果")
+        return self._memory_effects
+
+    def get_memory_effect(self, skill_id: int) -> Optional[Dict[str, Any]]:
+        """获取指定技能ID的回忆卡结构化效果数据
+
+        Args:
+            skill_id: 400xxx 回忆卡技能ID
+
+        Returns:
+            结构化效果dict（含trigger/blocks），若不存在返回None
+        """
+        if self._memory_effects is None:
+            self.load_memory_effects()
+        return self._memory_effects.get(str(skill_id))
 
     def load_character_teams(self) -> Optional[Dict[int, str]]:
         if self._team_data is not None:

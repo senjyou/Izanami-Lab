@@ -135,6 +135,13 @@ class TargetService:
                 _log.info("[TARGET]   LINE: ally_front_row -> all FRONT row (%d units): %s",
                           len(result), [u.name for u in result])
                 return result
+            # ally_row: 返回与施法者同排的友方（含自身，如みんなで温泉入ろ♪的增伤减伤目标）
+            if target_type_name == 'ally_row':
+                caster_is_front = self._is_front_row(caster)
+                result = [u for u in candidates if self._is_front_row(u) == caster_is_front]
+                _log.info("[TARGET]   LINE: ally_row -> same row as caster (%s, %d units): %s",
+                          "FRONT" if caster_is_front else "BACK", len(result), [u.name for u in result])
+                return result
             # ally_front: 仅返回正前方单一单位（如再起律動的代疗对象）
             if target_type_name == 'ally_front':
                 front_pos = _FRONT_POSITION_MAP.get(caster.position)

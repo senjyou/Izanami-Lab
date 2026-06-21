@@ -303,9 +303,17 @@ class AuraService:
         for b in unit.buffs: # BlockAuras 是 Buff (Protect)
             if b.effect_type == SkillEffectType.BLOCK_AURAS.value:
                 return True
-                
-        # 2. BlockSpecificAura (免疫特定)
-        # 暂不实现具体逻辑，留接口
+
+        # 2. BlockSpecificAura (免疫特定状态)
+        # 检查 unit 是否有 BlockSpecificAura 效果，且其 block_status_list 包含 incoming aura 的类型
+        incoming_type = aura.effect_type.lower()
+        for b in unit.buffs:
+            if b.effect_type == SkillEffectType.BLOCK_SPECIFIC_AURA.value:
+                blocked = [s.lower() for s in b.block_status_list]
+                if incoming_type in blocked:
+                    _log.info("[BLOCK_SPECIFIC_AURA] %s: %s blocked by BlockSpecificAura (block_status=%s)",
+                              unit.name, aura.effect_type, b.block_status_list)
+                    return True
         return False
 
     def _handle_poison_stacking(self, target_list: List[BuffState], new_poison: BuffState):

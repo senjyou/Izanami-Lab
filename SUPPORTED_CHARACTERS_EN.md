@@ -35,6 +35,9 @@ The simulator currently supports a limited set of characters. More will be added
 | 臆病な褒められたがり少女  | 波瀬うるう       |
 | 体育祭のサポート役     | 樋向心香        |
 | 新たなる時代の導き手    | ドロテア・カークランド |
+| ギャルインフルエンサー   | フルート・メルヴィル  |
+| 厳格な規律の守護者     | 生駒葵         |
+| 風紀委員会の策謀家     | 姜小花         |
 
 ## Tactical Exercise Enemies
 

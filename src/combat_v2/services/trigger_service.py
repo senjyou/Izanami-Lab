@@ -184,11 +184,13 @@ class TriggerService:
 
     def trigger_after_as_attacked(self, targets: List[UnitState],
                                     battlefield: BattlefieldState,
-                                    actor: Optional[UnitState] = None) -> List[TriggerAction]:
+                                    actor: Optional[UnitState] = None,
+                                    primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
         ctx = TriggerContext(
             TriggerTiming.AFTER_AS_ATTACKED, battlefield,
             targets=targets,
             actor=actor,
+            primary_target=primary_target,
         )
         return self.check_triggers(TriggerTiming.AFTER_AS_ATTACKED, ctx)
 
@@ -588,7 +590,16 @@ class TriggerService:
         if timing == TriggerTiming.BEFORE_SKILL_USE:
             if context.actor is None:
                 return False
-            return owner.unit_id == context.actor.unit_id
+            if owner.unit_id != context.actor.unit_id:
+                return False
+            # before_skill_use仅限AS技能(skill_type=1)触发，EX/PS技能不触发
+            if context.skill is not None and self.data_loader:
+                skill_data = self.data_loader.get_skill_by_id(context.skill)
+                if skill_data and skill_data.skill_type != SkillType.AS.value:
+                    _log.info("[TRIGGER_MATCH] %s: BEFORE_SKILL_USE blocked (skill %d is not AS type=%d)",
+                              owner.name, context.skill, skill_data.skill_type if skill_data else -1)
+                    return False
+            return True
 
         if timing == TriggerTiming.AFTER_SKILL_USE:
             if context.actor is None:
@@ -698,7 +709,17 @@ class TriggerService:
         if timing == TriggerTiming.AFTER_AS_ATTACKED:
             if not context.targets:
                 return False
-            return any(t.unit_id == owner.unit_id for t in context.targets)
+            # 仅主目标（AS技能的第一索敌目标）触发
+            primary = context.primary_target
+            if primary is None and context.targets:
+                primary = context.targets[0]
+            if primary is None:
+                return False
+            if owner.unit_id != primary.unit_id:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_AS_ATTACKED blocked (owner is not primary target %s)",
+                          owner.name, primary.name)
+                return False
+            return True
 
         if timing == TriggerTiming.AFTER_ALLY_ATTACKED:
             if context.actor is None:

@@ -1,0 +1,5433 @@
+{
+  "400000": {
+    "skill_id": 400000,
+    "name": "攻撃上昇【める】",
+    "description": "戦闘開始時に発動。桃園めるの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400001": {
+    "skill_id": 400001,
+    "name": "防御上昇【七彩】",
+    "description": "戦闘開始時に発動。鳴滝七彩の防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400002": {
+    "skill_id": 400002,
+    "name": "攻撃上昇【ちゆる】",
+    "description": "戦闘開始時に発動。月ヶ瀬ちゆるの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400003": {
+    "skill_id": 400003,
+    "name": "防御上昇【ラミ】",
+    "description": "戦闘開始時に発動。朽葉ラミの防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400004": {
+    "skill_id": 400004,
+    "name": "HP上昇【白奈】",
+    "description": "戦闘開始時に発動。一条白奈のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400005": {
+    "skill_id": 400005,
+    "name": "HP上昇【葵】",
+    "description": "戦闘開始時に発動。生駒葵のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400006": {
+    "skill_id": 400006,
+    "name": "会心率上昇【うるう】",
+    "description": "戦闘開始時に発動。波瀬うるうの会心率を3%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 3,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400007": {
+    "skill_id": 400007,
+    "name": "攻撃上昇【泉花】",
+    "description": "戦闘開始時に発動。姫川泉花の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400008": {
+    "skill_id": 400008,
+    "name": "攻撃上昇【クララ】",
+    "description": "戦闘開始時に発動。綺羅クララの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400009": {
+    "skill_id": 400009,
+    "name": "防御上昇【舞亜】",
+    "description": "戦闘開始時に発動。夕凪舞亜の防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400010": {
+    "skill_id": 400010,
+    "name": "攻撃上昇【ユリア】",
+    "description": "戦闘開始時に発動。ユリア・バーンズの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400011": {
+    "skill_id": 400011,
+    "name": "攻撃上昇【翠蘭】",
+    "description": "戦闘開始時に発動。劉翠蘭の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400012": {
+    "skill_id": 400012,
+    "name": "攻撃上昇【沙耶】",
+    "description": "戦闘開始時に発動。紫雲沙耶の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400013": {
+    "skill_id": 400013,
+    "name": "攻撃上昇【フィー】",
+    "description": "戦闘開始時に発動。フィー・ドレーゼの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400014": {
+    "skill_id": 400014,
+    "name": "攻撃上昇【アニス】",
+    "description": "戦闘開始時に発動。アニス・ベネットの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400015": {
+    "skill_id": 400015,
+    "name": "攻撃上昇【ヒイロ】",
+    "description": "戦闘開始時に発動。榊野ヒイロの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400016": {
+    "skill_id": 400016,
+    "name": "防御上昇【フルート】",
+    "description": "戦闘開始時に発動。フルート・メルヴィルの防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400017": {
+    "skill_id": 400017,
+    "name": "防御上昇【エヴィ】",
+    "description": "戦闘開始時に発動。エヴィ・レーナルトの防御力を500上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400018": {
+    "skill_id": 400018,
+    "name": "攻撃上昇【シエナ】",
+    "description": "戦闘開始時に発動。シエナ・クラークの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400019": {
+    "skill_id": 400019,
+    "name": "会心ダメージ上昇【レイラ】",
+    "description": "戦闘開始時に発動。レイラ・ジェンキンスの会心ダメージを15%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 15,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400020": {
+    "skill_id": 400020,
+    "name": "会心率上昇【ロージー】",
+    "description": "戦闘開始時に発動。ロージー・ヒューズの会心率を3%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 3,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400021": {
+    "skill_id": 400021,
+    "name": "攻撃上昇【ドロテア】",
+    "description": "戦闘開始時に発動。ドロテア・カークランドの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400022": {
+    "skill_id": 400022,
+    "name": "HP上昇【リュシー】",
+    "description": "戦闘開始時に発動。リュシー・ムーアクロフトのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400023": {
+    "skill_id": 400023,
+    "name": "防御減少3T開始【最高HP】",
+    "description": "3ターンごとのターン開始時に発動。最もHPが高い敵の防御力を210下降させる",
+    "trigger": {
+      "type": "periodic_start",
+      "periodic_turn": 3
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_hp",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 210,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400024": {
+    "skill_id": 400024,
+    "name": "攻撃減少【最高速度】",
+    "description": "戦闘開始時に発動。最も行動速度が高い敵の攻撃力を525下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_spd",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 525,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400025": {
+    "skill_id": 400025,
+    "name": "防御減少【最高攻撃】",
+    "description": "戦闘開始時に発動。最も攻撃力が高い敵の防御力を210下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_atk",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 210,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400026": {
+    "skill_id": 400026,
+    "name": "HP上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400027": {
+    "skill_id": 400027,
+    "name": "防御上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員の防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400028": {
+    "skill_id": 400028,
+    "name": "回復4T終了【葵】",
+    "description": "4ターンごとのターン終了時に発動。生駒葵のHPを最大HPの10.5%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 4
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 10.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400029": {
+    "skill_id": 400029,
+    "name": "会心ダメージ上昇【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方の会心ダメージを10.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 10.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400030": {
+    "skill_id": 400030,
+    "name": "防御減少【最低HP】",
+    "description": "戦闘開始時に発動。最も最大HPが低い敵の防御力を210下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_lowest_hp",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 210,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400031": {
+    "skill_id": 400031,
+    "name": "防御減少3T開始【最低HP割合】",
+    "description": "3ターンごとのターン開始時に発動。最もHP割合が低い敵の防御力を210下降させる",
+    "trigger": {
+      "type": "periodic_start",
+      "periodic_turn": 3
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_lowest_hp_ratio",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 210,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400032": {
+    "skill_id": 400032,
+    "name": "回復4T終了【スマート】",
+    "description": "4ターンごとのターン終了時に発動。スマート属性の味方全員のHPを最大HPの3.5%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 4
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400033": {
+    "skill_id": 400033,
+    "name": "会心率上昇【ユリア】",
+    "description": "戦闘開始時に発動。ユリア・バーンズの会心率を2.10%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400034": {
+    "skill_id": 400034,
+    "name": "速度減少【敵前衛】",
+    "description": "戦闘開始時に発動。敵前衛の行動速度を7下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 7,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400035": {
+    "skill_id": 400035,
+    "name": "速度減少3T開始【最高攻撃】",
+    "description": "3ターンごとのターン開始時に発動。最も攻撃力が高い敵の行動速度を21下降させる",
+    "trigger": {
+      "type": "periodic_start",
+      "periodic_turn": 3
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_atk",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 21,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400036": {
+    "skill_id": 400036,
+    "name": "ENダメージ上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400037": {
+    "skill_id": 400037,
+    "name": "速度減少3T開始【最高攻撃】",
+    "description": "3ターンごとのターン開始時に発動。最も攻撃力が高い敵の行動速度を21下降させる",
+    "trigger": {
+      "type": "periodic_start",
+      "periodic_turn": 3
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_atk",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 21,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400038": {
+    "skill_id": 400038,
+    "name": "攻撃上昇【クレバー】",
+    "description": "戦闘開始時に発動。クレバー属性の味方全員の攻撃力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400039": {
+    "skill_id": 400039,
+    "name": "回復4T終了【キュート】",
+    "description": "4ターンごとのターン終了時に発動。キュート属性の味方全員のHPを最大HPの3.5%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 4
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400040": {
+    "skill_id": 400040,
+    "name": "HP上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400041": {
+    "skill_id": 400041,
+    "name": "ENダメージ上昇【左列後衛】",
+    "description": "左列後衛の味方に対し、EN攻撃で与えるダメージを8.4%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 8.4,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400042": {
+    "skill_id": 400042,
+    "name": "会心率上昇【レイラ】",
+    "description": "戦闘開始時に発動。レイラ・ジェンキンスの会心率を2.10%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400043": {
+    "skill_id": 400043,
+    "name": "会心ダメージ上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方の会心ダメージを10.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 10.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400044": {
+    "skill_id": 400044,
+    "name": "攻撃上昇【コミカル】",
+    "description": "戦闘開始時に発動。コミカル属性の味方全員の攻撃力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400045": {
+    "skill_id": 400045,
+    "name": "防御上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方全員の防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400046": {
+    "skill_id": 400046,
+    "name": "HP上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体のHPを210上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 210,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400047": {
+    "skill_id": 400047,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を8上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 8,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400048": {
+    "skill_id": 400048,
+    "name": "会心率上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全員の会心率を1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400049": {
+    "skill_id": 400049,
+    "name": "攻撃上昇【シリウスシュガー】",
+    "description": "戦闘開始時に発動。シリウスシュガーに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400050": {
+    "skill_id": 400050,
+    "name": "攻撃上昇【カラフルブーケ】",
+    "description": "戦闘開始時に発動。カラフルブーケに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400051": {
+    "skill_id": 400051,
+    "name": "攻撃上昇【カオスメイデン】",
+    "description": "戦闘開始時に発動。カオスメイデンに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400052": {
+    "skill_id": 400052,
+    "name": "攻撃上昇【ピクシス・マスール】",
+    "description": "戦闘開始時に発動。ピクシス・マスールに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400053": {
+    "skill_id": 400053,
+    "name": "攻撃上昇【トレブルクインテット】",
+    "description": "戦闘開始時に発動。トレブルクインテットに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400054": {
+    "skill_id": 400054,
+    "name": "ダメージ上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の与ダメージを2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400055": {
+    "skill_id": 400055,
+    "name": "HP上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体のHPを300上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 300,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400056": {
+    "skill_id": 400056,
+    "name": "攻撃上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400057": {
+    "skill_id": 400057,
+    "name": "防御上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の防御力を200上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 200,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400058": {
+    "skill_id": 400058,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を12上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 12,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400059": {
+    "skill_id": 400059,
+    "name": "会心率上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の会心率を1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400060": {
+    "skill_id": 400060,
+    "name": "防御上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400061": {
+    "skill_id": 400061,
+    "name": "攻撃上昇【リリー】",
+    "description": "戦闘開始時に発動。リリー・ラヴォアの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400062": {
+    "skill_id": 400062,
+    "name": "攻撃上昇【小花】",
+    "description": "戦闘開始時に発動。姜小花の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400063": {
+    "skill_id": 400063,
+    "name": "攻撃減少【敵前衛】",
+    "description": "戦闘開始時に発動。敵前衛の攻撃力を175下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400064": {
+    "skill_id": 400064,
+    "name": "攻撃上昇【ノエル】",
+    "description": "戦闘開始時に発動。ノエル・アルエの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400065": {
+    "skill_id": 400065,
+    "name": "物理ダメージ上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方全員に対し、物理攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400066": {
+    "skill_id": 400066,
+    "name": "攻撃上昇【心香】",
+    "description": "戦闘開始時に発動。樋向心香の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400067": {
+    "skill_id": 400067,
+    "name": "ENダメージ上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400068": {
+    "skill_id": 400068,
+    "name": "HP上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体のHPを400上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 400,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400069": {
+    "skill_id": 400069,
+    "name": "攻撃力上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛の攻撃力を4%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 4,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400070": {
+    "skill_id": 400070,
+    "name": "攻撃力上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛の攻撃力を2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400071": {
+    "skill_id": 400071,
+    "name": "回復量上昇【フルート】",
+    "description": "戦闘開始時に発動。フルート・メルヴィルのHP回復量を7%上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 7,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400072": {
+    "skill_id": 400072,
+    "name": "防御減少【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の敵の防御力を2行動の間500下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_position",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 2,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400073": {
+    "skill_id": 400073,
+    "name": "攻撃上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員の攻撃力を175上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400074": {
+    "skill_id": 400074,
+    "name": "HP上昇【エヴィ】",
+    "description": "戦闘開始時に発動。エヴィ・レーナルトのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400075": {
+    "skill_id": 400075,
+    "name": "防御上昇【ピクシス・マスール】",
+    "description": "戦闘開始時に発動。ピクシス・マスールに所属するキャラクターの防御力を800上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 800,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400076": {
+    "skill_id": 400076,
+    "name": "攻撃力上昇【物理アタッカー】",
+    "description": "戦闘開始時に発動。物理アタッカーの攻撃力を2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400077": {
+    "skill_id": 400077,
+    "name": "防御上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛の防御力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400078": {
+    "skill_id": 400078,
+    "name": "攻撃上昇【純夏】",
+    "description": "戦闘開始時に発動。鑑純夏の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400079": {
+    "skill_id": 400079,
+    "name": "回復量上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛のHP回復量を2%上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400080": {
+    "skill_id": 400080,
+    "name": "HP上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体のHPを2500上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 2500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400081": {
+    "skill_id": 400081,
+    "name": "防御減少【前衛】",
+    "description": "戦闘開始時に発動。敵前衛の防御力を1%下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400082": {
+    "skill_id": 400082,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を30上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 30,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400083": {
+    "skill_id": 400083,
+    "name": "攻撃上昇【冥夜】",
+    "description": "戦闘開始時に発動。御剣冥夜の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400084": {
+    "skill_id": 400084,
+    "name": "速度上昇【壬姫】",
+    "description": "戦闘開始時に発動。珠瀬壬姫の行動速度を70上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400085": {
+    "skill_id": 400085,
+    "name": "攻撃上昇【敏捷タイプ】",
+    "description": "戦闘開始時に発動。敏捷タイプの味方全員の攻撃力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400086": {
+    "skill_id": 400086,
+    "name": "攻撃上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方全員の攻撃力を175上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400087": {
+    "skill_id": 400087,
+    "name": "攻撃上昇【レイヴェル】",
+    "description": "戦闘開始時に発動。レイヴェル・ブライトリーフの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400088": {
+    "skill_id": 400088,
+    "name": "HP上昇【ルナ】",
+    "description": "戦闘開始時に発動。ルナ・メロウのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400089": {
+    "skill_id": 400089,
+    "name": "攻撃上昇【左列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の味方の攻撃力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400090": {
+    "skill_id": 400090,
+    "name": "防御上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全体の防御力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400091": {
+    "skill_id": 400091,
+    "name": "防御減少【左列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の敵の防御力を2行動の間500下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_position",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 2,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400092": {
+    "skill_id": 400092,
+    "name": "物理ダメージ上昇【コントロール】",
+    "description": "戦闘開始時に発動。コントロールの味方全員に対し、物理攻撃で与えるダメージを3.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400093": {
+    "skill_id": 400093,
+    "name": "防御上昇【タンク】",
+    "description": "戦闘開始時に発動。タンクの防御力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400094": {
+    "skill_id": 400094,
+    "name": "攻撃上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方の攻撃力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400095": {
+    "skill_id": 400095,
+    "name": "HP上昇【タンク】",
+    "description": "戦闘開始時に発動。タンクのHPを350上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 350,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400096": {
+    "skill_id": 400096,
+    "name": "防御上昇【コントロール】",
+    "description": "戦闘開始時に発動。コントロールの防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400097": {
+    "skill_id": 400097,
+    "name": "与ダメージ上昇【カオスメイデン】",
+    "description": "戦闘開始時に発動。カオスメイデンに所属するキャラクターの与えるダメージを2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400098": {
+    "skill_id": 400098,
+    "name": "速度減少【敵後衛】",
+    "description": "戦闘開始時に発動。敵後衛の行動速度を70下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400099": {
+    "skill_id": 400099,
+    "name": "防御上昇【ユリア】",
+    "description": "戦闘開始時に発動。ユリア・バーンズの防御力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400100": {
+    "skill_id": 400100,
+    "name": "攻撃上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方全員の攻撃力を175上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400101": {
+    "skill_id": 400101,
+    "name": "ENダメージ上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400102": {
+    "skill_id": 400102,
+    "name": "会心率上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の会心率を5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400103": {
+    "skill_id": 400103,
+    "name": "会心ダメージ上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛の会心ダメージを15%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 15,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400104": {
+    "skill_id": 400104,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を10上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 10,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400105": {
+    "skill_id": 400105,
+    "name": "HP上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400106": {
+    "skill_id": 400106,
+    "name": "防御上昇【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方の防御力を2行動の間500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 2,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400107": {
+    "skill_id": 400107,
+    "name": "攻撃上昇【リディア】",
+    "description": "戦闘開始時に発動。リディア・エルドリッジの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400108": {
+    "skill_id": 400108,
+    "name": "物理ダメージ上昇【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方に対し、物理攻撃で与えるダメージを10.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 10.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400109": {
+    "skill_id": 400109,
+    "name": "攻撃上昇【トリニティ・ジュエル】",
+    "description": "戦闘開始時に発動。トリニティ・ジュエルに所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400110": {
+    "skill_id": 400110,
+    "name": "攻撃上昇【ラミ】",
+    "description": "戦闘開始時に発動。朽葉ラミの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400111": {
+    "skill_id": 400111,
+    "name": "物理ダメージ上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員に対し、物理攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400112": {
+    "skill_id": 400112,
+    "name": "防御上昇【ちゆる】",
+    "description": "戦闘開始時に発動。月ヶ瀬ちゆるの防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400113": {
+    "skill_id": 400113,
+    "name": "HP上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400114": {
+    "skill_id": 400114,
+    "name": "速度上昇【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方の行動速度を1行動の間20上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 20,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400115": {
+    "skill_id": 400115,
+    "name": "攻撃上昇【物理タイプ】",
+    "description": "戦闘開始時に発動。物理タイプの味方の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400116": {
+    "skill_id": 400116,
+    "name": "攻撃上昇【敏捷タイプ】",
+    "description": "戦闘開始時に発動。敏捷タイプの味方の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400117": {
+    "skill_id": 400117,
+    "name": "ENダメージ上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体のEN攻撃で与えるダメージを1.75%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 1.75,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400118": {
+    "skill_id": 400118,
+    "name": "HP上昇【右列後衛】",
+    "description": "戦闘開始時に発動。右列後衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400119": {
+    "skill_id": 400119,
+    "name": "攻撃上昇【ジュリー】",
+    "description": "戦闘開始時に発動。ジュリー・ステイシーの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400120": {
+    "skill_id": 400120,
+    "name": "ENダメージ上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方に対し、EN攻撃で与えるダメージを8.4%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 8.4,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400121": {
+    "skill_id": 400121,
+    "name": "HP上昇【ラウラ】",
+    "description": "戦闘開始時に発動。黒森ラウラのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400122": {
+    "skill_id": 400122,
+    "name": "与ダメージ上昇【プレ・クラス－Ａ】",
+    "description": "戦闘開始時に発動。プレ・クラス－Ａに所属するキャラクターの与えるダメージを2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400123": {
+    "skill_id": 400123,
+    "name": "防御上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛の防御力を2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400124": {
+    "skill_id": 400124,
+    "name": "速度上昇【左列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の味方の行動速度を1行動の間20上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 20,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400125": {
+    "skill_id": 400125,
+    "name": "ENダメージ上昇【右列後衛】",
+    "description": "右列後衛の味方に対し、EN攻撃で与えるダメージを8.4%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 8.4,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400126": {
+    "skill_id": 400126,
+    "name": "攻撃上昇【リュシー】",
+    "description": "戦闘開始時に発動。リュシー・ムーアクロフトの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400127": {
+    "skill_id": 400127,
+    "name": "回復量上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛のHP回復量を6%上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 6,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400128": {
+    "skill_id": 400128,
+    "name": "与ダメージ上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員に対し、与ダメージを2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400129": {
+    "skill_id": 400129,
+    "name": "攻撃上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400130": {
+    "skill_id": 400130,
+    "name": "HP上昇【千鶴】",
+    "description": "戦闘開始時に発動。榊千鶴のHPを2000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 2000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400131": {
+    "skill_id": 400131,
+    "name": "攻撃上昇【美琴】",
+    "description": "戦闘開始時に発動。鎧衣美琴の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400132": {
+    "skill_id": 400132,
+    "name": "HP上昇【慧】",
+    "description": "戦闘開始時に発動。彩峰慧のHPを2000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 2000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400133": {
+    "skill_id": 400133,
+    "name": "防御上昇【タンク】",
+    "description": "戦闘開始時に発動。タンクの防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400134": {
+    "skill_id": 400134,
+    "name": "攻撃上昇【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方の攻撃力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400135": {
+    "skill_id": 400135,
+    "name": "攻撃上昇【物理アタッカー】",
+    "description": "戦闘開始時に発動。物理アタッカーの味方全員の攻撃力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400136": {
+    "skill_id": 400136,
+    "name": "物理ダメージ上昇【前衛】",
+    "description": "戦闘開始時に発動。前衛の味方に対し、物理攻撃で与えるダメージを3%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400137": {
+    "skill_id": 400137,
+    "name": "HP上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400138": {
+    "skill_id": 400138,
+    "name": "速度変動【左列・右列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の味方の行動速度を25低下させる。さらに右列後衛の味方の行動速度を25上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 8,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_position",
+        "party_position": 32,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400139": {
+    "skill_id": 400139,
+    "name": "攻撃上昇【白奈】",
+    "description": "戦闘開始時に発動。一条白奈の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400140": {
+    "skill_id": 400140,
+    "name": "攻撃上昇【コトハ】",
+    "description": "戦闘開始時に発動。コトハの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400141": {
+    "skill_id": 400141,
+    "name": "攻撃上昇【クレバー】",
+    "description": "戦闘開始時に発動。クレバー属性の味方全員の攻撃力を250上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400142": {
+    "skill_id": 400142,
+    "name": "速度上昇【右列後衛】",
+    "description": "戦闘開始時に発動。右列後衛の味方の行動速度を1行動の間20上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 20,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400143": {
+    "skill_id": 400143,
+    "name": "攻撃力上昇毎T開始【前衛】",
+    "description": "ターン開始時に発動。味方前衛の攻撃力を1%上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400144": {
+    "skill_id": 400144,
+    "name": "HP上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400145": {
+    "skill_id": 400145,
+    "name": "攻撃上昇【める】",
+    "description": "戦闘開始時に発動。桃園めるの攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400146": {
+    "skill_id": 400146,
+    "name": "物理ダメージ上昇【左右列前衛】",
+    "description": "戦闘開始時に発動。味方の右列前衛・左列前衛に対し、物理攻撃で与えるダメージを4.2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 4.2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400147": {
+    "skill_id": 400147,
+    "name": "防御上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛の防御力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400148": {
+    "skill_id": 400148,
+    "name": "被ダメージ減少毎T開始【後衛】",
+    "description": "ターン開始時に発動。味方後衛に次に受ける被ダメージを5%減少させるバフを付与する",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400149": {
+    "skill_id": 400149,
+    "name": "HP上昇【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400150": {
+    "skill_id": 400150,
+    "name": "防御上昇【シエナ】",
+    "description": "戦闘開始時に発動。シエナ・クラークの防御力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400151": {
+    "skill_id": 400151,
+    "name": "回復量上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛のHP回復量を2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400152": {
+    "skill_id": 400152,
+    "name": "HP上昇【リリー】",
+    "description": "戦闘開始時に発動。リリー・ラヴォアのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400153": {
+    "skill_id": 400153,
+    "name": "防御上昇【サポート】",
+    "description": "戦闘開始時に発動。サポートの防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400154": {
+    "skill_id": 400154,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を10上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 10,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400155": {
+    "skill_id": 400155,
+    "name": "HP上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方のHPを1200上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1200,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400156": {
+    "skill_id": 400156,
+    "name": "どすこい【ALL】",
+    "description": "戦闘開始時に発動。「どすこい」を獲得する",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "どすこい",
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400157": {
+    "skill_id": 400157,
+    "name": "攻撃上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方の攻撃力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400158": {
+    "skill_id": 400158,
+    "name": "防御力上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方の防御力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400159": {
+    "skill_id": 400159,
+    "name": "HP上昇【カリナ】",
+    "description": "戦闘開始時に発動。カリナ・ジェンティーレのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400160": {
+    "skill_id": 400160,
+    "name": "攻撃上昇【真桜】",
+    "description": "戦闘開始時に発動。大賀真桜の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400161": {
+    "skill_id": 400161,
+    "name": "回復量上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員のHP回復量を1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400162": {
+    "skill_id": 400162,
+    "name": "攻撃上昇【サポート】",
+    "description": "戦闘開始時に発動。サポートの攻撃力を4%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 4,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400163": {
+    "skill_id": 400163,
+    "name": "攻撃上昇【右列・中央列後衛】",
+    "description": "戦闘開始時に発動。右列後衛・中央列後衛の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400164": {
+    "skill_id": 400164,
+    "name": "攻撃上昇【風紀委員会】",
+    "description": "戦闘開始時に発動。風紀委員会に所属するキャラクターの攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400165": {
+    "skill_id": 400165,
+    "name": "攻撃上昇【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方の攻撃力を1行動の間750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400166": {
+    "skill_id": 400166,
+    "name": "HP上昇【翠蘭】",
+    "description": "戦闘開始時に発動。劉翠蘭のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400167": {
+    "skill_id": 400167,
+    "name": "速度上昇【沙耶】",
+    "description": "戦闘開始時に発動。紫雲沙耶の行動速度を35上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 35,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400168": {
+    "skill_id": 400168,
+    "name": "物理ダメージ上昇【物理アタッカー】",
+    "description": "戦闘開始時に発動。物理アタッカーの味方全員に対し、物理攻撃で与えるダメージを2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400169": {
+    "skill_id": 400169,
+    "name": "会心率上昇【物理タイプ】",
+    "description": "戦闘開始時に発動。物理タイプの味方の会心率を5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400170": {
+    "skill_id": 400170,
+    "name": "攻撃上昇【ENタイプ】",
+    "description": "戦闘開始時に発動。ENタイプの味方の攻撃力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400171": {
+    "skill_id": 400171,
+    "name": "攻撃上昇【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方の攻撃力を1行動の間750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400172": {
+    "skill_id": 400172,
+    "name": "攻撃上昇【ナージャ】",
+    "description": "戦闘開始時に発動。ナージャ・ヴォルコワの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400173": {
+    "skill_id": 400173,
+    "name": "HP上昇【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方のHPを1050上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1050,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400174": {
+    "skill_id": 400174,
+    "name": "攻撃上昇【オルガ】",
+    "description": "戦闘開始時に発動。オルガ・ヴォルコワの攻撃力を1000上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400175": {
+    "skill_id": 400175,
+    "name": "速度変動【左列・右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方の行動速度を25低下させる。さらに左列前衛の味方の行動速度を25上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 4,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_position",
+        "party_position": 1,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400176": {
+    "skill_id": 400176,
+    "name": "与ダメージ上昇【クラスナ】",
+    "description": "戦闘開始時に発動。クラスナに所属するキャラクターの与えるダメージを2.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400177": {
+    "skill_id": 400177,
+    "name": "攻撃上昇【コントロール】",
+    "description": "戦闘開始時に発動。コントロールの味方全員の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400178": {
+    "skill_id": 400178,
+    "name": "速度上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛の行動速度を14上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 14,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400179": {
+    "skill_id": 400179,
+    "name": "攻撃上昇【ハリエット】",
+    "description": "戦闘開始時に発動。ハリエット・ミルズの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400180": {
+    "skill_id": 400180,
+    "name": "回復量上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員のHP回復量を1.2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 1.2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400181": {
+    "skill_id": 400181,
+    "name": "攻撃上昇【ミリアム】",
+    "description": "戦闘開始時に発動。ミリアム・ヘイワードの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400182": {
+    "skill_id": 400182,
+    "name": "攻撃上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方全員の攻撃力を175上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400183": {
+    "skill_id": 400183,
+    "name": "攻撃上昇【ケイト】",
+    "description": "戦闘開始時に発動。ケイト・フルニエの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400184": {
+    "skill_id": 400184,
+    "name": "ENダメージ上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400185": {
+    "skill_id": 400185,
+    "name": "防御上昇【ENアタッカー】",
+    "description": "戦闘開始時に発動。ENアタッカーの防御力を1000上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400186": {
+    "skill_id": 400186,
+    "name": "攻撃上昇【ENタイプ】",
+    "description": "戦闘開始時に発動。ENタイプの味方の攻撃力を1250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400187": {
+    "skill_id": 400187,
+    "name": "速度上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛の行動速度を14上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 14,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400188": {
+    "skill_id": 400188,
+    "name": "攻撃上昇【唯依】",
+    "description": "戦闘開始時に発動。篁唯依の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400189": {
+    "skill_id": 400189,
+    "name": "攻撃上昇【タリサ】",
+    "description": "戦闘開始時に発動。タリサ・マナンダルの攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400190": {
+    "skill_id": 400190,
+    "name": "物理ダメージ上昇【スマート】",
+    "description": "戦闘開始時に発動。スマート属性の味方全員に対し、物理攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400191": {
+    "skill_id": 400191,
+    "name": "HP上昇【ステラ】",
+    "description": "戦闘開始時に発動。ステラ・ブレーメルのHPを2000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 2000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400192": {
+    "skill_id": 400192,
+    "name": "速度上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方全員の行動速度を10上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 10,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400193": {
+    "skill_id": 400193,
+    "name": "会心ダメージ上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の会心ダメージを10%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 10,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400194": {
+    "skill_id": 400194,
+    "name": "会心率上昇【前衛】",
+    "description": "戦闘開始時に発動。味方前衛の会心率を8.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 8.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400195": {
+    "skill_id": 400195,
+    "name": "指名手配・えっちな魅力【ALL】",
+    "description": "戦闘開始時に発動。「指名手配」「えっちな魅力」を獲得する",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "指名手配",
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "えっちな魅力",
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400196": {
+    "skill_id": 400196,
+    "name": "攻撃力変動【左列・右列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方の攻撃力を1500低下させる。さらに右列前衛の味方の攻撃力を1500上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 1,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_position",
+        "party_position": 4,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400197": {
+    "skill_id": 400197,
+    "name": "速度変動【中央列前・後衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方の行動速度を40低下させる。さらに中央列後衛の味方の行動速度を40上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 2,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 40,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_position",
+        "party_position": 16,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 40,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400198": {
+    "skill_id": 400198,
+    "name": "防御上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方全員の防御力を140上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400199": {
+    "skill_id": 400199,
+    "name": "回復2T終了【敏捷タイプ】",
+    "description": "2ターンごとのターン終了時に発動。敏捷タイプの味方のHPを最大HPの2%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 2
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400200": {
+    "skill_id": 400200,
+    "name": "攻撃上昇【葵】",
+    "description": "戦闘開始時に発動。生駒葵の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400201": {
+    "skill_id": 400201,
+    "name": "HP上昇【舞亜】",
+    "description": "戦闘開始時に発動。夕凪舞亜のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400202": {
+    "skill_id": 400202,
+    "name": "防御上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方全員に対し、防御力を1.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400203": {
+    "skill_id": 400203,
+    "name": "速度上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の行動速度を1行動の間80上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 80,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400204": {
+    "skill_id": 400204,
+    "name": "被ダメージ上昇【敵前衛】",
+    "description": "戦闘開始時に発動。敵前衛の受けるダメージを5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  }
+}
