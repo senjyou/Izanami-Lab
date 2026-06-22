@@ -479,9 +479,10 @@ class BattleFlowController:
             trigger_actions = self.trigger_service.trigger_before_skill_use(unit, selected_skill, self.battlefield)
             self._execute_trigger_actions(trigger_actions, unit)
 
-            # before_ally_as_attack 仅在AS技能时触发
-            ally_trigger_actions = self.trigger_service.trigger_before_ally_as_attack(unit, selected_skill, self.battlefield)
-            self._execute_trigger_actions(ally_trigger_actions, unit)
+            # before_ally_as_attack 仅在AS技能(skill_type=1)时触发
+            if skill_type == 1:
+                ally_trigger_actions = self.trigger_service.trigger_before_ally_as_attack(unit, selected_skill, self.battlefield)
+                self._execute_trigger_actions(ally_trigger_actions, unit)
 
         units_before = set(u.unit_id for u in self.battlefield.get_all_units() if u.is_alive)
 
@@ -489,8 +490,9 @@ class BattleFlowController:
         self._deferred_crit_triggers = []
 
         # 蓄力技能：不立即执行效果，标记为蓄力状态，下次行动时执行
-        # 检测条件：features包含32(RequiresCharging) 或 skill_kind==3(蓄力技能)
-        is_charge_skill = skill_type == 1 and meta and (meta.features & 32 or meta.skill_kind == 3)
+        # 检测条件：features包含32(RequiresCharging)
+        # 注意：skill_kind==3表示debuff技能（如atk_down），不是蓄力技能
+        is_charge_skill = skill_type == 1 and meta and (meta.features & 32)
         if is_charge_skill:
             _log.info("[CHARGE] %s: 蓄力技能 [%s] 开始蓄力，下次行动时执行效果",
                       unit.name, skill_name)
@@ -520,9 +522,9 @@ class BattleFlowController:
         # Guard效果只在触发它的那次技能攻击中生效，后续PS技能不应享受Guard减伤
         self._cleanup_guard_buffs(unit)
 
-        # 充能技能检测：如果AS技能的Features包含RequiresCharging(32)或skill_kind==3，触发on_ally_charge_use
+        # 充能技能检测：如果AS技能的Features包含RequiresCharging(32)，触发on_ally_charge_use
         # 注意：蓄力技能已在上方提前处理，此处保留用于非蓄力的充能检测
-        if skill_type == 1 and meta and (meta.features & 32 or meta.skill_kind == 3):
+        if skill_type == 1 and meta and (meta.features & 32):
             _log.info("[CHARGE] %s: 充能技能 [%s] (Features=%d, RequiresCharging=True)",
                       unit.name, skill_name, meta.features)
             charge_actions = self.trigger_service.trigger_ally_charge_use(unit, self.battlefield)
@@ -1891,6 +1893,10 @@ class BattleFlowController:
                 for rd in applied.get("removed_details", []):
                     target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
                     self.narrative.debuff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+            elif applied.get("effect_type") == "remove_buff":
+                for rd in applied.get("removed_details", []):
+                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                    self.narrative.buff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
             elif applied.get("effect_type") == "sub_unit":
                 for su in applied.get("targets", []):
                     target_dname = self._get_display_name(su.get('target_id', su.get('target')))

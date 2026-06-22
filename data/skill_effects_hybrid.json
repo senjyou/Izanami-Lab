@@ -10052,7 +10052,9 @@
     "ignore_shield": 0,
     "trigger_type": "after_ally_attacked",
     "global_condition": {
-      "type": "target_is_ally"
+      "type": "target_hp_not_cross_below",
+      "value": 50,
+      "ally_filter": "ally"
     },
     "effect_blocks": [
       {
@@ -10106,7 +10108,7 @@
     "display_target_range": 1,
     "display_target_type": 2,
     "parse_status": "success",
-    "parse_notes": ["PS2: after_ally_attacked heal(debuff_heal_bonus x2) + Lv11 remove_debuff, target=primary_target(attacked ally)"]
+    "parse_notes": ["PS2: after_ally_attacked heal(debuff_heal_bonus x2) + Lv11 remove_debuff, target=primary_target(attacked ally), condition=target_hp_above_percent(>50%) for mutual exclusion with PS1"]
   },
   "130026": {
     "skill_id": 130026,
@@ -11169,7 +11171,7 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_hp_below",
-    "global_condition": {"type": "ally_hp_below", "operator": "<=", "value": 50},
+    "global_condition": {"type": "ally_hp_below", "operator": "<=", "value": 50, "ally_filter": "ally"},
     "effect_blocks": [
       {
         "block_id": 1,

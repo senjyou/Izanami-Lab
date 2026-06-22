@@ -403,7 +403,8 @@ class DamageService:
 
         # 公式: Base * (1 + Sum(Percent)) + Sum(Fixed)
         final_val = base_val * (1.0 + multiplier) + fixed_add
-        return int(final_val)
+        # ATK/DEF/SPD等属性最低为0，不允许负数
+        return max(0, int(final_val))
 
     def _get_attribute_factor(self, atk_attr: int, def_attr: int, attacker: UnitState) -> float:
         """

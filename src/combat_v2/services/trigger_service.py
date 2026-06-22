@@ -339,15 +339,19 @@ class TriggerService:
         return 40.0  # 默认值
 
     def _get_all_hp_below_thresholds(self, unit: UnitState, battlefield: BattlefieldState) -> set:
-        """收集所有同阵营PS技能的on_hp_below阈值，确保每个阈值都能被检测到跨越事件
+        """收集所有相关PS技能的on_hp_below阈值，确保每个阈值都能被检测到跨越事件
 
         例如：受伤单位自身PS阈值为40%，但友方PS（再起律動）阈值为50%。
         如果HP从55%降到45%，只检查40%阈值不会触发，但50%阈值应该触发。
+
+        根据各PS技能的global_condition.ally_filter字段决定收集哪个阵营的持有者阈值：
+        - ally_filter=ally(默认): 收集己方阵营持有者的阈值
+        - ally_filter=enemy: 收集敌方阵营持有者的阈值
         """
         thresholds = set()
-        same_side_units = [u for u in battlefield.get_all_units()
-                           if u.side == unit.side and u.is_alive]
-        for other_unit in same_side_units:
+        for other_unit in battlefield.get_all_units():
+            if not other_unit.is_alive:
+                continue
             if not self.data_loader:
                 continue
             char_skills = self.data_loader.get_character_skills(other_unit.character_id)
@@ -372,6 +376,12 @@ class TriggerService:
                     if isinstance(condition, dict):
                         cond_type = condition.get('type', '')
                         val = condition.get('value', 40)
+                        ally_filter = condition.get('ally_filter', 'ally')
+                        # 根据ally_filter决定该持有者的阈值是否适用
+                        if ally_filter == 'ally' and other_unit.side != unit.side:
+                            continue
+                        if ally_filter == 'enemy' and other_unit.side == unit.side:
+                            continue
                         # self_hp_percent: 仅当受伤单位就是PS持有者时才相关
                         if cond_type == 'self_hp_percent':
                             if other_unit.unit_id == unit.unit_id:
@@ -690,6 +700,27 @@ class TriggerService:
                 return False
             if owner.side != context.actor.side or owner.unit_id == context.actor.unit_id:
                 return False
+            # 仅限AS技能(skill_type=1)触发，PS/EX技能不触发
+            if context.skill is not None and self.data_loader:
+                skill_data = self.data_loader.get_skill_by_id(context.skill)
+                if skill_data and skill_data.skill_type != SkillType.AS.value:
+                    _log.info("[TRIGGER_MATCH] %s: BEFORE_ALLY_AS_ATTACK blocked (skill %d is not AS type=%d)",
+                              owner.name, context.skill, skill_data.skill_type if skill_data else -1)
+                    return False
+                # 仅限伤害类AS技能触发（effect_blocks中包含damage效果）
+                # 附魔伤害（アタックアンプリファイ、追撃符等）只应给伤害技能附魔
+                parsed_skill = self.data_loader.get_parsed_skill_data(context.skill)
+                if parsed_skill:
+                    effect_blocks = parsed_skill.get('effect_blocks', [])
+                    has_damage_effect = any(
+                        e.get('effect_type') == 'damage'
+                        for block in effect_blocks
+                        for e in block.get('effects', [])
+                    )
+                    if not has_damage_effect:
+                        _log.info("[TRIGGER_MATCH] %s: BEFORE_ALLY_AS_ATTACK blocked (skill %d has no damage effect)",
+                                  owner.name, context.skill)
+                        return False
             # Check if skill targets ally_front - if so, restrict to front-position unit only
             # (e.g. 追撃符: owner in back row, actor must be same-column front row)
             effect_blocks = parsed.get('effect_blocks', [])
@@ -880,6 +911,21 @@ class TriggerService:
                        TriggerTiming.TURN_END, TriggerTiming.HP_BELOW,
                        TriggerTiming.UNIT_COUNT_BELOW,
                        TriggerTiming.CUMULATIVE_DAMAGE):
+            # HP_BELOW 阵营过滤：根据 global_condition.ally_filter 决定 triggered_by 的阵营
+            if timing == TriggerTiming.HP_BELOW:
+                gc = parsed.get('global_condition')
+                if gc and isinstance(gc, dict):
+                    ally_filter = gc.get('ally_filter', 'ally')
+                    triggered_by = context.triggered_by
+                    if triggered_by is not None:
+                        if ally_filter == 'ally' and triggered_by.side != owner.side:
+                            _log.info("[TRIGGER_MATCH] %s: HP_BELOW blocked (triggered_by %s not ally, ally_filter=%s)",
+                                      owner.name, triggered_by.name, ally_filter)
+                            return False
+                        if ally_filter == 'enemy' and triggered_by.side == owner.side:
+                            _log.info("[TRIGGER_MATCH] %s: HP_BELOW blocked (triggered_by %s not enemy, ally_filter=%s)",
+                                      owner.name, triggered_by.name, ally_filter)
+                            return False
             return True
 
         return True
@@ -1030,6 +1076,31 @@ class TriggerService:
             result = (is_ally == bool(val))
             _log.info("[TRIGGER_COND] %s: target_is_ally=%s expect=%s => %s",
                       owner.name, is_ally, bool(val), result)
+            return result
+
+        if cond_type == "target_hp_not_cross_below":
+            primary = context.primary_target
+            if primary is None and context.targets:
+                primary = context.targets[0]
+            if primary is None:
+                _log.info("[TRIGGER_COND] %s: target_hp_not_cross_below -> no target => False", owner.name)
+                return False
+            ally_filter = condition.get('ally_filter', 'ally')
+            if ally_filter == 'ally' and primary.side != owner.side:
+                _log.info("[TRIGGER_COND] %s: target_hp_not_cross_below blocked (primary %s not ally, ally_filter=%s)",
+                          owner.name, primary.name, ally_filter)
+                return False
+            if ally_filter == 'enemy' and primary.side == owner.side:
+                _log.info("[TRIGGER_COND] %s: target_hp_not_cross_below blocked (primary %s not enemy, ally_filter=%s)",
+                          owner.name, primary.name, ally_filter)
+                return False
+            current_hp_pct = primary.current_hp / primary.max_hp * 100 if primary.max_hp > 0 else 0
+            prev_hp_pct = getattr(primary, 'prev_hp_percent', 100.0)
+            threshold = val
+            crossed = prev_hp_pct > threshold and current_hp_pct <= threshold
+            result = not crossed
+            _log.info("[TRIGGER_COND] %s: target_hp_not_cross_below %s prev=%.1f%% current=%.1f%% threshold=%.0f%% crossed=%s => %s",
+                      owner.name, primary.name, prev_hp_pct, current_hp_pct, threshold, crossed, result)
             return result
 
         if cond_type == "self_skill_use_count":

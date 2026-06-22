@@ -649,7 +649,8 @@ class CharacterParamsTab(ttk.Frame):
         self._grid_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self._grid_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._grid_inner = ttk.Frame(self._grid_canvas)
+        s = self.app._get_scheme()
+        self._grid_inner = tk.Frame(self._grid_canvas, bg=s["surface"])
         self._grid_canvas_window = self._grid_canvas.create_window((0, 0), window=self._grid_inner, anchor="nw")
         self._grid_inner.bind("<Configure>",
                               lambda e: self._grid_canvas.configure(scrollregion=self._grid_canvas.bbox("all")))
@@ -779,6 +780,10 @@ class CharacterParamsTab(ttk.Frame):
     def _refresh_grid_view(self):
         """刷新网格视图"""
         self._selected_grid_cid = None
+        s = self.app._get_scheme()
+        # 刷新容器背景色
+        self._grid_canvas.config(bg=s["bg"])
+        self._grid_inner.config(bg=s["surface"])
         for child in self._grid_inner.winfo_children():
             child.destroy()
         self._grid_cards.clear()
@@ -795,7 +800,7 @@ class CharacterParamsTab(ttk.Frame):
             row, col = divmod(i, COLS)
             # 使用highlightthickness作为选中边框，bd固定为0避免点击时尺寸变化
             card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                            highlightbackground=s["surface"], highlightthickness=2,
+                            highlightbackground=s["border"], highlightthickness=2,
                             cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
@@ -2449,7 +2454,7 @@ class MemoryPickerDialog(tk.Toplevel):
         self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._grid_inner = ttk.Frame(self._canvas)
+        self._grid_inner = tk.Frame(self._canvas, bg=s["surface"])
         self._canvas_window = self._canvas.create_window((0, 0), window=self._grid_inner, anchor="nw")
         self._grid_inner.bind("<Configure>",
                               lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
@@ -2545,7 +2550,7 @@ class MemoryPickerDialog(tk.Toplevel):
                     continue
                 row, col = divmod(i, COLS)
                 card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                                highlightbackground=s["surface"], highlightthickness=2,
+                                highlightbackground=s["border"], highlightthickness=2,
                                 cursor="hand2")
                 card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
@@ -2659,12 +2664,13 @@ class EnemyPickerDialog(tk.Toplevel):
 
     def _build(self):
         s = self.app._get_scheme()
+        self.configure(bg=s["bg"])
 
         # 标题
         ttk.Label(self, text="选择敌方单位", font=("Microsoft YaHei UI", 11, "bold")).pack(pady=(10, 5))
 
         # 网格视图
-        grid_frame = ttk.Frame(self)
+        grid_frame = tk.Frame(self, bg=s["bg"])
         grid_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         self._canvas = tk.Canvas(grid_frame, bg=s["bg"], highlightthickness=0)
@@ -2673,7 +2679,7 @@ class EnemyPickerDialog(tk.Toplevel):
         self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._grid_inner = ttk.Frame(self._canvas)
+        self._grid_inner = tk.Frame(self._canvas, bg=s["surface"])
         self._canvas_window = self._canvas.create_window((0, 0), window=self._grid_inner, anchor="nw")
         self._grid_inner.bind("<Configure>",
                               lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
@@ -2739,7 +2745,7 @@ class EnemyPickerDialog(tk.Toplevel):
         for i, (eid, data) in enumerate(enemies):
             row, col = divmod(i, COLS)
             card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                           highlightbackground=s["surface"], highlightthickness=2,
+                           highlightbackground=s["border"], highlightthickness=2,
                            cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
@@ -2827,6 +2833,9 @@ class CharacterPickerDialog(tk.Toplevel):
         self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
 
     def _build(self):
+        s = self.app._get_scheme()
+        self.configure(bg=s["bg"])
+
         # ── 顶部：搜索框 + 属性筛选 ──
         top_frame = ttk.Frame(self)
         top_frame.pack(fill="x", padx=10, pady=5)
@@ -2874,7 +2883,7 @@ class CharacterPickerDialog(tk.Toplevel):
         self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self._canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._grid_inner = ttk.Frame(self._canvas)
+        self._grid_inner = tk.Frame(self._canvas, bg=s["surface"])
         self._canvas_window = self._canvas.create_window((0, 0), window=self._grid_inner, anchor="nw")
         self._grid_inner.bind("<Configure>",
                               lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
@@ -2977,7 +2986,7 @@ class CharacterPickerDialog(tk.Toplevel):
                 continue
             row, col = divmod(i, COLS)
             card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                            highlightbackground=s["surface"], highlightthickness=2,
+                            highlightbackground=s["border"], highlightthickness=2,
                             cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
@@ -3066,27 +3075,27 @@ class TeamBattleTab(ttk.Frame):
         CARD_W, CARD_H = 80, 45  # 16:9 缩略图
         s = self.app._get_scheme()
 
-        slot_frame = tk.Frame(parent, bg=s["surface"], bd=1, relief="ridge",
-                              highlightbackground=s["surface"], highlightthickness=1,
+        slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
+                              highlightbackground=s["border"], highlightthickness=1,
                               cursor="hand2")
 
         # 上方：缩略图 + 清除按钮（同行）
-        top_row = tk.Frame(slot_frame, bg=s["surface"])
+        top_row = tk.Frame(slot_frame, bg=s["bg"])
         top_row.pack(fill="x")
 
         card_canvas = tk.Canvas(top_row, width=CARD_W, height=CARD_H,
-                                bg=s["surface"], highlightthickness=0)
+                                bg=s["bg"], highlightthickness=0)
         card_canvas.pack(side=tk.LEFT, padx=(2, 0), pady=2)
         card_canvas._card_photo = None
 
-        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["surface"],
+        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["bg"],
                               font=("Microsoft YaHei UI", 8, "bold"), cursor="hand2")
         clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
         clear_btn.grid_remove()  # 默认隐藏
         clear_btn.bind("<Button-1>", lambda e, idx=slot_idx, ie=is_enemy: self._clear_mem_slot(idx, ie))
 
         # 下方：回忆卡名称
-        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["surface"], fg=s["fg"],
+        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["bg"], fg=s["fg"],
                                font=("Microsoft YaHei UI", 7), wraplength=CARD_W + 20,
                                justify="center", height=2)
         name_label.pack(pady=(0, 2))
@@ -3097,6 +3106,7 @@ class TeamBattleTab(ttk.Frame):
 
         return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
                 "name_label": name_label, "clear_btn": clear_btn,
+                "top_row": top_row,
                 "slot_idx": slot_idx, "is_enemy": is_enemy}
 
     def _open_mem_picker(self, slot_idx, is_enemy):
@@ -3180,17 +3190,17 @@ class TeamBattleTab(ttk.Frame):
         BANNER_W, BANNER_H = 154, 76  # 填满外框内可用空间（164-10pad × 剩余高度）
         s = self.app._get_scheme()
 
-        slot_frame = ttk.Frame(parent)
+        slot_frame = tk.Frame(parent, bg=s["bg"])
 
         # 横版头像区域（使用Canvas实现像素精确显示）
         avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
-                                   bg=s["surface"], highlightthickness=0,
+                                   bg=s["bg"], highlightthickness=0,
                                    cursor="hand2")
         avatar_canvas.pack()
         avatar_canvas._banner_photo = None
 
         # 角色名（两行显示空间，确保完整显示，初始不pack，选中角色后显示）
-        name_label = tk.Label(slot_frame, text="", bg=s["surface"], fg=s["fg"],
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
                                font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
                                justify="center", height=2)
 
@@ -3340,7 +3350,7 @@ class TeamBattleTab(ttk.Frame):
 
         # 清空画布
         canvas.delete("all")
-        canvas.config(bg=s["surface"])
+        canvas.config(bg=s["bg"])
         canvas._banner_photo = None
 
         if cid is None:
@@ -3468,19 +3478,21 @@ class TeamBattleTab(ttk.Frame):
         f = scroll_frame
 
         # ── 敌方编队 + 敌方回忆卡（同行） ──
-        enemy_main = ttk.Frame(f)
+        enemy_main = tk.Frame(f, bg=s["bg"])
         enemy_main.pack(pady=(10, 0), fill="x", padx=10)
+        self._enemy_main = enemy_main
 
         ttk.Label(enemy_main, text="=== 敌方编队 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
 
-        enemy_form_frame = ttk.Frame(enemy_main)
+        enemy_form_frame = tk.Frame(enemy_main, bg=s["bg"])
         enemy_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
+        self._enemy_form_frame = enemy_form_frame
 
         s = self.app._get_scheme()
         enemy_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
         for i, label in enumerate(enemy_labels):
-            frame = ttk.Frame(enemy_form_frame, relief="ridge", borderwidth=1)
+            frame = tk.Frame(enemy_form_frame, bg=s["bg"], highlightbackground=s["border"], highlightthickness=1)
             r = 0 if i >= 3 else 1
             c = i % 3
             frame.grid(row=r, column=c, padx=3, pady=3)
@@ -3490,7 +3502,7 @@ class TeamBattleTab(ttk.Frame):
             # Row 0: 位置标签（左） + 清除按钮（右）
             pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
             pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
-            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["surface"],
+            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["bg"],
                                   font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
             clear_btn.grid(row=0, column=1, sticky="e", padx=(0, 3))
             clear_btn.bind("<Button-1>", lambda e, idx=i: self._clear_slot_by_idx(idx, True))
@@ -3499,13 +3511,15 @@ class TeamBattleTab(ttk.Frame):
             slot = self._build_slot(frame, i, is_enemy=True)
             slot["frame"].grid(row=1, column=0, columnspan=2, padx=5, pady=(2, 2))
             slot["clear_btn"] = clear_btn
+            slot["outer_frame"] = frame
             self.enemy_slots.append(slot)
 
         ttk.Label(enemy_main, text="=== 敌方回忆卡 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
             row=0, column=3, sticky="w", pady=(5, 5), padx=(15, 0))
 
-        enemy_mem_frame = ttk.Frame(enemy_main)
+        enemy_mem_frame = tk.Frame(enemy_main, bg=s["bg"])
         enemy_mem_frame.grid(row=1, column=3, sticky="n", padx=(15, 0))
+        self._enemy_mem_frame = enemy_mem_frame
         self.mem_enemy_slots: List[Dict[str, Any]] = []
         for i in range(6):
             r, c = divmod(i, 2)
@@ -3514,18 +3528,20 @@ class TeamBattleTab(ttk.Frame):
             self.mem_enemy_slots.append(slot)
 
         # ── 己方编队 + 己方回忆卡（同行） ──
-        ally_main = ttk.Frame(f)
+        ally_main = tk.Frame(f, bg=s["bg"])
         ally_main.pack(pady=(20, 0), fill="x", padx=10)
+        self._ally_main = ally_main
 
         ttk.Label(ally_main, text="=== 己方编队 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
 
-        ally_form_frame = ttk.Frame(ally_main)
+        ally_form_frame = tk.Frame(ally_main, bg=s["bg"])
         ally_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
+        self._ally_form_frame = ally_form_frame
 
         friend_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
         for i, label in enumerate(friend_labels):
-            frame = ttk.Frame(ally_form_frame, relief="ridge", borderwidth=1)
+            frame = tk.Frame(ally_form_frame, bg=s["bg"], highlightbackground=s["border"], highlightthickness=1)
             r = 1 if i >= 3 else 0
             c = i % 3
             frame.grid(row=r, column=c, padx=3, pady=3)
@@ -3535,7 +3551,7 @@ class TeamBattleTab(ttk.Frame):
             # Row 0: 位置标签（左） + 清除按钮（右）
             pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
             pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
-            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["surface"],
+            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["bg"],
                                   font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
             clear_btn.grid(row=0, column=1, sticky="e", padx=(0, 3))
             clear_btn.bind("<Button-1>", lambda e, idx=i: self._clear_slot_by_idx(idx, False))
@@ -3544,13 +3560,15 @@ class TeamBattleTab(ttk.Frame):
             slot = self._build_slot(frame, i, is_enemy=False)
             slot["frame"].grid(row=1, column=0, columnspan=2, padx=5, pady=(2, 2))
             slot["clear_btn"] = clear_btn
+            slot["outer_frame"] = frame
             self.friend_slots.append(slot)
 
         ttk.Label(ally_main, text="=== 己方回忆卡 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
-            row=0, column=3, sticky="w", pady=(5, 5), padx=(15, 0))
+            row=0, column=3, sticky="w", pady=(5, 5))
 
-        ally_mem_frame = ttk.Frame(ally_main)
+        ally_mem_frame = tk.Frame(ally_main, bg=s["bg"])
         ally_mem_frame.grid(row=1, column=3, sticky="n", padx=(15, 0))
+        self._ally_mem_frame = ally_mem_frame
         self.mem_friend_slots: List[Dict[str, Any]] = []
         for i in range(6):
             r, c = divmod(i, 2)
@@ -4159,6 +4177,7 @@ class StepCritTab(ttk.Frame):
         self._build()
 
     def _build(self):
+        s = self.app._get_scheme()
         paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
 
@@ -4167,7 +4186,7 @@ class StepCritTab(ttk.Frame):
         paned.add(left_frame, weight=3)
 
         # Canvas + Scrollbar 实现滚动
-        left_canvas = tk.Canvas(left_frame, bg="#2b2b2b", highlightthickness=0)
+        left_canvas = tk.Canvas(left_frame, bg=s["surface"], highlightthickness=0)
         left_scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=left_canvas.yview)
         left_canvas.configure(yscrollcommand=left_scrollbar.set)
 
@@ -5554,18 +5573,20 @@ class TacticalExerciseTab(ttk.Frame):
 
         # ── 己方编队 + 己方回忆卡（同行） ──
         s = self.app._get_scheme()
-        ally_main = ttk.Frame(f)
+        ally_main = tk.Frame(f, bg=s["bg"])
         ally_main.pack(pady=(5, 0), fill="x", padx=10)
+        self._ally_main = ally_main
 
         ttk.Label(ally_main, text="=== 己方编队 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
 
-        ally_form_frame = ttk.Frame(ally_main)
+        ally_form_frame = tk.Frame(ally_main, bg=s["bg"])
         ally_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
+        self._ally_form_frame = ally_form_frame
 
         friend_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
         for i, label in enumerate(friend_labels):
-            frame = ttk.Frame(ally_form_frame, relief="ridge", borderwidth=1)
+            frame = tk.Frame(ally_form_frame, bg=s["bg"], highlightbackground=s["border"], highlightthickness=1)
             r = 1 if i >= 3 else 0
             c = i % 3
             frame.grid(row=r, column=c, padx=3, pady=3)
@@ -5573,7 +5594,7 @@ class TacticalExerciseTab(ttk.Frame):
             frame.configure(width=164, height=140)
             pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
             pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
-            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["surface"],
+            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["bg"],
                                   font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
             clear_btn.grid(row=0, column=1, sticky="e", padx=(0, 3))
             clear_btn.bind("<Button-1>", lambda e, idx=i: self._clear_slot_by_idx(idx))
@@ -5581,13 +5602,15 @@ class TacticalExerciseTab(ttk.Frame):
             slot = self._build_slot(frame, i)
             slot["frame"].grid(row=1, column=0, columnspan=2, padx=5, pady=(2, 2))
             slot["clear_btn"] = clear_btn
+            slot["outer_frame"] = frame
             self.friend_slots.append(slot)
 
         ttk.Label(ally_main, text="=== 己方回忆卡 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
             row=0, column=3, sticky="w", pady=(5, 5), padx=(15, 0))
 
-        ally_mem_frame = ttk.Frame(ally_main)
+        ally_mem_frame = tk.Frame(ally_main, bg=s["bg"])
         ally_mem_frame.grid(row=1, column=3, sticky="n", padx=(15, 0))
+        self._ally_mem_frame = ally_mem_frame
         for i in range(6):
             r, c = divmod(i, 2)
             slot = self._build_mem_slot(ally_mem_frame, i)
@@ -5797,15 +5820,15 @@ class TacticalExerciseTab(ttk.Frame):
         BANNER_W, BANNER_H = 154, 76
         s = self.app._get_scheme()
 
-        slot_frame = ttk.Frame(parent)
+        slot_frame = tk.Frame(parent, bg=s["bg"])
 
         avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
-                                   bg=s["surface"], highlightthickness=0,
+                                   bg=s["bg"], highlightthickness=0,
                                    cursor="hand2")
         avatar_canvas.pack()
         avatar_canvas._banner_photo = None
 
-        name_label = tk.Label(slot_frame, text="", bg=s["surface"], fg=s["fg"],
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
                                font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
                                justify="center", height=2)
 
@@ -5823,25 +5846,25 @@ class TacticalExerciseTab(ttk.Frame):
         CARD_W, CARD_H = 80, 45
         s = self.app._get_scheme()
 
-        slot_frame = tk.Frame(parent, bg=s["surface"], bd=1, relief="ridge",
-                              highlightbackground=s["surface"], highlightthickness=1,
+        slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
+                              highlightbackground=s["border"], highlightthickness=1,
                               cursor="hand2")
 
-        top_row = tk.Frame(slot_frame, bg=s["surface"])
+        top_row = tk.Frame(slot_frame, bg=s["bg"])
         top_row.pack(fill="x")
 
         card_canvas = tk.Canvas(top_row, width=CARD_W, height=CARD_H,
-                                bg=s["surface"], highlightthickness=0)
+                                bg=s["bg"], highlightthickness=0)
         card_canvas.pack(side=tk.LEFT, padx=(2, 0), pady=2)
         card_canvas._card_photo = None
 
-        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["surface"],
+        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["bg"],
                               font=("Microsoft YaHei UI", 8, "bold"), cursor="hand2")
         clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
         clear_btn.grid_remove()
         clear_btn.bind("<Button-1>", lambda e, idx=slot_idx: self._clear_mem_slot(idx))
 
-        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["surface"], fg=s["fg"],
+        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["bg"], fg=s["fg"],
                                font=("Microsoft YaHei UI", 7), wraplength=CARD_W + 20,
                                justify="center", height=2)
         name_label.pack(pady=(0, 2))
@@ -5851,6 +5874,7 @@ class TacticalExerciseTab(ttk.Frame):
 
         return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
                 "name_label": name_label, "clear_btn": clear_btn,
+                "top_row": top_row,
                 "slot_idx": slot_idx}
 
     def _on_drag_start(self, event, slot_idx):
@@ -5971,7 +5995,7 @@ class TacticalExerciseTab(ttk.Frame):
         BANNER_W, BANNER_H = 154, 76
 
         canvas.delete("all")
-        canvas.config(bg=s["surface"])
+        canvas.config(bg=s["bg"])
         canvas._banner_photo = None
 
         if cid is None:
@@ -6980,10 +7004,70 @@ class MGGBattleSimulatorGUI:
                     btn.config(bg=s["surface"])
                 except Exception:
                     pass
-        # 编队与战斗Tab：刷新所有槽位显示
+        # 编队与战斗Tab：刷新所有槽位显示和框架背景
         if hasattr(self, 'team_tab'):
             for slot in self.team_tab.friend_slots + self.team_tab.enemy_slots:
                 self.team_tab._update_slot_display(slot, slot["cid"])
+            # 刷新编队框架容器背景（包括外层容器）
+            for frame_name in ['_enemy_main', '_ally_main', '_enemy_form_frame', '_ally_form_frame', '_enemy_mem_frame', '_ally_mem_frame']:
+                frame = getattr(self.team_tab, frame_name, None)
+                if frame:
+                    try:
+                        frame.config(bg=s["bg"])
+                    except Exception:
+                        pass
+            # 刷新编队框架背景（外层frame + 内层slot_frame）
+            for slot in self.team_tab.friend_slots + self.team_tab.enemy_slots:
+                try:
+                    slot["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["frame"].config(bg=s["bg"])
+                    slot["avatar_label"].config(bg=s["bg"])
+                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
+                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
+            # 刷新回忆卡槽位背景
+            for slot in self.team_tab.mem_friend_slots + self.team_tab.mem_enemy_slots:
+                try:
+                    slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["top_row"].config(bg=s["bg"])
+                    slot["canvas"].config(bg=s["bg"])
+                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
+                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
+        # 战术演习Tab：刷新所有槽位显示和框架背景
+        if hasattr(self, 'tactical_tab'):
+            for slot in self.tactical_tab.friend_slots:
+                self.tactical_tab._update_slot_display(slot, slot["cid"])
+            # 刷新编队框架容器背景（包括外层容器）
+            for frame_name in ['_ally_main', '_ally_form_frame', '_ally_mem_frame']:
+                frame = getattr(self.tactical_tab, frame_name, None)
+                if frame:
+                    try:
+                        frame.config(bg=s["bg"])
+                    except Exception:
+                        pass
+            # 刷新编队框架背景（外层frame + 内层slot_frame）
+            for slot in self.tactical_tab.friend_slots:
+                try:
+                    slot["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["frame"].config(bg=s["bg"])
+                    slot["avatar_label"].config(bg=s["bg"])
+                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
+                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
+            # 刷新回忆卡槽位背景
+            for slot in self.tactical_tab.mem_friend_slots:
+                try:
+                    slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["top_row"].config(bg=s["bg"])
+                    slot["canvas"].config(bg=s["bg"])
+                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
+                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
 
     def _start_update_check(self):
         """启动时启动更新守护进程"""

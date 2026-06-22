@@ -1849,7 +1849,7 @@ class SkillService:
                 cond_desc = f"target_has_burn({has_burn})"
 
             elif cond_type == 'target_has_debuff' and targets:
-                # 检查目标是否有任何debuff（不限状态异常）
+                # 检查目标debuffs列表是否非空（任意debuff均可）
                 first_target = targets[0]
                 has_debuff = len(first_target.debuffs) > 0
                 cond_met = has_debuff
@@ -3077,7 +3077,7 @@ class SkillService:
             hp_before = target.current_hp
             target_effective_max_hp = self.damage_service._calculate_final_stat(target, "max_hp")
             if heal_base == 'max_hp':
-                heal_amount = int(effective_max_hp * heal_pct / 100)
+                heal_amount = int(target_effective_max_hp * heal_pct / 100)
             elif heal_base == 'lost_hp':
                 # 基于目标已损失HP计算治疗量
                 lost_hp = target_effective_max_hp - target.current_hp
@@ -4176,9 +4176,7 @@ class SkillService:
         }
 
     def _apply_remove_buff(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
-        """解除目标指定数量buff，排除回忆卡buff和不可解除buff。
-        采用后施加先移除（LIFO）逻辑：列表末尾的buff（最近施加）优先被移除。
-        """
+        """解除目标1个buff，排除回忆卡buff和不可解除buff"""
         if not self.target_service:
             _log.info("[REMOVE_BUFF] %s: target_service unavailable", caster.name)
             return None
@@ -4191,34 +4189,47 @@ class SkillService:
         })()
         targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
 
-        # 解除数量：优先使用effect.value，其次使用flags.count，默认1
-        remove_buff_flags = getattr(effect, 'flags', {}) or {}
-        count = int(effect.value) if effect.value else remove_buff_flags.get('count', 1)
-
         total_removed = 0
         removed_details = []
+        # count: 解除buff数量，从effect.value或flags.count获取，默认1
+        remove_buff_flags = getattr(effect, 'flags', {}) or {}
+        count = 1
+        if effect.value:
+            try:
+                count = int(effect.value)
+            except (TypeError, ValueError):
+                count = 1
+        elif 'count' in remove_buff_flags:
+            try:
+                count = int(remove_buff_flags.get('count', 1))
+            except (TypeError, ValueError):
+                count = 1
         for target in targets:
             if not target.is_alive:
                 continue
             # 排除回忆卡buff和不可解除buff
             removable = [b for b in target.buffs
                          if not b.is_memory_buff and not b.unremovable]
-            # LIFO: 从列表末尾（最近施加）开始移除
-            to_remove = removable[-count:] if count > 0 else removable
-            removed_names = [b.name for b in to_remove]
-            for b in to_remove:
-                target.buffs.remove(b)
-            removed_count = len(to_remove)
-            total_removed += removed_count
-            if removed_count > 0:
+            if removable:
+                # LIFO: 从列表末尾（最近施加）开始移除count个
+                actual_count = min(count, len(removable))
+                to_remove = removable[-actual_count:] if actual_count > 0 else []
+                removed_names = []
+                for b in to_remove:
+                    target.buffs.remove(b)
+                    removed_names.append(b.name)
+                    total_removed += 1
                 removed_details.append({
                     "target_id": target.unit_id,
                     "target": target.name,
-                    "removed_count": removed_count,
+                    "removed_count": len(removed_names),
                     "removed_names": removed_names,
                 })
-            _log.info("[REMOVE_BUFF] %s: removed %d/%d buffs (LIFO) from %s: %s",
-                      caster.name, removed_count, count, target.name, removed_names)
+                _log.info("[REMOVE_BUFF] %s: removed %d buff(s) %s from %s (LIFO)",
+                          caster.name, len(removed_names), removed_names, target.name)
+            else:
+                _log.info("[REMOVE_BUFF] %s: no removable buff on %s",
+                          caster.name, target.name)
 
         return {
             "effect_type": "remove_buff",

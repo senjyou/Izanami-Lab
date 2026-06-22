@@ -6169,6 +6169,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,
@@ -14669,6 +14670,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,
@@ -31558,6 +31560,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,
@@ -32056,6 +32059,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,
@@ -35287,6 +35291,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,
@@ -38618,6 +38623,7 @@
     "cooldown": 2,
     "cooldown_update_timing": 2,
     "default_max_level": 10,
+    "features": 32,
     "descriptions": [
       {
         "min_level": 1,

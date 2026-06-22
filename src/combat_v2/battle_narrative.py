@@ -241,6 +241,10 @@ class BattleNarrativeWriter:
         names_str = ", ".join(f"«{n}»" for n in removed_names)
         self._add(f"  [解除减益] {target_name} 解除了 {removed_count} 个减益效果: {names_str} (来源:{source_name})")
 
+    def buff_removed(self, target_name: str, removed_count: int, removed_names: List[str], source_name: str):
+        names_str = ", ".join(f"«{n}»" for n in removed_names)
+        self._add(f"  [解除增益] {target_name} 解除了 {removed_count} 个增益效果: {names_str} (来源:{source_name})")
+
     def mark_removed(self, target_name: str, mark_name: str, removed_count: int, source_name: str):
         self._add(f"  [标记清除] {target_name} 的 «{mark_name}» x{removed_count} 被清除 (来源:{source_name})")
 
