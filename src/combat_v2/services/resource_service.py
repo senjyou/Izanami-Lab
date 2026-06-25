@@ -70,8 +70,19 @@ class ResourceService:
     def generate_ep(self, unit: UnitState, amount: int) -> None:
         if amount <= 0:
             return
+        # 检查ep_gain_down debuff：减少EP获取量
+        actual_amount = float(amount)
+        ep_reduction = 0.0
+        for d in unit.debuffs:
+            if d.effect_type == "EpGainDown" and d.value > 0:
+                ep_reduction = max(ep_reduction, d.value)
+                _log.info("[EP_GAIN_DOWN] %s: ep_gain_down active, reduction=%.1f%%", unit.name, d.value)
+        if ep_reduction > 0:
+            actual_amount = amount * (1.0 - ep_reduction / 100.0)
+            _log.info("[EP_GAIN_DOWN] %s: EP gain reduced %d -> %.2f (%.1f%% reduction)",
+                      unit.name, amount, actual_amount, ep_reduction)
         old = unit.current_ep
         cap = unit.max_extra_point
-        unit.current_ep = min(unit.current_ep + amount, cap)
-        _log.info("[RESOURCE] %s generate_ep: %d -> %d (+%d, cap=%d)",
-                  unit.name, old, unit.current_ep, unit.current_ep - old, cap)
+        unit.current_ep = min(unit.current_ep + actual_amount, cap)
+        _log.info("[RESOURCE] %s generate_ep: %s -> %s (+%.2f, cap=%d)",
+                  unit.name, old, unit.current_ep, actual_amount, cap)

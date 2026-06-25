@@ -17,6 +17,7 @@ import random
 import time
 import threading
 import statistics
+import unicodedata
 from datetime import datetime
 import tkinter as tk
 import pywinstyles
@@ -48,6 +49,47 @@ from src.entities.memory_card import MemoryCard, MemoryHighlight
 from version import __version__, __repository__, __release_url__
 from src.utils.update_daemon import UpdateDaemon, UpdateProgress
 from src.utils.version_checker import UpdateType
+
+
+# ── CJK 文本视觉宽度对齐工具 ──
+
+def _str_visual_width(s: str) -> int:
+    """计算字符串视觉宽度：CJK全角字符=2，ASCII半角=1"""
+    w = 0
+    for c in s:
+        w += 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
+    return w
+
+
+def _cjk_ljust(s: str, width: int) -> str:
+    """左对齐到指定视觉宽度"""
+    return s + ' ' * max(0, width - _str_visual_width(s))
+
+
+def _cjk_rjust(s: str, width: int) -> str:
+    """右对齐到指定视觉宽度"""
+    return ' ' * max(0, width - _str_visual_width(s)) + s
+
+
+def _cjk_truncate(s: str, max_width: int, ellipsis: str = "…") -> str:
+    """按视觉宽度截断字符串，超出时末尾添加省略号"""
+    if _str_visual_width(s) <= max_width:
+        return s
+    result = []
+    width = 0
+    ellipsis_w = _str_visual_width(ellipsis)
+    for c in s:
+        cw = 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
+        if width + cw > max_width - ellipsis_w:
+            break
+        result.append(c)
+        width += cw
+    return ''.join(result) + ellipsis
+
+
+def _cjk_fit(s: str, width: int) -> str:
+    """截断到指定视觉宽度后左对齐填充，保证输出宽度恒定"""
+    return _cjk_ljust(_cjk_truncate(s, width), width)
 
 
 # ── 路径辅助（PyInstaller 兼容） ──
@@ -215,6 +257,7 @@ BANNER_DIR = _IMAGE_BASE / "banners"          # 角色横版头像
 MEMORY_CARD_DIR = _IMAGE_BASE / "memory_cards"  # 回忆卡图片
 ATTR_ICON_DIR = _IMAGE_BASE / "attributes"    # 属性图标
 RARITY_DIR = _IMAGE_BASE / "rarities"         # 稀有度图标
+ENEMY_IMAGE_DIR = _IMAGE_BASE / "enemies"     # 敌方横版头像（ModelAssetId命名）
 
 # 属性ID到图标文件名映射
 ATTR_ICON_MAP = {
@@ -781,9 +824,9 @@ class CharacterParamsTab(ttk.Frame):
         """刷新网格视图"""
         self._selected_grid_cid = None
         s = self.app._get_scheme()
-        # 刷新容器背景色
+        # 刷新容器背景色（画布与内容载体均使用整体背景色，保持一致）
         self._grid_canvas.config(bg=s["bg"])
-        self._grid_inner.config(bg=s["surface"])
+        self._grid_inner.config(bg=s["bg"])
         for child in self._grid_inner.winfo_children():
             child.destroy()
         self._grid_cards.clear()
@@ -858,6 +901,11 @@ class CharacterParamsTab(ttk.Frame):
         self._current_filter = attr_id
         self._update_filter_highlight()
         self._refresh_list()
+        # 切换筛选后回到页面顶部（网格视图和列表视图均处理）
+        if self._view_mode == "grid":
+            self._grid_canvas.yview_moveto(0)
+        else:
+            self.char_listbox.yview_moveto(0)
         # 清空右侧详情
         for w in self.detail_frame.winfo_children():
             w.destroy()
@@ -2543,6 +2591,13 @@ class MemoryPickerDialog(tk.Toplevel):
         s = self.app._get_scheme()
         self._card_widgets = {}  # mid -> (canvas, info_frame)
 
+        # 用于智能截断的字体度量
+        import tkinter.font as tkfont
+        name_font = tkfont.Font(family="Microsoft YaHei UI", size=8)
+        THUMB_W = 160
+        # 名称可用宽度 = 卡片宽度 - 稀有度图标(~16px) - 边距
+        MAX_NAME_WIDTH = THUMB_W - 20
+
         try:
             for i, mid in enumerate(self._filtered_ids):
                 mem = self.app.data_loader.get_memory(mid)
@@ -2564,7 +2619,7 @@ class MemoryPickerDialog(tk.Toplevel):
 
                 # 稀有度图标 + 名称
                 info_frame = tk.Frame(card, bg=s["surface"])
-                info_frame.pack(pady=(2, 0))
+                info_frame.pack(fill="x", pady=(2, 0))
                 rname, ricon = MEM_RARITY_MAP.get(mem.rarity, (f"?{mem.rarity}", None))
                 if ricon:
                     icon_path = RARITY_DIR / ricon
@@ -2579,12 +2634,16 @@ class MemoryPickerDialog(tk.Toplevel):
                     except Exception:
                         tk.Label(info_frame, text=f"[{rname}]", bg=s["surface"], fg=s["fg"],
                                  font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
+                # 智能截断：仅在像素宽度超出时才加省略号
                 name = mem.name
-                if len(name) > 12:
-                    name = name[:11] + "…"
+                if name_font.measure(name) > MAX_NAME_WIDTH:
+                    truncated = name
+                    while truncated and name_font.measure(truncated + "…") > MAX_NAME_WIDTH:
+                        truncated = truncated[:-1]
+                    name = (truncated + "…") if truncated else "…"
                 name_label = tk.Label(info_frame, text=name, bg=s["surface"], fg=s["fg"],
-                                      font=("Microsoft YaHei UI", 8), wraplength=120, justify="left")
-                name_label.pack(side=tk.LEFT)
+                                      font=("Microsoft YaHei UI", 8), anchor="center")
+                name_label.pack(side=tk.LEFT, fill="x", expand=True)
 
                 for widget in [card] + list(card.winfo_children()) + list(info_frame.winfo_children()):
                     widget.bind("<Button-1>", lambda e, m=mid: self._on_select(m))
@@ -3071,42 +3130,35 @@ class TeamBattleTab(ttk.Frame):
                 self._update_slot_display(slot, None)
 
     def _build_mem_slot(self, parent, slot_idx, is_enemy):
-        """构建单个回忆卡槽位（16:9横版缩略图 + 名称 + 清除按钮）"""
-        CARD_W, CARD_H = 80, 45  # 16:9 缩略图
+        """构建单个回忆卡槽位（缩略图 + 右上角覆盖清除按钮，无文字）"""
+        CARD_W, CARD_H = 120, 68  # 16:9 缩略图（1.5倍原尺寸）
         s = self.app._get_scheme()
 
         slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
                               highlightbackground=s["border"], highlightthickness=1,
                               cursor="hand2")
 
-        # 上方：缩略图 + 清除按钮（同行）
-        top_row = tk.Frame(slot_frame, bg=s["bg"])
-        top_row.pack(fill="x")
-
-        card_canvas = tk.Canvas(top_row, width=CARD_W, height=CARD_H,
+        # 缩略图画布
+        card_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
                                 bg=s["bg"], highlightthickness=0)
-        card_canvas.pack(side=tk.LEFT, padx=(2, 0), pady=2)
+        card_canvas.pack(padx=2, pady=2)
         card_canvas._card_photo = None
+        # 初始占位文字
+        card_canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                fill=s["border"], font=("Microsoft YaHei UI", 8))
 
-        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["bg"],
-                              font=("Microsoft YaHei UI", 8, "bold"), cursor="hand2")
-        clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
-        clear_btn.grid_remove()  # 默认隐藏
+        # 右上角覆盖清除按钮（默认隐藏，选中后显示）
+        clear_btn = tk.Label(slot_frame, text="\u00d7", fg="white", bg="#cc3333",
+                              font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2",
+                              padx=3, pady=0, bd=0)
         clear_btn.bind("<Button-1>", lambda e, idx=slot_idx, ie=is_enemy: self._clear_mem_slot(idx, ie))
 
-        # 下方：回忆卡名称
-        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["bg"], fg=s["fg"],
-                               font=("Microsoft YaHei UI", 7), wraplength=CARD_W + 20,
-                               justify="center", height=2)
-        name_label.pack(pady=(0, 2))
-
-        # 点击打开选择弹窗
-        for widget in [slot_frame, card_canvas, name_label]:
+        # 点击打开选择弹窗（clear_btn 单独绑定清除，不在此列）
+        for widget in [slot_frame, card_canvas]:
             widget.bind("<Button-1>", lambda e, idx=slot_idx, ie=is_enemy: self._open_mem_picker(idx, ie))
 
         return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
-                "name_label": name_label, "clear_btn": clear_btn,
-                "top_row": top_row,
+                "name_label": None, "clear_btn": clear_btn,
                 "slot_idx": slot_idx, "is_enemy": is_enemy}
 
     def _open_mem_picker(self, slot_idx, is_enemy):
@@ -3128,22 +3180,22 @@ class TeamBattleTab(ttk.Frame):
 
     def _set_mem_slot(self, slot_idx, is_enemy, mid):
         """设置回忆卡槽位内容"""
-        CARD_W, CARD_H = 80, 45
+        CARD_W, CARD_H = 120, 68
         s = self.app._get_scheme()
         slots = self.mem_enemy_slots if is_enemy else self.mem_friend_slots
         slot = slots[slot_idx]
         slot["mid"] = mid
         canvas = slot["canvas"]
-        name_label = slot["name_label"]
         clear_btn = slot["clear_btn"]
 
-        # 加载缩略图（已预缩放为160x90，这里用subsample缩小到80x45）
+        # 加载缩略图（用PIL缩放到120x68）
         card_path = MEMORY_CARD_DIR / f"{mid}.png"
         if card_path.exists():
             try:
-                photo = tk.PhotoImage(file=str(card_path))
-                # 160x90 -> 80x45，subsample=2
-                photo = photo.subsample(2, 2)
+                from PIL import Image, ImageTk
+                pil_img = Image.open(card_path)
+                pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(pil_img)
                 canvas.delete("all")
                 canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
                 canvas._card_photo = photo
@@ -3156,19 +3208,9 @@ class TeamBattleTab(ttk.Frame):
             canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
                                fill=s["fg"], font=("Microsoft YaHei UI", 8))
 
-        # 更新名称（带稀有度图标）
-        mem = self.app.data_loader.get_memory(mid)
-        if mem:
-            rname, ricon = MEM_RARITY_MAP.get(mem.rarity, (f"?{mem.rarity}", None))
-            name = mem.name
-            if len(name) > 10:
-                name = name[:9] + "…"
-            name_label.config(text=f"[{rname}]{name}")
-        else:
-            name_label.config(text=f"[{mid}]")
-
-        # 显示清除按钮
-        clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
+        # 显示右上角覆盖清除按钮
+        clear_btn.place(relx=1.0, x=-3, y=3, anchor="ne", in_=canvas)
+        clear_btn.lift()
 
     def _clear_mem_slot(self, slot_idx, is_enemy):
         """清空回忆卡槽位"""
@@ -3177,13 +3219,14 @@ class TeamBattleTab(ttk.Frame):
         slot = slots[slot_idx]
         slot["mid"] = None
         canvas = slot["canvas"]
-        name_label = slot["name_label"]
         clear_btn = slot["clear_btn"]
+        CARD_W, CARD_H = 120, 68
 
         canvas.delete("all")
         canvas._card_photo = None
-        name_label.config(text="(点击选择)")
-        clear_btn.grid_remove()
+        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+        clear_btn.place_forget()
 
     def _build_slot(self, parent, slot_idx, is_enemy):
         """构建单个编队槽位（横版头像 300:144 比例，画布填满内框）"""
@@ -3889,8 +3932,8 @@ class TeamBattleTab(ttk.Frame):
             return sum(lst) / len(lst) if lst else 0
 
         out.append("")
-        out.append(f"  {'角色':<22} {'阵营':<4} {'平均伤害':>10} {'最大伤害':>10} {'存活率':>7}")
-        out.append(f"  {'-'*22} {'-'*4} {'-'*10} {'-'*10} {'-'*7}")
+        out.append(f"  {_cjk_fit('角色', 22)} {_cjk_fit('阵营', 6)} {'平均伤害':>10} {'最大伤害':>10} {'存活率':>7}")
+        out.append(f"  {'-'*22} {'-'*6} {'-'*10} {'-'*10} {'-'*7}")
 
         for cid in w["friends_chars"] + w["enemies_chars"]:
             char = self.app.data_loader.get_character_by_id(cid)
@@ -3900,7 +3943,7 @@ class TeamBattleTab(ttk.Frame):
             surv = w["char_survivals"].get(cid, 0)
             death = w["char_deaths"].get(cid, 0)
             sr = surv / (surv + death) * 100 if (surv + death) else 0
-            out.append(f"  {name:<22} {side:<4} {_avg(dmg_list):>10.0f} {max(dmg_list):>10} {sr:>6.1f}%")
+            out.append(f"  {_cjk_fit(name, 22)} {_cjk_fit(side, 6)} {_avg(dmg_list):>10.0f} {max(dmg_list):>10} {sr:>6.1f}%")
 
         out.append("")
         out.append("=" * 60)
@@ -4019,18 +4062,18 @@ class TeamBattleTab(ttk.Frame):
 
             if ally_units:
                 out.append(f"  【我方角色明细】")
-                out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
                 for uid, s in ally_units.items():
                     name = s.get("name", uid)[:18]
-                    out.append(f"    {name:<20} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
 
             if enemy_units:
                 out.append(f"")
                 out.append(f"  【敌方角色明细】")
-                out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
                 for uid, s in enemy_units.items():
                     name = s.get("name", uid)[:18]
-                    out.append(f"    {name:<20} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
 
             out.append("─" * 60)
 
@@ -4229,14 +4272,18 @@ class StepCritTab(ttk.Frame):
         preset_frame = ttk.LabelFrame(f, text="预设选择")
         preset_frame.pack(fill="x", padx=10, pady=5)
 
-        # 战斗模式：编队与战斗 / 战术演习
+        # 战斗模式：编队与战斗 / 战术演习 / 对抗压制战 / 联合战术演习
         battle_mode_frame = ttk.Frame(preset_frame)
         battle_mode_frame.pack(fill="x", padx=5, pady=2)
         self.battle_mode_var = tk.StringVar(value="team")
-        ttk.Radiobutton(battle_mode_frame, text="编队与战斗预设", variable=self.battle_mode_var,
+        ttk.Radiobutton(battle_mode_frame, text="编队与战斗", variable=self.battle_mode_var,
                         value="team", command=self._on_battle_mode_change).pack(side="left", padx=5)
-        ttk.Radiobutton(battle_mode_frame, text="战术演习预设", variable=self.battle_mode_var,
+        ttk.Radiobutton(battle_mode_frame, text="战术演习", variable=self.battle_mode_var,
                         value="tactical", command=self._on_battle_mode_change).pack(side="left", padx=5)
+        ttk.Radiobutton(battle_mode_frame, text="对抗压制战", variable=self.battle_mode_var,
+                        value="circle", command=self._on_battle_mode_change).pack(side="left", padx=5)
+        ttk.Radiobutton(battle_mode_frame, text="联合战术演习", variable=self.battle_mode_var,
+                        value="composite", command=self._on_battle_mode_change).pack(side="left", padx=5)
 
         # 预设列表
         preset_list_frame = ttk.Frame(preset_frame)
@@ -4260,7 +4307,7 @@ class StepCritTab(ttk.Frame):
                   foreground="gray", wraplength=400, justify="left").pack(fill="x", padx=5, pady=2)
 
         self._loaded_preset_data = None  # 当前加载的预设数据
-        self._loaded_preset_type = None  # "team" or "tactical"
+        self._loaded_preset_type = None  # "team" / "tactical" / "circle" / "composite"
 
         self._refresh_presets()
 
@@ -4423,14 +4470,23 @@ class StepCritTab(ttk.Frame):
     def _refresh_presets(self):
         """刷新预设列表"""
         self._preset_listbox.delete(0, tk.END)
-        if self.battle_mode_var.get() == "team":
+        mode = self.battle_mode_var.get()
+        if mode == "team":
             PRESET_DIR.mkdir(parents=True, exist_ok=True)
             for f in sorted(PRESET_DIR.glob("*.json")):
                 self._preset_listbox.insert(tk.END, f"[编队] {f.stem}")
-        else:
+        elif mode == "tactical":
             TACTICAL_PRESET_DIR.mkdir(parents=True, exist_ok=True)
             for f in sorted(TACTICAL_PRESET_DIR.glob("*.json")):
                 self._preset_listbox.insert(tk.END, f"[演习] {f.stem}")
+        elif mode == "circle":
+            CIRCLE_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+            for f in sorted(CIRCLE_PRESET_DIR.glob("*.json")):
+                self._preset_listbox.insert(tk.END, f"[压制] {f.stem}")
+        elif mode == "composite":
+            COMPOSITE_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+            for f in sorted(COMPOSITE_PRESET_DIR.glob("*.json")):
+                self._preset_listbox.insert(tk.END, f"[联合] {f.stem}")
 
     def _load_preset(self):
         """加载选中的预设"""
@@ -4440,13 +4496,18 @@ class StepCritTab(ttk.Frame):
             return
 
         item_text = self._preset_listbox.get(sel[0])
-        # 解析预设名称（去掉前缀 "[编队] " 或 "[演习] "）
+        # 解析预设名称（去掉前缀 "[编队] " / "[演习] " / "[压制] " / "[联合] "）
         preset_name = item_text.split("] ", 1)[1] if "] " in item_text else item_text
 
-        if self.battle_mode_var.get() == "team":
+        mode = self.battle_mode_var.get()
+        if mode == "team":
             path = PRESET_DIR / f"{preset_name}.json"
-        else:
+        elif mode == "tactical":
             path = TACTICAL_PRESET_DIR / f"{preset_name}.json"
+        elif mode == "circle":
+            path = CIRCLE_PRESET_DIR / f"{preset_name}.json"
+        else:
+            path = COMPOSITE_PRESET_DIR / f"{preset_name}.json"
 
         if not path.exists():
             messagebox.showerror("预设", f"预设文件不存在: {path}")
@@ -4456,10 +4517,10 @@ class StepCritTab(ttk.Frame):
             data = json.load(fp)
 
         self._loaded_preset_data = data
-        self._loaded_preset_type = self.battle_mode_var.get()
+        self._loaded_preset_type = mode
 
         # 显示预设信息
-        if self._loaded_preset_type == "team":
+        if mode == "team":
             friends = [cid for cid in data.get("friend_positions", data.get("friends", [])) if cid]
             enemies = [cid for cid in data.get("enemy_positions", data.get("enemies", [])) if cid]
             if self.app.is_developer_mode():
@@ -4468,19 +4529,13 @@ class StepCritTab(ttk.Frame):
                     f"己方: {friends} | 敌方: {enemies}"
                 )
             else:
-                friend_names = []
-                for cid in friends:
-                    char = self.app.data_loader.get_character_by_id(cid)
-                    friend_names.append(self.app.format_char_name(char) if char else str(cid))
-                enemy_names = []
-                for cid in enemies:
-                    char = self.app.data_loader.get_character_by_id(cid)
-                    enemy_names.append(self.app.format_char_name(char) if char else str(cid))
+                friend_names = [self.app.format_char_name(self.app.data_loader.get_character_by_id(cid)) or str(cid) for cid in friends]
+                enemy_names = [self.app.format_char_name(self.app.data_loader.get_character_by_id(cid)) or str(cid) for cid in enemies]
                 self._preset_info_var.set(
                     f"已加载编队预设: {preset_name}\n"
                     f"己方: {', '.join(friend_names)} | 敌方: {', '.join(enemy_names)}"
                 )
-        else:
+        elif mode == "tactical":
             friends = [cid for cid in data.get("friend_positions", data.get("friends", [])) if cid]
             enemy_id = data.get("enemy_id", "?")
             if self.app.is_developer_mode():
@@ -4489,16 +4544,46 @@ class StepCritTab(ttk.Frame):
                     f"己方: {friends} | 敌方ID: {enemy_id}"
                 )
             else:
-                friend_names = []
-                for cid in friends:
-                    char = self.app.data_loader.get_character_by_id(cid)
-                    friend_names.append(self.app.format_char_name(char) if char else str(cid))
+                friend_names = [self.app.format_char_name(self.app.data_loader.get_character_by_id(cid)) or str(cid) for cid in friends]
                 enemy_data = self.app.data_loader.get_tactical_exercise_enemies().get(enemy_id)
                 enemy_name = enemy_data["character_name"] if enemy_data else str(enemy_id)
                 self._preset_info_var.set(
                     f"已加载演习预设: {preset_name}\n"
                     f"己方: {', '.join(friend_names)} | 敌方: {enemy_name}"
                 )
+        elif mode == "circle":
+            friends = [cid for cid in data.get("friend_positions", data.get("friends", [])) if cid]
+            season = data.get("season", "?")
+            stage = data.get("stage", "?")
+            if self.app.is_developer_mode():
+                self._preset_info_var.set(
+                    f"已加载压制战预设: {preset_name}\n"
+                    f"己方: {friends} | 赛季{season} 阶段{stage}"
+                )
+            else:
+                friend_names = [self.app.format_char_name(self.app.data_loader.get_character_by_id(cid)) or str(cid) for cid in friends]
+                self._preset_info_var.set(
+                    f"已加载压制战预设: {preset_name}\n"
+                    f"己方: {', '.join(friend_names)} | 赛季{season} 阶段{stage}"
+                )
+        else:  # composite
+            teams_positions = data.get("teams_positions", [])
+            if self.app.is_developer_mode():
+                teams_desc = " | ".join(
+                    f"队{i+1}: {[c for c in t if c]}"
+                    for i, t in enumerate(teams_positions)
+                )
+                self._preset_info_var.set(f"已加载联合演习预设: {preset_name}\n{teams_desc}")
+            else:
+                parts = []
+                for i, t in enumerate(teams_positions):
+                    names = []
+                    for cid in t:
+                        if cid:
+                            char = self.app.data_loader.get_character_by_id(cid)
+                            names.append(self.app.format_char_name(char) if char else str(cid))
+                    parts.append(f"队{i+1}: {', '.join(names) if names else '空'}")
+                self._preset_info_var.set(f"已加载联合演习预设: {preset_name}\n{' | '.join(parts)}")
 
     def _random_seed(self):
         import random as _r
@@ -4669,7 +4754,8 @@ class StepCritTab(ttk.Frame):
         self._append_output(f"=== 逐步暴击模拟器（回退重启） ===\n")
         prefill_count = len([c for c in prefill_seq if c in 'CN10'])
         self._append_output(f"模式: 交互式（预填 {prefill_count} 步）\n")
-        self._append_output(f"战斗类型: {'战术演习' if preset_type == 'tactical' else '编队与战斗'}\n")
+        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "联合战术演习"}
+        self._append_output(f"战斗类型: {type_names.get(preset_type, preset_type)}\n")
         self._append_output(f"随机种子: {seed}\n")
         self._append_output(f"预填序列: {prefill_seq}\n\n")
 
@@ -4701,15 +4787,40 @@ class StepCritTab(ttk.Frame):
 
             narrative = BattleNarrativeWriter()
 
-            bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+            # 构建战场/队伍
+            if preset_type == "composite":
+                bf, teams_units, teams_mem_cards, boss_unit_id, comp_max_turns = self._build_composite_setup(
+                    sel, panel_config, player_config, stat_calculator)
+                max_turns = comp_max_turns
+            else:
+                bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+                if preset_type == "circle":
+                    stage_data = self.app.data_loader.get_circle_battle_stage(sel.get("season"), sel.get("stage"))
+                    max_turns = stage_data["max_turn"] if stage_data else max_turns
 
             random.seed(seed)
 
+            # 创建控制器
             if preset_type == "tactical":
                 config = BattleConfig()
                 config.max_turns = 5
                 controller = TacticalExerciseController(bf, data_loader=self.app.data_loader,
                                                         config=config, narrative=narrative)
+            elif preset_type == "circle":
+                from src.combat_v2.circle_battle_controller import CircleBattleController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CircleBattleController(bf, data_loader=self.app.data_loader,
+                                                    config=config, narrative=narrative,
+                                                    season=sel["season"], stage=sel["stage"])
+            elif preset_type == "composite":
+                from src.combat_v2.composite_tactic_controller import CompositeTacticController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CompositeTacticController(bf, data_loader=self.app.data_loader,
+                                                       config=config, narrative=narrative,
+                                                       teams=teams_units, team_memories=teams_mem_cards,
+                                                       boss_unit_id=boss_unit_id)
             else:
                 controller = BattleFlowController(bf, data_loader=self.app.data_loader,
                                                   config=BattleConfig(max_turns=max_turns),
@@ -4768,15 +4879,21 @@ class StepCritTab(ttk.Frame):
             save_data["preset_type"] = self._last_battle_preset_type
             save_data["seed"] = self._last_battle_seed
             # 保存编队摘要
-            friends = [cid for cid in self._last_battle_sel.get("friend_positions",
-                        self._last_battle_sel.get("friends", [])) if cid]
-            save_data["friends"] = friends
-            if self._last_battle_preset_type == "tactical":
-                save_data["enemy_id"] = self._last_battle_sel.get("enemy_id")
+            if self._last_battle_preset_type == "composite":
+                save_data["teams_positions"] = self._last_battle_sel.get("teams_positions", [])
             else:
-                enemies = [cid for cid in self._last_battle_sel.get("enemy_positions",
-                            self._last_battle_sel.get("enemies", [])) if cid]
-                save_data["enemies"] = enemies
+                friends = [cid for cid in self._last_battle_sel.get("friend_positions",
+                            self._last_battle_sel.get("friends", [])) if cid]
+                save_data["friends"] = friends
+                if self._last_battle_preset_type == "tactical":
+                    save_data["enemy_id"] = self._last_battle_sel.get("enemy_id")
+                elif self._last_battle_preset_type == "circle":
+                    save_data["season"] = self._last_battle_sel.get("season")
+                    save_data["stage"] = self._last_battle_sel.get("stage")
+                else:
+                    enemies = [cid for cid in self._last_battle_sel.get("enemy_positions",
+                                self._last_battle_sel.get("enemies", [])) if cid]
+                    save_data["enemies"] = enemies
 
         with open(seq_path, "w", encoding="utf-8") as fp:
             json.dump(save_data, fp, ensure_ascii=False, indent=2)
@@ -4936,13 +5053,25 @@ class StepCritTab(ttk.Frame):
             if not sel.get("enemies") and not any(cid for cid in sel.get("enemy_positions", [])):
                 messagebox.showwarning("编队不完整", "请加载预设或在「编队与战斗」标签页配置敌方角色")
                 return
-        else:
-            # 战术演习：需要己方和敌方ID
+        elif preset_type == "tactical":
             if not sel.get("friends") and not any(cid for cid in sel.get("friend_positions", [])):
                 messagebox.showwarning("编队不完整", "请加载包含己方角色的演习预设")
                 return
             if not sel.get("enemy_id"):
                 messagebox.showwarning("编队不完整", "请加载包含敌方单位的演习预设")
+                return
+        elif preset_type == "circle":
+            if not sel.get("friends") and not any(cid for cid in sel.get("friend_positions", [])):
+                messagebox.showwarning("编队不完整", "请加载包含己方角色的压制战预设")
+                return
+            if not sel.get("season") or not sel.get("stage"):
+                messagebox.showwarning("编队不完整", "请加载包含赛季/阶段信息的压制战预设")
+                return
+        elif preset_type == "composite":
+            teams_positions = sel.get("teams_positions", [])
+            total_chars = sum(sum(1 for c in t if c is not None) for t in teams_positions)
+            if total_chars == 0:
+                messagebox.showwarning("编队不完整", "请加载包含至少1支队伍角色的联合演习预设")
                 return
 
         self._simulator = StepCritSimulator()
@@ -4982,16 +5111,27 @@ class StepCritTab(ttk.Frame):
 
         self._append_output(f"=== 逐步暴击模拟器 ===\n")
         self._append_output(f"模式: {'预填序列' if mode == 'sequence' else '交互式'}\n")
-        self._append_output(f"战斗类型: {'战术演习' if preset_type == 'tactical' else '编队与战斗'}\n")
+        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "联合战术演习"}
+        self._append_output(f"战斗类型: {type_names.get(preset_type, preset_type)}\n")
         if mode == "sequence" and self._simulator.get_crit_sequence_length() > 0:
             self._append_output(f"序列长度: {self._simulator.get_crit_sequence_length()}\n")
         self._append_output(f"随机种子: {seed}\n")
 
         # 显示编队信息
-        friends = [cid for cid in sel.get("friend_positions", sel.get("friends", [])) if cid]
-        if preset_type == "tactical":
+        if preset_type == "composite":
+            teams_positions = sel.get("teams_positions", [])
+            for i, t in enumerate(teams_positions):
+                chars = [c for c in t if c]
+                self._append_output(f"队伍{i+1}: {chars}\n")
+            self._append_output("\n")
+        elif preset_type == "circle":
+            friends = [cid for cid in sel.get("friend_positions", sel.get("friends", [])) if cid]
+            self._append_output(f"己方: {friends} | 赛季{sel.get('season')} 阶段{sel.get('stage')}\n\n")
+        elif preset_type == "tactical":
+            friends = [cid for cid in sel.get("friend_positions", sel.get("friends", [])) if cid]
             self._append_output(f"己方: {friends} | 敌方ID: {sel.get('enemy_id')}\n\n")
         else:
+            friends = [cid for cid in sel.get("friend_positions", sel.get("friends", [])) if cid]
             enemies = [cid for cid in sel.get("enemy_positions", sel.get("enemies", [])) if cid]
             self._append_output(f"己方: {friends} | 敌方: {enemies}\n\n")
 
@@ -5006,7 +5146,7 @@ class StepCritTab(ttk.Frame):
             self._run_interactive_mode(sel, seed, preset_type)
 
     def _build_battlefield(self, sel, preset_type, panel_config, player_config, stat_calculator):
-        """根据预设类型构建战场"""
+        """根据预设类型构建战场（composite模式请用 _build_composite_setup）"""
         bf = BattlefieldState()
 
         # 创建己方单位
@@ -5026,6 +5166,16 @@ class StepCritTab(ttk.Frame):
                 enemy_unit = self.app.tactical_tab._create_tactical_enemy(enemy_data, bf)
                 if enemy_unit:
                     bf.add_unit(enemy_unit)
+        elif preset_type == "circle":
+            # 对抗压制战：从circle_battle_enemies获取阶段数据
+            season = sel.get("season")
+            stage = sel.get("stage")
+            stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
+            if stage_data:
+                for enemy_data in stage_data.get("enemies", []):
+                    enemy_unit = self.app.circle_tab._create_circle_battle_enemy(enemy_data)
+                    if enemy_unit:
+                        bf.add_unit(enemy_unit)
         else:
             # 编队与战斗：从预设中的敌方角色ID创建
             for i, cid in enumerate(sel.get("enemy_positions", sel.get("enemies", []))):
@@ -5036,9 +5186,62 @@ class StepCritTab(ttk.Frame):
                         bf.add_unit(u)
 
         # 回忆卡
-        bf.memory_cards = self.app.team_tab._build_memory_cards(sel.get("mems_friend", []))
+        if preset_type == "circle":
+            bf.memory_cards = self.app.circle_tab._build_memory_cards(sel.get("mems_friend", []))
+        else:
+            bf.memory_cards = self.app.team_tab._build_memory_cards(sel.get("mems_friend", []))
 
         return bf
+
+    def _build_composite_setup(self, sel, panel_config, player_config, stat_calculator):
+        """构建联合战术演习的战场和3支队伍
+
+        Returns:
+            (bf, teams_units, teams_mem_cards, boss_unit_id, max_turns)
+        """
+        ct = self.app.composite_tab
+        endless_data = ct._endless_data
+        enemies_data = endless_data["enemies"]
+        max_turns = endless_data["max_turn"]
+
+        # 创建敌方
+        bf = BattlefieldState()
+        for enemy_data in enemies_data:
+            enemy_unit = ct._create_composite_enemy(enemy_data)
+            if enemy_unit:
+                bf.add_unit(enemy_unit)
+
+        # BOSS unit_id
+        boss_unit_id = ""
+        for ed in enemies_data:
+            if ed.get("is_boss"):
+                boss_unit_id = f"E_{ed['enemy_id']}_{ed['slot']}"
+                break
+
+        # 创建3支队伍
+        teams_units = []
+        for team_idx, team_positions in enumerate(sel["teams_positions"]):
+            team_units = []
+            for i, cid in enumerate(team_positions):
+                if cid is not None:
+                    u = self.app._create_unit(panel_config, player_config, stat_calculator,
+                                              cid, Side.ALLY, GRID_ALLY_POSITIONS[i])
+                    if u:
+                        existing_ids = {x.unit_id for x in team_units}
+                        if u.unit_id in existing_ids:
+                            suffix = 1
+                            while f"{u.unit_id}_{suffix}" in existing_ids:
+                                suffix += 1
+                            u.unit_id = f"{u.unit_id}_{suffix}"
+                        team_units.append(u)
+            teams_units.append(team_units)
+
+        # 回忆卡
+        teams_mem_cards = []
+        for mem_ids in sel.get("teams_mem_ids", []):
+            teams_mem_cards.append(ct._build_memory_cards(mem_ids))
+
+        return bf, teams_units, teams_mem_cards, boss_unit_id, max_turns
 
     def _run_sequence_mode(self, sel, seed, preset_type):
         """预填序列模式执行"""
@@ -5056,15 +5259,40 @@ class StepCritTab(ttk.Frame):
 
             narrative = BattleNarrativeWriter()
 
-            bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+            # 构建战场/队伍
+            if preset_type == "composite":
+                bf, teams_units, teams_mem_cards, boss_unit_id, comp_max_turns = self._build_composite_setup(
+                    sel, panel_config, player_config, stat_calculator)
+                max_turns = comp_max_turns
+            else:
+                bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+                if preset_type == "circle":
+                    stage_data = self.app.data_loader.get_circle_battle_stage(sel.get("season"), sel.get("stage"))
+                    max_turns = stage_data["max_turn"] if stage_data else max_turns
 
             random.seed(seed)
 
+            # 创建控制器
             if preset_type == "tactical":
                 config = BattleConfig()
                 config.max_turns = 5
                 controller = TacticalExerciseController(bf, data_loader=self.app.data_loader,
                                                         config=config, narrative=narrative)
+            elif preset_type == "circle":
+                from src.combat_v2.circle_battle_controller import CircleBattleController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CircleBattleController(bf, data_loader=self.app.data_loader,
+                                                    config=config, narrative=narrative,
+                                                    season=sel["season"], stage=sel["stage"])
+            elif preset_type == "composite":
+                from src.combat_v2.composite_tactic_controller import CompositeTacticController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CompositeTacticController(bf, data_loader=self.app.data_loader,
+                                                       config=config, narrative=narrative,
+                                                       teams=teams_units, team_memories=teams_mem_cards,
+                                                       boss_unit_id=boss_unit_id)
             else:
                 controller = BattleFlowController(bf, data_loader=self.app.data_loader,
                                                   config=BattleConfig(max_turns=max_turns),
@@ -5095,12 +5323,19 @@ class StepCritTab(ttk.Frame):
             self._append_output(self._simulator.generate_report())
             self._append_output("\n")
 
-            winner_text = "胜利" if result['winner'] == 'FRIEND' else ("败北" if result['winner'] == 'ENEMY' else "超时")
-            if preset_type == "tactical":
-                stages = result.get("stages_cleared", 0)
-                self._append_output(f"战斗结果: {winner_text} | 回合数: {result['total_turns']} | 清除阶段: {stages}\n")
+            # 结果显示
+            if preset_type == "composite":
+                score = result.get("score", 0)
+                boss_stage = result.get("boss_stage", 0)
+                killed = result.get("boss_killed_count", 0)
+                self._append_output(f"战斗结果: 总分数={score:,} | BOSS阶段={boss_stage} | 击杀次数={killed} | 回合数={result['total_turns']}\n")
             else:
-                self._append_output(f"战斗结果: {winner_text} | 回合数: {result['total_turns']}\n")
+                winner_text = "胜利" if result.get('winner') == 'FRIEND' else ("败北" if result.get('winner') == 'ENEMY' else "超时")
+                if preset_type == "tactical":
+                    stages = result.get("stages_cleared", 0)
+                    self._append_output(f"战斗结果: {winner_text} | 回合数: {result['total_turns']} | 清除阶段: {stages}\n")
+                else:
+                    self._append_output(f"战斗结果: {winner_text} | 回合数: {result['total_turns']}\n")
 
             # 输出生成的序列字符串（可用于复现）
             seq_str = self._simulator.generate_sequence_string()
@@ -5115,8 +5350,7 @@ class StepCritTab(ttk.Frame):
             # 写入叙事日志
             log_dir = _BASE_PATH / "data" / "battle_logs"
             log_dir.mkdir(parents=True, exist_ok=True)
-            suffix = "tactical" if preset_type == "tactical" else "team"
-            log_path = log_dir / f"step_crit_{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            log_path = log_dir / f"step_crit_{preset_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             narrative.write(str(log_path))
             self._append_output(f"叙事日志: {log_path}\n")
 
@@ -5170,15 +5404,40 @@ class StepCritTab(ttk.Frame):
 
             narrative = BattleNarrativeWriter()
 
-            bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+            # 构建战场/队伍
+            if preset_type == "composite":
+                bf, teams_units, teams_mem_cards, boss_unit_id, comp_max_turns = self._build_composite_setup(
+                    sel, panel_config, player_config, stat_calculator)
+                max_turns = comp_max_turns
+            else:
+                bf = self._build_battlefield(sel, preset_type, panel_config, player_config, stat_calculator)
+                if preset_type == "circle":
+                    stage_data = self.app.data_loader.get_circle_battle_stage(sel.get("season"), sel.get("stage"))
+                    max_turns = stage_data["max_turn"] if stage_data else max_turns
 
             random.seed(seed)
 
+            # 创建控制器
             if preset_type == "tactical":
                 config = BattleConfig()
                 config.max_turns = 5
                 controller = TacticalExerciseController(bf, data_loader=self.app.data_loader,
                                                         config=config, narrative=narrative)
+            elif preset_type == "circle":
+                from src.combat_v2.circle_battle_controller import CircleBattleController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CircleBattleController(bf, data_loader=self.app.data_loader,
+                                                    config=config, narrative=narrative,
+                                                    season=sel["season"], stage=sel["stage"])
+            elif preset_type == "composite":
+                from src.combat_v2.composite_tactic_controller import CompositeTacticController
+                config = BattleConfig()
+                config.max_turns = max_turns
+                controller = CompositeTacticController(bf, data_loader=self.app.data_loader,
+                                                       config=config, narrative=narrative,
+                                                       teams=teams_units, team_memories=teams_mem_cards,
+                                                       boss_unit_id=boss_unit_id)
             else:
                 controller = BattleFlowController(bf, data_loader=self.app.data_loader,
                                                   config=BattleConfig(max_turns=max_turns),
@@ -5288,26 +5547,32 @@ class StepCritTab(ttk.Frame):
             elif event_type == "battle_complete":
                 self._append_output(f"\n=== 战斗结束 ===\n")
                 result = data
-                winner_text = "胜利" if result['winner'] == 'FRIEND' else ("败北" if result['winner'] == 'ENEMY' else "超时")
                 preset_type = getattr(self, '_interactive_preset_type', 'team')
-                if preset_type == "tactical":
-                    stages = result.get("stages_cleared", 0)
-                    score_result = result.get("score_result")
-                    score_text = ""
-                    if score_result:
-                        score_text = f" | 得分: {score_result.total_score:,} (伤害:{score_result.total_damage_to_enemies:,} - 回血:{score_result.enemy_healing_received:,})"
-                    self._append_output(f"结果: {winner_text} | 回合数: {result['total_turns']} | 清除阶段: {stages}{score_text}\n")
-
-                    # 输出计分统计到GUI日志和叙事日志
-                    if score_result:
-                        score_lines = self._build_score_display_lines(score_result)
-                        self._append_output("\n".join(score_lines) + "\n")
-                        # 追加到叙事日志文件
-                        if hasattr(self, '_interactive_narrative') and self._interactive_narrative:
-                            for line in score_lines:
-                                self._interactive_narrative._add(line)
+                if preset_type == "composite":
+                    score = result.get("score", 0)
+                    boss_stage = result.get("boss_stage", 0)
+                    killed = result.get("boss_killed_count", 0)
+                    self._append_output(f"结果: 总分数={score:,} | BOSS阶段={boss_stage} | 击杀次数={killed} | 回合数={result['total_turns']}\n")
                 else:
-                    self._append_output(f"结果: {winner_text} | 回合数: {result['total_turns']}\n")
+                    winner_text = "胜利" if result.get('winner') == 'FRIEND' else ("败北" if result.get('winner') == 'ENEMY' else "超时")
+                    if preset_type == "tactical":
+                        stages = result.get("stages_cleared", 0)
+                        score_result = result.get("score_result")
+                        score_text = ""
+                        if score_result:
+                            score_text = f" | 得分: {score_result.total_score:,} (伤害:{score_result.total_damage_to_enemies:,} - 回血:{score_result.enemy_healing_received:,})"
+                        self._append_output(f"结果: {winner_text} | 回合数: {result['total_turns']} | 清除阶段: {stages}{score_text}\n")
+
+                        # 输出计分统计到GUI日志和叙事日志
+                        if score_result:
+                            score_lines = self._build_score_display_lines(score_result)
+                            self._append_output("\n".join(score_lines) + "\n")
+                            # 追加到叙事日志文件
+                            if hasattr(self, '_interactive_narrative') and self._interactive_narrative:
+                                for line in score_lines:
+                                    self._interactive_narrative._add(line)
+                    else:
+                        self._append_output(f"结果: {winner_text} | 回合数: {result['total_turns']}\n")
 
                 # 输出报告
                 self._append_output("\n" + self._simulator.generate_report())
@@ -5325,7 +5590,7 @@ class StepCritTab(ttk.Frame):
                 if hasattr(self, '_interactive_narrative') and self._interactive_narrative:
                     log_dir = _BASE_PATH / "data" / "battle_logs"
                     log_dir.mkdir(parents=True, exist_ok=True)
-                    log_path = log_dir / f"step_crit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                    log_path = log_dir / f"step_crit_{preset_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                     self._interactive_narrative.write(str(log_path))
                     self._append_output(f"叙事日志: {log_path}\n")
 
@@ -5429,18 +5694,18 @@ class StepCritTab(ttk.Frame):
 
         if ally_units:
             out.append(f"  【我方角色明细】")
-            out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
             for uid, s in ally_units.items():
                 name = s.name[:18]
-                out.append(f"    {name:<20} {s.damage_dealt:>12,} {s.damage_received:>12,} {s.hp_healed:>12,}")
+                out.append(f"    {_cjk_fit(name, 20)} {s.damage_dealt:>12,} {s.damage_received:>12,} {s.hp_healed:>12,}")
 
         if enemy_units:
             out.append(f"")
             out.append(f"  【敌方角色明细】")
-            out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
             for uid, s in enemy_units.items():
                 name = s.name[:18]
-                out.append(f"    {name:<20} {s.damage_dealt:>12,} {s.damage_received:>12,} {s.hp_healed:>12,}")
+                out.append(f"    {_cjk_fit(name, 20)} {s.damage_dealt:>12,} {s.damage_received:>12,} {s.hp_healed:>12,}")
 
         out.append("─" * 60)
         return out
@@ -5842,39 +6107,35 @@ class TacticalExerciseTab(ttk.Frame):
                 "slot_idx": slot_idx}
 
     def _build_mem_slot(self, parent, slot_idx):
-        """构建单个回忆卡槽位"""
-        CARD_W, CARD_H = 80, 45
+        """构建单个回忆卡槽位（缩略图 + 右上角覆盖清除按钮，无文字）"""
+        CARD_W, CARD_H = 120, 68  # 16:9 缩略图（1.5倍原尺寸）
         s = self.app._get_scheme()
 
         slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
                               highlightbackground=s["border"], highlightthickness=1,
                               cursor="hand2")
 
-        top_row = tk.Frame(slot_frame, bg=s["bg"])
-        top_row.pack(fill="x")
-
-        card_canvas = tk.Canvas(top_row, width=CARD_W, height=CARD_H,
+        # 缩略图画布
+        card_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
                                 bg=s["bg"], highlightthickness=0)
-        card_canvas.pack(side=tk.LEFT, padx=(2, 0), pady=2)
+        card_canvas.pack(padx=2, pady=2)
         card_canvas._card_photo = None
+        # 初始占位文字
+        card_canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                fill=s["border"], font=("Microsoft YaHei UI", 8))
 
-        clear_btn = tk.Label(top_row, text="\u00d7", fg=s["border"], bg=s["bg"],
-                              font=("Microsoft YaHei UI", 8, "bold"), cursor="hand2")
-        clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
-        clear_btn.grid_remove()
+        # 右上角覆盖清除按钮（默认隐藏，选中后显示）
+        clear_btn = tk.Label(slot_frame, text="\u00d7", fg="white", bg="#cc3333",
+                              font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2",
+                              padx=3, pady=0, bd=0)
         clear_btn.bind("<Button-1>", lambda e, idx=slot_idx: self._clear_mem_slot(idx))
 
-        name_label = tk.Label(slot_frame, text="(点击选择)", bg=s["bg"], fg=s["fg"],
-                               font=("Microsoft YaHei UI", 7), wraplength=CARD_W + 20,
-                               justify="center", height=2)
-        name_label.pack(pady=(0, 2))
-
-        for widget in [slot_frame, card_canvas, name_label]:
+        # 点击打开选择弹窗（clear_btn 单独绑定清除，不在此列）
+        for widget in [slot_frame, card_canvas]:
             widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_mem_picker(idx))
 
         return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
-                "name_label": name_label, "clear_btn": clear_btn,
-                "top_row": top_row,
+                "name_label": None, "clear_btn": clear_btn,
                 "slot_idx": slot_idx}
 
     def _on_drag_start(self, event, slot_idx):
@@ -6079,19 +6340,20 @@ class TacticalExerciseTab(ttk.Frame):
             return None
 
     def _set_mem_slot(self, slot_idx, mid):
-        CARD_W, CARD_H = 80, 45
+        CARD_W, CARD_H = 120, 68
         s = self.app._get_scheme()
         slot = self.mem_friend_slots[slot_idx]
         slot["mid"] = mid
         canvas = slot["canvas"]
-        name_label = slot["name_label"]
         clear_btn = slot["clear_btn"]
 
         card_path = MEMORY_CARD_DIR / f"{mid}.png"
         if card_path.exists():
             try:
-                photo = tk.PhotoImage(file=str(card_path))
-                photo = photo.subsample(2, 2)
+                from PIL import Image, ImageTk
+                pil_img = Image.open(card_path)
+                pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(pil_img)
                 canvas.delete("all")
                 canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
                 canvas._card_photo = photo
@@ -6104,30 +6366,23 @@ class TacticalExerciseTab(ttk.Frame):
             canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
                                fill=s["fg"], font=("Microsoft YaHei UI", 8))
 
-        mem = self.app.data_loader.get_memory(mid)
-        if mem:
-            rname, ricon = MEM_RARITY_MAP.get(mem.rarity, (f"?{mem.rarity}", None))
-            name = mem.name
-            if len(name) > 10:
-                name = name[:9] + "…"
-            name_label.config(text=f"[{rname}]{name}")
-        else:
-            name_label.config(text=f"[{mid}]")
-
-        clear_btn.pack(side=tk.RIGHT, padx=(0, 2))
+        # 显示右上角覆盖清除按钮
+        clear_btn.place(relx=1.0, x=-3, y=3, anchor="ne", in_=canvas)
+        clear_btn.lift()
 
     def _clear_mem_slot(self, slot_idx):
         s = self.app._get_scheme()
         slot = self.mem_friend_slots[slot_idx]
         slot["mid"] = None
         canvas = slot["canvas"]
-        name_label = slot["name_label"]
         clear_btn = slot["clear_btn"]
+        CARD_W, CARD_H = 120, 68
 
         canvas.delete("all")
         canvas._card_photo = None
-        name_label.config(text="(点击选择)")
-        clear_btn.grid_remove()
+        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+        clear_btn.place_forget()
 
     @staticmethod
     def _parse_memory_card_id(entry: str) -> Optional[int]:
@@ -6475,18 +6730,18 @@ class TacticalExerciseTab(ttk.Frame):
 
         if ally_units:
             out.append(f"  【我方角色明细】")
-            out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
             for uid, s in ally_units.items():
                 name = s.get("name", uid)[:18]
-                out.append(f"    {name:<20} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
 
         if enemy_units:
             out.append(f"")
             out.append(f"  【敌方角色明细】")
-            out.append(f"    {'角色':<20} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
             for uid, s in enemy_units.items():
                 name = s.get("name", uid)[:18]
-                out.append(f"    {name:<20} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
 
         out.append("─" * 60)
 
@@ -6850,6 +7105,2671 @@ class TacticalExerciseTab(ttk.Frame):
             self._refresh_tactical_presets()
 
 
+# ────────────────────────────── 对抗压制战 ──────────────────────────────
+
+CIRCLE_PRESET_DIR = _USER_DATA / "circle_presets"
+COMPOSITE_PRESET_DIR = _USER_DATA / "composite_presets"
+
+
+class EnemyDetailDialog(tk.Toplevel):
+    """敌方详情弹窗：显示敌方各项属性和技能（参考角色页角色信息显示）"""
+
+    # 敌方位置名称映射
+    POSITION_NAMES = {1: "左前", 2: "中前", 3: "右前", 4: "左后", 5: "中后", 6: "右后"}
+
+    def __init__(self, parent, app, enemy_data: Dict[str, Any], title="敌方详情"):
+        super().__init__(parent)
+        self.app = app
+        self.enemy_data = enemy_data
+        self._avatar_photo = None  # 保持头像引用避免被GC回收
+
+        self.title(title)
+        self.transient(parent)
+        self.grab_set()
+        self.resizable(True, True)
+        self.geometry("640x720")
+        self.minsize(520, 600)
+
+        self._build()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # 居中于父窗口
+        self.update_idletasks()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        w, h = self.winfo_width(), self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _build(self):
+        s = self.app._get_scheme()
+        self.configure(bg=s["bg"])
+
+        # ── 可滚动内容容器 ──
+        scroll_outer = tk.Frame(self, bg=s["bg"])
+        scroll_outer.pack(fill="both", expand=True)
+        self._scroll_canvas = tk.Canvas(scroll_outer, bg=s["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(scroll_outer, orient="vertical",
+                                   command=self._scroll_canvas.yview)
+        self._scroll_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._scroll_canvas.pack(side=tk.LEFT, fill="both", expand=True)
+
+        # 内容载体
+        content = tk.Frame(self._scroll_canvas, bg=s["bg"])
+        self._scroll_canvas_window = self._scroll_canvas.create_window(
+            (0, 0), window=content, anchor="nw")
+        content.bind("<Configure>",
+                      lambda e: self._scroll_canvas.configure(
+                          scrollregion=self._scroll_canvas.bbox("all")))
+        self._scroll_canvas.bind("<Configure>", self._on_scroll_canvas_resize)
+
+        # 鼠标滚轮支持
+        def _bind_mw(e):
+            self._scroll_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _enter(e):
+            self._scroll_canvas.bind_all("<MouseWheel>", _bind_mw)
+
+        def _leave(e):
+            self._scroll_canvas.unbind_all("<MouseWheel>")
+
+        self._scroll_canvas.bind("<Enter>", _enter)
+        self._scroll_canvas.bind("<Leave>", _leave)
+
+        # ── 顶部：头像 + 基本信息 ──
+        top_frame = tk.Frame(content, bg=s["bg"])
+        top_frame.pack(fill="x", padx=10, pady=5)
+
+        # 头像（原图300x144，缩放到250x120保持比例）
+        AVATAR_W, AVATAR_H = 250, 120
+        avatar_canvas = tk.Canvas(top_frame, width=AVATAR_W, height=AVATAR_H,
+                                   bg=s["bg"], highlightthickness=0)
+        avatar_canvas.pack(side=tk.LEFT, padx=(0, 10))
+
+        photo = self._load_enemy_avatar(
+            self.enemy_data.get("model_asset_id", ""), AVATAR_W, AVATAR_H)
+        if photo:
+            self._avatar_photo = photo
+            avatar_canvas.create_image(AVATAR_W // 2, AVATAR_H // 2,
+                                        image=photo, anchor="center")
+        else:
+            avatar_canvas.create_text(AVATAR_W // 2, AVATAR_H // 2, text="无头像",
+                                       fill=s["border"],
+                                       font=("Microsoft YaHei UI", 10))
+
+        # 基本信息右侧
+        info_frame = tk.Frame(top_frame, bg=s["bg"])
+        info_frame.pack(side=tk.LEFT, fill="y")
+
+        name = self.enemy_data.get("name", "???")
+        level = self.enemy_data.get("level", 1)
+        slot = self.enemy_data.get("slot", 1)
+        pos_text = self.POSITION_NAMES.get(slot, f"位置{slot}")
+
+        ttk.Label(info_frame, text=name,
+                   font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
+        ttk.Label(info_frame, text=f"等级: {level}",
+                   font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(5, 0))
+        ttk.Label(info_frame, text=f"位置: {pos_text}",
+                   font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+
+        # ── 中部：属性网格 ──
+        stats_frame = ttk.LabelFrame(content, text="属性")
+        stats_frame.pack(fill="x", padx=10, pady=5)
+
+        hp = self.enemy_data.get("hp", 0)
+        attack = self.enemy_data.get("attack", 0)
+        defense = self.enemy_data.get("defense", 0)
+        speed = self.enemy_data.get("speed", 0)
+        crit = self.enemy_data.get("critical_rate", 0)
+        attribute = ELEMENT_NAMES.get(self.enemy_data.get("attribute", 0), "未知")
+        char_type = CHAR_TYPE_NAMES.get(self.enemy_data.get("type", 0), "未知")
+        role_type = ROLE_TYPE_NAMES.get(self.enemy_data.get("role_type", 0), "未知")
+        rarity = RARITY_NAMES.get(self.enemy_data.get("rarity", 0), "未知")
+        ap = self.enemy_data.get("action_point", 0)
+        pp = self.enemy_data.get("passive_point", 0)
+
+        stats = [
+            ("HP", str(hp)), ("ATK", str(attack)), ("DEF", str(defense)),
+            ("SPD", str(speed)), ("暴击率", f"{crit * 100:.1f}%"), ("属性", attribute),
+            ("类型", char_type), ("定位", role_type), ("稀有度", rarity),
+            ("AP", str(ap)), ("PP", str(pp)),
+        ]
+        # 敌方ID仅在开发者模式下显示
+        if self.app.is_developer_mode():
+            stats.append(("敌方ID", str(self.enemy_data.get("enemy_id", ""))))
+
+        for i, (label, value) in enumerate(stats):
+            r, c = divmod(i, 4)
+            cell = ttk.Frame(stats_frame)
+            cell.grid(row=r, column=c, padx=8, pady=3, sticky="w")
+            ttk.Label(cell, text=f"{label}:",
+                       font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+            ttk.Label(cell, text=value,
+                       font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT, padx=(3, 0))
+
+        # ── 底部：技能列表 ──
+        skill_frame = ttk.LabelFrame(content, text="技能")
+        skill_frame.pack(fill="x", padx=10, pady=5)
+
+        self._render_skills(skill_frame)
+
+        # ── 关闭按钮 ──
+        btn_frame = ttk.Frame(content)
+        btn_frame.pack(pady=8)
+        ttk.Button(btn_frame, text="关闭", command=self._on_close, width=10).pack()
+
+    def _on_scroll_canvas_resize(self, event):
+        """滚动画布尺寸变化时，同步内容宽度"""
+        self._scroll_canvas.itemconfig(self._scroll_canvas_window, width=event.width)
+
+    def _load_enemy_avatar(self, model_asset_id: str, w: int, h: int):
+        """加载敌方头像（按ModelAssetId命名，缩放到指定尺寸）"""
+        if not model_asset_id:
+            return None
+        from PIL import Image
+        avatar_path = ENEMY_IMAGE_DIR / f"{model_asset_id}.png"
+        if not avatar_path.exists():
+            return None
+        try:
+            pil_img = Image.open(avatar_path)
+            pil_img = pil_img.resize((w, h), Image.LANCZOS)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            pil_img.save(tmp_path, "PNG")
+            photo = tk.PhotoImage(file=tmp_path)
+            os.unlink(tmp_path)
+            return photo
+        except Exception:
+            return None
+
+    def _render_skills(self, parent):
+        """渲染技能列表（参考CharacterParamsTab._render_skill_cards，只读版）"""
+        s = self.app._get_scheme()
+        skill_ids = self.enemy_data.get("skill_ids", [])
+        raw_levels = self.enemy_data.get("skill_levels", {})
+
+        if not skill_ids:
+            ttk.Label(parent, text="(无技能)",
+                       font=("Microsoft YaHei UI", 9)).pack(padx=5, pady=5)
+            return
+
+        skill_type_names = {1: "AS", 2: "PS", 3: "EX"}
+        cost_unit = {1: "AP", 2: "PP", 3: "EP"}
+
+        for sid in skill_ids:
+            skill = self.app.data_loader.get_skill_by_id(sid)
+            if skill is None:
+                # 技能找不到，仅显示ID
+                card = ttk.Frame(parent, relief="groove", borderwidth=1)
+                card.pack(fill="x", padx=3, pady=2)
+                ttk.Label(card, text=f"[未知] 技能ID: {sid}",
+                           font=("Microsoft YaHei UI", 9, "bold")).pack(
+                    anchor="w", padx=5, pady=3)
+                continue
+
+            # 从skill_levels获取技能等级（兼容string/int键），与战斗引擎逻辑一致
+            level = int(raw_levels.get(str(sid), raw_levels.get(sid, 1)))
+
+            card = ttk.Frame(parent, relief="groove", borderwidth=1)
+            card.pack(fill="x", padx=3, pady=2)
+
+            # 技能名称行
+            info_frame = ttk.Frame(card)
+            info_frame.pack(fill="x", padx=3, pady=(3, 0))
+
+            stype = skill_type_names.get(skill.skill_type, str(skill.skill_type))
+            ttk.Label(info_frame, text=f"[{stype}] {skill.name}",
+                       font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT)
+
+            # 消耗点数
+            unit = cost_unit.get(skill.skill_type, "AP")
+            ttk.Label(info_frame, text=f" | 消耗: {skill.resource_cost}{unit}",
+                       font=("Microsoft YaHei UI", 8)).pack(side=tk.LEFT, padx=(5, 0))
+
+            # 冷却信息
+            if skill.cooldown:
+                if skill.cooldown_update_timing == 1:
+                    cd_text = f" | 冷却: {skill.cooldown}回合"
+                elif skill.cooldown_update_timing == 2:
+                    cd_text = f" | 冷却: {skill.cooldown}行动"
+                else:
+                    cd_text = f" | 冷却: {skill.cooldown}无"
+            else:
+                cd_text = " | 冷却: 无"
+            ttk.Label(info_frame, text=cd_text,
+                       font=("Microsoft YaHei UI", 8)).pack(side=tk.LEFT, padx=(5, 0))
+
+            # 描述区域
+            desc_text = self._format_skill_description(skill, level)
+            desc_widget = tk.Text(card, wrap=tk.WORD,
+                                   font=("Microsoft YaHei UI", 9),
+                                   height=3, relief="flat", borderwidth=0,
+                                   padx=5, pady=2,
+                                   bg=s["input_bg"], fg=s["fg"],
+                                   state="disabled")
+            desc_widget.pack(fill="x", padx=5, pady=3)
+            desc_widget.config(state="normal")
+            desc_widget.insert("1.0", desc_text)
+            desc_widget.config(state="disabled")
+
+    def _format_skill_description(self, skill, level):
+        """格式化技能描述，替换模板标签为实际数值"""
+        template = skill.get_description_at_level(level)
+        if not template:
+            return "(无描述)"
+        result = template
+        for tag_name, tag in skill.template_tags.items():
+            val = tag.get_value_at_level(level)
+            if val == int(val):
+                val_str = str(int(val))
+            else:
+                val_str = f"{val:.1f}"
+            result = result.replace(f"{{{tag_name}}}", val_str)
+        return result
+
+    def _on_close(self):
+        self.destroy()
+
+
+class CircleBattleTab(ttk.Frame):
+    """对抗压制战模式 - 多敌方阵容，阶段1~100，回合耗尽未全灭判败"""
+
+    # 当前支持的赛季（初期仅第5赛季）
+    SUPPORTED_SEASONS = [5]
+
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self._circle_data: Dict[str, Dict] = self.app.data_loader.get_circle_battle_enemies()
+        self.friend_slots: List[Dict[str, Any]] = []
+        self.mem_friend_slots: List[Dict[str, Any]] = []
+        self._drag_source = None
+        self._drag_preview = None
+        self._build()
+
+    # ── UI 构建 ──
+
+    def _build(self):
+        s = self.app._get_scheme()
+        paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        left_frame = ttk.Frame(paned)
+        paned.add(left_frame, weight=4)
+
+        canvas = tk.Canvas(left_frame, bg=s["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _bind_canvas_width(event):
+            canvas.itemconfig(1, width=event.width)
+
+        canvas.bind("<Configure>", _bind_canvas_width)
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _bind_canvas(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_canvas(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_canvas)
+        canvas.bind("<Leave>", _unbind_canvas)
+
+        f = scroll_frame
+
+        # ── 赛季/阶段选择 ──
+        ttk.Label(f, text="=== 对抗压制战 ===", font=("Microsoft YaHei UI", 11, "bold")).pack(
+            pady=(10, 5), padx=10, anchor="w")
+
+        config_frame = ttk.LabelFrame(f, text="赛季/阶段选择")
+        config_frame.pack(pady=5, fill="x", padx=10)
+
+        row1 = ttk.Frame(config_frame)
+        row1.pack(padx=5, pady=5, fill="x")
+
+        ttk.Label(row1, text="赛季:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        self._var_season = tk.IntVar(value=5)
+        self._season_combo = ttk.Combobox(
+            row1, textvariable=self._var_season, state="readonly", width=6,
+            values=[str(s) for s in self.SUPPORTED_SEASONS],
+        )
+        self._season_combo.pack(side=tk.LEFT, padx=(0, 15))
+        self._season_combo.bind("<<ComboboxSelected>>", self._on_season_change)
+
+        ttk.Label(row1, text="阶段:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        self._var_stage = tk.IntVar(value=100)
+        self._stage_spinbox = ttk.Spinbox(
+            row1, from_=1, to=100, textvariable=self._var_stage, width=6,
+            command=self._on_stage_change,
+        )
+        self._stage_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+        self._stage_spinbox.bind("<Return>", lambda e: self._on_stage_change())
+
+        ttk.Label(row1, text="弱点属性:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        self._weakness_label = ttk.Label(row1, text="--", font=("Microsoft YaHei UI", 9, "bold"))
+        self._weakness_label.pack(side=tk.LEFT, padx=(0, 15))
+
+        ttk.Label(row1, text="最大回合:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        self._max_turn_label = ttk.Label(row1, text="--", font=("Microsoft YaHei UI", 9, "bold"))
+        self._max_turn_label.pack(side=tk.LEFT)
+
+        # ── 敌方阵容预览（2x3网格，参考己方编队布局） ──
+        enemy_frame = ttk.LabelFrame(f, text="敌方阵容（点击头像查看详情）")
+        enemy_frame.pack(pady=5, fill="x", padx=10)
+
+        self._enemy_grid_frame = tk.Frame(enemy_frame, bg=s["bg"])
+        self._enemy_grid_frame.pack(fill="x", padx=5, pady=5)
+        self._enemy_slots: List[Optional[Dict[str, Any]]] = [None] * 6
+        self._enemy_grid_widgets: List[Dict[str, Any]] = []
+
+        enemy_slot_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
+        for i, label in enumerate(enemy_slot_labels):
+            frame = tk.Frame(self._enemy_grid_frame, bg=s["bg"],
+                              highlightbackground=s["border"], highlightthickness=1)
+            r = 0 if i >= 3 else 1
+            c = i % 3
+            frame.grid(row=r, column=c, padx=3, pady=3)
+            frame.grid_propagate(False)
+            frame.configure(width=164, height=140)
+            pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
+            pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
+
+            slot = self._build_enemy_slot(frame, i)
+            slot["frame"].grid(row=1, column=0, padx=5, pady=(2, 2))
+            slot["outer_frame"] = frame
+            self._enemy_grid_widgets.append(slot)
+
+        # ── 己方编队 + 己方回忆卡（同行） ──
+        ally_main = tk.Frame(f, bg=s["bg"])
+        ally_main.pack(pady=(5, 0), fill="x", padx=10)
+        self._ally_main = ally_main
+
+        ttk.Label(ally_main, text="=== 己方编队 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
+
+        ally_form_frame = tk.Frame(ally_main, bg=s["bg"])
+        ally_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
+        self._ally_form_frame = ally_form_frame
+
+        friend_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
+        for i, label in enumerate(friend_labels):
+            frame = tk.Frame(ally_form_frame, bg=s["bg"], highlightbackground=s["border"], highlightthickness=1)
+            r = 1 if i >= 3 else 0
+            c = i % 3
+            frame.grid(row=r, column=c, padx=3, pady=3)
+            frame.grid_propagate(False)
+            frame.configure(width=164, height=140)
+            pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
+            pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
+            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["bg"],
+                                  font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
+            clear_btn.grid(row=0, column=1, sticky="e", padx=(0, 3))
+            clear_btn.bind("<Button-1>", lambda e, idx=i: self._clear_slot_by_idx(idx))
+            clear_btn.grid_remove()
+            slot = self._build_slot(frame, i)
+            slot["frame"].grid(row=1, column=0, columnspan=2, padx=5, pady=(2, 2))
+            slot["clear_btn"] = clear_btn
+            slot["outer_frame"] = frame
+            self.friend_slots.append(slot)
+
+        ttk.Label(ally_main, text="=== 己方回忆卡 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
+            row=0, column=3, sticky="w", pady=(5, 5), padx=(15, 0))
+
+        ally_mem_frame = tk.Frame(ally_main, bg=s["bg"])
+        ally_mem_frame.grid(row=1, column=3, sticky="n", padx=(15, 0))
+        self._ally_mem_frame = ally_mem_frame
+        for i in range(6):
+            r, c = divmod(i, 2)
+            slot = self._build_mem_slot(ally_mem_frame, i)
+            slot["frame"].grid(row=r, column=c, padx=2, pady=2)
+            self.mem_friend_slots.append(slot)
+
+        # ── 配置预设管理 ──
+        preset_frame = ttk.LabelFrame(f, text="配置预设（保存/加载当前阵容+阶段+回忆卡）")
+        preset_frame.pack(pady=5, fill="x", padx=10)
+
+        self._circle_preset_listbox = tk.Listbox(preset_frame, height=4,
+                                                  bg=_DARK_INPUT_BG, fg=_DARK_FG,
+                                                  selectbackground=_DARK_ACCENT, selectforeground="#1e1e2e",
+                                                  borderwidth=0, highlightthickness=0,
+                                                  font=("Microsoft YaHei UI", 9))
+        self._circle_preset_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        preset_btn_frame = ttk.Frame(preset_frame)
+        preset_btn_frame.pack(side=tk.RIGHT, padx=5, pady=5)
+        ttk.Button(preset_btn_frame, text="保存", command=self._save_circle_preset).pack(fill="x", pady=2)
+        ttk.Button(preset_btn_frame, text="加载", command=self._load_circle_preset).pack(fill="x", pady=2)
+        ttk.Button(preset_btn_frame, text="删除", command=self._delete_circle_preset).pack(fill="x", pady=2)
+        self._circle_preset_name_var = tk.StringVar(value="配置1")
+        ttk.Entry(preset_btn_frame, textvariable=self._circle_preset_name_var, width=14).pack(fill="x", pady=2)
+
+        self._refresh_circle_presets()
+
+        # ── 战斗设置 ──
+        battle_frame = ttk.LabelFrame(f, text="")
+        battle_frame.pack(pady=(2, 5), fill="x", padx=10)
+
+        ttk.Label(battle_frame, text="模拟次数:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self._var_sim_count = tk.IntVar(value=100)
+        ttk.Spinbox(battle_frame, from_=1, to=99999, textvariable=self._var_sim_count, width=8).grid(
+            row=0, column=1, padx=5, sticky="w")
+
+        self._start_btn = ttk.Button(battle_frame, text="▶ 开始批量模拟", command=self._start_battle, width=18)
+        self._start_btn.grid(row=0, column=2, padx=5, pady=5)
+        self._log_btn = ttk.Button(battle_frame, text="📋 单次战斗+日志", command=self._start_single_battle_with_log, width=18)
+        self._log_btn.grid(row=0, column=3, padx=5, pady=5)
+        self._progress_var = tk.StringVar(value="")
+        ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
+
+        # ── 结果输出 ──
+        right_frame = ttk.Frame(paned)
+        paned.add(right_frame, weight=1)
+
+        ttk.Label(right_frame, text="战斗结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
+        self._result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
+                                                      font=("Cascadia Mono", 10),
+                                                      bg=_DARK_INPUT_BG, fg=_DARK_FG,
+                                                      insertbackground=_DARK_FG,
+                                                      selectbackground=_DARK_SELECT_BG,
+                                                      selectforeground=_DARK_SELECT_FG)
+        self._result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 初始化敌方预览
+        self._on_stage_change()
+
+    # ── 赛季/阶段切换 ──
+
+    def _on_season_change(self, event=None):
+        self._on_stage_change()
+
+    def _on_stage_change(self, event=None):
+        """阶段变更时刷新敌方阵容预览"""
+        season = self._var_season.get()
+        stage = self._var_stage.get()
+
+        stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
+        if not stage_data:
+            self._weakness_label.config(text="--")
+            self._max_turn_label.config(text="--")
+            self._clear_enemy_preview()
+            return
+
+        attr_names = {1: "火", 2: "水", 3: "风", 4: "土", 5: "光", 6: "暗"}
+        weakness = stage_data.get("weakness_attribute")
+        self._weakness_label.config(text=attr_names.get(weakness, "?"))
+        self._max_turn_label.config(text=str(stage_data.get("max_turn", 5)))
+
+        self._refresh_enemy_preview(stage_data)
+
+    def _clear_enemy_preview(self):
+        """清空所有敌方槽位"""
+        self._enemy_slots = [None] * 6
+        for widget in self._enemy_grid_widgets:
+            self._update_enemy_slot_display(widget, None)
+
+    def _refresh_enemy_preview(self, stage_data: Dict):
+        """刷新敌方阵容预览（2x3网格）"""
+        enemies = stage_data.get("enemies", [])
+
+        # 先清空所有槽位
+        self._enemy_slots = [None] * 6
+
+        # 按slot填充敌方数据
+        for enemy in enemies:
+            slot_idx = enemy.get("slot", 1) - 1  # slot 1-6 → index 0-5
+            if 0 <= slot_idx < 6:
+                self._enemy_slots[slot_idx] = enemy
+
+        # 更新所有槽位显示
+        for i, widget in enumerate(self._enemy_grid_widgets):
+            enemy_data = self._enemy_slots[i]
+            self._update_enemy_slot_display(widget, enemy_data)
+
+    def _build_enemy_slot(self, parent, slot_idx):
+        """构建单个敌方槽位（横版头像，可点击查看详情）"""
+        BANNER_W, BANNER_H = 154, 76
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"])
+
+        avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
+                                   bg=s["bg"], highlightthickness=0,
+                                   cursor="hand2")
+        avatar_canvas.pack()
+        avatar_canvas._banner_photo = None
+
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
+                               font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
+                               justify="center", height=2)
+
+        # 点击打开详情弹窗
+        for widget in [slot_frame, avatar_canvas, name_label]:
+            widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_enemy_detail(idx))
+
+        return {"frame": slot_frame, "avatar_label": avatar_canvas,
+                "name_label": name_label, "slot_idx": slot_idx}
+
+    def _update_enemy_slot_display(self, widget, enemy_data):
+        """更新敌方槽位显示"""
+        canvas = widget["avatar_label"]
+        name_label = widget["name_label"]
+        s = self.app._get_scheme()
+        BANNER_W, BANNER_H = 154, 76
+
+        # 无论是否有敌人，都同步主题色（bg/fg）
+        name_label.config(bg=s["bg"], fg=s["fg"])
+
+        canvas.delete("all")
+        canvas.config(bg=s["bg"])
+        canvas._banner_photo = None
+
+        if enemy_data is None:
+            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="空位",
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name_label.config(text="")
+            name_label.pack_forget()
+        else:
+            model_id = enemy_data.get("model_asset_id", "")
+            photo = self._load_enemy_avatar(model_id)
+            if photo:
+                canvas._banner_photo = photo
+                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
+            else:
+                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="无头像",
+                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name = enemy_data.get("name", "???")
+            name_label.config(text=name)
+            name_label.pack(pady=(1, 0))
+
+    def _load_enemy_avatar(self, model_asset_id: str):
+        """加载敌方头像（按ModelAssetId命名）"""
+        if not model_asset_id:
+            return None
+        from PIL import Image
+        BANNER_W, BANNER_H = 154, 76
+
+        avatar_path = ENEMY_IMAGE_DIR / f"{model_asset_id}.png"
+        if not avatar_path.exists():
+            return None
+        try:
+            pil_img = Image.open(avatar_path)
+            # 原图为300x144，按比例缩放到154x76
+            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            pil_img.save(tmp_path, "PNG")
+            photo = tk.PhotoImage(file=tmp_path)
+            os.unlink(tmp_path)
+            return photo
+        except Exception:
+            return None
+
+    def _open_enemy_detail(self, slot_idx):
+        """打开敌方详情弹窗"""
+        if slot_idx < 0 or slot_idx >= 6:
+            return
+        enemy_data = self._enemy_slots[slot_idx]
+        if enemy_data is None:
+            return
+        dialog = EnemyDetailDialog(self, self.app, enemy_data, title="敌方详情")
+        self.wait_window(dialog)
+
+    # ── 己方可视化编队方法（参考TacticalExerciseTab） ──
+
+    def _build_slot(self, parent, slot_idx):
+        """构建单个编队槽位（横版头像 300:144 比例）"""
+        BANNER_W, BANNER_H = 154, 76
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"])
+
+        avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
+                                   bg=s["bg"], highlightthickness=0,
+                                   cursor="hand2")
+        avatar_canvas.pack()
+        avatar_canvas._banner_photo = None
+
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
+                               font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
+                               justify="center", height=2)
+
+        for widget in [slot_frame, avatar_canvas, name_label]:
+            widget.bind("<ButtonPress-1>", lambda e, s=slot_idx: self._on_drag_start(e, s))
+            widget.bind("<B1-Motion>", lambda e, s=slot_idx: self._on_drag_motion(e, s))
+            widget.bind("<ButtonRelease-1>", lambda e, s=slot_idx: self._on_drag_release(e, s))
+
+        return {"cid": None, "frame": slot_frame, "avatar_label": avatar_canvas,
+                "name_label": name_label, "clear_btn": None,
+                "slot_idx": slot_idx}
+
+    def _build_mem_slot(self, parent, slot_idx):
+        """构建单个回忆卡槽位"""
+        CARD_W, CARD_H = 120, 68
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
+                              highlightbackground=s["border"], highlightthickness=1,
+                              cursor="hand2")
+
+        card_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
+                                bg=s["bg"], highlightthickness=0)
+        card_canvas.pack(padx=2, pady=2)
+        card_canvas._card_photo = None
+        card_canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                fill=s["border"], font=("Microsoft YaHei UI", 8))
+
+        clear_btn = tk.Label(slot_frame, text="\u00d7", fg="white", bg="#cc3333",
+                              font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2",
+                              padx=3, pady=0, bd=0)
+        clear_btn.bind("<Button-1>", lambda e, idx=slot_idx: self._clear_mem_slot(idx))
+
+        for widget in [slot_frame, card_canvas]:
+            widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_mem_picker(idx))
+
+        return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
+                "name_label": None, "clear_btn": clear_btn,
+                "slot_idx": slot_idx}
+
+    def _on_drag_start(self, event, slot_idx):
+        source_slot = self.friend_slots[slot_idx]
+        self._drag_source = {"slot_idx": slot_idx,
+                              "has_char": source_slot["cid"] is not None}
+        self._drag_start_x = event.x_root
+        self._drag_start_y = event.y_root
+        self._drag_moved = False
+
+        if source_slot["cid"] is not None:
+            preview = tk.Toplevel(self)
+            preview.overrideredirect(True)
+            preview.attributes("-topmost", True)
+            preview.attributes("-alpha", 0.7)
+            preview_label = tk.Label(preview, text="拖拽中...", bg=_DARK_ACCENT, fg="#1e1e2e",
+                                      font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5)
+            preview_label.pack()
+            self._drag_preview = preview
+        else:
+            self._drag_preview = None
+
+    def _on_drag_motion(self, event, slot_idx):
+        if not hasattr(self, "_drag_source") or self._drag_source is None:
+            return
+        dx = abs(event.x_root - self._drag_start_x)
+        dy = abs(event.y_root - self._drag_start_y)
+        if dx < 5 and dy < 5:
+            return
+        self._drag_moved = True
+        if hasattr(self, "_drag_preview") and self._drag_preview:
+            self._drag_preview.geometry(f"+{event.x_root + 15}+{event.y_root + 15}")
+
+    def _on_drag_release(self, event, slot_idx):
+        if not hasattr(self, "_drag_source") or self._drag_source is None:
+            return
+
+        if hasattr(self, "_drag_preview") and self._drag_preview:
+            self._drag_preview.destroy()
+            self._drag_preview = None
+
+        src = self._drag_source
+        self._drag_source = None
+
+        if not src["has_char"] or not self._drag_moved:
+            self._open_char_picker(src["slot_idx"])
+            return
+
+        target_widget = self.winfo_containing(event.x_root, event.y_root)
+        if target_widget is None:
+            return
+
+        target_slot = None
+        found_idx = None
+        widget = target_widget
+        while widget is not None:
+            for idx, slot in enumerate(self.friend_slots):
+                if widget is slot["frame"]:
+                    target_slot = slot
+                    found_idx = idx
+                    break
+            if target_slot:
+                break
+            widget = widget.master
+
+        if target_slot is None:
+            return
+
+        src_slot = self.friend_slots[src["slot_idx"]]
+        src_cid = src_slot["cid"]
+        dst_cid = target_slot["cid"]
+
+        if src["slot_idx"] == found_idx:
+            return
+
+        if dst_cid is not None:
+            self._set_slot_char(target_slot, src_cid)
+            self._set_slot_char(src_slot, dst_cid)
+        else:
+            self._set_slot_char(target_slot, src_cid)
+            self._clear_slot(src_slot)
+
+    def _open_char_picker(self, slot_idx):
+        dialog = CharacterPickerDialog(self, self.app, title="选择角色")
+        self.wait_window(dialog)
+        if dialog.result is not None:
+            self._set_slot_char(self.friend_slots[slot_idx], dialog.result)
+
+    def _open_mem_picker(self, slot_idx):
+        exclude = set()
+        for s in self.mem_friend_slots:
+            if s["mid"] is not None:
+                exclude.add(s["mid"])
+        current_mid = self.mem_friend_slots[slot_idx]["mid"]
+        exclude.discard(current_mid)
+
+        dlg = MemoryPickerDialog(self, self.app, title="选择回忆卡", exclude_ids=exclude)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self._set_mem_slot(slot_idx, dlg.result)
+
+    def _set_slot_char(self, slot, cid):
+        slot["cid"] = cid
+        self._update_slot_display(slot, cid)
+
+    def _clear_slot(self, slot):
+        slot["cid"] = None
+        self._update_slot_display(slot, None)
+
+    def _clear_slot_by_idx(self, slot_idx):
+        self._clear_slot(self.friend_slots[slot_idx])
+
+    def _update_slot_display(self, slot, cid):
+        canvas = slot["avatar_label"]
+        name_label = slot["name_label"]
+        s = self.app._get_scheme()
+        BANNER_W, BANNER_H = 154, 76
+
+        canvas.delete("all")
+        canvas.config(bg=s["bg"])
+        canvas._banner_photo = None
+
+        if cid is None:
+            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="点击选择",
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name_label.config(text="")
+            name_label.pack_forget()
+            self._set_clear_btn_visible(slot, False)
+        else:
+            char = self.app.data_loader.get_character_by_id(cid)
+            if not char:
+                self._clear_slot(slot)
+                return
+            photo = self._load_slot_avatar(cid)
+            if photo:
+                canvas._banner_photo = photo
+                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
+            else:
+                slot_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
+                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text=slot_text,
+                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name = self.app.format_char_name(char)
+            name_label.config(text=name)
+            name_label.pack(pady=(1, 0))
+            self._set_clear_btn_visible(slot, True)
+
+    def _set_clear_btn_visible(self, slot, visible):
+        clear_btn = slot.get("clear_btn")
+        if clear_btn is None:
+            return
+        if visible:
+            try:
+                clear_btn.grid()
+            except Exception:
+                pass
+        else:
+            try:
+                clear_btn.grid_remove()
+            except Exception:
+                pass
+
+    def _load_slot_avatar(self, cid):
+        from PIL import Image
+        BANNER_W, BANNER_H = 154, 76
+
+        banner_path = BANNER_DIR / f"{cid}.png"
+        if banner_path.exists():
+            try:
+                pil_img = Image.open(banner_path)
+                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = tmp.name
+                pil_img.save(tmp_path, "PNG")
+                photo = tk.PhotoImage(file=tmp_path)
+                os.unlink(tmp_path)
+                return photo
+            except Exception:
+                pass
+
+        avatar_path = AVATAR_DIR / f"{cid}.png"
+        if not avatar_path.exists():
+            return None
+        try:
+            pil_img = Image.open(avatar_path)
+            w, h = pil_img.size
+            crop_h = int(w * BANNER_H / BANNER_W)
+            if crop_h > h:
+                crop_h = h
+            top = (h - crop_h) // 2
+            pil_img = pil_img.crop((0, top, w, top + crop_h))
+            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            pil_img.save(tmp_path, "PNG")
+            photo = tk.PhotoImage(file=tmp_path)
+            os.unlink(tmp_path)
+            return photo
+        except Exception:
+            return None
+
+    def _set_mem_slot(self, slot_idx, mid):
+        CARD_W, CARD_H = 120, 68
+        s = self.app._get_scheme()
+        slot = self.mem_friend_slots[slot_idx]
+        slot["mid"] = mid
+        canvas = slot["canvas"]
+        clear_btn = slot["clear_btn"]
+
+        card_path = MEMORY_CARD_DIR / f"{mid}.png"
+        if card_path.exists():
+            try:
+                from PIL import Image, ImageTk
+                pil_img = Image.open(card_path)
+                pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(pil_img)
+                canvas.delete("all")
+                canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
+                canvas._card_photo = photo
+            except Exception:
+                canvas.delete("all")
+                canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
+                                   fill=s["fg"], font=("Microsoft YaHei UI", 8))
+        else:
+            canvas.delete("all")
+            canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
+                               fill=s["fg"], font=("Microsoft YaHei UI", 8))
+
+        clear_btn.place(relx=1.0, x=-3, y=3, anchor="ne", in_=canvas)
+        clear_btn.lift()
+
+    def _clear_mem_slot(self, slot_idx):
+        s = self.app._get_scheme()
+        slot = self.mem_friend_slots[slot_idx]
+        slot["mid"] = None
+        canvas = slot["canvas"]
+        clear_btn = slot["clear_btn"]
+        CARD_W, CARD_H = 120, 68
+
+        canvas.delete("all")
+        canvas._card_photo = None
+        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+        clear_btn.place_forget()
+
+    @staticmethod
+    def _parse_memory_card_id(entry: str) -> Optional[int]:
+        if not entry:
+            return None
+        import re
+        m = re.match(r'\[(\d+)\]', entry)
+        if m:
+            return int(m.group(1))
+        return None
+
+    def _build_memory_cards(self, mem_entries: list) -> list:
+        cards = []
+        for entry in mem_entries:
+            card_id = self._parse_memory_card_id(entry)
+            if card_id is None:
+                continue
+            memory_data = self.app.data_loader.get_memory(card_id)
+            if not memory_data:
+                continue
+            highlights = [
+                MemoryHighlight(
+                    character_attribute=hl.character_attribute,
+                    character_base_master_id=hl.character_base_master_id,
+                    character_master_id=hl.character_master_id,
+                    character_role=hl.character_role,
+                    character_team_master_id=hl.character_team_master_id,
+                    character_type=hl.character_type,
+                    is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                    party_position=hl.party_position,
+                    skill_master_id=hl.skill_master_id,
+                )
+                for hl in memory_data.highlights
+            ]
+            cards.append(MemoryCard(
+                card_id=card_id,
+                name=memory_data.name,
+                description=memory_data.description,
+                rarity=memory_data.rarity,
+                highlights=highlights,
+            ))
+        return cards
+
+    def _get_selection(self) -> Dict[str, Any]:
+        """获取当前选择"""
+        friends = []
+        friend_positions = []
+        for slot in self.friend_slots:
+            cid = slot["cid"]
+            friend_positions.append(cid)
+            if cid:
+                friends.append(cid)
+
+        mem_friend_positions = []
+        for slot in self.mem_friend_slots:
+            mid = slot["mid"]
+            if mid is not None:
+                mem = self.app.data_loader.get_memory(mid)
+                mem_friend_positions.append(f"[{mid}] {mem.name}" if mem else f"[{mid}]")
+            else:
+                mem_friend_positions.append("")
+
+        return {
+            "friends": friends,
+            "friend_positions": friend_positions,
+            "mems_friend": [e for e in mem_friend_positions if e],
+            "mem_friend_positions": mem_friend_positions,
+            "season": self._var_season.get(),
+            "stage": self._var_stage.get(),
+        }
+
+    # ── 敌方单位创建 ──
+
+    def _create_circle_battle_enemy(self, enemy_data: Dict) -> UnitState:
+        """创建对抗压制战敌方单位"""
+        pos = enemy_data.get("position", 1)
+        enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_LEFT_FRONT)
+
+        skill_ids = enemy_data.get("skill_ids", [])
+        skill_levels = {sid: 15 for sid in skill_ids}
+
+        max_ep = 0
+        for sid in skill_ids:
+            sk = self.app.data_loader.get_skill_by_id(sid)
+            if sk and sk.skill_type == 3:
+                max_ep = max(max_ep, sk.resource_cost)
+
+        unit_id = f"E_{enemy_data['enemy_id']}_{enemy_data['slot']}"
+
+        return UnitState(
+            unit_id=unit_id,
+            name=enemy_data["name"],
+            side=Side.ENEMY,
+            position=enemy_pos,
+            character_id=enemy_data["enemy_id"],
+            level=enemy_data["level"],
+            element=enemy_data["attribute"],
+            character_type=enemy_data["type"],
+            max_hp=enemy_data["hp"],
+            current_hp=enemy_data["hp"],
+            attack=enemy_data["attack"],
+            defense=enemy_data["defense"],
+            speed=enemy_data["speed"],
+            crit_rate=enemy_data["critical_rate"],
+            crit_damage=0.0,
+            advantage_damage=0.0,
+            initial_active_point=enemy_data.get("action_point", 2),
+            initial_passive_point=enemy_data.get("passive_point", 2),
+            max_extra_point=max_ep,
+            current_ap=enemy_data.get("action_point", 2),
+            current_pp=enemy_data.get("passive_point", 2),
+            current_ep=0,
+            skills=skill_ids,
+            skill_levels=skill_levels,
+            skill_cooldowns={},
+            role_type=enemy_data.get("role_type", 0),
+            position_type=3,
+        )
+
+    # ── 战斗启动 ──
+
+    def _start_battle(self):
+        sel = self._get_selection()
+        if not sel["friends"]:
+            messagebox.showwarning("编队不完整", "请至少为己方选择1个角色")
+            return
+
+        season = sel["season"]
+        stage = sel["stage"]
+        stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
+        if not stage_data:
+            messagebox.showwarning("阶段错误", f"无法加载第{season}赛季阶段{stage}数据")
+            return
+
+        self._start_btn.config(state="disabled")
+        self._log_btn.config(state="disabled")
+        self._result_text.delete("1.0", tk.END)
+        self._result_text.insert(tk.END, f"正在进行对抗压制战 第{season}赛季 阶段{stage}...\n")
+
+        thread = threading.Thread(target=self._run_simulation, args=(sel, stage_data), daemon=True)
+        thread.start()
+
+    def _run_simulation(self, sel, stage_data):
+        try:
+            global_vals = self.app.global_tab.get_values()
+            sim_count = self._var_sim_count.get()
+
+            panel_config = self.app._build_panel_config_from_gui(global_vals)
+
+            friend_positions = sel.get("friend_positions", sel.get("friends", []))
+            enemies_data = stage_data["enemies"]
+            max_turns = stage_data["max_turn"]
+
+            from src.utils.batch_simulator import BatchSimulator
+
+            sim = BatchSimulator(self.app.data_loader)
+
+            def progress_cb(done, total):
+                pct = done / total * 100 if total else 0
+                self.app.root.after(0, lambda d=done, t=total, p=pct:
+                                    self._progress_var.set(f"{d}/{t} ({p:.0f}%)"))
+
+            result = sim.run_batch_circle(
+                panel_config=panel_config,
+                friends_chars=sel.get("friends", []),
+                friend_positions=friend_positions,
+                enemies_data=enemies_data,
+                max_turns=max_turns,
+                total_runs=sim_count,
+                season=sel["season"],
+                stage=sel["stage"],
+                positions_ally=GRID_ALLY_POSITIONS,
+                progress_callback=progress_cb,
+                memory_cards=self._build_memory_cards(sel.get("mems_friend", [])),
+            )
+
+            self.app.root.after(0, lambda: self._display_results(sim_count, result, sel, stage_data))
+        except Exception as e:
+            import traceback
+            err_msg = str(e) + "\n" + traceback.format_exc()
+            self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
+
+    def _display_results(self, sim_count, result, sel, stage_data):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("完成!")
+        self._result_text.delete("1.0", tk.END)
+
+        wins = result.get("wins", 0)
+        losses = result.get("losses", 0)
+        pass_rate = result.get("pass_rate", 0)
+        elapsed = result.get("elapsed", 0)
+        rate = result.get("rate", 0)
+
+        out = []
+        out.append("=" * 60)
+        out.append(f"  对抗压制战结果 - 第{sel['season']}赛季 阶段{sel['stage']}")
+        out.append("=" * 60)
+        out.append(f"  模拟场数: {sim_count}")
+        out.append(f"  通过: {wins}  失败: {losses}")
+        out.append(f"  关卡通过率: {pass_rate:.2%}")
+        if rate > 0:
+            out.append(f"  效率: {rate:.1f} 场/秒 | 耗时 {elapsed:.1f} 秒")
+        out.append("=" * 60)
+
+        # 若通过率 < 100%: 输出未击杀目标的平均每次模拟受到的伤害量
+        if pass_rate < 1.0 and sim_count > 0:
+            failed_enemy_damage = result.get("failed_enemy_damage_received", [])
+            if failed_enemy_damage:
+                avg_failed_damage = sum(failed_enemy_damage) / len(failed_enemy_damage)
+                out.append("")
+                out.append("─" * 60)
+                out.append(f"  【未击杀目标统计】")
+                out.append(f"  失败场次数: {len(failed_enemy_damage)}")
+                out.append(f"  平均每次失败模拟敌方受到的伤害量: {avg_failed_damage:,.1f}")
+                out.append(f"  最高: {max(failed_enemy_damage):,}")
+                out.append(f"  最低: {min(failed_enemy_damage):,}")
+                out.append("─" * 60)
+
+        # 单位统计（取所有场次的平均值）
+        all_unit_stats = result.get("all_unit_stats", [])
+        if all_unit_stats:
+            out.append("")
+            out.append("─" * 60)
+            out.append(f"  【单位结算数据（场均）】")
+
+            # 聚合每个单位的统计
+            ally_agg = {}
+            enemy_agg = {}
+            for unit_stats in all_unit_stats:
+                for uid, stats in unit_stats.items():
+                    target = ally_agg if stats.get("side") == "ally" else enemy_agg
+                    if uid not in target:
+                        target[uid] = {
+                            "name": stats.get("name", uid),
+                            "damage_dealt": 0,
+                            "damage_received": 0,
+                            "hp_healed": 0,
+                            "hp_received": 0,
+                            "count": 0,
+                        }
+                    target[uid]["damage_dealt"] += stats.get("damage_dealt", 0)
+                    target[uid]["damage_received"] += stats.get("damage_received", 0)
+                    target[uid]["hp_healed"] += stats.get("hp_healed", 0)
+                    target[uid]["hp_received"] += stats.get("hp_received", 0)
+                    target[uid]["count"] += 1
+
+            n = len(all_unit_stats)
+
+            if ally_agg:
+                out.append("")
+                out.append(f"  【我方角色明细】")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+                for uid, s in ally_agg.items():
+                    name = s["name"][:18]
+                    out.append(f"    {_cjk_fit(name, 20)} "
+                               f"{s['damage_dealt'] / n:>12,.1f} "
+                               f"{s['damage_received'] / n:>12,.1f} "
+                               f"{s['hp_healed'] / n:>12,.1f} "
+                               f"{s['hp_received'] / n:>12,.1f}")
+
+            if enemy_agg:
+                out.append("")
+                out.append(f"  【敌方角色明细】")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+                for uid, s in enemy_agg.items():
+                    name = s["name"][:18]
+                    out.append(f"    {_cjk_fit(name, 20)} "
+                               f"{s['damage_dealt'] / n:>12,.1f} "
+                               f"{s['damage_received'] / n:>12,.1f} "
+                               f"{s['hp_healed'] / n:>12,.1f} "
+                               f"{s['hp_received'] / n:>12,.1f}")
+
+            # 合计
+            out.append("")
+            out.append(f"  【合计（场均）】")
+            ally_dmg = sum(s["damage_dealt"] for s in ally_agg.values()) / n
+            ally_recv = sum(s["damage_received"] for s in ally_agg.values()) / n
+            ally_heal = sum(s["hp_healed"] for s in ally_agg.values()) / n
+            enemy_dmg = sum(s["damage_dealt"] for s in enemy_agg.values()) / n
+            enemy_recv = sum(s["damage_received"] for s in enemy_agg.values()) / n
+            enemy_heal = sum(s["hp_healed"] for s in enemy_agg.values()) / n
+            out.append(f"    我方 - 造成伤害: {ally_dmg:,.1f}  受到伤害: {ally_recv:,.1f}  提供回复: {ally_heal:,.1f}")
+            out.append(f"    敌方 - 造成伤害: {enemy_dmg:,.1f}  受到伤害: {enemy_recv:,.1f}  提供回复: {enemy_heal:,.1f}")
+            out.append("─" * 60)
+
+        self._result_text.insert(tk.END, "\n".join(out))
+
+    def _display_error(self, msg):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("错误!")
+        self._result_text.insert(tk.END, f"\n❌ 战斗出错:\n{msg}\n")
+
+    # ── 单次战斗+日志 ──
+
+    def _start_single_battle_with_log(self):
+        sel = self._get_selection()
+        if not sel["friends"]:
+            messagebox.showwarning("编队不完整", "请至少为己方选择1个角色")
+            return
+
+        season = sel["season"]
+        stage = sel["stage"]
+        stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
+        if not stage_data:
+            messagebox.showwarning("阶段错误", f"无法加载第{season}赛季阶段{stage}数据")
+            return
+
+        self._start_btn.config(state="disabled")
+        self._log_btn.config(state="disabled")
+        self._result_text.delete("1.0", tk.END)
+        self._result_text.insert(tk.END, f"正在单次战斗并生成日志 第{season}赛季 阶段{stage}...\n")
+
+        thread = threading.Thread(target=self._run_single_with_log, args=(sel, stage_data), daemon=True)
+        thread.start()
+
+    def _run_single_with_log(self, sel, stage_data):
+        try:
+            global_vals = self.app.global_tab.get_values()
+
+            panel_config = self.app._build_panel_config_from_gui(global_vals)
+            player_config = panel_config.get_player_config()
+            lerp_data = self.app.data_loader.load_level_lerp_data()
+            stat_calculator = StatCalculator(lerp_data, data_loader=self.app.data_loader)
+
+            narrative = BattleNarrativeWriter()
+
+            friend_positions = sel.get("friend_positions", sel.get("friends", []))
+            bf = BattlefieldState()
+
+            for i, cid in enumerate(friend_positions):
+                if cid is not None:
+                    u = self.app._create_unit(panel_config, player_config, stat_calculator,
+                                              cid, Side.ALLY, GRID_ALLY_POSITIONS[i])
+                    if u:
+                        bf.add_unit(u)
+
+            for enemy_data in stage_data["enemies"]:
+                enemy_unit = self._create_circle_battle_enemy(enemy_data)
+                if enemy_unit:
+                    bf.add_unit(enemy_unit)
+
+            bf.memory_cards = self._build_memory_cards(sel.get("mems_friend", []))
+
+            seed = int(time.time() * 1000000) % (2**31)
+            random.seed(seed)
+
+            config = BattleConfig()
+            config.max_turns = stage_data["max_turn"]
+
+            from src.combat_v2.circle_battle_controller import CircleBattleController
+            controller = CircleBattleController(bf, data_loader=self.app.data_loader,
+                                                config=config, narrative=narrative,
+                                                season=sel["season"], stage=sel["stage"])
+            result = controller.execute_battle()
+
+            log_dir = _BASE_PATH / "data" / "battle_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"circle_battle_s{sel['season']}_st{sel['stage']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            narrative.write(str(log_path))
+
+            winner = result.get('winner')
+            if winner == 'FRIEND':
+                winner_text = "胜利"
+            elif winner == 'ENEMY':
+                winner_text = "失败"
+            else:
+                winner_text = "超时"
+
+            turns = result["total_turns"]
+            score_data = result.get("score")
+
+            self.app.root.after(0, lambda: self._display_single_result(
+                winner_text, turns, str(log_path), score_data, sel, stage_data))
+        except Exception as e:
+            import traceback
+            err_msg = str(e) + "\n" + traceback.format_exc()
+            self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
+
+    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("完成!")
+        self._result_text.delete("1.0", tk.END)
+        out = []
+        out.append("=" * 60)
+        out.append(f"  对抗压制战 第{sel['season']}赛季 阶段{sel['stage']}: {winner_text}")
+        out.append(f"  总回合数: {turns}")
+        out.append(f"  日志文件: {log_path}")
+        out.append("=" * 60)
+
+        if score_data:
+            self._append_score_display(out, score_data)
+
+        self._result_text.insert(tk.END, "\n".join(out))
+
+    def _append_score_display(self, out: list, score_data: dict):
+        """追加计分统计到输出列表"""
+        out.append("")
+        out.append("─" * 60)
+        out.append(f"  【结算数据】")
+
+        # 我方统计
+        out.append(f"  【我方合计】")
+        out.append(f"    造成伤害: {score_data.get('ally_total_damage_dealt', 0):,}")
+        out.append(f"    受到伤害: {score_data.get('ally_total_damage_received', 0):,}")
+        out.append(f"    提供回复: {score_data.get('ally_total_hp_healed', 0):,}")
+        out.append("")
+
+        # 敌方统计
+        out.append(f"  【敌方合计】")
+        out.append(f"    造成伤害: {score_data.get('enemy_total_damage_dealt', 0):,}")
+        out.append(f"    受到伤害: {score_data.get('enemy_total_damage_received', 0):,}")
+        out.append(f"    提供回复: {score_data.get('enemy_total_hp_healed', 0):,}")
+        out.append("")
+
+        # 单位明细
+        unit_stats = score_data.get("unit_stats", {})
+        ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
+        enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
+
+        if ally_units:
+            out.append(f"  【我方角色明细】")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+            for uid, s in ally_units.items():
+                name = s.get("name", uid)[:18]
+                out.append(f"    {_cjk_fit(name, 20)} "
+                           f"{s['damage_dealt']:>12,} "
+                           f"{s['damage_received']:>12,} "
+                           f"{s['hp_healed']:>12,} "
+                           f"{s.get('hp_received', 0):>12,}")
+
+        if enemy_units:
+            out.append(f"")
+            out.append(f"  【敌方角色明细】")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+            for uid, s in enemy_units.items():
+                name = s.get("name", uid)[:18]
+                out.append(f"    {_cjk_fit(name, 20)} "
+                           f"{s['damage_dealt']:>12,} "
+                           f"{s['damage_received']:>12,} "
+                           f"{s['hp_healed']:>12,} "
+                           f"{s.get('hp_received', 0):>12,}")
+
+        out.append("─" * 60)
+
+    # ── 配置预设管理 ──
+
+    def _refresh_circle_presets(self):
+        try:
+            self._circle_preset_listbox.delete(0, tk.END)
+            if CIRCLE_PRESET_DIR.exists():
+                for f in sorted(CIRCLE_PRESET_DIR.glob("*.json")):
+                    self._circle_preset_listbox.insert(tk.END, f.stem)
+        except Exception:
+            pass
+
+    def _save_circle_preset(self):
+        CIRCLE_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+        name = self._circle_preset_name_var.get().strip()
+        if not name:
+            messagebox.showwarning("名称为空", "请输入预设名称")
+            return
+        sel = self._get_selection()
+        path = CIRCLE_PRESET_DIR / f"{name}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(sel, f, ensure_ascii=False, indent=2)
+        self._refresh_circle_presets()
+
+    def _load_circle_preset(self):
+        sel_idx = self._circle_preset_listbox.curselection()
+        if not sel_idx:
+            messagebox.showwarning("未选择", "请先选择一个预设")
+            return
+        name = self._circle_preset_listbox.get(sel_idx[0])
+        path = CIRCLE_PRESET_DIR / f"{name}.json"
+        if not path.exists():
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # 恢复赛季/阶段
+        if "season" in data:
+            self._var_season.set(data["season"])
+        if "stage" in data:
+            self._var_stage.set(data["stage"])
+        self._on_stage_change()
+
+        # 恢复己方编队
+        friend_positions = data.get("friend_positions", [])
+        for i, cid in enumerate(friend_positions):
+            if i < len(self.friend_slots):
+                if cid is None:
+                    self._clear_slot(self.friend_slots[i])
+                else:
+                    self._set_slot_char(self.friend_slots[i], cid)
+
+        # 恢复回忆卡
+        mem_positions = data.get("mem_friend_positions", [])
+        for i, entry in enumerate(mem_positions):
+            if i < len(self.mem_friend_slots):
+                mid = self._parse_memory_card_id(entry)
+                if mid is None:
+                    self._clear_mem_slot(i)
+                else:
+                    self._set_mem_slot(i, mid)
+
+    def _delete_circle_preset(self):
+        sel_idx = self._circle_preset_listbox.curselection()
+        if not sel_idx:
+            return
+        name = self._circle_preset_listbox.get(sel_idx[0])
+        path = CIRCLE_PRESET_DIR / f"{name}.json"
+        if path.exists():
+            os.remove(path)
+            self._refresh_circle_presets()
+
+
+# ────────────────────────────── 联合战术演习 ──────────────────────────────
+
+
+class JointTacticExerciseTab(ttk.Frame):
+    """联合战术演习模式 - 3队依次出战，对BOSS总伤害=分数"""
+
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self._composite_data: Dict[str, Any] = self.app.data_loader.get_composite_tactic_enemies()
+        self._endless_data: Dict[str, Any] = self._composite_data.get("endless", {})
+
+        # 3支队伍的槽位：每队6角色槽 + 6回忆卡槽
+        self._teams_slots: List[List[Dict[str, Any]]] = [[], [], []]
+        self._teams_mem_slots: List[List[Dict[str, Any]]] = [[], [], []]
+        self._current_team_index = 0
+        self._drag_source = None
+        self._drag_preview = None
+
+        # 敌方预览槽位
+        self._enemy_slots: List[Optional[Dict[str, Any]]] = [None] * 6
+        self._enemy_grid_widgets: List[Dict[str, Any]] = []
+
+        self._build()
+
+    # ── UI 构建 ──
+
+    def _build(self):
+        s = self.app._get_scheme()
+        paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        left_frame = ttk.Frame(paned)
+        paned.add(left_frame, weight=4)
+
+        canvas = tk.Canvas(left_frame, bg=s["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def _bind_canvas_width(event):
+            canvas.itemconfig(1, width=event.width)
+
+        canvas.bind("<Configure>", _bind_canvas_width)
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _bind_canvas(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_canvas(event):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_canvas)
+        canvas.bind("<Leave>", _unbind_canvas)
+
+        f = scroll_frame
+
+        # ── 标题 ──
+        ttk.Label(f, text="=== 联合战术演习 ===", font=("Microsoft YaHei UI", 11, "bold")).pack(
+            pady=(10, 5), padx=10, anchor="w")
+
+        # ── 关卡信息 ──
+        info_frame = ttk.LabelFrame(f, text="关卡信息")
+        info_frame.pack(pady=5, fill="x", padx=10)
+
+        info_row = ttk.Frame(info_frame)
+        info_row.pack(padx=5, pady=5, fill="x")
+        ttk.Label(info_row, text="难度:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(info_row, text="ENDLESS", font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(info_row, text="每队最大回合:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        self._max_turn_label = ttk.Label(info_row, text=str(self._endless_data.get("max_turn", 5)),
+                                          font=("Microsoft YaHei UI", 9, "bold"))
+        self._max_turn_label.pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(info_row, text="队伍数:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(info_row, text="3", font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT)
+
+        # ── 敌方阵容预览 ──
+        enemy_frame = ttk.LabelFrame(f, text="敌方阵容（点击头像查看详情，★为BOSS）")
+        enemy_frame.pack(pady=5, fill="x", padx=10)
+
+        self._enemy_grid_frame = tk.Frame(enemy_frame, bg=s["bg"])
+        self._enemy_grid_frame.pack(fill="x", padx=5, pady=5)
+
+        enemy_slot_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
+        for i, label in enumerate(enemy_slot_labels):
+            frame = tk.Frame(self._enemy_grid_frame, bg=s["bg"],
+                              highlightbackground=s["border"], highlightthickness=1)
+            r = 0 if i >= 3 else 1
+            c = i % 3
+            frame.grid(row=r, column=c, padx=3, pady=3)
+            frame.grid_propagate(False)
+            frame.configure(width=164, height=140)
+            pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
+            pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
+
+            slot = self._build_enemy_slot(frame, i)
+            slot["frame"].grid(row=1, column=0, padx=5, pady=(2, 2))
+            slot["outer_frame"] = frame
+            self._enemy_grid_widgets.append(slot)
+
+        self._refresh_enemy_preview()
+
+        # ── 队伍管理区 ──
+        team_mgmt_frame = ttk.LabelFrame(f, text="队伍管理（出战顺序：队伍1→队伍2→队伍3）")
+        team_mgmt_frame.pack(pady=5, fill="x", padx=10)
+
+        # 上方：队伍列表 + 顺序调整按钮（水平排列）
+        team_list_frame = tk.Frame(team_mgmt_frame, bg=s["bg"])
+        team_list_frame.pack(side=tk.TOP, fill="x", padx=5, pady=(5, 2))
+        self._team_list_frame = team_list_frame
+
+        ttk.Label(team_list_frame, text="队伍列表", font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+
+        self._team_listbox = tk.Listbox(team_list_frame, height=3, width=24,
+                                         bg=_DARK_INPUT_BG, fg=_DARK_FG,
+                                         selectbackground=_DARK_ACCENT, selectforeground="#1e1e2e",
+                                         borderwidth=0, highlightthickness=0,
+                                         font=("Microsoft YaHei UI", 9))
+        self._team_listbox.pack(side=tk.LEFT, fill=tk.Y)
+        self._team_listbox.bind("<<ListboxSelect>>", self._on_team_select)
+
+        # 顺序调整按钮（右侧水平排列）
+        order_btn_frame = tk.Frame(team_list_frame, bg=s["bg"])
+        order_btn_frame.pack(side=tk.LEFT, padx=10)
+        self._order_btn_frame = order_btn_frame
+        ttk.Button(order_btn_frame, text="↑ 上移", command=lambda: self._move_team(-1), width=8).grid(row=0, column=0, padx=1, pady=1)
+        ttk.Button(order_btn_frame, text="↓ 下移", command=lambda: self._move_team(1), width=8).grid(row=0, column=1, padx=1, pady=1)
+        ttk.Button(order_btn_frame, text="交换 1↔2", command=lambda: self._swap_teams(0, 1), width=8).grid(row=1, column=0, padx=1, pady=1)
+        ttk.Button(order_btn_frame, text="交换 2↔3", command=lambda: self._swap_teams(1, 2), width=8).grid(row=1, column=1, padx=1, pady=1)
+        ttk.Button(order_btn_frame, text="交换 1↔3", command=lambda: self._swap_teams(0, 2), width=8).grid(row=1, column=2, padx=1, pady=1)
+
+        # 下方：选中队伍的编队面板
+        team_detail_frame = tk.Frame(team_mgmt_frame, bg=s["bg"])
+        team_detail_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=(2, 5))
+        self._team_detail_frame = team_detail_frame
+
+        self._build_team_detail(team_detail_frame)
+
+        # ── 配置预设管理 ──
+        preset_frame = ttk.LabelFrame(f, text="配置预设（保存/加载3队阵容+回忆卡）")
+        preset_frame.pack(pady=5, fill="x", padx=10)
+
+        self._composite_preset_listbox = tk.Listbox(preset_frame, height=4,
+                                                     bg=_DARK_INPUT_BG, fg=_DARK_FG,
+                                                     selectbackground=_DARK_ACCENT, selectforeground="#1e1e2e",
+                                                     borderwidth=0, highlightthickness=0,
+                                                     font=("Microsoft YaHei UI", 9))
+        self._composite_preset_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        preset_btn_frame = ttk.Frame(preset_frame)
+        preset_btn_frame.pack(side=tk.RIGHT, padx=5, pady=5)
+        ttk.Button(preset_btn_frame, text="保存", command=self._save_composite_preset).pack(fill="x", pady=2)
+        ttk.Button(preset_btn_frame, text="加载", command=self._load_composite_preset).pack(fill="x", pady=2)
+        ttk.Button(preset_btn_frame, text="删除", command=self._delete_composite_preset).pack(fill="x", pady=2)
+        self._composite_preset_name_var = tk.StringVar(value="配置1")
+        ttk.Entry(preset_btn_frame, textvariable=self._composite_preset_name_var, width=14).pack(fill="x", pady=2)
+
+        self._refresh_composite_presets()
+
+        # ── 战斗设置 ──
+        battle_frame = ttk.LabelFrame(f, text="")
+        battle_frame.pack(pady=(2, 5), fill="x", padx=10)
+
+        ttk.Label(battle_frame, text="模拟次数:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self._var_sim_count = tk.IntVar(value=100)
+        ttk.Spinbox(battle_frame, from_=1, to=99999, textvariable=self._var_sim_count, width=8).grid(
+            row=0, column=1, padx=5, sticky="w")
+
+        self._start_btn = ttk.Button(battle_frame, text="▶ 开始批量模拟", command=self._start_battle, width=18)
+        self._start_btn.grid(row=0, column=2, padx=5, pady=5)
+        self._log_btn = ttk.Button(battle_frame, text="📋 单次战斗+日志", command=self._start_single_battle_with_log, width=18)
+        self._log_btn.grid(row=0, column=3, padx=5, pady=5)
+        self._progress_var = tk.StringVar(value="")
+        ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
+
+        # ── 结果输出 ──
+        right_frame = ttk.Frame(paned)
+        paned.add(right_frame, weight=1)
+
+        ttk.Label(right_frame, text="战斗结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
+        self._result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
+                                                      font=("Cascadia Mono", 10),
+                                                      bg=_DARK_INPUT_BG, fg=_DARK_FG,
+                                                      insertbackground=_DARK_FG,
+                                                      selectbackground=_DARK_SELECT_BG,
+                                                      selectforeground=_DARK_SELECT_FG)
+        self._result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # 初始化队伍列表显示
+        self._refresh_team_list()
+        self._select_team(0)
+
+    def _build_team_detail(self, parent):
+        """构建选中队伍的编队详情面板"""
+        s = self.app._get_scheme()
+
+        # 队伍标题
+        self._team_title_label = ttk.Label(parent, text="队伍 1", font=("Microsoft YaHei UI", 11, "bold"))
+        self._team_title_label.pack(pady=(0, 5), anchor="w")
+
+        # 角色编队 + 回忆卡（同行）
+        ally_main = tk.Frame(parent, bg=s["bg"])
+        ally_main.pack(fill="x")
+        self._ally_main = ally_main
+
+        ttk.Label(ally_main, text="=== 己方编队 ===", font=("Microsoft YaHei UI", 10, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
+
+        ally_form_frame = tk.Frame(ally_main, bg=s["bg"])
+        ally_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
+        self._ally_form_frame = ally_form_frame
+
+        friend_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
+        for i, label in enumerate(friend_labels):
+            frame = tk.Frame(ally_form_frame, bg=s["bg"], highlightbackground=s["border"], highlightthickness=1)
+            r = 1 if i >= 3 else 0
+            c = i % 3
+            frame.grid(row=r, column=c, padx=3, pady=3)
+            frame.grid_propagate(False)
+            frame.configure(width=164, height=140)
+            pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
+            pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
+            clear_btn = tk.Label(frame, text="\u00d7", fg=s["border"], bg=s["bg"],
+                                  font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
+            clear_btn.grid(row=0, column=1, sticky="e", padx=(0, 3))
+            clear_btn.bind("<Button-1>", lambda e, idx=i: self._clear_slot_by_idx(idx))
+            clear_btn.grid_remove()
+            slot = self._build_slot(frame, i)
+            slot["frame"].grid(row=1, column=0, columnspan=2, padx=5, pady=(2, 2))
+            slot["clear_btn"] = clear_btn
+            slot["outer_frame"] = frame
+            self._teams_slots[self._current_team_index].append(slot)
+
+        ttk.Label(ally_main, text="=== 回忆卡 ===", font=("Microsoft YaHei UI", 10, "bold")).grid(
+            row=0, column=3, sticky="w", pady=(5, 5), padx=(15, 0))
+
+        ally_mem_frame = tk.Frame(ally_main, bg=s["bg"])
+        ally_mem_frame.grid(row=1, column=3, sticky="n", padx=(15, 0))
+        self._ally_mem_frame = ally_mem_frame
+        for i in range(6):
+            r, c = divmod(i, 2)
+            slot = self._build_mem_slot(ally_mem_frame, i)
+            slot["frame"].grid(row=r, column=c, padx=2, pady=2)
+            self._teams_mem_slots[self._current_team_index].append(slot)
+
+        # 为队伍1和2创建slot字典，共享队伍0的GUI组件引用，但数据(cid/mid)独立
+        # 这样切换队伍时_refresh_team_detail_display能用当前队伍数据更新共享GUI组件
+        for team_idx in range(1, 3):
+            for i in range(6):
+                gui_slot = self._teams_slots[0][i]
+                self._teams_slots[team_idx].append({
+                    "cid": None, "frame": gui_slot["frame"],
+                    "avatar_label": gui_slot["avatar_label"],
+                    "name_label": gui_slot["name_label"],
+                    "clear_btn": gui_slot["clear_btn"],
+                    "outer_frame": gui_slot["outer_frame"], "slot_idx": i,
+                })
+                gui_mem_slot = self._teams_mem_slots[0][i]
+                self._teams_mem_slots[team_idx].append({
+                    "mid": None, "frame": gui_mem_slot["frame"],
+                    "canvas": gui_mem_slot["canvas"],
+                    "name_label": gui_mem_slot["name_label"],
+                    "clear_btn": gui_mem_slot["clear_btn"], "slot_idx": i,
+                })
+
+    # ── 敌方预览 ──
+
+    def _refresh_enemy_preview(self):
+        """刷新敌方阵容预览"""
+        enemies = self._endless_data.get("enemies", [])
+        self._enemy_slots = [None] * 6
+
+        for enemy in enemies:
+            slot_idx = enemy.get("slot", 1) - 1
+            if 0 <= slot_idx < 6:
+                self._enemy_slots[slot_idx] = enemy
+
+        for i, widget in enumerate(self._enemy_grid_widgets):
+            enemy_data = self._enemy_slots[i]
+            self._update_enemy_slot_display(widget, enemy_data)
+
+    def _build_enemy_slot(self, parent, slot_idx):
+        """构建单个敌方槽位"""
+        BANNER_W, BANNER_H = 154, 76
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"])
+        avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
+                                   bg=s["bg"], highlightthickness=0, cursor="hand2")
+        avatar_canvas.pack()
+        avatar_canvas._banner_photo = None
+
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
+                               font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
+                               justify="center", height=2)
+
+        for widget in [slot_frame, avatar_canvas, name_label]:
+            widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_enemy_detail(idx))
+
+        return {"frame": slot_frame, "avatar_label": avatar_canvas,
+                "name_label": name_label, "slot_idx": slot_idx}
+
+    def _update_enemy_slot_display(self, widget, enemy_data):
+        """更新敌方槽位显示"""
+        canvas = widget["avatar_label"]
+        name_label = widget["name_label"]
+        s = self.app._get_scheme()
+        BANNER_W, BANNER_H = 154, 76
+
+        name_label.config(bg=s["bg"], fg=s["fg"])
+        canvas.delete("all")
+        canvas.config(bg=s["bg"])
+        canvas._banner_photo = None
+
+        if enemy_data is None:
+            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="空位",
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name_label.config(text="")
+            name_label.pack_forget()
+        else:
+            model_id = enemy_data.get("model_asset_id", "")
+            photo = self._load_enemy_avatar(model_id)
+            if photo:
+                canvas._banner_photo = photo
+                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
+            else:
+                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="无头像",
+                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
+
+            name = enemy_data.get("name", "???")
+            is_boss = enemy_data.get("is_boss", False)
+            if is_boss:
+                name = "★ " + name
+            name_label.config(text=name)
+            name_label.pack(pady=(1, 0))
+
+    def _load_enemy_avatar(self, model_asset_id: str):
+        """加载敌方头像"""
+        if not model_asset_id:
+            return None
+        from PIL import Image
+        BANNER_W, BANNER_H = 154, 76
+
+        avatar_path = ENEMY_IMAGE_DIR / f"{model_asset_id}.png"
+        if not avatar_path.exists():
+            return None
+        try:
+            pil_img = Image.open(avatar_path)
+            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            pil_img.save(tmp_path, "PNG")
+            photo = tk.PhotoImage(file=tmp_path)
+            os.unlink(tmp_path)
+            return photo
+        except Exception:
+            return None
+
+    def _open_enemy_detail(self, slot_idx):
+        """打开敌方详情弹窗"""
+        if slot_idx < 0 or slot_idx >= 6:
+            return
+        enemy_data = self._enemy_slots[slot_idx]
+        if enemy_data is None:
+            return
+        dialog = EnemyDetailDialog(self, self.app, enemy_data, title="敌方详情")
+        self.wait_window(dialog)
+
+    # ── 队伍管理 ──
+
+    def _refresh_team_list(self):
+        """刷新队伍列表显示"""
+        self._team_listbox.delete(0, tk.END)
+        for i in range(3):
+            team_slots = self._teams_slots[i]
+            char_count = sum(1 for s in team_slots if s["cid"] is not None)
+            self._team_listbox.insert(tk.END, f"队伍 {i + 1} ({char_count}/5角色)")
+
+    def _select_team(self, team_index: int):
+        """选中某支队伍并显示其编队"""
+        if team_index < 0 or team_index >= 3:
+            return
+        self._current_team_index = team_index
+        self._team_listbox.selection_clear(0, tk.END)
+        self._team_listbox.selection_set(team_index)
+        self._team_title_label.config(text=f"队伍 {team_index + 1}")
+        self._refresh_team_detail_display()
+
+    def _on_team_select(self, event=None):
+        """队伍列表选中事件"""
+        sel = self._team_listbox.curselection()
+        if sel:
+            self._select_team(sel[0])
+
+    def _refresh_team_detail_display(self):
+        """刷新当前队伍的编队显示"""
+        idx = self._current_team_index
+        for slot in self._teams_slots[idx]:
+            self._update_slot_display(slot, slot["cid"])
+        for slot in self._teams_mem_slots[idx]:
+            self._update_mem_slot_display(slot, slot["mid"])
+
+    def _move_team(self, direction: int):
+        """上移/下移当前队伍（交换出战顺序）"""
+        idx = self._current_team_index
+        new_idx = idx + direction
+        if new_idx < 0 or new_idx >= 3:
+            return
+        self._teams_slots[idx], self._teams_slots[new_idx] = \
+            self._teams_slots[new_idx], self._teams_slots[idx]
+        self._teams_mem_slots[idx], self._teams_mem_slots[new_idx] = \
+            self._teams_mem_slots[new_idx], self._teams_mem_slots[idx]
+        self._select_team(new_idx)
+        self._refresh_team_list()
+
+    def _swap_teams(self, idx1: int, idx2: int):
+        """交换两支队伍"""
+        self._teams_slots[idx1], self._teams_slots[idx2] = \
+            self._teams_slots[idx2], self._teams_slots[idx1]
+        self._teams_mem_slots[idx1], self._teams_mem_slots[idx2] = \
+            self._teams_mem_slots[idx2], self._teams_mem_slots[idx1]
+        self._select_team(idx1)
+        self._refresh_team_list()
+
+    # ── 角色槽位 ──
+
+    def _build_slot(self, parent, slot_idx):
+        """构建单个编队槽位"""
+        BANNER_W, BANNER_H = 154, 76
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"])
+        avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
+                                   bg=s["bg"], highlightthickness=0, cursor="hand2")
+        avatar_canvas.pack()
+        avatar_canvas._banner_photo = None
+
+        name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
+                               font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
+                               justify="center", height=2)
+
+        for widget in [slot_frame, avatar_canvas, name_label]:
+            widget.bind("<ButtonPress-1>", lambda e, s=slot_idx: self._on_drag_start(e, s))
+            widget.bind("<B1-Motion>", lambda e, s=slot_idx: self._on_drag_motion(e, s))
+            widget.bind("<ButtonRelease-1>", lambda e, s=slot_idx: self._on_drag_release(e, s))
+
+        return {"cid": None, "frame": slot_frame, "avatar_label": avatar_canvas,
+                "name_label": name_label, "clear_btn": None, "slot_idx": slot_idx}
+
+    def _build_mem_slot(self, parent, slot_idx):
+        """构建单个回忆卡槽位"""
+        CARD_W, CARD_H = 120, 68
+        s = self.app._get_scheme()
+
+        slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
+                              highlightbackground=s["border"], highlightthickness=1, cursor="hand2")
+        card_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
+                                bg=s["bg"], highlightthickness=0)
+        card_canvas.pack(padx=2, pady=2)
+        card_canvas._card_photo = None
+        card_canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                fill=s["border"], font=("Microsoft YaHei UI", 8))
+
+        clear_btn = tk.Label(slot_frame, text="\u00d7", fg="white", bg="#cc3333",
+                              font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2",
+                              padx=3, pady=0, bd=0)
+        clear_btn.bind("<Button-1>", lambda e, idx=slot_idx: self._clear_mem_slot(idx))
+
+        for widget in [slot_frame, card_canvas]:
+            widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_mem_picker(idx))
+
+        return {"mid": None, "frame": slot_frame, "canvas": card_canvas,
+                "name_label": None, "clear_btn": clear_btn, "slot_idx": slot_idx}
+
+    def _on_drag_start(self, event, slot_idx):
+        team_idx = self._current_team_index
+        source_slot = self._teams_slots[team_idx][slot_idx]
+        self._drag_source = {"team_idx": team_idx, "slot_idx": slot_idx,
+                              "has_char": source_slot["cid"] is not None}
+        self._drag_start_x = event.x_root
+        self._drag_start_y = event.y_root
+        self._drag_moved = False
+
+        if source_slot["cid"] is not None:
+            preview = tk.Toplevel(self)
+            preview.overrideredirect(True)
+            preview.attributes("-topmost", True)
+            preview.attributes("-alpha", 0.7)
+            preview_label = tk.Label(preview, text="拖拽中...", bg=_DARK_ACCENT, fg="#1e1e2e",
+                                      font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5)
+            preview_label.pack()
+            self._drag_preview = preview
+        else:
+            self._drag_preview = None
+
+    def _on_drag_motion(self, event, slot_idx):
+        if not hasattr(self, "_drag_source") or self._drag_source is None:
+            return
+        dx = abs(event.x_root - self._drag_start_x)
+        dy = abs(event.y_root - self._drag_start_y)
+        if dx < 5 and dy < 5:
+            return
+        self._drag_moved = True
+        if hasattr(self, "_drag_preview") and self._drag_preview:
+            self._drag_preview.geometry(f"+{event.x_root + 15}+{event.y_root + 15}")
+
+    def _on_drag_release(self, event, slot_idx):
+        if not hasattr(self, "_drag_source") or self._drag_source is None:
+            return
+
+        if hasattr(self, "_drag_preview") and self._drag_preview:
+            self._drag_preview.destroy()
+            self._drag_preview = None
+
+        src = self._drag_source
+        self._drag_source = None
+
+        if not src["has_char"] or not self._drag_moved:
+            self._open_char_picker(src["slot_idx"])
+            return
+
+        target_widget = self.winfo_containing(event.x_root, event.y_root)
+        if target_widget is None:
+            return
+
+        team_idx = self._current_team_index
+        target_slot = None
+        found_idx = None
+        widget = target_widget
+        while widget is not None:
+            for i, slot in enumerate(self._teams_slots[team_idx]):
+                if widget is slot["frame"]:
+                    target_slot = slot
+                    found_idx = i
+                    break
+            if target_slot:
+                break
+            widget = widget.master
+
+        if target_slot is None:
+            return
+
+        src_slot = self._teams_slots[team_idx][src["slot_idx"]]
+        src_cid = src_slot["cid"]
+        dst_cid = target_slot["cid"]
+
+        if src["slot_idx"] == found_idx:
+            return
+
+        if dst_cid is not None:
+            # 先交换数据，避免_update_slot_display时重复惩罚误判
+            target_slot["cid"] = src_cid
+            src_slot["cid"] = dst_cid
+            self._update_slot_display(target_slot, src_cid)
+            self._update_slot_display(src_slot, dst_cid)
+        else:
+            # 先移动数据
+            target_slot["cid"] = src_cid
+            src_slot["cid"] = None
+            self._update_slot_display(target_slot, src_cid)
+            self._update_slot_display(src_slot, None)
+        self._refresh_team_list()
+
+    def _open_char_picker(self, slot_idx):
+        dialog = CharacterPickerDialog(self, self.app, title="选择角色")
+        self.wait_window(dialog)
+        if dialog.result is not None:
+            team_idx = self._current_team_index
+            self._set_slot_char(self._teams_slots[team_idx][slot_idx], dialog.result)
+            self._refresh_team_list()
+
+    def _open_mem_picker(self, slot_idx):
+        team_idx = self._current_team_index
+        exclude = set()
+        for s in self._teams_mem_slots[team_idx]:
+            if s["mid"] is not None:
+                exclude.add(s["mid"])
+        current_mid = self._teams_mem_slots[team_idx][slot_idx]["mid"]
+        exclude.discard(current_mid)
+
+        dialog = MemoryPickerDialog(self, self.app, title="选择回忆卡", exclude_ids=exclude)
+        self.wait_window(dialog)
+        if dialog.result is not None:
+            self._set_mem_slot(slot_idx, dialog.result)
+
+    def _set_slot_char(self, slot, cid):
+        slot["cid"] = cid
+        self._update_slot_display(slot, cid)
+
+    def _clear_slot(self, slot):
+        slot["cid"] = None
+        self._update_slot_display(slot, None)
+
+    def _clear_slot_by_idx(self, slot_idx):
+        team_idx = self._current_team_index
+        self._clear_slot(self._teams_slots[team_idx][slot_idx])
+        self._refresh_team_list()
+
+    def _update_slot_display(self, slot, cid):
+        canvas = slot["avatar_label"]
+        name_label = slot["name_label"]
+        s = self.app._get_scheme()
+        BANNER_W, BANNER_H = 154, 76
+
+        canvas.delete("all")
+        canvas.config(bg=s["bg"])
+        canvas._banner_photo = None
+
+        if cid is None:
+            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="点击选择",
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name_label.config(text="")
+            name_label.pack_forget()
+            self._set_clear_btn_visible(slot, False)
+        else:
+            char = self.app.data_loader.get_character_by_id(cid)
+            if not char:
+                self._clear_slot(slot)
+                return
+            photo = self._load_slot_avatar(cid)
+            if photo:
+                canvas._banner_photo = photo
+                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
+            else:
+                slot_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
+                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text=slot_text,
+                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
+
+            name = self.app.format_char_name(char)
+            name_label.config(text=name)
+            name_label.pack(pady=(1, 0))
+            self._set_clear_btn_visible(slot, True)
+
+            # 重复角色惩罚：在banner右上角绘制↓50%/↓99%标识
+            penalty = self._get_duplicate_penalty(cid)
+            if penalty:
+                pval = "↓99%" if "99" in penalty else "↓50%"
+                px, py = BANNER_W - 26, 11
+                canvas.create_rectangle(px - 20, py - 8, px + 20, py + 8,
+                                        fill="#cc3333", outline="white", width=1)
+                canvas.create_text(px, py, text=pval, fill="white",
+                                   font=("Microsoft YaHei UI", 7, "bold"))
+
+    def _get_duplicate_penalty(self, cid: int) -> str:
+        """获取角色重复编组惩罚标识
+
+        只对非首次出现的队伍显示惩罚：
+        - 当前队伍是该角色第2次出现：↓50%
+        - 当前队伍是该角色第3次出现：↓99%
+        """
+        # 统计当前队伍之前（不含当前队伍）已出现这个角色的队伍数
+        prior_count = 0
+        for idx in range(self._current_team_index):
+            for slot in self._teams_slots[idx]:
+                if slot["cid"] == cid:
+                    prior_count += 1
+                    break  # 每队只算一次
+
+        if prior_count >= 2:
+            return "×99%"
+        elif prior_count == 1:
+            return "×50%"
+        return ""
+
+    def _set_clear_btn_visible(self, slot, visible):
+        clear_btn = slot.get("clear_btn")
+        if clear_btn is None:
+            return
+        if visible:
+            try:
+                clear_btn.grid()
+            except Exception:
+                pass
+        else:
+            try:
+                clear_btn.grid_remove()
+            except Exception:
+                pass
+
+    def _load_slot_avatar(self, cid):
+        from PIL import Image
+        BANNER_W, BANNER_H = 154, 76
+
+        banner_path = BANNER_DIR / f"{cid}.png"
+        if banner_path.exists():
+            try:
+                pil_img = Image.open(banner_path)
+                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = tmp.name
+                pil_img.save(tmp_path, "PNG")
+                photo = tk.PhotoImage(file=tmp_path)
+                os.unlink(tmp_path)
+                return photo
+            except Exception:
+                pass
+
+        avatar_path = AVATAR_DIR / f"{cid}.png"
+        if avatar_path.exists():
+            try:
+                pil_img = Image.open(avatar_path)
+                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp_path = tmp.name
+                pil_img.save(tmp_path, "PNG")
+                photo = tk.PhotoImage(file=tmp_path)
+                os.unlink(tmp_path)
+                return photo
+            except Exception:
+                pass
+        return None
+
+    # ── 回忆卡槽位 ──
+
+    def _set_mem_slot(self, slot_idx, mid):
+        team_idx = self._current_team_index
+        slot = self._teams_mem_slots[team_idx][slot_idx]
+        slot["mid"] = mid
+        self._update_mem_slot_display(slot, mid)
+
+    def _clear_mem_slot(self, slot_idx):
+        team_idx = self._current_team_index
+        slot = self._teams_mem_slots[team_idx][slot_idx]
+        slot["mid"] = None
+        self._update_mem_slot_display(slot, None)
+
+    def _update_mem_slot_display(self, slot, mid):
+        canvas = slot["canvas"]
+        s = self.app._get_scheme()
+        CARD_W, CARD_H = 120, 68
+
+        canvas.delete("all")
+        canvas.config(bg=s["bg"])
+        canvas._card_photo = None
+
+        if mid is None:
+            canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            try:
+                slot["clear_btn"].place_forget()
+            except Exception:
+                pass
+        else:
+            mem = self.app.data_loader.get_memory(mid)
+            if not mem:
+                slot["mid"] = None
+                self._update_mem_slot_display(slot, None)
+                return
+
+            mem_path = MEMORY_CARD_DIR / f"{mid}.png"
+            if mem_path.exists():
+                from PIL import Image
+                try:
+                    pil_img = Image.open(mem_path)
+                    pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        tmp_path = tmp.name
+                    pil_img.save(tmp_path, "PNG")
+                    photo = tk.PhotoImage(file=tmp_path)
+                    os.unlink(tmp_path)
+                    canvas._card_photo = photo
+                    canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
+                except Exception:
+                    canvas.create_text(CARD_W // 2, CARD_H // 2, text=mem.name[:6],
+                                       fill=s["fg"], font=("Microsoft YaHei UI", 8))
+            else:
+                canvas.create_text(CARD_W // 2, CARD_H // 2, text=mem.name[:6],
+                                   fill=s["fg"], font=("Microsoft YaHei UI", 8))
+
+            try:
+                slot["clear_btn"].place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+            except Exception:
+                pass
+
+    # ── 数据收集 ──
+
+    def _get_selection(self) -> Dict[str, Any]:
+        """获取3支队伍的编队数据"""
+        teams_positions = []
+        teams_mem_ids = []
+        for team_idx in range(3):
+            positions = []
+            for slot in self._teams_slots[team_idx]:
+                positions.append(slot["cid"])
+            teams_positions.append(positions)
+
+            # 保存所有6个槽位的mid（包括None），保留位置信息
+            mem_ids = []
+            for slot in self._teams_mem_slots[team_idx]:
+                mem_ids.append(slot["mid"])
+            teams_mem_ids.append(mem_ids)
+
+        return {
+            "teams_positions": teams_positions,
+            "teams_mem_ids": teams_mem_ids,
+        }
+
+    def _create_composite_enemy(self, enemy_data: Dict) -> UnitState:
+        """创建联合战术演习敌方单位"""
+        pos = enemy_data.get("position", 1)
+        enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_LEFT_FRONT)
+
+        skill_ids = enemy_data.get("skill_ids", [])
+        raw_levels = enemy_data.get("skill_levels", {})
+        skill_levels = {}
+        for sid in skill_ids:
+            sid_str = str(sid)
+            skill_levels[sid] = int(raw_levels.get(sid_str, raw_levels.get(sid, 1)))
+
+        max_ep = 0
+        for sid in skill_ids:
+            sk = self.app.data_loader.get_skill_by_id(sid)
+            if sk and sk.skill_type == 3:
+                max_ep = max(max_ep, sk.resource_cost)
+
+        unit_id = f"E_{enemy_data['enemy_id']}_{enemy_data['slot']}"
+
+        return UnitState(
+            unit_id=unit_id,
+            name=enemy_data["name"],
+            side=Side.ENEMY,
+            position=enemy_pos,
+            character_id=enemy_data["enemy_id"],
+            level=enemy_data["level"],
+            element=enemy_data["attribute"],
+            character_type=enemy_data["type"],
+            max_hp=enemy_data["hp"],
+            current_hp=enemy_data["hp"],
+            attack=enemy_data["attack"],
+            defense=enemy_data["defense"],
+            speed=enemy_data["speed"],
+            crit_rate=enemy_data["critical_rate"],
+            crit_damage=0.0,
+            advantage_damage=0.0,
+            initial_active_point=enemy_data.get("action_point", 2),
+            initial_passive_point=enemy_data.get("passive_point", 2),
+            max_extra_point=max_ep,
+            current_ap=enemy_data.get("action_point", 2),
+            current_pp=enemy_data.get("passive_point", 2),
+            current_ep=0,
+            skills=skill_ids,
+            skill_levels=skill_levels,
+            skill_cooldowns={},
+            role_type=enemy_data.get("role_type", 0),
+            position_type=3,
+        )
+
+    def _build_memory_cards(self, mem_ids: list) -> list:
+        """构建回忆卡对象列表"""
+        cards = []
+        for mid in mem_ids:
+            if mid is None:
+                continue
+            memory_data = self.app.data_loader.get_memory(mid)
+            if not memory_data:
+                continue
+            highlights = [
+                MemoryHighlight(
+                    character_attribute=hl.character_attribute,
+                    character_base_master_id=hl.character_base_master_id,
+                    character_master_id=hl.character_master_id,
+                    character_role=hl.character_role,
+                    character_team_master_id=hl.character_team_master_id,
+                    character_type=hl.character_type,
+                    is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                    party_position=hl.party_position,
+                    skill_master_id=hl.skill_master_id,
+                )
+                for hl in memory_data.highlights
+            ]
+            cards.append(MemoryCard(
+                card_id=mid,
+                name=memory_data.name,
+                description=memory_data.description,
+                rarity=memory_data.rarity,
+                highlights=highlights,
+            ))
+        return cards
+
+    # ── 战斗启动 ──
+
+    def _start_battle(self):
+        sel = self._get_selection()
+        total_chars = sum(sum(1 for c in t if c is not None) for t in sel["teams_positions"])
+        if total_chars == 0:
+            messagebox.showwarning("编队不完整", "请至少为1支队伍选择角色")
+            return
+
+        self._start_btn.config(state="disabled")
+        self._log_btn.config(state="disabled")
+        self._result_text.delete("1.0", tk.END)
+        self._result_text.insert(tk.END, "正在进行联合战术演习批量模拟...\n")
+
+        thread = threading.Thread(target=self._run_simulation, args=(sel,), daemon=True)
+        thread.start()
+
+    def _run_simulation(self, sel):
+        try:
+            global_vals = self.app.global_tab.get_values()
+            sim_count = self._var_sim_count.get()
+
+            panel_config = self.app._build_panel_config_from_gui(global_vals)
+
+            enemies_data = self._endless_data["enemies"]
+            max_turns = self._endless_data["max_turn"]
+
+            from src.utils.batch_simulator import BatchSimulator
+
+            sim = BatchSimulator(self.app.data_loader)
+
+            def progress_cb(done, total):
+                pct = done / total * 100 if total else 0
+                self.app.root.after(0, lambda d=done, t=total, p=pct:
+                                    self._progress_var.set(f"{d}/{t} ({p:.0f}%)"))
+
+            result = sim.run_batch_composite_tactic(
+                panel_config=panel_config,
+                teams_positions=sel["teams_positions"],
+                enemies_data=enemies_data,
+                max_turns=max_turns,
+                total_runs=sim_count,
+                positions_ally=GRID_ALLY_POSITIONS,
+                progress_callback=progress_cb,
+                teams_mem_cards=sel["teams_mem_ids"],
+            )
+
+            self.app.root.after(0, lambda: self._display_results(sim_count, result))
+        except Exception as e:
+            import traceback
+            err_msg = str(e) + "\n" + traceback.format_exc()
+            self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
+
+    def _display_results(self, sim_count, result):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("完成!")
+        self._result_text.delete("1.0", tk.END)
+
+        out = []
+        out.append("=" * 60)
+        out.append("  联合战术演习结果")
+        out.append("=" * 60)
+        out.append(f"  模拟场数: {sim_count}")
+        out.append(f"  平均分数: {result.get('avg_score', 0):,.1f}")
+        out.append(f"  最高分数: {result.get('max_score', 0):,}")
+        out.append(f"  最低分数: {result.get('min_score', 0):,}")
+        out.append(f"  BOSS平均被击杀次数: {result.get('avg_boss_kills', 0):.2f}")
+        out.append(f"  BOSS平均到达阶段: {result.get('avg_boss_stage', 0):.2f}")
+        out.append(f"  平均总回合数: {result.get('avg_turns', 0):.1f}")
+        elapsed = result.get("elapsed", 0)
+        rate = result.get("rate", 0)
+        if rate > 0:
+            out.append(f"  效率: {rate:.1f} 场/秒 | 耗时 {elapsed:.1f} 秒")
+        out.append("=" * 60)
+
+        # 各队平均伤害
+        team_damages = result.get("team_avg_damages", [0, 0, 0])
+        out.append("")
+        out.append("─" * 60)
+        out.append("  【各队伍平均净伤害】")
+        for i, dmg in enumerate(team_damages):
+            out.append(f"    队伍{i + 1}: {dmg:,.1f}")
+        out.append("─" * 60)
+
+        # 按队伍分组的单位统计
+        team_ally_agg = result.get("team_ally_agg", [{}, {}, {}])
+        enemy_agg = result.get("enemy_agg", {})
+        n = sim_count if sim_count > 0 else 1
+
+        for team_idx in range(3):
+            team_units = team_ally_agg[team_idx] if team_idx < len(team_ally_agg) else {}
+            if not team_units:
+                continue
+            out.append("")
+            out.append("─" * 60)
+            out.append(f"  【队伍{team_idx + 1}角色明细（场均）】")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12}")
+            sorted_units = sorted(team_units.items(), key=lambda x: x[1]["damage_dealt"], reverse=True)
+            for uid, s in sorted_units:
+                out.append(f"    {_cjk_fit(s['name'], 20)} "
+                           f"{s['damage_dealt'] / n:>12,.1f} "
+                           f"{s['damage_received'] / n:>12,.1f}")
+        out.append("─" * 60)
+
+        if enemy_agg:
+            out.append("")
+            out.append("  【敌方角色明细（场均）】")
+            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12}")
+            for uid, s in enemy_agg.items():
+                out.append(f"    {_cjk_fit(s['name'], 20)} "
+                           f"{s['damage_dealt'] / n:>12,.1f} "
+                           f"{s['damage_received'] / n:>12,.1f}")
+
+        out.append("─" * 60)
+
+        self._result_text.insert(tk.END, "\n".join(out))
+
+    def _display_error(self, msg):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("错误!")
+        self._result_text.insert(tk.END, f"\n❌ 战斗出错:\n{msg}\n")
+
+    # ── 单次战斗+日志 ──
+
+    def _start_single_battle_with_log(self):
+        sel = self._get_selection()
+        total_chars = sum(sum(1 for c in t if c is not None) for t in sel["teams_positions"])
+        if total_chars == 0:
+            messagebox.showwarning("编队不完整", "请至少为1支队伍选择角色")
+            return
+
+        self._start_btn.config(state="disabled")
+        self._log_btn.config(state="disabled")
+        self._result_text.delete("1.0", tk.END)
+        self._result_text.insert(tk.END, "正在单次战斗并生成日志...\n")
+
+        thread = threading.Thread(target=self._run_single_with_log, args=(sel,), daemon=True)
+        thread.start()
+
+    def _run_single_with_log(self, sel):
+        try:
+            global_vals = self.app.global_tab.get_values()
+            panel_config = self.app._build_panel_config_from_gui(global_vals)
+            player_config = panel_config.get_player_config()
+            lerp_data = self.app.data_loader.load_level_lerp_data()
+            stat_calculator = StatCalculator(lerp_data, data_loader=self.app.data_loader)
+
+            narrative = BattleNarrativeWriter()
+
+            enemies_data = self._endless_data["enemies"]
+            max_turns = self._endless_data["max_turn"]
+
+            # 创建3支队伍
+            teams_units = []
+            for team_idx, team_positions in enumerate(sel["teams_positions"]):
+                team_units = []
+                for i, cid in enumerate(team_positions):
+                    if cid is not None:
+                        u = self.app._create_unit(panel_config, player_config, stat_calculator,
+                                                  cid, Side.ALLY, GRID_ALLY_POSITIONS[i])
+                        if u:
+                            existing_ids = {x.unit_id for x in team_units}
+                            if u.unit_id in existing_ids:
+                                suffix = 1
+                                while f"{u.unit_id}_{suffix}" in existing_ids:
+                                    suffix += 1
+                                u.unit_id = f"{u.unit_id}_{suffix}"
+                            team_units.append(u)
+                teams_units.append(team_units)
+
+            # 创建敌方
+            bf = BattlefieldState()
+            for enemy_data in enemies_data:
+                enemy_unit = self._create_composite_enemy(enemy_data)
+                if enemy_unit:
+                    bf.add_unit(enemy_unit)
+
+            # BOSS unit_id
+            boss_unit_id = ""
+            for ed in enemies_data:
+                if ed.get("is_boss"):
+                    boss_unit_id = f"E_{ed['enemy_id']}_{ed['slot']}"
+                    break
+
+            # 回忆卡
+            teams_mem_cards = []
+            for team_idx, mem_ids in enumerate(sel["teams_mem_ids"]):
+                teams_mem_cards.append(self._build_memory_cards(mem_ids))
+
+            seed = int(time.time() * 1000000) % (2**31)
+            random.seed(seed)
+
+            config = BattleConfig()
+            config.max_turns = max_turns
+
+            from src.combat_v2.composite_tactic_controller import CompositeTacticController
+            controller = CompositeTacticController(
+                bf, data_loader=self.app.data_loader, config=config, narrative=narrative,
+                teams=teams_units, team_memories=teams_mem_cards,
+                boss_unit_id=boss_unit_id,
+            )
+            result = controller.execute_battle()
+
+            log_dir = _BASE_PATH / "data" / "battle_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / f"composite_tactic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            narrative.write(str(log_path))
+
+            self.app.root.after(0, lambda: self._display_single_result(result, str(log_path)))
+        except Exception as e:
+            import traceback
+            err_msg = str(e) + "\n" + traceback.format_exc()
+            self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
+
+    def _display_single_result(self, result, log_path):
+        self._start_btn.config(state="normal")
+        self._log_btn.config(state="normal")
+        self._progress_var.set("完成!")
+        self._result_text.delete("1.0", tk.END)
+
+        out = []
+        out.append("=" * 60)
+        out.append("  联合战术演习 - 单次战斗结果")
+        out.append("=" * 60)
+        out.append(f"  总分数(净伤害): {result.get('score', 0):,}")
+        out.append(f"  BOSS被击杀次数: {result.get('boss_killed_count', 0)}")
+        out.append(f"  BOSS最终阶段: {result.get('boss_stage', 0)}")
+        out.append(f"  总回合数: {result.get('total_turns', 0)}")
+        out.append(f"  日志文件: {log_path}")
+        out.append("=" * 60)
+
+        # 各队结果（含单位详情）
+        team_results = result.get("team_results", [])
+        for tr in team_results:
+            idx = tr.get("team_index", 0) + 1
+            dmg = tr.get("damage_to_boss", 0)
+            rounds = tr.get("rounds_survived", 0)
+            wiped = "团灭" if tr.get("team_wiped", False) else "存活"
+            out.append("")
+            out.append("─" * 60)
+            out.append(f"  【队伍{idx}】净伤害={dmg:,}  回合={rounds}  结果={wiped}")
+
+            ally_stats = tr.get("ally_stats", [])
+            if ally_stats:
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'状态':>4}")
+                for s in sorted(ally_stats, key=lambda x: x.get("damage_dealt", 0), reverse=True):
+                    status = "存活" if s.get("alive") else "阵亡"
+                    out.append(f"    {_cjk_fit(s.get('name', '?'), 20)} "
+                               f"{s.get('damage_dealt', 0):>12,} "
+                               f"{s.get('damage_received', 0):>12,} "
+                               f"{status:>4}")
+
+            enemy_stats = tr.get("enemy_stats", [])
+            if enemy_stats:
+                out.append(f"    {_cjk_fit('敌方', 20)} {'受到伤害':>12} {'剩余HP':>14}")
+                for s in enemy_stats:
+                    cur = s.get("current_hp", 0)
+                    mx = s.get("max_hp", 0)
+                    out.append(f"    {_cjk_fit(s.get('name', '?'), 20)} "
+                               f"{s.get('damage_received', 0):>12,} "
+                               f"{cur}/{mx}")
+
+        out.append("─" * 60)
+
+        self._result_text.insert(tk.END, "\n".join(out))
+
+    # ── 配置预设管理 ──
+
+    def _refresh_composite_presets(self):
+        try:
+            self._composite_preset_listbox.delete(0, tk.END)
+            if COMPOSITE_PRESET_DIR.exists():
+                for f in sorted(COMPOSITE_PRESET_DIR.glob("*.json")):
+                    self._composite_preset_listbox.insert(tk.END, f.stem)
+        except Exception:
+            pass
+
+    def _save_composite_preset(self):
+        COMPOSITE_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+        name = self._composite_preset_name_var.get().strip()
+        if not name:
+            messagebox.showwarning("名称为空", "请输入预设名称")
+            return
+        sel = self._get_selection()
+        path = COMPOSITE_PRESET_DIR / f"{name}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(sel, f, ensure_ascii=False, indent=2)
+        self._refresh_composite_presets()
+
+    def _load_composite_preset(self):
+        sel_idx = self._composite_preset_listbox.curselection()
+        if not sel_idx:
+            messagebox.showwarning("未选择", "请先选择一个预设")
+            return
+        name = self._composite_preset_listbox.get(sel_idx[0])
+        path = COMPOSITE_PRESET_DIR / f"{name}.json"
+        if not path.exists():
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        teams_positions = data.get("teams_positions", [[None] * 6] * 3)
+        teams_mem_ids = data.get("teams_mem_ids", [[None] * 6] * 3)
+
+        for team_idx in range(3):
+            positions = teams_positions[team_idx] if team_idx < len(teams_positions) else [None] * 6
+            for i, cid in enumerate(positions):
+                if i < 6:
+                    if cid is None:
+                        self._clear_slot(self._teams_slots[team_idx][i])
+                    else:
+                        self._set_slot_char(self._teams_slots[team_idx][i], cid)
+
+            # 直接操作对应队伍的slot数据，不依赖_current_team_index
+            mem_ids = teams_mem_ids[team_idx] if team_idx < len(teams_mem_ids) else [None] * 6
+            for i in range(6):
+                slot = self._teams_mem_slots[team_idx][i]
+                if i < len(mem_ids) and mem_ids[i] is not None:
+                    slot["mid"] = mem_ids[i]
+                else:
+                    slot["mid"] = None
+
+        self._refresh_team_list()
+        self._select_team(0)
+
+    def _delete_composite_preset(self):
+        sel_idx = self._composite_preset_listbox.curselection()
+        if not sel_idx:
+            return
+        name = self._composite_preset_listbox.get(sel_idx[0])
+        path = COMPOSITE_PRESET_DIR / f"{name}.json"
+        if path.exists():
+            os.remove(path)
+            self._refresh_composite_presets()
+
+
 # ────────────────────────────── 主 GUI ──────────────────────────────
 
 class MGGBattleSimulatorGUI:
@@ -6920,6 +9840,8 @@ class MGGBattleSimulatorGUI:
         self.team_tab = TeamBattleTab(self.notebook, self)
         self.step_crit_tab = StepCritTab(self.notebook, self)
         self.tactical_tab = TacticalExerciseTab(self.notebook, self)
+        self.circle_tab = CircleBattleTab(self.notebook, self)
+        self.composite_tab = JointTacticExerciseTab(self.notebook, self)
 
         self.notebook.add(self.global_tab, text="全局参数")
         self.notebook.add(self.char_tab, text="角色参数")
@@ -6927,6 +9849,8 @@ class MGGBattleSimulatorGUI:
         self.notebook.add(self.team_tab, text="编队与战斗")
         self.notebook.add(self.step_crit_tab, text="逐步暴击")
         self.notebook.add(self.tactical_tab, text="战术演习")
+        self.notebook.add(self.circle_tab, text="对抗压制战")
+        self.notebook.add(self.composite_tab, text="联合战术演习")
 
         # 主题下拉框（置于 Notebook 标签行右侧）
         self._theme_var = tk.StringVar(value=self._ui_config.get("theme", "深色"))
@@ -7030,10 +9954,15 @@ class MGGBattleSimulatorGUI:
             for slot in self.team_tab.mem_friend_slots + self.team_tab.mem_enemy_slots:
                 try:
                     slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
-                    slot["top_row"].config(bg=s["bg"])
                     slot["canvas"].config(bg=s["bg"])
-                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
-                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                    # clear_btn 保持红底白字，不随主题变化
+                    # 空槽位重绘占位文字（颜色随主题变化）
+                    if slot["mid"] is None:
+                        canvas = slot["canvas"]
+                        CARD_W, CARD_H = 120, 68
+                        canvas.delete("all")
+                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
                 except Exception:
                     pass
         # 战术演习Tab：刷新所有槽位显示和框架背景
@@ -7062,10 +9991,118 @@ class MGGBattleSimulatorGUI:
             for slot in self.tactical_tab.mem_friend_slots:
                 try:
                     slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
-                    slot["top_row"].config(bg=s["bg"])
                     slot["canvas"].config(bg=s["bg"])
+                    # clear_btn 保持红底白字，不随主题变化
+                    # 空槽位重绘占位文字（颜色随主题变化）
+                    if slot["mid"] is None:
+                        canvas = slot["canvas"]
+                        CARD_W, CARD_H = 120, 68
+                        canvas.delete("all")
+                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+                except Exception:
+                    pass
+        # 对抗压制战Tab：刷新所有槽位显示和框架背景
+        if hasattr(self, 'circle_tab'):
+            for slot in self.circle_tab.friend_slots:
+                self.circle_tab._update_slot_display(slot, slot["cid"])
+            for frame_name in ['_ally_main', '_ally_form_frame', '_ally_mem_frame']:
+                frame = getattr(self.circle_tab, frame_name, None)
+                if frame:
+                    try:
+                        frame.config(bg=s["bg"])
+                    except Exception:
+                        pass
+            for slot in self.circle_tab.friend_slots:
+                try:
+                    slot["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["frame"].config(bg=s["bg"])
+                    slot["avatar_label"].config(bg=s["bg"])
                     slot["name_label"].config(bg=s["bg"], fg=s["fg"])
                     slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
+            for slot in self.circle_tab.mem_friend_slots:
+                try:
+                    slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["canvas"].config(bg=s["bg"])
+                    if slot["mid"] is None:
+                        canvas = slot["canvas"]
+                        CARD_W, CARD_H = 120, 68
+                        canvas.delete("all")
+                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+                except Exception:
+                    pass
+            # 敌方网格：刷新背景与槽位显示（含空位文字颜色）
+            enemy_grid = getattr(self.circle_tab, '_enemy_grid_frame', None)
+            if enemy_grid:
+                try:
+                    enemy_grid.config(bg=s["bg"])
+                except Exception:
+                    pass
+            for i, widget in enumerate(getattr(self.circle_tab, '_enemy_grid_widgets', [])):
+                try:
+                    widget["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    widget["frame"].config(bg=s["bg"])
+                    enemy_data = self.circle_tab._enemy_slots[i] if i < len(self.circle_tab._enemy_slots) else None
+                    self.circle_tab._update_enemy_slot_display(widget, enemy_data)
+                except Exception:
+                    pass
+        # 联合战术演习Tab：刷新当前队伍槽位显示和框架背景
+        if hasattr(self, 'composite_tab'):
+            ct = self.composite_tab
+            # 只刷新当前队伍的显示（共享GUI组件，遍历所有队伍会导致覆盖）
+            team_idx = ct._current_team_index
+            for slot in ct._teams_slots[team_idx]:
+                ct._update_slot_display(slot, slot["cid"])
+            for slot in ct._teams_mem_slots[team_idx]:
+                ct._update_mem_slot_display(slot, slot["mid"])
+            # 刷新队伍管理区域所有 tk.Frame 容器背景
+            for frame_name in ['_team_list_frame', '_team_detail_frame', '_order_btn_frame',
+                               '_ally_main', '_ally_form_frame', '_ally_mem_frame']:
+                frame = getattr(ct, frame_name, None)
+                if frame:
+                    try:
+                        frame.config(bg=s["bg"])
+                    except Exception:
+                        pass
+            # 刷新角色槽位框架背景（所有队伍共享GUI组件，只需刷新一套）
+            for slot in ct._teams_slots[team_idx]:
+                try:
+                    slot["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["frame"].config(bg=s["bg"])
+                    slot["avatar_label"].config(bg=s["bg"])
+                    slot["name_label"].config(bg=s["bg"], fg=s["fg"])
+                    slot["clear_btn"].config(bg=s["bg"], fg=s["border"])
+                except Exception:
+                    pass
+            # 刷新回忆卡槽位背景
+            for slot in ct._teams_mem_slots[team_idx]:
+                try:
+                    slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    slot["canvas"].config(bg=s["bg"])
+                    if slot["mid"] is None:
+                        canvas = slot["canvas"]
+                        CARD_W, CARD_H = 120, 68
+                        canvas.delete("all")
+                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
+                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+                except Exception:
+                    pass
+            # 敌方网格：刷新背景与槽位显示
+            enemy_grid = getattr(ct, '_enemy_grid_frame', None)
+            if enemy_grid:
+                try:
+                    enemy_grid.config(bg=s["bg"])
+                except Exception:
+                    pass
+            for i, widget in enumerate(getattr(ct, '_enemy_grid_widgets', [])):
+                try:
+                    widget["outer_frame"].config(bg=s["bg"], highlightbackground=s["border"])
+                    widget["frame"].config(bg=s["bg"])
+                    enemy_data = ct._enemy_slots[i] if i < len(ct._enemy_slots) else None
+                    ct._update_enemy_slot_display(widget, enemy_data)
                 except Exception:
                     pass
 

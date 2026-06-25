@@ -65,6 +65,8 @@ class DataLoader:
         self._character_team_mapping: Optional[Dict[int, int]] = None
         self._character_base_names: Optional[Dict[int, str]] = None
         self._tactical_exercise_enemies: Optional[Dict[int, Dict]] = None
+        self._circle_battle_enemies: Optional[Dict[str, Dict]] = None
+        self._composite_tactic_enemies: Optional[Dict[str, Any]] = None
 
         self._custom_characters: Dict[int, CharacterData] = {}
         self._custom_skills: Dict[int, SkillData] = {}
@@ -101,6 +103,8 @@ class DataLoader:
         self.load_memory_effects()
         self.load_character_base_names()
         self.load_tactical_exercise_enemies()
+        self.load_circle_battle_enemies()
+        self.load_composite_tactic_enemies()
         self.load_custom_dummies()
         print("[OK] 所有数据加载完成")
 
@@ -660,6 +664,74 @@ class DataLoader:
         if self._tactical_exercise_enemies is None:
             self.load_tactical_exercise_enemies()
         return self._tactical_exercise_enemies
+
+    def load_circle_battle_enemies(self) -> Dict[str, Dict]:
+        """加载对抗压制战敌方数据"""
+        if self._circle_battle_enemies is not None:
+            return self._circle_battle_enemies
+        self._circle_battle_enemies = {}
+        data_path = self._data_dir / "circle_battle_enemies.json"
+        if not data_path.exists():
+            return self._circle_battle_enemies
+        with open(data_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        self._circle_battle_enemies = raw
+        total_stages = 0
+        for season_key, season_data in raw.items():
+            total_stages += len(season_data)
+        print(f"[OK] 已加载对抗压制战数据 ({len(raw)} 个赛季, {total_stages} 个阶段)")
+        return self._circle_battle_enemies
+
+    def get_circle_battle_enemies(self) -> Dict[str, Dict]:
+        if self._circle_battle_enemies is None:
+            self.load_circle_battle_enemies()
+        return self._circle_battle_enemies
+
+    def get_circle_battle_season(self, season: int) -> Dict[str, Dict]:
+        """获取指定赛季的所有阶段数据"""
+        if self._circle_battle_enemies is None:
+            self.load_circle_battle_enemies()
+        return self._circle_battle_enemies.get(f"season_{season}", {})
+
+    def get_circle_battle_stage(self, season: int, stage: int) -> Optional[Dict]:
+        """获取指定赛季指定阶段的数据"""
+        season_data = self.get_circle_battle_season(season)
+        return season_data.get(str(stage))
+
+    def load_composite_tactic_enemies(self) -> Dict[str, Any]:
+        """加载联合战术演习敌方数据"""
+        if self._composite_tactic_enemies is not None:
+            return self._composite_tactic_enemies
+        self._composite_tactic_enemies = {}
+        data_path = self._data_dir / "composite_tactic_enemies.json"
+        if not data_path.exists():
+            return self._composite_tactic_enemies
+        with open(data_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        self._composite_tactic_enemies = raw
+        endless = raw.get("endless", {})
+        enemy_count = len(endless.get("enemies", []))
+        print(f"[OK] 已加载联合战术演习数据 ({enemy_count} 个敌人)")
+        return self._composite_tactic_enemies
+
+    def get_composite_tactic_enemies(self) -> Dict[str, Any]:
+        if self._composite_tactic_enemies is None:
+            self.load_composite_tactic_enemies()
+        return self._composite_tactic_enemies
+
+    def get_composite_tactic_endless(self) -> Dict[str, Any]:
+        """获取ENDLESS模式数据"""
+        data = self.get_composite_tactic_enemies()
+        return data.get("endless", {})
+
+    def get_composite_tactic_boss(self) -> Optional[Dict]:
+        """获取BOSS(Enemy1)数据"""
+        endless = self.get_composite_tactic_endless()
+        enemies = endless.get("enemies", [])
+        boss_index = endless.get("boss_index", 0)
+        if enemies and boss_index < len(enemies):
+            return enemies[boss_index]
+        return None
 
     def load_skill_master_names(self) -> Dict[int, str]:
         if self._skill_master_names is not None:

@@ -3516,5 +3516,95 @@
         "skill_master_id": 400199
       }
     ]
+  },
+  "20074": {
+    "memory_id": 20074,
+    "name": "隣で踊る貴方となら",
+    "description": "ふふ……ダンスは勝負じゃないから、勝ち負けはないわよ？",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 109,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400201
+      },
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400202
+      }
+    ]
+  },
+  "30031": {
+    "memory_id": 30031,
+    "name": "お嬢様直伝マナー講座",
+    "description": "誰がママですか…… ほら、ちゆるさん。もっと手を上げてくださる？",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": false,
+        "party_position": 7,
+        "skill_master_id": 400204
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400203
+      }
+    ]
+  },
+  "30032": {
+    "memory_id": 30032,
+    "name": "お傍にいるのはいつでもピコですよ♪",
+    "description": "マスタぁ！とてもおめでたいことですよね！ こういった嬉しいことはずーーっとつづいてほしいですね！",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 16,
+        "skill_master_id": 400205
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400206
+      }
+    ]
   }
 }

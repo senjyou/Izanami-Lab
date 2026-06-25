@@ -1,3 +1,3 @@
-__version__ = "1.0.4.7"
+__version__ = "1.0.5.0"
 __repository__ = "senjyou/Izanami-Lab"
 __release_url__ = "https://github.com/senjyou/Izanami-Lab/releases"
