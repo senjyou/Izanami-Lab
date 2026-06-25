@@ -31069,11 +31069,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.32000732421875
+          },
+          {
+            "level": 9,
+            "value": 143.5399932861328
+          },
+          {
+            "level": 10,
+            "value": 156.0
           }
         ]
       }
@@ -31487,11 +31511,15 @@
     ],
     "template_tags": {
       "shield": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 75.0
           }
         ]
       }
@@ -31878,11 +31906,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.95999908447266
+          },
+          {
+            "level": 4,
+            "value": 94.91000366210938
+          },
+          {
+            "level": 6,
+            "value": 99.87000274658203
+          },
+          {
+            "level": 7,
+            "value": 109.81999969482422
+          },
+          {
+            "level": 9,
+            "value": 114.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
           }
         ]
       },
@@ -32662,11 +32714,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.47999954223633
+          },
+          {
+            "level": 4,
+            "value": 47.45000076293945
+          },
+          {
+            "level": 6,
+            "value": 49.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 54.900001525878906
+          },
+          {
+            "level": 9,
+            "value": 57.380001068115234
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
           }
         ]
       }
@@ -32689,11 +32765,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 95.5999984741211
+          },
+          {
+            "level": 4,
+            "value": 106.80000305175781
+          },
+          {
+            "level": 6,
+            "value": 112.4000015258789
+          },
+          {
+            "level": 7,
+            "value": 123.5999984741211
+          },
+          {
+            "level": 9,
+            "value": 129.1999969482422
+          },
+          {
+            "level": 10,
+            "value": 140.39999389648438
           }
         ]
       },
@@ -35019,11 +35119,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
-            "value": 60.0
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.099998474121094
+          },
+          {
+            "level": 4,
+            "value": 59.31999969482422
+          },
+          {
+            "level": 6,
+            "value": 62.41999816894531
+          },
+          {
+            "level": 7,
+            "value": 68.63999938964844
+          },
+          {
+            "level": 9,
+            "value": 71.73999786376953
+          },
+          {
+            "level": 10,
+            "value": 78.0
           }
         ]
       }
@@ -35046,11 +35170,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
-            "value": 100.0
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.95999908447266
+          },
+          {
+            "level": 4,
+            "value": 94.91000366210938
+          },
+          {
+            "level": 6,
+            "value": 99.87000274658203
+          },
+          {
+            "level": 7,
+            "value": 109.81999969482422
+          },
+          {
+            "level": 9,
+            "value": 114.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
           }
         ]
       }
@@ -47274,11 +47422,15 @@
     ],
     "template_tags": {
       "value": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
           }
         ]
       }
@@ -47318,11 +47470,15 @@
     ],
     "template_tags": {
       "value": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
           }
         ]
       }
@@ -51058,11 +51214,35 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 85.0
+          },
+          {
+            "level": 3,
+            "value": 90.27999877929688
+          },
+          {
+            "level": 4,
+            "value": 100.8499984741211
+          },
+          {
+            "level": 6,
+            "value": 106.12999725341797
+          },
+          {
+            "level": 7,
+            "value": 116.69999694824219
+          },
+          {
+            "level": 9,
+            "value": 121.9800033569336
+          },
+          {
+            "level": 10,
+            "value": 132.60000610351562
           }
         ]
       }
@@ -51085,11 +51265,15 @@
     ],
     "template_tags": {
       "威力": {
-        "interpolation_mode": 1,
+        "interpolation_mode": 2,
         "values": [
           {
             "level": 1,
             "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 31.200000762939453
           }
         ]
       }
@@ -71420,5 +71604,606 @@
     ],
     "template_tags": {},
     "display_info": {}
+  },
+  "110067": {
+    "skill_id": 110067,
+    "name": "シャル・ウィ・ダンス？",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合が低い敵単体に威力{威力}で攻撃する。さらに敵全体の行動速度を1行動の間20%低下させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "最もHP割合が低い敵単体に威力{威力}で攻撃する。さらに敵全体の行動速度を1行動の間20%低下させ（重複可）、味方全体の行動速度を1行動の間{spd}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.32000732421875
+          },
+          {
+            "level": 9,
+            "value": 143.5399932861328
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 8.5
+          },
+          {
+            "level": 15,
+            "value": 12.5
+          }
+        ]
+      }
+    }
+  },
+  "120149": {
+    "skill_id": 120149,
+    "name": "絢爛なるワルツ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵2体に対して自身が2回行動を終えるまでの間「乱調」を付与し、威力{威力}で攻撃する。既に対象が「乱調」を所持している場合は新たに付与しない"
+      },
+      {
+        "min_level": 11,
+        "template": "敵2体に対して自身が2回行動を終えるまでの間「乱調」を付与し、威力{威力}で攻撃する。既に対象が「乱調」を所持している場合は新たに付与しない。\nさらに1行動の間、対象の与ダメージを{dmg}%減少させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 37.15999984741211
+          },
+          {
+            "level": 4,
+            "value": 41.5099983215332
+          },
+          {
+            "level": 6,
+            "value": 43.66999816894531
+          },
+          {
+            "level": 7,
+            "value": 48.02000045776367
+          },
+          {
+            "level": 9,
+            "value": 50.18000030517578
+          },
+          {
+            "level": 10,
+            "value": 54.599998474121094
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 20.0
+          }
+        ]
+      }
+    }
+  },
+  "120150": {
+    "skill_id": 120150,
+    "name": "優雅なるロンド",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で攻撃し、1行動の間対象の行動速度を{spd}低下させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "敵単体に威力{威力}で攻撃し、1行動の間対象の行動速度を{spd}低下させる（重複可）。さらに1行動の間得られるEXゲージを50%減少させるデバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          },
+          {
+            "level": 3,
+            "value": 74.33999633789062
+          },
+          {
+            "level": 4,
+            "value": 83.05000305175781
+          },
+          {
+            "level": 6,
+            "value": 87.38999938964844
+          },
+          {
+            "level": 7,
+            "value": 96.0999984741211
+          },
+          {
+            "level": 9,
+            "value": 100.44000244140625
+          },
+          {
+            "level": 10,
+            "value": 109.19999694824219
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 10,
+            "value": 40.0
+          },
+          {
+            "level": 15,
+            "value": 80.0
+          }
+        ]
+      }
+    }
+  },
+  "130149": {
+    "skill_id": 130149,
+    "name": "夜会のプレリュード",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルを使用するたびに発動。\n自身が「華舞」を所持していた場合最大HP×{cure}%分自身のHPを回復し、「華舞」を所持していなかった場合「華舞」を1つ付与する。\nさらに自身の最大HPを{hp}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 15,
+        "template": "自身がアクティブスキルを使用するたびに発動。\n自身が「華舞」を所持していた場合最大HP×{cure}%分自身のHPを回復し、「華舞」を所持していなかった場合「華舞」を1つ付与する。\nさらに自身の最大HPを{hp}%上昇させ（重複可）、1行動の間向けられる状態異常を無効化するバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 4.5
+          },
+          {
+            "level": 10,
+            "value": 4.5
+          },
+          {
+            "level": 15,
+            "value": 5.849999904632568
+          }
+        ]
+      },
+      "hp": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          },
+          {
+            "level": 3,
+            "value": 2.119999885559082
+          },
+          {
+            "level": 4,
+            "value": 2.359999895095825
+          },
+          {
+            "level": 6,
+            "value": 2.4800000190734863
+          },
+          {
+            "level": 7,
+            "value": 2.7200000286102295
+          },
+          {
+            "level": 9,
+            "value": 2.8399999141693115
+          },
+          {
+            "level": 10,
+            "value": 3.1500000953674316
+          }
+        ]
+      }
+    }
+  },
+  "130150": {
+    "skill_id": 130150,
+    "name": "ポストリュード",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「乱調」を所持している敵のHPが60%以下になった際に発動。敵全体に威力{威力}で攻撃する。\n攻撃後、敵全体から「乱調」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.32000732421875
+          },
+          {
+            "level": 9,
+            "value": 143.5399932861328
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          },
+          {
+            "level": 15,
+            "value": 212.0
+          }
+        ]
+      }
+    }
+  },
+  "400203": {
+    "skill_id": 400203,
+    "name": "速度1行動上昇【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方全体の行動速度を1行動の間80上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400204": {
+    "skill_id": 400204,
+    "name": "被ダメージ上昇【敵前衛】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。敵前衛の受けるダメージを7.5%上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400205": {
+    "skill_id": 400205,
+    "name": "三ツ星【中央列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。中央列後衛の味方の攻撃力を1行動の間3000上昇させる。さらに「三ツ星」を付与する"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400206": {
+    "skill_id": 400206,
+    "name": "HP・防御上昇【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方のHPと防御力を300上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "210097": {
+    "skill_id": 210097,
+    "name": "リフホーシルト",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 3
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も残りHPが多い敵単体に威力{威力}で攻撃し、1行動の間自身の防御力を{def}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.32000732421875
+          },
+          {
+            "level": 9,
+            "value": 143.5399932861328
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "230376": {
+    "skill_id": 230376,
+    "name": "マイクロリペア",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン終了時に発動。最もHP割合の低い味方単体のHPを威力{威力}で回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          }
+        ]
+      }
+    }
+  },
+  "230377": {
+    "skill_id": 230377,
+    "name": "秘儀の癒し",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン終了時に発動。自身以外を優先し、味方単体のHPを威力{威力}で回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 10,
+            "value": 54.599998474121094
+          }
+        ]
+      }
+    }
   }
 }

@@ -2435,6 +2435,8 @@ class BattleFlowController:
             return [max(enemies, key=lambda u: u.speed)]
         if target_type == "enemy_single_lowest_hp_ratio":
             return [min(enemies, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+        if target_type == "enemy_single_highest_ep":
+            return [max(enemies, key=lambda u: u.current_ep)]
 
         # 未知 target_type，回退到 highlight 条件
         _log.info("[MEMORY]     未知 target_type=%s，回退 highlight_targets", target_type)
@@ -2749,6 +2751,8 @@ class BattleFlowController:
                         dur_type = "action" if b.timing_type == AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value else "turn"
                         self.narrative.effect_update(unit.name, b.effect_type, dur_after, dur_type)
         self.aura_service.process_maneuver_end(unit)
+        # 施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff
+        self.aura_service.process_source_maneuver_end(unit, self.battlefield.get_all_units())
         for buff_obj, kind, etype, prev_dur in prev_alive_durations.values():
             if prev_dur > 0:
                 if id(buff_obj) not in existing_ids and not getattr(buff_obj, 'skip_restore', False):

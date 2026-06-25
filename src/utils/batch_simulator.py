@@ -431,6 +431,210 @@ def _create_tactical_enemy_worker(dl, enemy_data: Dict[str, Any], enemy_pos):
     )
 
 
+# ============ 对抗压制战 Worker ============
+
+ENEMY_SLOT_POSITION_MAP_WORKER = {
+    1: "enemy_left_front",
+    2: "enemy_center_front",
+    3: "enemy_right_front",
+    4: "enemy_left_back",
+    5: "enemy_center_back",
+    6: "enemy_right_back",
+}
+
+
+def _create_circle_battle_enemy_worker(dl, enemy_data: Dict[str, Any]):
+    """Worker内创建对抗压制战敌方单位"""
+    from src.entities_v2.unit_state import UnitState
+    from src.entities_v2.enums import Side, Position
+
+    pos = enemy_data.get("position", 1)
+    pos_str = ENEMY_SLOT_POSITION_MAP_WORKER.get(pos, "enemy_left_front")
+    enemy_pos = Position(pos_str)
+
+    skill_ids = enemy_data.get("skill_ids", [])
+    skill_levels = {sid: 15 for sid in skill_ids}
+
+    max_ep = 0
+    for sid in skill_ids:
+        sk = dl.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = max(max_ep, sk.resource_cost)
+
+    unit_id = f"E_{enemy_data['enemy_id']}_{enemy_data['slot']}"
+
+    return UnitState(
+        unit_id=unit_id,
+        name=enemy_data["name"],
+        side=Side.ENEMY,
+        position=enemy_pos,
+        character_id=enemy_data["enemy_id"],
+        level=enemy_data["level"],
+        element=enemy_data["attribute"],
+        character_type=enemy_data["type"],
+        max_hp=enemy_data["hp"],
+        current_hp=enemy_data["hp"],
+        attack=enemy_data["attack"],
+        defense=enemy_data["defense"],
+        speed=enemy_data["speed"],
+        crit_rate=enemy_data["critical_rate"],
+        crit_damage=0.0,
+        advantage_damage=0.0,
+        initial_active_point=enemy_data.get("action_point", 2),
+        initial_passive_point=enemy_data.get("passive_point", 2),
+        max_extra_point=max_ep,
+        current_ap=enemy_data.get("action_point", 2),
+        current_pp=enemy_data.get("passive_point", 2),
+        current_ep=0,
+        skills=skill_ids,
+        skill_levels=skill_levels,
+        skill_cooldowns={},
+        role_type=enemy_data.get("role_type", 0),
+        position_type=3,
+    )
+
+
+# 对抗压制战 worker 全局变量
+_worker_circle_cfg = None
+
+
+def _worker_init_circle(data_dir: str,
+                        panel_config: Any,
+                        friends_chars: List[int],
+                        friend_positions: List[Any],
+                        enemies_data: List[Dict[str, Any]],
+                        max_turns: int,
+                        positions_ally: List[Any],
+                        season: int,
+                        stage: int,
+                        mem_cards_data: list = None):
+    """对抗压制战 worker 初始化"""
+    from src.data.data_loader import DataLoader
+    from src.data.stat_calculator import StatCalculator
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg, _worker_mem_cards
+    global _worker_circle_cfg
+
+    dl = DataLoader()
+    dl._data_dir = Path(data_dir)
+    dl.load_all()
+
+    sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
+
+    _worker_dl = dl
+    _worker_panel_config = panel_config
+    _worker_player_config = panel_config.get_player_config()
+    _worker_stat_calculator = sc
+    _worker_cfg = {
+        'friends_chars': list(friends_chars),
+        'friend_positions': list(friend_positions),
+        'positions_ally': list(positions_ally),
+    }
+    _worker_circle_cfg = {
+        'enemies_data': enemies_data,
+        'max_turns': max_turns,
+        'season': season,
+        'stage': stage,
+    }
+    _worker_mem_cards = list(mem_cards_data) if mem_cards_data else []
+
+
+def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
+    """对抗压制战 worker: 运行一批战斗，返回每场统计"""
+    from src.entities_v2.battlefield_state import BattlefieldState
+    from src.entities_v2.enums import Side, Position
+    from src.combat_v2.circle_battle_controller import CircleBattleController
+    from src.combat_v2.battle_flow_controller import BattleConfig
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg, _worker_circle_cfg, _worker_mem_cards
+
+    dl = _worker_dl
+    pc = _worker_panel_config
+    pl = _worker_player_config
+    sc = _worker_stat_calculator
+    cfg = _worker_cfg
+    cc = _worker_circle_cfg
+
+    enemies_data = cc['enemies_data']
+    max_turns = cc['max_turns']
+    season = cc['season']
+    stage = cc['stage']
+
+    results = []
+
+    for seed in seeds:
+        random.seed(seed)
+
+        bf = BattlefieldState()
+
+        # 创建己方单位
+        f_positions = cfg['friend_positions']
+        pos_a = cfg['positions_ally']
+        for i, cid in enumerate(f_positions):
+            if cid is not None:
+                pos = pos_a[i] if i < len(pos_a) else Position.ALLY_CENTER_FRONT
+                u = _create_unit_worker(dl, pc, pl, sc, cid, Side.ALLY, pos)
+                if u:
+                    bf.add_unit(u)
+
+        # 创建对抗压制战敌方
+        for enemy_data in enemies_data:
+            enemy_unit = _create_circle_battle_enemy_worker(dl, enemy_data)
+            if enemy_unit:
+                bf.add_unit(enemy_unit)
+
+        # 设置记忆卡
+        bf.memory_cards = list(_worker_mem_cards)
+
+        bc = BattleConfig()
+        bc.max_turns = max_turns
+
+        controller = CircleBattleController(bf, data_loader=dl, config=bc,
+                                            season=season, stage=stage)
+        result = controller.execute_battle()
+
+        winner = result.get('winner')
+        result_str = result.get('result', 'UNKNOWN')
+        turns = result["total_turns"]
+
+        score_data = result.get("score", {})
+        unit_stats = score_data.get("unit_stats", {})
+
+        # 统计敌方未击杀单位受到的伤害
+        enemy_damage_received = 0
+        alive_enemy_count = 0
+        for uid, stats in unit_stats.items():
+            if stats.get("side") == "enemy":
+                enemy_damage_received += stats.get("damage_received", 0)
+                # 检查是否存活
+                for u in bf.enemy_team:
+                    if u.unit_id == uid and u.is_alive:
+                        alive_enemy_count += 1
+                        break
+
+        results.append({
+            'seed': seed,
+            'winner': winner,
+            'result': result_str,
+            'total_turns': turns,
+            'score': score_data.get("total_score", 0),
+            'ally_total_damage_dealt': score_data.get("ally_total_damage_dealt", 0),
+            'ally_total_damage_received': score_data.get("ally_total_damage_received", 0),
+            'ally_total_hp_healed': score_data.get("ally_total_hp_healed", 0),
+            'enemy_total_damage_dealt': score_data.get("enemy_total_damage_dealt", 0),
+            'enemy_total_damage_received': score_data.get("enemy_total_damage_received", 0),
+            'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0),
+            'enemy_healing_received': score_data.get("enemy_healing_received", 0),
+            'unit_stats': unit_stats,
+            'alive_enemy_count': alive_enemy_count,
+            'enemy_damage_received': enemy_damage_received,
+        })
+
+    return results
+
+
 # ============ 主进程类 ============
 
 @dataclass
@@ -1092,3 +1296,878 @@ class BatchSimulator:
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
         }
+
+    # ============ 对抗压制战批量模拟 ============
+
+    def run_batch_circle(
+        self,
+        panel_config,
+        friends_chars: List[int],
+        friend_positions: List[Any],
+        enemies_data: List[Dict[str, Any]],
+        max_turns: int,
+        total_runs: int,
+        season: int = 5,
+        stage: int = 100,
+        positions_ally: List[Any] = None,
+        progress_callback: Callable[[int, int], None] = None,
+        batch_size: int = None,
+        memory_cards: list = None,
+    ) -> Dict[str, Any]:
+        """执行对抗压制战多进程批量模拟"""
+        if positions_ally is None:
+            from src.entities_v2.enums import Position
+            positions_ally = [
+                Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+                Position.ALLY_RIGHT_FRONT,
+                Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+                Position.ALLY_RIGHT_BACK,
+            ]
+        if batch_size is None:
+            batch_size = self.DEFAULT_BATCH_SIZE
+
+        base_seed = int(time.time() * 1000000) % (2**31)
+        seeds = [(base_seed + i) % (2**31) for i in range(total_runs)]
+        seed_batches = [seeds[i:i + batch_size] for i in range(0, len(seeds), batch_size)]
+
+        print(f"\n  [多进程对抗压制战] 总场数={total_runs} 批次={len(seed_batches)} "
+              f"每批={batch_size} Workers={min(self.max_workers, len(seed_batches))}")
+
+        try:
+            return self._run_multiprocess_circle(
+                panel_config, friends_chars, friend_positions,
+                enemies_data, max_turns, total_runs,
+                positions_ally, seed_batches, progress_callback,
+                season=season, stage=stage, memory_cards=memory_cards,
+            )
+        except Exception as e:
+            print(f"  [WARN] 多进程对抗压制战失败，回退到单进程模式: {e}")
+            traceback.print_exc()
+            return self._run_single_process_circle(
+                panel_config, friends_chars, friend_positions,
+                enemies_data, max_turns, total_runs,
+                positions_ally, seed_batches, progress_callback,
+                season=season, stage=stage, memory_cards=memory_cards,
+            )
+
+    def _run_multiprocess_circle(
+        self, panel_config, friends_chars, friend_positions,
+        enemies_data, max_turns, total_runs,
+        positions_ally, seed_batches, progress_callback,
+        season=5, stage=100, memory_cards=None,
+    ):
+        n_workers = min(self.max_workers, len(seed_batches))
+
+        init_args = (
+            self._data_dir,
+            panel_config,
+            friends_chars,
+            friend_positions,
+            enemies_data,
+            max_turns,
+            positions_ally,
+            season,
+            stage,
+            memory_cards if memory_cards else [],
+        )
+
+        mp_ctx = mp.get_context('spawn')
+        pool = mp_ctx.Pool(
+            processes=n_workers,
+            initializer=_worker_init_circle,
+            initargs=init_args,
+        )
+
+        wins = 0
+        losses = 0
+        total_turns = 0
+
+        all_ally_damage = []
+        all_ally_received = []
+        all_ally_healed = []
+        all_enemy_damage = []
+        all_enemy_received = []
+        all_enemy_healed = []
+        all_enemy_healing_received = []
+        failed_enemy_damage_received = []
+        all_unit_stats = []
+
+        completed = 0
+        t0 = time.time()
+
+        try:
+            for batch_results in pool.imap_unordered(
+                _worker_run_batch_circle, seed_batches
+            ):
+                for stats in batch_results:
+                    completed += 1
+
+                    winner = stats['winner']
+                    turns = stats['total_turns']
+                    total_turns += turns
+
+                    if winner == 'FRIEND':
+                        wins += 1
+                    else:
+                        losses += 1
+                        failed_enemy_damage_received.append(stats.get('enemy_damage_received', 0))
+
+                    all_ally_damage.append(stats['ally_total_damage_dealt'])
+                    all_ally_received.append(stats['ally_total_damage_received'])
+                    all_ally_healed.append(stats['ally_total_hp_healed'])
+                    all_enemy_damage.append(stats['enemy_total_damage_dealt'])
+                    all_enemy_received.append(stats['enemy_total_damage_received'])
+                    all_enemy_healed.append(stats['enemy_total_hp_healed'])
+                    all_enemy_healing_received.append(stats['enemy_healing_received'])
+                    all_unit_stats.append(stats.get('unit_stats', {}))
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+
+        finally:
+            pool.close()
+            pool.join()
+
+        elapsed = time.time() - t0
+
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total_runs": total_runs,
+            "total_turns": total_turns,
+            "pass_rate": wins / total_runs if total_runs > 0 else 0,
+            "all_ally_damage": all_ally_damage,
+            "all_ally_received": all_ally_received,
+            "all_ally_healed": all_ally_healed,
+            "all_enemy_damage": all_enemy_damage,
+            "all_enemy_received": all_enemy_received,
+            "all_enemy_healed": all_enemy_healed,
+            "all_enemy_healing_received": all_enemy_healing_received,
+            "all_unit_stats": all_unit_stats,
+            "failed_enemy_damage_received": failed_enemy_damage_received,
+            "elapsed": elapsed,
+            "rate": total_runs / elapsed if elapsed > 0 else 0,
+        }
+
+    def _run_single_process_circle(
+        self, panel_config, friends_chars, friend_positions,
+        enemies_data, max_turns, total_runs,
+        positions_ally, seed_batches, progress_callback,
+        season=5, stage=100, memory_cards=None,
+    ):
+        from src.entities_v2.battlefield_state import BattlefieldState
+        from src.entities_v2.enums import Side, Position
+        from src.combat_v2.circle_battle_controller import CircleBattleController
+        from src.combat_v2.battle_flow_controller import BattleConfig
+        from src.data.stat_calculator import StatCalculator
+
+        dl = self.data_loader
+        lerp = dl.load_level_lerp_data()
+        sc = StatCalculator(lerp, data_loader=dl)
+        pl = panel_config.get_player_config()
+
+        mem_cards = list(memory_cards) if memory_cards else []
+
+        wins = 0
+        losses = 0
+        total_turns = 0
+
+        all_ally_damage = []
+        all_ally_received = []
+        all_ally_healed = []
+        all_enemy_damage = []
+        all_enemy_received = []
+        all_enemy_healed = []
+        all_enemy_healing_received = []
+        failed_enemy_damage_received = []
+        all_unit_stats = []
+
+        completed = 0
+        t0 = time.time()
+
+        for seed_batch in seed_batches:
+            for seed in seed_batch:
+                random.seed(seed)
+                completed += 1
+
+                bf = BattlefieldState()
+
+                for i, cid in enumerate(friend_positions):
+                    if cid is not None:
+                        pos = positions_ally[i] if i < len(positions_ally) else Position.ALLY_CENTER_FRONT
+                        u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ALLY, pos)
+                        if u:
+                            bf.add_unit(u)
+
+                for enemy_data in enemies_data:
+                    enemy_unit = _create_circle_battle_enemy_worker(dl, enemy_data)
+                    if enemy_unit:
+                        bf.add_unit(enemy_unit)
+
+                bf.memory_cards = list(mem_cards)
+
+                bc = BattleConfig()
+                bc.max_turns = max_turns
+
+                controller = CircleBattleController(bf, data_loader=dl, config=bc,
+                                                    season=season, stage=stage)
+                result = controller.execute_battle()
+
+                winner = result.get('winner')
+                turns = result["total_turns"]
+                total_turns += turns
+
+                if winner == 'FRIEND':
+                    wins += 1
+                else:
+                    losses += 1
+
+                score_data = result.get("score", {})
+                unit_stats = score_data.get("unit_stats", {})
+
+                enemy_damage_received = 0
+                if winner != 'FRIEND':
+                    for uid, stats in unit_stats.items():
+                        if stats.get("side") == "enemy":
+                            enemy_damage_received += stats.get("damage_received", 0)
+                    failed_enemy_damage_received.append(enemy_damage_received)
+
+                all_ally_damage.append(score_data.get("ally_total_damage_dealt", 0))
+                all_ally_received.append(score_data.get("ally_total_damage_received", 0))
+                all_ally_healed.append(score_data.get("ally_total_hp_healed", 0))
+                all_enemy_damage.append(score_data.get("enemy_total_damage_dealt", 0))
+                all_enemy_received.append(score_data.get("enemy_total_damage_received", 0))
+                all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
+                all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
+                all_unit_stats.append(unit_stats)
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+
+        elapsed = time.time() - t0
+
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total_runs": total_runs,
+            "total_turns": total_turns,
+            "pass_rate": wins / total_runs if total_runs > 0 else 0,
+            "all_ally_damage": all_ally_damage,
+            "all_ally_received": all_ally_received,
+            "all_ally_healed": all_ally_healed,
+            "all_enemy_damage": all_enemy_damage,
+            "all_enemy_received": all_enemy_received,
+            "all_enemy_healed": all_enemy_healed,
+            "all_enemy_healing_received": all_enemy_healing_received,
+            "all_unit_stats": all_unit_stats,
+            "failed_enemy_damage_received": failed_enemy_damage_received,
+            "elapsed": elapsed,
+            "rate": total_runs / elapsed if elapsed > 0 else 0,
+        }
+
+    # ============ 联合战术演习 ============
+
+    def run_batch_composite_tactic(
+        self,
+        panel_config,
+        teams_positions: List[List[Any]],
+        enemies_data: List[Dict[str, Any]],
+        max_turns: int,
+        total_runs: int,
+        positions_ally: List[Any] = None,
+        progress_callback: Callable[[int, int], None] = None,
+        batch_size: int = None,
+        teams_mem_cards: List[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        """执行联合战术演习多进程批量模拟
+
+        Args:
+            teams_positions: 3支队伍的角色ID位置列表
+            teams_mem_cards: 3支队伍的回忆卡ID列表
+        """
+        if positions_ally is None:
+            from src.entities_v2.enums import Position
+            positions_ally = [
+                Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+                Position.ALLY_RIGHT_FRONT,
+                Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+                Position.ALLY_RIGHT_BACK,
+            ]
+        if batch_size is None:
+            batch_size = self.DEFAULT_BATCH_SIZE
+
+        base_seed = int(time.time() * 1000000) % (2**31)
+        seeds = [(base_seed + i) % (2**31) for i in range(total_runs)]
+        seed_batches = [seeds[i:i + batch_size] for i in range(0, len(seeds), batch_size)]
+
+        print(f"\n  [多进程联合战术演习] 总场数={total_runs} 批次={len(seed_batches)} "
+              f"每批={batch_size} Workers={min(self.max_workers, len(seed_batches))}")
+
+        try:
+            return self._run_multiprocess_composite(
+                panel_config, teams_positions, enemies_data, max_turns,
+                total_runs, positions_ally, seed_batches, progress_callback,
+                teams_mem_cards=teams_mem_cards,
+            )
+        except Exception as e:
+            print(f"  [WARN] 多进程联合战术演习失败，回退到单进程模式: {e}")
+            traceback.print_exc()
+            return self._run_single_process_composite(
+                panel_config, teams_positions, enemies_data, max_turns,
+                total_runs, positions_ally, seed_batches, progress_callback,
+                teams_mem_cards=teams_mem_cards,
+            )
+
+    def _run_multiprocess_composite(
+        self, panel_config, teams_positions, enemies_data, max_turns,
+        total_runs, positions_ally, seed_batches, progress_callback,
+        teams_mem_cards=None,
+    ):
+        n_workers = min(self.max_workers, len(seed_batches))
+
+        init_args = (
+            self._data_dir,
+            panel_config,
+            teams_positions,
+            enemies_data,
+            max_turns,
+            positions_ally,
+            teams_mem_cards if teams_mem_cards else [[], [], []],
+        )
+
+        mp_ctx = mp.get_context('spawn')
+        pool = mp_ctx.Pool(
+            processes=n_workers,
+            initializer=_worker_init_composite,
+            initargs=init_args,
+        )
+
+        all_scores = []
+        all_boss_stages = []
+        all_boss_kills = []
+        all_team_damages = []  # 每场的3队伤害列表
+        all_unit_stats = []
+        total_turns_sum = 0
+
+        completed = 0
+        t0 = time.time()
+
+        try:
+            for batch_results in pool.imap_unordered(
+                _worker_run_batch_composite, seed_batches
+            ):
+                for stats in batch_results:
+                    completed += 1
+                    all_scores.append(stats['score'])
+                    all_boss_stages.append(stats['boss_stage'])
+                    all_boss_kills.append(stats['boss_killed_count'])
+                    all_team_damages.append(stats['team_damages'])
+                    all_unit_stats.append(stats.get('unit_stats', {}))
+                    total_turns_sum += stats['total_turns']
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+        finally:
+            pool.close()
+            pool.join()
+
+        elapsed = time.time() - t0
+
+        return self._aggregate_composite_results(
+            all_scores, all_boss_stages, all_boss_kills,
+            all_team_damages, all_unit_stats, total_turns_sum,
+            total_runs, elapsed,
+        )
+
+    def _run_single_process_composite(
+        self, panel_config, teams_positions, enemies_data, max_turns,
+        total_runs, positions_ally, seed_batches, progress_callback,
+        teams_mem_cards=None,
+    ):
+        from src.entities_v2.battlefield_state import BattlefieldState
+        from src.entities_v2.enums import Side, Position
+        from src.combat_v2.composite_tactic_controller import CompositeTacticController
+        from src.combat_v2.battle_flow_controller import BattleConfig
+        from src.data.stat_calculator import StatCalculator
+        from src.entities.memory_card import MemoryCard, MemoryHighlight
+
+        dl = self.data_loader
+        lerp = dl.load_level_lerp_data()
+        sc = StatCalculator(lerp, data_loader=dl)
+        pl = panel_config.get_player_config()
+
+        teams_mem = teams_mem_cards if teams_mem_cards else [[], [], []]
+
+        all_scores = []
+        all_boss_stages = []
+        all_boss_kills = []
+        all_team_damages = []
+        all_unit_stats = []
+        total_turns_sum = 0
+
+        completed = 0
+        t0 = time.time()
+
+        for seed_batch in seed_batches:
+            for seed in seed_batch:
+                random.seed(seed)
+                completed += 1
+
+                # 创建3支队伍
+                teams_units = []
+                for team_idx, team_positions in enumerate(teams_positions):
+                    team_units = []
+                    for i, cid in enumerate(team_positions):
+                        if cid is not None:
+                            pos = positions_ally[i] if i < len(positions_ally) else Position.ALLY_CENTER_FRONT
+                            u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ALLY, pos)
+                            if u:
+                                existing_ids = {x.unit_id for x in team_units}
+                                if u.unit_id in existing_ids:
+                                    suffix = 1
+                                    while f"{u.unit_id}_{suffix}" in existing_ids:
+                                        suffix += 1
+                                    u.unit_id = f"{u.unit_id}_{suffix}"
+                                team_units.append(u)
+                    teams_units.append(team_units)
+
+                # 创建敌方
+                bf = BattlefieldState()
+                for enemy_data in enemies_data:
+                    enemy_unit = _create_composite_enemy_worker(dl, enemy_data)
+                    if enemy_unit:
+                        bf.add_unit(enemy_unit)
+
+                boss_unit_id = ""
+                for ed in enemies_data:
+                    if ed.get("is_boss"):
+                        boss_unit_id = f"E_{ed['enemy_id']}_{ed['slot']}"
+                        break
+
+                # 回忆卡
+                teams_mem_cards_built = []
+                for team_mem in teams_mem:
+                    cards = []
+                    for mem_id in team_mem:
+                        if mem_id is None:
+                            continue
+                        memory_data = dl.get_memory(mem_id)
+                        if not memory_data:
+                            continue
+                        highlights = [
+                            MemoryHighlight(
+                                character_attribute=hl.character_attribute,
+                                character_base_master_id=hl.character_base_master_id,
+                                character_master_id=hl.character_master_id,
+                                character_role=hl.character_role,
+                                character_team_master_id=hl.character_team_master_id,
+                                character_type=hl.character_type,
+                                is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                                party_position=hl.party_position,
+                                skill_master_id=hl.skill_master_id,
+                            )
+                            for hl in memory_data.highlights
+                        ]
+                        cards.append(MemoryCard(
+                            card_id=mem_id,
+                            name=memory_data.name,
+                            description=memory_data.description,
+                            rarity=memory_data.rarity,
+                            highlights=highlights,
+                        ))
+                    teams_mem_cards_built.append(cards)
+
+                bc = BattleConfig()
+                bc.max_turns = max_turns
+
+                controller = CompositeTacticController(
+                    bf, data_loader=dl, config=bc, narrative=None,
+                    teams=teams_units, team_memories=teams_mem_cards_built,
+                    boss_unit_id=boss_unit_id,
+                )
+                result = controller.execute_battle()
+
+                all_scores.append(result.get("score", 0))
+                all_boss_stages.append(result.get("boss_stage", 0))
+                all_boss_kills.append(result.get("boss_killed_count", 0))
+                all_team_damages.append([tr.get("damage_to_boss", 0) for tr in result.get("team_results", [])])
+                total_turns_sum += result.get("total_turns", 0)
+
+                # 单位统计（己方单位key含队伍索引，避免同角色重复编组时key冲突）
+                unit_stats = {}
+                for team_idx, team_units in enumerate(teams_units):
+                    for u in team_units:
+                        key = f"{u.unit_id}_t{team_idx}"
+                        unit_stats[key] = {
+                            "name": u.name, "side": "ally", "team": team_idx,
+                            "uid": u.unit_id,
+                            "damage_dealt": getattr(u, 'damage_dealt_total', 0),
+                            "damage_received": getattr(u, 'damage_taken_total', 0),
+                            "hp_healed": 0,
+                            "hp_received": 0,
+                        }
+                for u in bf.enemy_team:
+                    unit_stats[u.unit_id] = {
+                        "name": u.name, "side": "enemy",
+                        "damage_dealt": getattr(u, 'damage_dealt_total', 0),
+                        "damage_received": getattr(u, 'damage_taken_total', 0),
+                        "hp_healed": 0,
+                        "hp_received": 0,
+                    }
+                all_unit_stats.append(unit_stats)
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+
+        elapsed = time.time() - t0
+
+        return self._aggregate_composite_results(
+            all_scores, all_boss_stages, all_boss_kills,
+            all_team_damages, all_unit_stats, total_turns_sum,
+            total_runs, elapsed,
+        )
+
+    @staticmethod
+    def _aggregate_composite_results(
+        all_scores, all_boss_stages, all_boss_kills,
+        all_team_damages, all_unit_stats, total_turns_sum,
+        total_runs, elapsed,
+    ):
+        """聚合联合战术演习批量模拟结果"""
+        n = total_runs if total_runs > 0 else 1
+
+        # 各队平均伤害
+        team_avg_damages = [0.0, 0.0, 0.0]
+        for td_list in all_team_damages:
+            for i, dmg in enumerate(td_list[:3]):
+                team_avg_damages[i] += dmg
+        team_avg_damages = [d / n for d in team_avg_damages]
+
+        # 聚合单位统计（己方按角色uid汇总 + 按队伍分组汇总）
+        ally_agg = {}
+        enemy_agg = {}
+        team_ally_agg = [{}, {}, {}]  # 每队单独聚合，避免重复角色混在一起
+        for unit_stats in all_unit_stats:
+            for key, stats in unit_stats.items():
+                if stats.get("side") == "ally":
+                    # 按角色uid汇总（跨队伍合计）
+                    uid = stats.get("uid", key)
+                    if uid not in ally_agg:
+                        ally_agg[uid] = {
+                            "name": stats.get("name", uid),
+                            "damage_dealt": 0, "damage_received": 0,
+                            "hp_healed": 0, "hp_received": 0, "count": 0,
+                        }
+                    ally_agg[uid]["damage_dealt"] += stats.get("damage_dealt", 0)
+                    ally_agg[uid]["damage_received"] += stats.get("damage_received", 0)
+                    ally_agg[uid]["hp_healed"] += stats.get("hp_healed", 0)
+                    ally_agg[uid]["hp_received"] += stats.get("hp_received", 0)
+                    ally_agg[uid]["count"] += 1
+
+                    # 按队伍分组汇总
+                    team_idx = stats.get("team", 0)
+                    if 0 <= team_idx < 3:
+                        if uid not in team_ally_agg[team_idx]:
+                            team_ally_agg[team_idx][uid] = {
+                                "name": stats.get("name", uid),
+                                "damage_dealt": 0, "damage_received": 0,
+                                "hp_healed": 0, "hp_received": 0, "count": 0,
+                            }
+                        team_ally_agg[team_idx][uid]["damage_dealt"] += stats.get("damage_dealt", 0)
+                        team_ally_agg[team_idx][uid]["damage_received"] += stats.get("damage_received", 0)
+                        team_ally_agg[team_idx][uid]["hp_healed"] += stats.get("hp_healed", 0)
+                        team_ally_agg[team_idx][uid]["hp_received"] += stats.get("hp_received", 0)
+                        team_ally_agg[team_idx][uid]["count"] += 1
+                else:
+                    if key not in enemy_agg:
+                        enemy_agg[key] = {
+                            "name": stats.get("name", key),
+                            "damage_dealt": 0, "damage_received": 0,
+                            "hp_healed": 0, "hp_received": 0, "count": 0,
+                        }
+                    enemy_agg[key]["damage_dealt"] += stats.get("damage_dealt", 0)
+                    enemy_agg[key]["damage_received"] += stats.get("damage_received", 0)
+                    enemy_agg[key]["hp_healed"] += stats.get("hp_healed", 0)
+                    enemy_agg[key]["hp_received"] += stats.get("hp_received", 0)
+                    enemy_agg[key]["count"] += 1
+
+        return {
+            "total_runs": total_runs,
+            "avg_score": sum(all_scores) / n if all_scores else 0,
+            "max_score": max(all_scores) if all_scores else 0,
+            "min_score": min(all_scores) if all_scores else 0,
+            "avg_boss_stage": sum(all_boss_stages) / n if all_boss_stages else 0,
+            "avg_boss_kills": sum(all_boss_kills) / n if all_boss_kills else 0,
+            "team_avg_damages": team_avg_damages,
+            "avg_turns": total_turns_sum / n,
+            "all_scores": all_scores,
+            "ally_agg": ally_agg,
+            "enemy_agg": enemy_agg,
+            "team_ally_agg": team_ally_agg,
+            "all_unit_stats": all_unit_stats,
+            "elapsed": elapsed,
+            "rate": total_runs / elapsed if elapsed > 0 else 0,
+        }
+
+
+# ============ 联合战术演习 Worker ============
+
+_worker_composite_cfg = None
+
+
+def _create_composite_enemy_worker(dl, enemy_data: Dict[str, Any]):
+    """Worker内创建联合战术演习敌方单位（含技能等级）"""
+    from src.entities_v2.unit_state import UnitState
+    from src.entities_v2.enums import Side, Position
+
+    pos = enemy_data.get("position", 1)
+    pos_str = ENEMY_SLOT_POSITION_MAP_WORKER.get(pos, "enemy_left_front")
+    enemy_pos = Position(pos_str)
+
+    skill_ids = enemy_data.get("skill_ids", [])
+    raw_levels = enemy_data.get("skill_levels", {})
+    skill_levels = {}
+    for sid in skill_ids:
+        sid_str = str(sid)
+        skill_levels[sid] = int(raw_levels.get(sid_str, raw_levels.get(sid, 1)))
+
+    max_ep = 0
+    for sid in skill_ids:
+        sk = dl.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = max(max_ep, sk.resource_cost)
+
+    unit_id = f"E_{enemy_data['enemy_id']}_{enemy_data['slot']}"
+
+    return UnitState(
+        unit_id=unit_id,
+        name=enemy_data["name"],
+        side=Side.ENEMY,
+        position=enemy_pos,
+        character_id=enemy_data["enemy_id"],
+        level=enemy_data["level"],
+        element=enemy_data["attribute"],
+        character_type=enemy_data["type"],
+        max_hp=enemy_data["hp"],
+        current_hp=enemy_data["hp"],
+        attack=enemy_data["attack"],
+        defense=enemy_data["defense"],
+        speed=enemy_data["speed"],
+        crit_rate=enemy_data["critical_rate"],
+        crit_damage=0.0,
+        advantage_damage=0.0,
+        initial_active_point=enemy_data.get("action_point", 2),
+        initial_passive_point=enemy_data.get("passive_point", 2),
+        max_extra_point=max_ep,
+        current_ap=enemy_data.get("action_point", 2),
+        current_pp=enemy_data.get("passive_point", 2),
+        current_ep=0,
+        skills=skill_ids,
+        skill_levels=skill_levels,
+        skill_cooldowns={},
+        role_type=enemy_data.get("role_type", 0),
+        position_type=3,
+    )
+
+
+def _worker_init_composite(data_dir: str,
+                            panel_config: Any,
+                            teams_positions: List[List[Any]],
+                            enemies_data: List[Dict[str, Any]],
+                            max_turns: int,
+                            positions_ally: List[Any],
+                            mem_cards_data: List[List[Any]] = None):
+    """联合战术演习 worker 初始化
+
+    Args:
+        teams_positions: 3支队伍的角色ID位置列表（每个列表6个元素，None表示空位）
+        mem_cards_data: 3支队伍的回忆卡数据列表
+    """
+    from src.data.data_loader import DataLoader
+    from src.data.stat_calculator import StatCalculator
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg
+    global _worker_composite_cfg, _worker_mem_cards
+
+    dl = DataLoader()
+    dl._data_dir = Path(data_dir)
+    dl.load_all()
+
+    sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
+
+    _worker_dl = dl
+    _worker_panel_config = panel_config
+    _worker_player_config = panel_config.get_player_config()
+    _worker_stat_calculator = sc
+    _worker_cfg = {
+        'teams_positions': [list(t) for t in teams_positions],
+        'positions_ally': list(positions_ally),
+    }
+    _worker_composite_cfg = {
+        'enemies_data': enemies_data,
+        'max_turns': max_turns,
+    }
+    # 3支队伍的回忆卡
+    if mem_cards_data:
+        _worker_mem_cards = [list(mc) for mc in mem_cards_data]
+    else:
+        _worker_mem_cards = [[], [], []]
+
+
+def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
+    """联合战术演习 worker: 运行一批战斗，返回每场统计"""
+    from src.entities_v2.battlefield_state import BattlefieldState
+    from src.entities_v2.enums import Side, Position
+    from src.combat_v2.composite_tactic_controller import CompositeTacticController
+    from src.combat_v2.battle_flow_controller import BattleConfig
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg
+    global _worker_composite_cfg, _worker_mem_cards
+
+    dl = _worker_dl
+    pc = _worker_panel_config
+    pl = _worker_player_config
+    sc = _worker_stat_calculator
+    cfg = _worker_cfg
+    cc = _worker_composite_cfg
+
+    enemies_data = cc['enemies_data']
+    max_turns = cc['max_turns']
+    teams_positions = cfg['teams_positions']
+    pos_a = cfg['positions_ally']
+    teams_mem = _worker_mem_cards if _worker_mem_cards else [[], [], []]
+
+    results = []
+
+    for seed in seeds:
+        random.seed(seed)
+
+        # 创建3支队伍的单位
+        teams_units = []
+        for team_idx, team_positions in enumerate(teams_positions):
+            team_units = []
+            for i, cid in enumerate(team_positions):
+                if cid is not None:
+                    pos = pos_a[i] if i < len(pos_a) else Position.ALLY_CENTER_FRONT
+                    u = _create_unit_worker(dl, pc, pl, sc, cid, Side.ALLY, pos)
+                    if u:
+                        # 为同队内的相同角色添加后缀避免unit_id冲突
+                        existing_ids = {x.unit_id for x in team_units}
+                        if u.unit_id in existing_ids:
+                            suffix = 1
+                            while f"{u.unit_id}_{suffix}" in existing_ids:
+                                suffix += 1
+                            u.unit_id = f"{u.unit_id}_{suffix}"
+                        team_units.append(u)
+            teams_units.append(team_units)
+
+        # 创建敌方单位
+        bf = BattlefieldState()
+        for enemy_data in enemies_data:
+            enemy_unit = _create_composite_enemy_worker(dl, enemy_data)
+            if enemy_unit:
+                bf.add_unit(enemy_unit)
+
+        # BOSS unit_id
+        boss_unit_id = ""
+        for ed in enemies_data:
+            if ed.get("is_boss"):
+                boss_unit_id = f"E_{ed['enemy_id']}_{ed['slot']}"
+                break
+
+        # 回忆卡
+        from src.entities.memory_card import MemoryCard, MemoryHighlight
+        teams_mem_cards = []
+        for team_mem in teams_mem:
+            cards = []
+            for mem_entry in team_mem:
+                if mem_entry is None:
+                    continue
+                card_id = mem_entry.get("card_id") if isinstance(mem_entry, dict) else mem_entry
+                if card_id is None:
+                    continue
+                memory_data = dl.get_memory(card_id)
+                if not memory_data:
+                    continue
+                highlights = [
+                    MemoryHighlight(
+                        character_attribute=hl.character_attribute,
+                        character_base_master_id=hl.character_base_master_id,
+                        character_master_id=hl.character_master_id,
+                        character_role=hl.character_role,
+                        character_team_master_id=hl.character_team_master_id,
+                        character_type=hl.character_type,
+                        is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                        party_position=hl.party_position,
+                        skill_master_id=hl.skill_master_id,
+                    )
+                    for hl in memory_data.highlights
+                ]
+                cards.append(MemoryCard(
+                    card_id=card_id,
+                    name=memory_data.name,
+                    description=memory_data.description,
+                    rarity=memory_data.rarity,
+                    highlights=highlights,
+                ))
+            teams_mem_cards.append(cards)
+
+        bc = BattleConfig()
+        bc.max_turns = max_turns
+
+        controller = CompositeTacticController(
+            bf, data_loader=dl, config=bc, narrative=None,
+            teams=teams_units, team_memories=teams_mem_cards,
+            boss_unit_id=boss_unit_id,
+        )
+        result = controller.execute_battle()
+
+        score = result.get("score", 0)
+        boss_stage = result.get("boss_stage", 0)
+        boss_killed = result.get("boss_killed_count", 0)
+        team_results = result.get("team_results", [])
+        total_turns = result.get("total_turns", 0)
+
+        # 收集单位统计（己方单位key含队伍索引，避免同角色重复编组时key冲突）
+        unit_stats = {}
+        for team_idx, team_units in enumerate(teams_units):
+            for u in team_units:
+                key = f"{u.unit_id}_t{team_idx}"
+                unit_stats[key] = {
+                    "name": u.name,
+                    "side": "ally",
+                    "team": team_idx,
+                    "uid": u.unit_id,
+                    "damage_dealt": getattr(u, 'damage_dealt_total', 0),
+                    "damage_received": getattr(u, 'damage_taken_total', 0),
+                    "hp_healed": 0,
+                    "hp_received": 0,
+                }
+
+        for u in bf.enemy_team:
+            uid = u.unit_id
+            unit_stats[uid] = {
+                "name": u.name,
+                "side": "enemy",
+                "damage_dealt": getattr(u, 'damage_dealt_total', 0),
+                "damage_received": getattr(u, 'damage_taken_total', 0),
+                "hp_healed": 0,
+                "hp_received": 0,
+            }
+
+        # 各队净伤害（对敌方HP伤害 - 敌方回血，盾伤不计）
+        team_damages = [tr.get("damage_to_boss", 0) for tr in team_results]
+
+        results.append({
+            'seed': seed,
+            'score': score,
+            'boss_stage': boss_stage,
+            'boss_killed_count': boss_killed,
+            'total_turns': total_turns,
+            'team_damages': team_damages,
+            'unit_stats': unit_stats,
+        })
+
+    return results

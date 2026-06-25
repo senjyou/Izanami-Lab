@@ -17,6 +17,198 @@ _POS_RC = {
     Position.ENEMY_LEFT_BACK: (1, 0), Position.ENEMY_CENTER_BACK: (1, 1), Position.ENEMY_RIGHT_BACK: (1, 2),
 }
 
+# 最近索敌优先级映射表：施法者位置 -> 目标位置优先级顺序（按用户定义的规则硬编码）
+# 注意：友方和敌方视角的优先级顺序完全一致，只是目标阵营不同
+_NEAREST_PRIORITY_MAP = {
+    # 友方法师位置 -> 敌方目标优先级
+    Position.ALLY_LEFT_FRONT: [
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ALLY_CENTER_FRONT: [
+        Position.ENEMY_CENTER_FRONT, Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT,
+        Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ALLY_RIGHT_FRONT: [
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_LEFT_BACK
+    ],
+    Position.ALLY_LEFT_BACK: [
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_LEFT_BACK,
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ALLY_CENTER_BACK: [
+        Position.ENEMY_CENTER_FRONT, Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT,
+        Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ALLY_RIGHT_BACK: [
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_RIGHT_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_BACK
+    ],
+    # 敌方法师位置 -> 友方目标优先级（顺序与友方相同，只是阵营反转）
+    Position.ENEMY_LEFT_FRONT: [
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_RIGHT_BACK
+    ],
+    Position.ENEMY_CENTER_FRONT: [
+        Position.ALLY_CENTER_FRONT, Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT,
+        Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK
+    ],
+    Position.ENEMY_RIGHT_FRONT: [
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_LEFT_BACK
+    ],
+    Position.ENEMY_LEFT_BACK: [
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_LEFT_BACK,
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_BACK,
+        Position.ALLY_RIGHT_BACK
+    ],
+    Position.ENEMY_CENTER_BACK: [
+        Position.ALLY_CENTER_FRONT, Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT,
+        Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK
+    ],
+    Position.ENEMY_RIGHT_BACK: [
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_RIGHT_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_BACK
+    ],
+}
+
+# 最远索敌优先级映射表：施法者位置 -> 目标位置优先级顺序
+_FARTHEST_PRIORITY_MAP = {
+    # 友方法师位置 -> 敌方目标优先级
+    Position.ALLY_LEFT_FRONT: [
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_LEFT_BACK,
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_LEFT_FRONT
+    ],
+    Position.ALLY_CENTER_FRONT: [
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT
+    ],
+    Position.ALLY_RIGHT_FRONT: [
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT
+    ],
+    Position.ALLY_LEFT_BACK: [
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_LEFT_BACK,
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_LEFT_FRONT
+    ],
+    Position.ALLY_CENTER_BACK: [
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT
+    ],
+    Position.ALLY_RIGHT_BACK: [
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT
+    ],
+    # 敌方法师位置 -> 友方目标优先级
+    Position.ENEMY_LEFT_FRONT: [
+        Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_LEFT_BACK,
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_LEFT_FRONT
+    ],
+    Position.ENEMY_CENTER_FRONT: [
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT
+    ],
+    Position.ENEMY_RIGHT_FRONT: [
+        Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT
+    ],
+    Position.ENEMY_LEFT_BACK: [
+        Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_LEFT_BACK,
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_LEFT_FRONT
+    ],
+    Position.ENEMY_CENTER_BACK: [
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT
+    ],
+    Position.ENEMY_RIGHT_BACK: [
+        Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT
+    ],
+}
+
+# 同阵营最近索敌优先级映射表：施法者位置 -> 同阵营目标位置优先级顺序
+# 规则：优先选取最近目标，同距离下优先前排/左列目标
+_NEAREST_ALLY_MAP = {
+    # 友方施法者 -> 友方目标
+    Position.ALLY_LEFT_FRONT: [
+        Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_RIGHT_BACK
+    ],
+    Position.ALLY_CENTER_FRONT: [
+        Position.ALLY_CENTER_FRONT, Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT,
+        Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK
+    ],
+    Position.ALLY_RIGHT_FRONT: [
+        Position.ALLY_RIGHT_FRONT, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_RIGHT_BACK, Position.ALLY_CENTER_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_LEFT_BACK
+    ],
+    Position.ALLY_LEFT_BACK: [
+        Position.ALLY_LEFT_BACK, Position.ALLY_LEFT_FRONT,
+        Position.ALLY_CENTER_BACK, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_RIGHT_BACK, Position.ALLY_RIGHT_FRONT
+    ],
+    Position.ALLY_CENTER_BACK: [
+        Position.ALLY_CENTER_BACK, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK,
+        Position.ALLY_LEFT_FRONT, Position.ALLY_RIGHT_FRONT
+    ],
+    Position.ALLY_RIGHT_BACK: [
+        Position.ALLY_RIGHT_BACK, Position.ALLY_RIGHT_FRONT,
+        Position.ALLY_CENTER_BACK, Position.ALLY_CENTER_FRONT,
+        Position.ALLY_LEFT_BACK, Position.ALLY_LEFT_FRONT
+    ],
+    # 敌方施法者 -> 敌方目标
+    Position.ENEMY_LEFT_FRONT: [
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ENEMY_CENTER_FRONT: [
+        Position.ENEMY_CENTER_FRONT, Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT,
+        Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK
+    ],
+    Position.ENEMY_RIGHT_FRONT: [
+        Position.ENEMY_RIGHT_FRONT, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_CENTER_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_LEFT_BACK
+    ],
+    Position.ENEMY_LEFT_BACK: [
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_LEFT_FRONT,
+        Position.ENEMY_CENTER_BACK, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_RIGHT_FRONT
+    ],
+    Position.ENEMY_CENTER_BACK: [
+        Position.ENEMY_CENTER_BACK, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_RIGHT_BACK,
+        Position.ENEMY_LEFT_FRONT, Position.ENEMY_RIGHT_FRONT
+    ],
+    Position.ENEMY_RIGHT_BACK: [
+        Position.ENEMY_RIGHT_BACK, Position.ENEMY_RIGHT_FRONT,
+        Position.ENEMY_CENTER_BACK, Position.ENEMY_CENTER_FRONT,
+        Position.ENEMY_LEFT_BACK, Position.ENEMY_LEFT_FRONT
+    ],
+}
+
 _FRONT_POSITION_MAP = {
     Position.ALLY_LEFT_BACK: Position.ALLY_LEFT_FRONT,
     Position.ALLY_CENTER_BACK: Position.ALLY_CENTER_FRONT,
@@ -102,10 +294,23 @@ class TargetService:
                         mark_priority: str = None) -> List[UnitState]:
         r_type = DisplayTargetRange(range_type)
 
-        if r_type == DisplayTargetRange.ALL_PAWNS:
-            return candidates
-
+        # 即使是ALL_PAWNS也需要先排序（保持优先级顺序）
         ordered = self._order_by_priority(caster, candidates, priority)
+        if r_type == DisplayTargetRange.ALL_PAWNS:
+            return ordered
+
+        if not ordered:
+            return []
+
+        # ally_single_include_self: 优先自身以外的友方，无其他友方时回退自身
+        if target_type_name == 'ally_single_include_self':
+            others = [u for u in ordered if u.unit_id != caster.unit_id]
+            if others:
+                ordered = others
+            else:
+                ordered = [caster]
+            _log.info("[TARGET]   ally_single_include_self -> %d others, fallback=%s",
+                      len(others), "no" if others else "yes(self)")
 
         if not ordered:
             return []
@@ -117,7 +322,7 @@ class TargetService:
                 return [ordered[0]]
             nearest = ordered[0]
             # 使用_get_farthest_key正确破平局（同距离优先左列），参考カオスキャノン的furthest filter
-            farthest = min(candidates, key=lambda u: self._get_farthest_key(caster.position, u))
+            farthest = min(candidates, key=lambda u: self._get_farthest_key(caster, u))
             # 防止最近和最远是同一单位（理论上不会，但安全检查）
             if nearest.unit_id == farthest.unit_id:
                 return [nearest]
@@ -195,7 +400,7 @@ class TargetService:
             count = count_map[r_type]
             primary = ordered[0]
             remaining = [u for u in ordered[1:] if u != primary]
-            remaining.sort(key=lambda u: self._get_sort_key(primary.position, u))
+            remaining.sort(key=lambda u: self._get_sort_key(primary, u))
             return [primary] + remaining[:min(count - 1, len(remaining))]
 
         return [ordered[0]]
@@ -211,30 +416,30 @@ class TargetService:
             p_type = None
 
         if p_type is None or p_type == DisplayTargetPriority.NEAREST:
-            candidates.sort(key=lambda u: self._get_sort_key(caster.position, u))
+            candidates.sort(key=lambda u: self._get_sort_key(caster, u))
             return candidates
 
         if p_type == DisplayTargetPriority.FARTHEST:
-            candidates.sort(key=lambda u: self._get_farthest_key(caster.position, u))
+            candidates.sort(key=lambda u: self._get_farthest_key(caster, u))
             return candidates
 
         if p_type == DisplayTargetPriority.LOWEST_HP_PERCENT:
             candidates.sort(key=lambda u: (u.current_hp / u.max_hp if u.max_hp > 0 else 1.0,
-                                           self._get_sort_key(caster.position, u)))
+                                           self._get_sort_key(caster, u)))
             return candidates
 
         if p_type == DisplayTargetPriority.HIGHEST_ATK:
-            candidates.sort(key=lambda u: (-u.attack, self._get_sort_key(caster.position, u)))
+            candidates.sort(key=lambda u: (-u.attack, self._get_sort_key(caster, u)))
             return candidates
 
         if p_type == DisplayTargetPriority.HIGHEST_SPEED:
-            candidates.sort(key=lambda u: (-u.speed, self._get_sort_key(caster.position, u)))
+            candidates.sort(key=lambda u: (-u.speed, self._get_sort_key(caster, u)))
             return candidates
 
         filtered = self._filter_by_priority(candidates, priority)
         remaining = [u for u in candidates if u not in filtered]
-        filtered.sort(key=lambda u: self._get_sort_key(caster.position, u))
-        remaining.sort(key=lambda u: self._get_sort_key(caster.position, u))
+        filtered.sort(key=lambda u: self._get_sort_key(caster, u))
+        remaining.sort(key=lambda u: self._get_sort_key(caster, u))
         return filtered + remaining
 
     def _filter_by_priority(self, candidates: List[UnitState], priority) -> List[UnitState]:
@@ -278,19 +483,42 @@ class TargetService:
 
         return list(candidates)
 
-    def _get_sort_key(self, caster_pos: Position, unit: UnitState):
+    def _get_sort_key(self, caster: UnitState, unit: UnitState):
+        """最近索敌排序键：基于硬编码的优先级映射表，区分同阵营和异阵营"""
+        # 判断是否同阵营
+        is_same_side = caster.side == unit.side
+        caster_pos = caster.position
+        
+        # 选择对应的映射表
+        if is_same_side:
+            priority_order = _NEAREST_ALLY_MAP.get(caster_pos)
+        else:
+            priority_order = _NEAREST_PRIORITY_MAP.get(caster_pos)
+        
+        if priority_order:
+            priority_index = {pos: i for i, pos in enumerate(priority_order)}
+            return priority_index.get(unit.position, len(priority_order))
+        
+        # 回退到距离计算
         _, cc = _POS_RC[caster_pos]
         tr, tc = _POS_RC[unit.position]
-        # 欧几里得平方距离（含斜向距离），而非曼哈顿距离
-        # 例：从左前(0,0)看，中后(1,1)距离2 < 右前(0,2)距离4，中后应优先
         dist_sq = (tr - 0) ** 2 + (tc - cc) ** 2
-        return (dist_sq, tr, tc)
+        return dist_sq
 
-    def _get_farthest_key(self, caster_pos: Position, unit: UnitState):
+    def _get_farthest_key(self, caster: UnitState, unit: UnitState):
+        """最远索敌排序键：基于硬编码的优先级映射表（仅用于异阵营）"""
+        caster_pos = caster.position
+        priority_order = _FARTHEST_PRIORITY_MAP.get(caster_pos)
+        
+        if priority_order:
+            priority_index = {pos: i for i, pos in enumerate(priority_order)}
+            return priority_index.get(unit.position, len(priority_order))
+        
+        # 回退到距离计算
         _, cc = _POS_RC[caster_pos]
         tr, tc = _POS_RC[unit.position]
         dist_sq = (tr - 0) ** 2 + (tc - cc) ** 2
-        return (-dist_sq, tr, tc)
+        return -dist_sq
 
     def _is_front_row(self, unit: UnitState) -> bool:
         name = unit.position.name
@@ -339,7 +567,7 @@ class TargetService:
         # 按 (mark_count, distance) 排序，mark数最少+距离最近优先
         def _sort_key(u):
             c = self._count_mark(u, mark_name)
-            d = self._get_sort_key(caster.position, u)
+            d = self._get_sort_key(caster, u)
             return (c, d)
         best_unit = min(candidates, key=_sort_key)
         best_count = self._count_mark(best_unit, mark_name)
@@ -350,21 +578,16 @@ class TargetService:
     def _get_adjacent_to_closest(self, enemy_units: List[UnitState], caster: UnitState) -> List[UnitState]:
         if not enemy_units:
             return []
-        closest = min(enemy_units, key=lambda u: self._get_sort_key(caster.position, u))
+        closest = min(enemy_units, key=lambda u: self._get_sort_key(caster, u))
         adj_positions = self._get_adjacent_positions(closest.position)
         # Exclude the reference target (closest) itself — it is only a reference, not a valid adjacent target
         return [u for u in enemy_units if u.position in adj_positions and u != closest]
 
     def get_adjacent_to_unit(self, unit: UnitState, battlefield: BattlefieldState, caster: UnitState = None) -> List[UnitState]:
-        """获取指定单位邻接位置的存活敌方单位（从施法者视角的敌方，不含主目标自身）"""
-        from ...entities_v2.enums import Side
-        if caster:
-            enemy_side = Side.ENEMY if caster.side == Side.ALLY else Side.ALLY
-        else:
-            enemy_side = Side.ENEMY if unit.side == Side.ALLY else Side.ALLY
-        enemies = [u for u in battlefield.get_alive_units(enemy_side) if u.unit_id != unit.unit_id]
+        """获取与参照单位同阵营的邻接存活单位（不含参照单位自身）"""
+        same_side_units = [u for u in battlefield.get_alive_units(unit.side) if u.unit_id != unit.unit_id]
         adj_positions = self._get_adjacent_positions(unit.position)
-        return [u for u in enemies if u.position in adj_positions]
+        return [u for u in same_side_units if u.position in adj_positions]
 
     def get_nearest_enemy(self, caster: UnitState, enemies: List[UnitState]) -> Optional[UnitState]:
         """获取距离施法者最近的敌方单位（基于列参考点的欧几里得平方距离）"""

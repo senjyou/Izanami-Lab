@@ -59,7 +59,7 @@ class BattleNarrativeWriter:
         self._add(u"║              战斗回放 · 自然语言版                ║")
         self._add(u"╠══════════════════════════════════════════════════╣")
         self._add(u"║                                                  ║")
-        self._add(u"║  ◆ 已方阵容                                       ║")
+        self._add(u"║  ◆ 己方阵容                                       ║")
         for u in friends:
             dname = self._header_display_name(u, all_units)
             pos = POSITION_DISPLAY.get(u.position, "?")
@@ -471,6 +471,68 @@ class BattleNarrativeWriter:
         enemy_stats = [s for s in score_result.unit_stats.values() if s.side == "enemy"]
         for s in enemy_stats:
             self._add(f"║    {s.name}: 受击{s.damage_received} 回复{s.hp_received}")
+        self._add(u"╚══════════════════════════════════════════════════╝")
+
+    def composite_team_banner(self, team_index: int, total_teams: int):
+        """联合战术演习队伍出战横幅"""
+        self._add("")
+        self._add(u"╔══════════════════════════════════════════════════╗")
+        self._add(f"║       联合战术演习 · 队伍{team_index + 1}/{total_teams}出战             ║")
+        self._add(u"╚══════════════════════════════════════════════════╝")
+        self._add("")
+
+    def composite_team_summary(self, team_index: int, net_damage: int, rounds: int,
+                               team_wiped: bool, ally_stats: list, enemy_stats: list):
+        """联合战术演习单队战斗结果摘要
+
+        Args:
+            team_index: 队伍索引(0-based)
+            net_damage: 净伤害
+            rounds: 回合数
+            team_wiped: 是否团灭
+            ally_stats: [(name, damage_dealt, damage_received, alive), ...]
+            enemy_stats: [(name, damage_received, current_hp, max_hp), ...]
+        """
+        result_text = "团灭" if team_wiped else "存活"
+        self._add("")
+        self._add(u"╔══════════════════════════════════════════════════╗")
+        self._add(f"║       队伍{team_index + 1} · 战斗结果")
+        self._add(u"╠══════════════════════════════════════════════════╣")
+        self._add(f"║  净伤害: {net_damage:,}  回合: {rounds}  结果: {result_text}")
+        self._add(u"║──────────────────────────────────────────────────║")
+        self._add(u"║  ◆ 己方单位统计")
+        for name, dmg_dealt, dmg_recv, alive in ally_stats:
+            status = "存活" if alive else "阵亡"
+            self._add(f"║    {name}: 伤害{dmg_dealt:,} 受击{dmg_recv:,} {status}")
+        self._add(u"║──────────────────────────────────────────────────║")
+        self._add(u"║  ◆ 敌方单位统计")
+        for name, dmg_recv, cur_hp, max_hp in enemy_stats:
+            self._add(f"║    {name}: 受击{dmg_recv:,} HP:{cur_hp}/{max_hp}")
+        self._add(u"╚══════════════════════════════════════════════════╝")
+        self._add("")
+
+    def composite_final_summary(self, total_score: int, team_results: list,
+                                boss_killed_count: int, boss_stage: int):
+        """联合战术演习最终结果
+
+        Args:
+            total_score: 总分数
+            team_results: [{"damage_to_boss": x, "rounds_survived": y, "team_wiped": z}, ...]
+            boss_killed_count: BOSS被击杀次数
+            boss_stage: BOSS最终阶段
+        """
+        self._add("")
+        self._add(u"╔══════════════════════════════════════════════════╗")
+        self._add(u"║       联合战术演习 · 最终结果")
+        self._add(u"╠══════════════════════════════════════════════════╣")
+        self._add(f"║  总分数(净伤害): {total_score:,}")
+        for i, tr in enumerate(team_results):
+            result = "团灭" if tr.get("team_wiped") else "存活"
+            self._add(f"║  队伍{i + 1}: 净伤害{tr.get('damage_to_boss', 0):,} "
+                      f"回合{tr.get('rounds_survived', 0)} {result}")
+        self._add(u"║──────────────────────────────────────────────────║")
+        self._add(f"║  BOSS被击杀次数: {boss_killed_count}")
+        self._add(f"║  BOSS最终阶段: {boss_stage}")
         self._add(u"╚══════════════════════════════════════════════════╝")
 
     def write(self, filepath: str):

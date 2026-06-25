@@ -5407,7 +5407,7 @@
   "400204": {
     "skill_id": 400204,
     "name": "被ダメージ上昇【敵前衛】",
-    "description": "戦闘開始時に発動。敵前衛の受けるダメージを5%上昇させる",
+    "description": "戦闘開始時に発動。敵前衛の受けるダメージを7.5%上昇させる",
     "trigger": {
       "type": "battle_start"
     },
@@ -5418,9 +5418,77 @@
         "effects": [
           {
             "effect_type": "ReceivedDamage",
-            "value": 5,
+            "value": 7.5,
             "value_tag": 0,
             "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400205": {
+    "skill_id": 400205,
+    "name": "三ツ星【中央列後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方の攻撃力を1行動の間3000上昇させる。さらに「三ツ星」を付与する",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 16,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 3000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "三ツ星",
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400206": {
+    "skill_id": 400206,
+    "name": "HP・防御上昇【ALL】",
+    "description": "戦闘開始時に発動。味方のHPと防御力を300上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 300,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusDefense",
+            "value": 300,
+            "value_tag": 1,
+            "is_buff": true,
             "duration": -1,
             "duration_type": null,
             "timing_type": 3,

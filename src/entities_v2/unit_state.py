@@ -98,7 +98,7 @@ class UnitState:
     current_hp: int
     current_ap: int
     current_pp: int
-    current_ep: int
+    current_ep: float  # EP允许小数存储（ep_gain_down debuff影响）
     
     # ========== 护盾（可变）==========
     shield: int = 0

@@ -1,0 +1,173 @@
+{
+  "endless": {
+    "quest_id": 70001013,
+    "max_turn": 5,
+    "boss_index": 0,
+    "enemies": [
+      {
+        "slot": 1,
+        "position": 1,
+        "enemy_id": 107420163,
+        "model_asset_id": "e107402",
+        "name": "ウォッチャーソナー型",
+        "level": 261,
+        "hp": 262840,
+        "attack": 24390,
+        "defense": 22006,
+        "speed": 864,
+        "critical_rate": 0.20000000298023224,
+        "attribute": 2,
+        "type": 2,
+        "role_type": 3,
+        "rarity": 9,
+        "action_point": 4,
+        "passive_point": 4,
+        "skill_ids": [
+          220036,
+          230038,
+          230031,
+          230376
+        ],
+        "skill_levels": {
+          "220036": 10,
+          "230038": 10,
+          "230031": 10,
+          "230376": 10
+        },
+        "is_boss": false
+      },
+      {
+        "slot": 3,
+        "position": 3,
+        "enemy_id": 124130463,
+        "model_asset_id": "e124103",
+        "name": "ホロヴェスター",
+        "level": 261,
+        "hp": 311963,
+        "attack": 41094,
+        "defense": 18825,
+        "speed": 743,
+        "critical_rate": 0.15000000596046448,
+        "attribute": 3,
+        "type": 2,
+        "role_type": 2,
+        "rarity": 9,
+        "action_point": 4,
+        "passive_point": 4,
+        "skill_ids": [
+          220119,
+          220120,
+          230107,
+          230108
+        ],
+        "skill_levels": {
+          "220119": 10,
+          "220120": 10,
+          "230107": 10,
+          "230108": 10
+        },
+        "is_boss": false
+      },
+      {
+        "slot": 4,
+        "position": 4,
+        "enemy_id": 373320,
+        "model_asset_id": "102301",
+        "name": "月ヶ瀬ちゆる",
+        "level": 261,
+        "hp": 143910,
+        "attack": 40127,
+        "defense": 20290,
+        "speed": 726,
+        "critical_rate": 0.15000000596046448,
+        "attribute": 3,
+        "type": 3,
+        "role_type": 5,
+        "rarity": 9,
+        "action_point": 4,
+        "passive_point": 4,
+        "skill_ids": [
+          210031,
+          220154,
+          220155,
+          230141,
+          230142
+        ],
+        "skill_levels": {
+          "210031": 15,
+          "220154": 15,
+          "220155": 15,
+          "230141": 15,
+          "230142": 15
+        },
+        "is_boss": false
+      },
+      {
+        "slot": 5,
+        "position": 5,
+        "enemy_id": 118151563,
+        "model_asset_id": "e118205",
+        "name": "アビスヴェヒター",
+        "level": 261,
+        "hp": 6262020,
+        "attack": 25980,
+        "defense": 28368,
+        "speed": 586,
+        "critical_rate": 0.20000000298023224,
+        "attribute": 5,
+        "type": 3,
+        "role_type": 3,
+        "rarity": 9,
+        "action_point": 4,
+        "passive_point": 4,
+        "skill_ids": [
+          210097,
+          220069,
+          220068,
+          230029,
+          230377
+        ],
+        "skill_levels": {
+          "210097": 10,
+          "220069": 10,
+          "220068": 10,
+          "230029": 10,
+          "230377": 10
+        },
+        "is_boss": true
+      },
+      {
+        "slot": 6,
+        "position": 6,
+        "enemy_id": 156160363,
+        "model_asset_id": "e156100",
+        "name": "ウォーデンドリル型_アウトローカラー",
+        "level": 261,
+        "hp": 286280,
+        "attack": 26777,
+        "defense": 22006,
+        "speed": 815,
+        "critical_rate": 0.15000000596046448,
+        "attribute": 6,
+        "type": 3,
+        "role_type": 5,
+        "rarity": 9,
+        "action_point": 4,
+        "passive_point": 4,
+        "skill_ids": [
+          220024,
+          220048,
+          230325,
+          230027
+        ],
+        "skill_levels": {
+          "220024": 10,
+          "220048": 10,
+          "230325": 10,
+          "230027": 10
+        },
+        "is_boss": false
+      }
+    ]
+  }
+}

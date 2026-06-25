@@ -11,6 +11,7 @@ _log = battle_logger()
 TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "before_skill_use": TriggerTiming.BEFORE_SKILL_USE,
     "after_as_attack": TriggerTiming.AFTER_SKILL_USE,
+    "after_own_action": TriggerTiming.AFTER_SKILL_USE,
     "before_as_attacked": TriggerTiming.BEFORE_AS_ATTACKED,
     "before_any_attacked": TriggerTiming.BEFORE_ANY_ATTACKED,
     "before_enemy_as_attack": TriggerTiming.BEFORE_ENEMY_AS_ATTACK,
@@ -1136,6 +1137,40 @@ class TriggerService:
                 for d in owner.debuffs
             )
             _log.info("[TRIGGER_COND] %s: self_has_mark '%s' => %s", owner.name, mark_name, has_mark)
+            return has_mark
+
+        if cond_type == "self_lacks_mark":
+            # 检查PS持有者自身是否不持有指定mark（用于華舞的条件分支）
+            mark_name = condition.get('mark_name', '')
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in owner.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in owner.debuffs
+            )
+            result = not has_mark
+            _log.info("[TRIGGER_COND] %s: self_lacks_mark '%s' => %s", owner.name, mark_name, result)
+            return result
+
+        if cond_type == "target_has_mark":
+            # 检查触发目标是否持有指定mark（用于PS2的乱調检查）
+            mark_name = condition.get('mark_name', '')
+            primary = context.primary_target
+            if primary is None and context.targets:
+                primary = context.targets[0]
+            if primary is None:
+                _log.info("[TRIGGER_COND] %s: target_has_mark '%s' -> no target => False", owner.name, mark_name)
+                return False
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in primary.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in primary.debuffs
+            )
+            _log.info("[TRIGGER_COND] %s: target_has_mark '%s' (target=%s) => %s",
+                      owner.name, mark_name, primary.name, has_mark)
             return has_mark
 
         if cond_type == "actor_element":

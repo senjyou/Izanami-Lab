@@ -148,6 +148,34 @@ class AuraService:
         if newly_expired:
             _log.info("[AURA] %s expired: %s", unit.name, list(newly_expired))
 
+    def process_source_maneuver_end(self, source_unit: UnitState, all_units: List[UnitState]):
+        """
+        施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff/debuff。
+        修复duration_owner="caster"机制：原本只在buff持有者行动结束时递减，
+        现在正确地在施法者行动结束时递减。
+        """
+        source_timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
+        affected_units = []
+        for unit in all_units:
+            if unit.unit_id == source_unit.unit_id:
+                continue  # 跳过施法者自身（已在process_maneuver_end中处理）
+            if not unit.is_alive:
+                continue
+            modified = False
+            for b in unit.buffs + unit.debuffs:
+                if (b.timing_type == source_timing
+                        and getattr(b, 'source_unit_id', None) == source_unit.unit_id
+                        and b.duration > 0):
+                    b.duration -= 1
+                    modified = True
+                    _log.info("[AURA_SOURCE_END] %s: %s duration %d->%d (source %s action ended)",
+                              unit.name, b.effect_type, b.duration + 1, b.duration, source_unit.name)
+            if modified:
+                affected_units.append(unit)
+        # 清理过期buff/debuff
+        for unit in affected_units:
+            self.check_expiration(unit)
+
     def process_round_end(self, unit: UnitState):
         """
         回合结束时的结算 (罕见，部分 TurnEnd Timing)

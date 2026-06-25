@@ -74,6 +74,7 @@ _JSON_EFFECT_TO_ENUM: Dict[str, str] = {
     "sub_unit": SkillEffectType.SUB_UNIT.value,
     "dmg_invulnerable": SkillEffectType.DMG_INVULNERABLE.value,
     "block_specific_aura": SkillEffectType.BLOCK_SPECIFIC_AURA.value,
+    "ep_gain_down": SkillEffectType.EP_GAIN_DOWN.value,
 }
 
 
@@ -522,12 +523,36 @@ class SkillService:
                                     })()
                                     _pre_targets = self.target_service.select_targets(_pre_tso, caster, battlefield)
                             else:
+                                # 特殊索敌类型（highest_atk/highest_spd/furthest/highest_hp_ratio_back等）
+                                # 实际damage执行(L1149)使用ALL_PAWNS获取所有候选再后过滤，
+                                # prescan必须保持一致，否则trigger检查目标与实际damage目标不同
+                                # （如ブレイジングハート误触发bug：prescan用ONE_PAWN选NEAREST=PS持有者，
+                                #   实际damage用ALL_PAWNS+后过滤选了后排其他单位）
+                                _SPECIAL_POSTFILTER_TYPES = {
+                                    "enemy_single_highest_atk", "enemy_single_highest_spd",
+                                    "enemy_single_lowest_spd", "enemy_single_furthest",
+                                    "enemy_single_highest_ep",
+                                    "enemy_single_highest_hp_ratio_back_priority",
+                                    "enemy_single_lowest_hp_ratio",
+                                    "enemy_column_furthest", "enemy_column_mark_priority",
+                                }
+                                if _pre_target_type in _SPECIAL_POSTFILTER_TYPES:
+                                    _pre_range = self._resolve_target_range("enemies")  # ALL_PAWNS
+                                else:
+                                    _pre_range = self._resolve_target_range(_pre_target_type)
                                 _pre_tso = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(_pre_target_type),
-                                    'display_target_range': self._resolve_target_range(_pre_target_type),
+                                    'display_target_range': _pre_range,
                                     'display_target_priority': self._current_skill_priority,
+                                    'target_type_name': _pre_target_type,
+                                    'mark_priority': _pre_flags.get('mark_priority'),
                                 })()
                                 _pre_targets = self.target_service.select_targets(_pre_tso, caster, battlefield)
+                            # 对特殊索敌类型应用后过滤，与实际damage执行保持一致
+                            # 否则trigger检查会使用与实际damage不同的目标（如ブレイジングハート误触发bug）
+                            _pre_targets = self._postfilter_damage_targets(
+                                _pre_target_type, _pre_targets, caster, _pre_flags
+                            )
                             _pre_target_count = _pre_flags.get('target_count', 1)
                             if _pre_target_count > 1 and len(_pre_targets) > _pre_target_count:
                                 _pre_targets = _pre_targets[:_pre_target_count]
@@ -558,6 +583,16 @@ class SkillService:
                     self._on_crit_blocks.append(block)
                     _log.info("[SKILL_EXEC] %s: pre-collected on_crit DEFERRED block %d (effects=%d)",
                               caster.name, block.block_id, len(block.effects))
+
+        # 保存技能开始时所有敌方单位的HP快照，用于跨block的HP百分比比较（如AS1第二段攻击）
+        self._pre_skill_hp = {}
+        try:
+            enemy_side = battlefield.enemy_team if caster.side == battlefield.friend_team[0].side else battlefield.friend_team
+            for u in enemy_side:
+                if u.is_alive:
+                    self._pre_skill_hp[u.unit_id] = u.current_hp
+        except (AttributeError, IndexError):
+            pass
 
         # random_choice / probability 分支预选择
         # 收集所有带 random_choice 或 probability 条件的 block，按 group_id 分组
@@ -1128,7 +1163,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and ("highest_atk" in effect.target_type or "highest_spd" in effect.target_type or "furthest" in effect.target_type):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -1207,13 +1242,68 @@ class SkillService:
                         best_spd = self.damage_service._calculate_final_stat(best, "speed") if self.damage_service else best.speed
                         _log.info("[SKILL_EXEC] %s: highest_spd filter -> %s (spd=%d)",
                                   caster.name, best.name, best_spd)
-                    elif effect.target_type and "furthest" in effect.target_type and dmg_targets:
+                    elif effect.target_type and "lowest_spd" in effect.target_type and dmg_targets:
+                        dmg_targets = [min(dmg_targets, key=lambda u: self.damage_service._calculate_final_stat(u, "speed") if self.damage_service else u.speed)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        best_spd = self.damage_service._calculate_final_stat(best, "speed") if self.damage_service else best.speed
+                        _log.info("[SKILL_EXEC] %s: lowest_spd filter -> %s (spd=%d)",
+                                  caster.name, best.name, best_spd)
+                    elif effect.target_type and "furthest" in effect.target_type and "column_furthest" not in effect.target_type and dmg_targets:
                         # 选择距施法者最远的敌方（基于列参考点的曼哈顿距离）
                         dmg_targets = [min(dmg_targets, key=lambda u: self._get_farthest_key(caster.position, u))]
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         best = dmg_targets[0]
                         _log.info("[SKILL_EXEC] %s: furthest filter -> %s",
                                   caster.name, best.name)
+                    elif effect.target_type and "highest_ep" in effect.target_type and dmg_targets:
+                        dmg_targets = [max(dmg_targets, key=lambda u: u.current_ep)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        _log.info("[SKILL_EXEC] %s: highest_ep filter -> %s (ep=%d)",
+                                  caster.name, best.name, best.current_ep)
+                    elif effect.target_type == "enemy_single_highest_hp_ratio_back_priority" and dmg_targets:
+                        # 後列優先でHP割合最高：先从后排选HP百分比最高，后排没人则从前排选
+                        back_targets = [u for u in dmg_targets if self.target_service._is_back_row(u)]
+                        if back_targets:
+                            dmg_targets = [max(back_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                        else:
+                            dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        _log.info("[SKILL_EXEC] %s: highest_hp_ratio_back_priority filter -> %s",
+                                  caster.name, best.name)
+                    elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
+                        # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
+                        pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
+                        dmg_targets = [min(dmg_targets, key=lambda u: (pre_hp_snapshot.get(u.unit_id, u.current_hp) / u.max_hp) if u.max_hp > 0 else 0)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        _log.info("[SKILL_EXEC] %s: lowest_hp_ratio filter -> %s (using pre-skill HP)",
+                                  caster.name, best.name)
+                    elif effect.target_type == "enemy_column_furthest" and dmg_targets:
+                        # 先找最远的敌方，然后选其所在的列（前后列/纵列）
+                        farthest = min(dmg_targets, key=lambda u: self._get_farthest_key(caster.position, u))
+                        anchor_col = self.target_service._get_column_index(farthest)
+                        dmg_targets = [u for u in dmg_targets if self.target_service._get_column_index(u) == anchor_col]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: column_furthest filter -> col=%d targets=%s",
+                                  caster.name, anchor_col, [t.name for t in dmg_targets])
+                    elif effect.target_type == "enemy_column_mark_priority" and dmg_targets:
+                        # 优先选择有标记的敌方所在列（前后列/纵列）
+                        # 有标记时从标记单位中按默认索敌选最近，无标记时从所有敌方中选最近
+                        mark_name = effect_flags_block.get('mark_priority', 'サンタタグ')
+                        marked_units = [u for u in dmg_targets if any(
+                            getattr(b, 'name', '') == mark_name and getattr(b, 'effect_type', '').lower() == 'mark'
+                            for b in ((u.buffs or []) + (u.debuffs or []))
+                        )]
+                        candidates = marked_units if marked_units else dmg_targets
+                        anchor = min(candidates, key=lambda u: self._get_distance_key(caster, u))
+                        anchor_col = self.target_service._get_column_index(anchor)
+                        dmg_targets = [u for u in dmg_targets if self.target_service._get_column_index(u) == anchor_col]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: column_mark_priority filter -> mark=%s found=%d col=%d targets=%s",
+                                  caster.name, mark_name, len(marked_units), anchor_col, [t.name for t in dmg_targets])
 
                     # 记录enemy_single的主目标，供后续block的adjacent_enemies引用
                     if effect.target_type == "enemy_single" and effect.target_type in self._block_damage_targets:
@@ -1796,12 +1886,40 @@ class SkillService:
                             _log.info("[KENKI_POWER] %s: re-resolved value from tag %s = %s",
                                       caster.name, kenki_power_tag, resolved)
 
+        # 条件性穿防穿盾：检查flags.ignore_condition，条件不满足时忽略穿防穿盾
+        _ignore_def = effect.ignore_defense
+        _ignore_shld = effect.ignore_shield
+        _ignore_cond = effect_flags.get('ignore_condition')
+        if _ignore_cond and (_ignore_def or _ignore_shld) and targets:
+            _cond_type = _ignore_cond.get('type', '')
+            _cond_met = False
+            if _cond_type == 'target_has_burn':
+                _first_target = targets[0]
+                _cond_met = any(d.effect_type == SkillEffectType.CONFLAGRATION.value for d in _first_target.debuffs)
+            elif _cond_type == 'target_has_status_ailment':
+                _first_target = targets[0]
+                _status_ailment_types = {
+                    SkillEffectType.CONFLAGRATION.value,
+                    SkillEffectType.POISON.value,
+                    SkillEffectType.FREEZE.value,
+                    SkillEffectType.KNOCKOUT.value,
+                }
+                _cond_met = any(d.effect_type in _status_ailment_types for d in _first_target.debuffs)
+            elif _cond_type == 'target_has_poison':
+                _first_target = targets[0]
+                _cond_met = any(d.effect_type == SkillEffectType.POISON.value for d in _first_target.debuffs)
+            if not _cond_met:
+                _ignore_def = 0
+                _ignore_shld = 0
+                _log.info("[DAMAGE_APPLY] %s: ignore_condition(%s) not met, penetration disabled",
+                          caster.name, _cond_type)
+
         dmg_skill_obj = type('obj', (object,), {
             'power': effect.value or 100.0,
             'hit_count': effect.hit_count or 1,
             'element': caster.element,
-            'ignore_defense': effect.ignore_defense,
-            'ignore_shield': effect.ignore_shield,
+            'ignore_defense': _ignore_def,
+            'ignore_shield': _ignore_shld,
             'hp_scaling_bonus': hp_scaling_value,
             'cannot_crit': effect_flags.get('cannot_crit', False),
             'bonus_crit_rate': 0.0,
@@ -2560,6 +2678,27 @@ class SkillService:
                           caster.name, target.name, extra_dmg, source_atk, b_atk, c_def,
                           power_pct * 100, is_enchant_crit, b_advantage, b_dealt_mult, c_received_mult,
                           hp_before, target.current_hp)
+
+                # add_status: 附魔伤害触发后附加状态异常（如炎上）
+                _eb_hlf = getattr(eb, 'hit_limited_flags', {}) or {}
+                _add_status = _eb_hlf.get('add_status')
+                if _add_status and target.is_alive:
+                    _status_dur = _eb_hlf.get('add_status_duration', 2)
+                    if _add_status == 'burn':
+                        _burn_val = source_atk * 0.30
+                        _burn = BuffState(
+                            buff_id=f"{eb.buff_id}_burn_{target.unit_id}",
+                            name="炎上",
+                            effect_type=SkillEffectType.CONFLAGRATION.value,
+                            value=_burn_val,
+                            duration=_status_dur,
+                            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                            source_unit_id=source_unit_id,
+                            is_debuff=True,
+                        )
+                        target.debuffs.append(_burn)
+                        _log.info("[ENCHANT_DMG] %s: add_status burn -> %s (val=%.1f dur=%d)",
+                                  caster.name, target.name, _burn_val, _status_dur)
 
             eb.hit_limited -= 1
             _log.info("[ENCHANT_DMG] %s: enchant_damage buff hit_limited %d->%d",
@@ -3360,10 +3499,9 @@ class SkillService:
         # front_priority: 前列味方優先（如PS2 shield「前列の味方を優先し」）
         # 排序: 前排(0) < 后排(1)，同排内按距施法者最近优先
         if effect_flags_aura and effect_flags_aura.get('front_priority'):
-            _caster_pos = caster.position
             targets.sort(key=lambda u: (
                 0 if self.target_service._is_front_row(u) else 1,
-                self.target_service._get_sort_key(_caster_pos, u)
+                self.target_service._get_sort_key(caster, u)
             ))
             _log.info("[AURA_APPLY] %s: front_priority sorted -> %s",
                       caster.name, [t.name for t in targets])
@@ -3541,6 +3679,21 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s -> %s: mark '%s' stored as buff (is_buff_mark=True)",
                           caster.name, target.name, effect_flags_aura.get('mark_name', ''))
 
+            # skip_if_exists: 若目标已有同名mark则跳过付与（不刷新持续时间）
+            if (effect.effect_type == "mark" and effect_flags_aura.get('skip_if_exists')):
+                mark_name_to_check = effect_flags_aura.get('mark_name', '')
+                already_has = any(
+                    b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name_to_check
+                    for b in target.buffs
+                ) or any(
+                    d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name_to_check
+                    for d in target.debuffs
+                )
+                if already_has:
+                    _log.info("[AURA_APPLY] %s -> %s: mark '%s' SKIPPED (skip_if_exists, already has)",
+                              caster.name, target.name, mark_name_to_check)
+                    continue
+
             if actual_is_debuff and self._has_debuff_immune(target):
                 _log.info("[AURA_APPLY] %s -> %s: DEBUFF BLOCKED (debuff_immune active)",
                           caster.name, target.name)
@@ -3680,6 +3833,18 @@ class SkillService:
             _aura_source_unit_id = caster.unit_id
             if is_bidir_damage_link and target.unit_id in _bidir_link_map:
                 _aura_source_unit_id = _bidir_link_map[target.unit_id]
+            _add_status_flag = effect_flags_aura.get('add_status') if effect_flags_aura else None
+            _hlf = {}
+            if carried_debuff:
+                _hlf = {
+                    'carried_debuff': carried_debuff,
+                    'carried_debuff_type': 'spd_down' if carried_debuff else None,
+                    'carried_debuff_value': value if carried_debuff else None,
+                    'carried_debuff_duration': duration if carried_debuff else None,
+                }
+            if _add_status_flag:
+                _hlf['add_status'] = _add_status_flag
+                _hlf['add_status_duration'] = duration
             aura = BuffState(
                 buff_id=f"{_aura_source_unit_id}_{mapped_effect_type}_{target.unit_id}",
                 name=aura_name,
@@ -3694,12 +3859,7 @@ class SkillService:
                 value_tag=resolved_value_tag,
                 hit_limited=int(effect_flags_aura.get('hit_limited', hit_limited_from_dur)) if effect_flags_aura else hit_limited_from_dur,
                 attack_limited=attack_limited_val,
-                hit_limited_flags={
-                    'carried_debuff': carried_debuff,
-                    'carried_debuff_type': 'spd_down' if carried_debuff else None,
-                    'carried_debuff_value': value if carried_debuff else None,
-                    'carried_debuff_duration': duration if carried_debuff else None,
-                } if carried_debuff else {},
+                hit_limited_flags=_hlf,
             )
             # 双向ダメージリンク: 标记link_mode
             if is_bidir_damage_link:
@@ -4445,6 +4605,7 @@ class SkillService:
             targets = []
             if effect.target_type in ("enemy_single", "enemies", "enemy",
                                       "enemy_single_highest_atk", "enemy_single_highest_spd",
+                                      "enemy_single_lowest_spd",
                                       "enemy_lowest_hp", "enemy_single_furthest"):
                 if self.target_service:
                     # 优先从_block_damage_targets缓存获取目标（确保与damage效果目标一致）
@@ -4627,6 +4788,8 @@ class SkillService:
             target = None
             if effect.target_type in ("enemy_single", "enemies", "enemy", "enemy_all",
                                       "enemy_single_highest_atk", "enemy_single_highest_spd",
+                                      "enemy_single_lowest_spd",
+                                      "enemy_single_highest_ep",
                                       "enemy_lowest_hp", "enemy_single_furthest"):
                 if self.target_service:
                     cached_targets = getattr(self, '_block_damage_targets', None)
@@ -4710,6 +4873,7 @@ class SkillService:
             "stun", "spd_down", "dmg_dealt_down",
             "atk_down", "def_down", "crit_rate_down", "crit_dmg_down", "dmg_taken_up",
             "critical_forbidden",
+            "ep_gain_down",
         }
 
     def _has_debuff_immune(self, target: UnitState) -> bool:
@@ -4746,6 +4910,11 @@ class SkillService:
         if cond_type == 'target_has_poison':
             return any(
                 b.effect_type in ("poison", "Poison", SkillEffectType.POISON.value)
+                for b in target.debuffs
+            )
+        if cond_type == 'target_has_burn':
+            return any(
+                b.effect_type in ("conflagration", "Conflagration", SkillEffectType.CONFLAGRATION.value)
                 for b in target.debuffs
             )
         if cond_type == 'target_hp_above':
@@ -4792,6 +4961,7 @@ class SkillService:
         "self"                          → SELF         仅自身
         "friends" / "friend"            → FRIENDS      自身以外的友方（不含自己）
         "ally_single"                   → FRIENDS      自身以外的单个友方
+        "ally_single_include_self"      → SELF_AND_FRIENDS  优先自身以外的单个友方，无其他友方时回退自身
         "ally_all"                      → SELF_AND_FRIENDS  所有友方（含自己）
         "self_and_friends"              → SELF_AND_FRIENDS  自身及所有友方
         "ally_back"                     → SELF_AND_FRIENDS  后排友方（含自己在后排时）
@@ -4815,13 +4985,15 @@ class SkillService:
         if t in ("enemies", "enemy", "enemy_single", "enemy_all",
                  "enemy_column", "enemy_row", "enemy_front", "enemy_random",
                  "enemy_highest_atk", "enemy_single_highest_atk",
-                 "enemy_single_highest_spd",
+                 "enemy_single_highest_spd", "enemy_single_lowest_spd",
                  "enemy_lowest_hp", "enemy_single_furthest", "last_target",
                  "enemy_back_row",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
         if t in ("friends", "friend", "ally_single"):
             return DisplayTargetType.FRIENDS.value
+        if t in ("ally_single_include_self",):
+            return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("ally_front", "ally_front_row", "ally_back", "ally_column", "ally_row",
                  "ally_highest_atk"):
             return DisplayTargetType.SELF_AND_FRIENDS.value
@@ -4834,13 +5006,19 @@ class SkillService:
         from ...entities_v2.enums import DisplayTargetRange
         t = effect_target_type.lower() if effect_target_type else "unknown"
         if t in ("self",): return DisplayTargetRange.ONE_PAWN.value
-        if t in ("enemy_single", "ally_single",
+        if t in ("enemy_single", "ally_single", "ally_single_include_self",
                  "enemy_single_highest_atk", "enemy_single_highest_spd",
-                 "enemy_single_furthest"): return DisplayTargetRange.ONE_PAWN.value
+                 "enemy_single_lowest_spd",
+                 "enemy_single_furthest",
+                 "enemy_single_highest_ep",
+                 "enemy_single_highest_hp_ratio_back_priority",
+                 "enemy_single_lowest_hp_ratio"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
                  "enemy_back_row"):
             return DisplayTargetRange.LINE.value
-        if t in ("enemy_column", "ally_column"): return DisplayTargetRange.COLUMN.value
+        if t in ("enemy_column", "ally_column",
+                 "enemy_column_mark_priority",
+                 "enemy_column_furthest"): return DisplayTargetRange.COLUMN.value
         if t in ("friends", "friend", "self_and_friends", "all", "adjacent_enemies",
                  "adjacent_to_nearest_enemy",
                  "enemy_all", "ally_all", "enemies", "enemy",
@@ -4848,6 +5026,54 @@ class SkillService:
                  "attacked_targets"):
             return DisplayTargetRange.ALL_PAWNS.value
         return DisplayTargetRange.ONE_PAWN.value
+
+    def _postfilter_damage_targets(self, target_type: str, targets: list,
+                                    caster: UnitState, effect_flags: dict) -> list:
+        """对特殊索敌类型应用后过滤，与实际damage执行的后过滤逻辑保持一致。
+
+        prescan必须调用此方法，否则trigger检查会使用与实际damage不同的目标，
+        导致target_is_self等条件误判（如ブレイジングハート误触发bug：
+        prescan用NEAREST选了PS持有者，实际damage用后排+最高HP比例选了其他单位）。
+        """
+        if not targets:
+            return targets
+
+        dmg_targets = list(targets)
+
+        if target_type and "highest_atk" in target_type:
+            dmg_targets = [max(dmg_targets, key=lambda u: self.damage_service._calculate_final_stat(u, "attack") if self.damage_service else u.attack)]
+        elif target_type and "highest_spd" in target_type:
+            dmg_targets = [max(dmg_targets, key=lambda u: self.damage_service._calculate_final_stat(u, "speed") if self.damage_service else u.speed)]
+        elif target_type and "lowest_spd" in target_type:
+            dmg_targets = [min(dmg_targets, key=lambda u: self.damage_service._calculate_final_stat(u, "speed") if self.damage_service else u.speed)]
+        elif target_type and "furthest" in target_type and "column_furthest" not in target_type:
+            dmg_targets = [min(dmg_targets, key=lambda u: self._get_farthest_key(caster.position, u))]
+        elif target_type and "highest_ep" in target_type:
+            dmg_targets = [max(dmg_targets, key=lambda u: u.current_ep)]
+        elif target_type == "enemy_single_highest_hp_ratio_back_priority":
+            back_targets = [u for u in dmg_targets if self.target_service._is_back_row(u)]
+            if back_targets:
+                dmg_targets = [max(back_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+            else:
+                dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+        elif target_type == "enemy_single_lowest_hp_ratio":
+            dmg_targets = [min(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+        elif target_type == "enemy_column_furthest":
+            farthest = min(dmg_targets, key=lambda u: self._get_farthest_key(caster.position, u))
+            anchor_col = self.target_service._get_column_index(farthest)
+            dmg_targets = [u for u in dmg_targets if self.target_service._get_column_index(u) == anchor_col]
+        elif target_type == "enemy_column_mark_priority":
+            mark_name = effect_flags.get('mark_priority', 'サンタタグ')
+            marked_units = [u for u in dmg_targets if any(
+                getattr(b, 'name', '') == mark_name and getattr(b, 'effect_type', '').lower() == 'mark'
+                for b in ((u.buffs or []) + (u.debuffs or []))
+            )]
+            candidates = marked_units if marked_units else dmg_targets
+            anchor = min(candidates, key=lambda u: self._get_distance_key(caster, u))
+            anchor_col = self.target_service._get_column_index(anchor)
+            dmg_targets = [u for u in dmg_targets if self.target_service._get_column_index(u) == anchor_col]
+
+        return dmg_targets
 
     def _get_distance_key(self, anchor: UnitState, unit: UnitState):
         ar, ac = _POS_RC[anchor.position]
