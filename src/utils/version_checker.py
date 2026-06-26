@@ -82,24 +82,22 @@ class VersionChecker:
         """判断更新类型
 
         规则：
-        - major 变化 → cold
-        - minor 变化 → warm
-        - patch/build 变化 → 由 manifest 中的 update_type 决定，默认 warm
+        - manifest 中的 update_type 优先（覆盖版本号段判断）
+        - 无 manifest 时：major 变化 → cold，minor 变化 → warm，patch/build → warm
         """
-        current = parse_version(self.current_version)
-        remote = parse_version(latest)
-
-        if remote[0] > current[0]:  # major 变化
-            return UpdateType.COLD
-        if remote[1] > current[1]:  # minor 变化
-            return UpdateType.WARM
-
-        # patch/build 变化，由 manifest 决定
+        # manifest 优先
         if manifest and "update_type" in manifest:
             try:
                 return UpdateType(manifest["update_type"])
             except ValueError:
                 pass
+        # 回退：根据版本号段判断
+        current = parse_version(self.current_version)
+        remote = parse_version(latest)
+        if remote[0] > current[0]:  # major 变化
+            return UpdateType.COLD
+        if remote[1] > current[1]:  # minor 变化
+            return UpdateType.WARM
         return UpdateType.WARM
 
     def _fetch_via_api(self) -> Optional[Dict[str, Any]]:

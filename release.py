@@ -131,7 +131,37 @@ def compute_sha256(file_path: Path) -> str:
     return sha256.hexdigest()
 
 
-def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
+def _detect_code_changes(version: str) -> bool:
+    """检测当前版本相比上一版本 tag 是否有代码文件变更
+
+    通过 git diff 比较 HEAD 与上一版本 tag，检测 src/、gui_app.py、
+    version.py、build.py 是否有变更。找不到上一 tag 或出错时保守视为有变更。
+    """
+    try:
+        result = subprocess.run(
+            ['git', 'tag', '--sort=-version:refname'],
+            capture_output=True, text=True, cwd=SCRIPT_DIR
+        )
+        tags = [t.strip() for t in result.stdout.splitlines() if t.strip()]
+        current_tag = version if version.startswith('v') else f'v{version}'
+        prev_tag = None
+        for i, t in enumerate(tags):
+            if t == current_tag and i + 1 < len(tags):
+                prev_tag = tags[i + 1]
+                break
+        if not prev_tag:
+            return True  # 找不到上一版本 tag，保守视为有代码变更
+        result = subprocess.run(
+            ['git', 'diff', '--name-only', prev_tag, 'HEAD',
+             '--', 'src/', 'gui_app.py', 'version.py', 'build.py'],
+            capture_output=True, text=True, cwd=SCRIPT_DIR
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return True  # 出错时保守处理
+
+
+def generate_manifest(dist_dir: Path, version: str, features: list, zip_path: Path = None) -> dict:
     """生成版本清单（热更新用）"""
     app_dir = dist_dir / APP_NAME
     data_dir = app_dir / "data"
@@ -180,8 +210,9 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
                 "url": f"https://cdn.jsdelivr.net/gh/{REPOSITORY}@{version}/{path_str}",
             })
 
-    # 判断更新类型
-    update_type = "hot" if files else "warm"
+    # 判断更新类型：有代码变更 → cold，仅 data/ 变更 → hot，无变更 → warm
+    code_changed = _detect_code_changes(version)
+    update_type = "cold" if code_changed else ("hot" if files else "warm")
 
     # 生成 changelog
     changelog_zh = ""
@@ -198,7 +229,7 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
                     zh_lines.append(f"- {item}")
         changelog_zh = "\n".join(zh_lines)
 
-    return {
+    manifest = {
         "version": version.lstrip('v'),
         "build_timestamp": datetime.utcnow().isoformat() + "Z",
         "update_type": update_type,
@@ -208,6 +239,16 @@ def generate_manifest(dist_dir: Path, version: str, features: list) -> dict:
             "en": changelog_en,
         },
     }
+
+    # 冷更新时附带完整包信息
+    if update_type == "cold":
+        manifest["package_url"] = (
+            f"https://github.com/{REPOSITORY}/releases/download/"
+            f"{version}/Izanami-Lab_{version}.zip"
+        )
+        manifest["package_sha256"] = compute_sha256(zip_path) if zip_path else ""
+
+    return manifest
 
 
 def main():
@@ -316,17 +357,8 @@ def main():
     print("\n[4/7] 打包构建...")
     run_cmd("python build.py", cwd=SCRIPT_DIR)
 
-    # 8. 生成 manifest
-    print("\n[5/7] 生成 manifest.json...")
-    manifest = generate_manifest(DIST_DIR, version, new_features)
-    manifest_path = DIST_DIR / "manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
-    file_count = len(manifest["files"])
-    print(f"  已生成 manifest.json（{file_count} 个文件）")
-
-    # 9. 创建 ZIP
-    print("\n[6/7] 创建压缩包...")
+    # 8. 创建 ZIP（必须在 manifest 之前，manifest 需计算 ZIP 的 SHA-256）
+    print("\n[5/7] 创建压缩包...")
     app_dir = DIST_DIR / APP_NAME
     zip_path = DIST_DIR / f"Izanami-Lab_{version}.zip"
 
@@ -341,6 +373,15 @@ def main():
 
     size_mb = (zip_path.stat().st_size / 1024 / 1024)
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
+
+    # 9. 生成 manifest（传入 zip_path 以计算 package_sha256）
+    print("\n[6/7] 生成 manifest.json...")
+    manifest = generate_manifest(DIST_DIR, version, new_features, zip_path=zip_path)
+    manifest_path = DIST_DIR / "manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    file_count = len(manifest["files"])
+    print(f"  已生成 manifest.json（{file_count} 个文件，类型: {manifest['update_type']})")
 
     # 10. 创建 Release（上传 ZIP + manifest + 变更文件）
     print("\n[7/7] 创建 GitHub Release...")

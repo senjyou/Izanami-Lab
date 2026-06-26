@@ -608,6 +608,16 @@ class BattleFlowController:
             )
 
             if damaged_targets:
+                unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
+                # hp_below triggers FIRST (priority over after_ally_attacked for same character,
+                # e.g. ぽよぽよプロテクト(130041) before イケてる♡イケてる(130025))
+                hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
+                self._execute_global_trigger_actions(hp_below_normal)
+                # Track which owners had hp_below triggers fire (used to suppress after_ally_attacked)
+                owners_with_hp_below = set()
+                for a in hp_below_normal:
+                    owners_with_hp_below.add(a.instance.owner.unit_id)
+
                 primary_target = damaged_targets[0] if damaged_targets else None
 
                 if skill_type == 1:
@@ -620,6 +630,9 @@ class BattleFlowController:
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
+                    # Suppress after_ally_attacked for owners who already triggered hp_below
+                    # (e.g. ぽよぽよプロテクト takes priority over イケてる♡イケてる)
+                    after_ally = [a for a in after_ally if a.instance.owner.unit_id not in owners_with_hp_below]
                     all_post_as_actions.extend(after_ally)
 
                     after_self = self.trigger_service.trigger_after_self_attacked(
@@ -698,15 +711,13 @@ class BattleFlowController:
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
+                    # Suppress after_ally_attacked for owners who already triggered hp_below
+                    after_ally = [a for a in after_ally if a.instance.owner.unit_id not in owners_with_hp_below]
                     self._execute_trigger_actions(after_ally, unit)
                     after_self = self.trigger_service.trigger_after_self_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
                     self._execute_trigger_actions(after_self, unit)
-
-                unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
-                hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
-                self._execute_global_trigger_actions(hp_below_normal)
 
                 # 累计伤害触发器检查
                 cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield, unique_damaged)
@@ -1221,10 +1232,13 @@ class BattleFlowController:
 
             trigger_attacker = action.parameters.get('trigger_attacker') if hasattr(action, 'parameters') else None
             primary_target = action.parameters.get('primary_target') if hasattr(action, 'parameters') else None
+            damaged_targets = action.parameters.get('targets') if hasattr(action, 'parameters') else None
             if trigger_attacker:
                 self.skill_service._trigger_attacker = trigger_attacker
             if primary_target:
                 self.skill_service._primary_target = primary_target
+            if damaged_targets:
+                self.skill_service._damaged_targets = damaged_targets
 
             skill_result = self.skill_service.execute_skill(
                 caster=owner,
@@ -1238,6 +1252,8 @@ class BattleFlowController:
                 self.skill_service._trigger_attacker = None
             if primary_target:
                 self.skill_service._primary_target = None
+            if damaged_targets:
+                self.skill_service._damaged_targets = None
 
             # Guard cleanup: PS技能执行完毕后立即清理由该施法者触发的Guard buff
             # Guard效果只在触发它的那次技能攻击中生效，后续技能不应享受Guard减伤
@@ -1497,6 +1513,15 @@ class BattleFlowController:
 
             units_before = set(u.unit_id for u in self.battlefield.get_all_units() if u.is_alive)
 
+            # Set trigger context on skill_service (primary_target from action params)
+            params = getattr(action, 'parameters', {}) or {}
+            if params.get('primary_target'):
+                self.skill_service._primary_target = params['primary_target']
+            if params.get('trigger_attacker'):
+                self.skill_service._trigger_attacker = params['trigger_attacker']
+            if params.get('targets'):
+                self.skill_service._damaged_targets = params['targets']
+
             skill_result = self.skill_service.execute_skill(
                 caster=owner,
                 skill_id=action.skill_id,
@@ -1507,6 +1532,14 @@ class BattleFlowController:
 
             # Guard cleanup: PS技能执行完毕后立即清理由该施法者触发的Guard buff
             self._cleanup_guard_buffs(owner)
+
+            # Clean up trigger context
+            if params.get('primary_target'):
+                self.skill_service._primary_target = None
+            if params.get('trigger_attacker'):
+                self.skill_service._trigger_attacker = None
+            if params.get('targets'):
+                self.skill_service._damaged_targets = None
 
             if skill_result.get("success"):
                 self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
@@ -2752,7 +2785,28 @@ class BattleFlowController:
                         self.narrative.effect_update(unit.name, b.effect_type, dur_after, dur_type)
         self.aura_service.process_maneuver_end(unit)
         # 施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff
+        # 捕获其他单位 buff ID 集合（用于过期叙事日志：只报告彻底消失的 buff）
+        _other_units_buff_ids_before = {}
+        if self.narrative:
+            for u in self.battlefield.get_all_units():
+                if u.unit_id != unit.unit_id and u.is_alive:
+                    _other_units_buff_ids_before[u.unit_id] = set()
+                    for b in u.buffs + u.debuffs:
+                        if hasattr(b, 'buff_id'):
+                            _other_units_buff_ids_before[u.unit_id].add((id(b), b.effect_type, getattr(b, 'is_debuff', False)))
         self.aura_service.process_source_maneuver_end(unit, self.battlefield.get_all_units())
+        # 对比快照，输出被 process_source_maneuver_end 彻底清理的 buff 的叙事日志
+        if self.narrative:
+            for u in self.battlefield.get_all_units():
+                if u.unit_id == unit.unit_id or not u.is_alive:
+                    continue
+                before_set = _other_units_buff_ids_before.get(u.unit_id, set())
+                curr_ids = set(id(b) for b in u.buffs + u.debuffs)
+                for bid, etype, is_debuff in before_set:
+                    if bid not in curr_ids:
+                        self.narrative.effect_expired(u.name, etype, is_debuff=is_debuff)
+        # 单位行动结束时，衰减带 shield_decay_pct 的盾 buff（如110012「1行動に付き最大値の25%減少する」）
+        self.aura_service.process_shield_decay(unit)
         for buff_obj, kind, etype, prev_dur in prev_alive_durations.values():
             if prev_dur > 0:
                 if id(buff_obj) not in existing_ids and not getattr(buff_obj, 'skip_restore', False):

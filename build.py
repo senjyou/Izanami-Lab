@@ -43,6 +43,7 @@ PYINSTALLER_ARGS = [
     "--hidden-import", "src.utils.integrity_verifier",
     "--hidden-import", "src.utils.rollback_manager",
     "--hidden-import", "src.utils.update_state",
+    "--hidden-import", "src.utils.cold_updater",
     "--hidden-import", "src.combat_v2.tactical_exercise_controller",
     "--clean",
     "--noconfirm",

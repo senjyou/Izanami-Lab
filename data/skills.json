@@ -992,6 +992,35 @@
             "value": 117.0
           }
         ]
+      },
+      "shield_pct": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 11,
+            "value": 60.0
+          },
+          {
+            "level": 12,
+            "value": 70.0
+          },
+          {
+            "level": 13,
+            "value": 80.0
+          },
+          {
+            "level": 14,
+            "value": 90.0
+          },
+          {
+            "level": 15,
+            "value": 100.0
+          }
+        ]
       }
     }
   },

@@ -46,6 +46,8 @@ class BuffState:
     caster_alive: bool = False  # caster_alive: 施法者死亡时此buff自动消失
     original_duration_type: str = ""  # 原始duration_type（如"attacker_action"），用于攻击者行动结束时精确清理
     shield_amount: int = 0  # 盾buff贡献的实际盾值，用于叠加盾正确扣除
+    shield_decay_pct: int = 0  # shield每行动衰减百分比（基于initial_shield_value）
+    initial_shield_value: int = 0  # shield初始值（用于衰减计算）
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效

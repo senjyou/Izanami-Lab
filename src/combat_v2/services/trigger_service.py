@@ -284,32 +284,128 @@ class TriggerService:
                          damaged_units: Optional[List[UnitState]] = None) -> List[TriggerAction]:
         actions = []
         units_to_check = damaged_units if damaged_units else battlefield.get_all_units()
+        
+        # 收集所有跨越了阈值的单位，按PS owner分组
+        # {owner_unit_id: [crossed_units]}
+        crossed_by_owner: Dict[str, List[UnitState]] = {}
+        
         for unit in units_to_check:
             if not unit.is_alive:
                 continue
             
-            # 获取当前HP百分比
             current_hp_percent = (unit.current_hp / unit.max_hp) * 100
-            
-            # 收集所有同阵营PS技能的HP阈值，确保每个阈值都能被检测到
-            # 例如：受伤单位自身PS阈值为40%，但友方PS（再起律動）阈值为50%
-            # 如果HP从55%降到45%，只检查40%阈值不会触发，但50%阈值应该触发
             thresholds = self._get_all_hp_below_thresholds(unit, battlefield)
             
-            triggered = False
             for threshold in sorted(thresholds, reverse=True):
                 crossed_threshold = unit.prev_hp_percent > threshold and current_hp_percent <= threshold
                 if crossed_threshold:
                     _log.info("[HP_BELOW] %s: HP从%.1f%%降至%.1f%%（阈值%.0f%%），触发阈值跨越", 
                               unit.name, unit.prev_hp_percent, current_hp_percent, threshold)
-                    ctx = TriggerContext(TriggerTiming.HP_BELOW, battlefield, triggered_by=unit)
-                    actions.extend(self.check_triggers(TriggerTiming.HP_BELOW, ctx))
-                    triggered = True
+                    # 找到该阈值对应的PS owner列表，为每个owner记录跨阈值的unit
+                    owner_ids = self._get_hp_below_owners(unit, battlefield, threshold)
+                    for oid in owner_ids:
+                        if oid not in crossed_by_owner:
+                            crossed_by_owner[oid] = []
+                        if unit not in crossed_by_owner[oid]:
+                            crossed_by_owner[oid].append(unit)
                     break  # 每个单位每次伤害事件只触发一次
-            
-            # 更新prev_hp_percent为当前值（放在最后，确保日志输出正确）
-            unit.prev_hp_percent = current_hp_percent
+        
+        # 所有单位的prev_hp_percent必须在trigger condition检查前保持在受伤前状态
+        # 因此延后到所有trigger action创建后再统一更新
+        _prev_hp_updates = []  # [(unit, new_hp_percent), ...]
+        for unit in units_to_check:
+            if unit.is_alive:
+                current_pct = (unit.current_hp / unit.max_hp) * 100 if unit.max_hp > 0 else 0
+                if abs(unit.prev_hp_percent - current_pct) > 0.001:
+                    _prev_hp_updates.append((unit, current_pct))
+        
+        # 为每个PS owner，从跨阈值的unit中选择最近的一个，创建单个trigger action
+        for owner_id, crossed_units in crossed_by_owner.items():
+            owner = next((u for u in battlefield.get_all_units() if u.unit_id == owner_id), None)
+            if not owner or not owner.is_alive:
+                continue
+            # 选择最近的跨阈值单位（自身优先级最高，然后按曼哈顿距离排序）
+            if len(crossed_units) > 1:
+                def _dist_from_owner(u):
+                    if u.unit_id == owner.unit_id:
+                        return (0, 0)
+                    # 用position name的FRONT/BACK和LEFT/CENTER/RIGHT计算大致距离
+                    o_name = owner.position.name
+                    u_name = u.position.name
+                    o_row = 0 if 'FRONT' in o_name else 1
+                    o_col = 0 if 'LEFT' in o_name else (1 if 'CENTER' in o_name else 2)
+                    u_row = 0 if 'FRONT' in u_name else 1
+                    u_col = 0 if 'LEFT' in u_name else (1 if 'CENTER' in u_name else 2)
+                    return (abs(o_row - u_row) + abs(o_col - u_col), 0)
+                crossed_units.sort(key=_dist_from_owner)
+            nearest = crossed_units[0]
+            _log.info("[HP_BELOW] %s: selected nearest crossed unit %s among %d",
+                      owner.name, nearest.name, len(crossed_units))
+            ctx = TriggerContext(TriggerTiming.HP_BELOW, battlefield, triggered_by=nearest)
+            actions.extend(self.check_triggers(TriggerTiming.HP_BELOW, ctx))
+        
+        # trigger condition检查完成后，更新prev_hp_percent
+        for unit, new_pct in _prev_hp_updates:
+            unit.prev_hp_percent = new_pct
+        
         return actions
+
+    def _get_hp_below_owners(self, unit: UnitState, battlefield: BattlefieldState, threshold: float) -> List[str]:
+        """返回跨越了指定HP阈值时应该触发的PS技能持有者unit_id列表
+        
+        根据各PS技能的global_condition.ally_filter字段和特殊条件类型决定：
+        - ally_filter=ally(默认): 己方阵营持有者
+        - ally_filter=enemy: 敌方阵营持有者
+        - self_hp_percent: 仅当受伤单位就是PS持有者
+        - front_ally_hp_below: 仅当受伤单位是PS持有者正前方友方
+        """
+        owner_ids = []
+        for other_unit in battlefield.get_all_units():
+            if not other_unit.is_alive or not self.data_loader:
+                continue
+            char_skills = self.data_loader.get_character_skills(other_unit.character_id)
+            if not char_skills:
+                if hasattr(other_unit, 'skills') and other_unit.skills:
+                    char_skills = []
+                    for sid in other_unit.skills:
+                        sk = self.data_loader.get_skill_by_id(sid)
+                        if sk:
+                            char_skills.append(sk)
+            if not char_skills:
+                continue
+            for skill in char_skills:
+                if skill.skill_type != SkillType.PS.value:
+                    continue
+                parsed = self.data_loader.get_parsed_skill_data(skill.skill_id)
+                if not parsed:
+                    continue
+                trigger_type = parsed.get('trigger_type')
+                if trigger_type != 'on_hp_below':
+                    continue
+                condition = parsed.get('global_condition')
+                if not isinstance(condition, dict):
+                    continue
+                cond_type = condition.get('type', '')
+                val = float(condition.get('value', 40))
+                if abs(val - threshold) > 0.01:
+                    continue
+                ally_filter = condition.get('ally_filter', 'ally')
+                if ally_filter == 'ally' and other_unit.side != unit.side:
+                    continue
+                if ally_filter == 'enemy' and other_unit.side == unit.side:
+                    continue
+                # self_hp_percent: 仅当受伤单位就是PS持有者
+                if cond_type == 'self_hp_percent':
+                    if other_unit.unit_id == unit.unit_id:
+                        owner_ids.append(other_unit.unit_id)
+                # front_ally_hp_below: 仅当受伤单位是PS持有者正前方友方
+                elif cond_type == 'front_ally_hp_below':
+                    front_pos = _get_front_position(other_unit.position)
+                    if front_pos and unit.position == front_pos:
+                        owner_ids.append(other_unit.unit_id)
+                else:
+                    owner_ids.append(other_unit.unit_id)
+        return owner_ids
 
     def _get_hp_below_threshold(self, unit: UnitState) -> float:
         """从单位拥有的PS技能配置中读取on_hp_below的HP阈值"""
@@ -878,8 +974,13 @@ class TriggerService:
                         # triggers when a debuff is applied to SELF (e.g. 明鏡止水)
                         return owner.unit_id in [t.unit_id for t in context.targets]
                     elif gc and isinstance(gc, dict) and gc.get('type') == 'is_status_ailment':
-                        # triggers when SELF receives a status ailment (e.g. ヴォルコワの血脈Ω)
-                        return owner.unit_id in [t.unit_id for t in context.targets]
+                        ally_filter = gc.get('ally_filter', 'ally')
+                        if ally_filter == 'enemy':
+                            # triggers when ENEMY receives a status ailment (e.g. コン・フオーコ)
+                            return any(t.side != owner.side for t in context.targets)
+                        else:
+                            # triggers when SELF receives a status ailment (e.g. ヴォルコワの血脈Ω)
+                            return owner.unit_id in [t.unit_id for t in context.targets]
                     else:
                         # triggers when ANY debuff is applied to an ENEMY unit
                         return any(t.side != owner.side for t in context.targets)
@@ -932,7 +1033,26 @@ class TriggerService:
         return True
 
     def _is_cover_ps(self, parsed: Dict) -> bool:
-        """判断PS技能是否为援护类（包含cover或guard效果）"""
+        """判断PS技能是否为援护类（包含cover或guard效果，但不含self-guard）
+
+        self-guard（global_condition=target_is_self + guard效果）不是援护类，
+        不应触发"无其他友方可保护则不触发"的限制。
+        """
+        # 检查是否为self-guard：global_condition=target_is_self
+        gc = parsed.get('global_condition')
+        is_self_targeted = False
+        if isinstance(gc, dict):
+            if gc.get('type') == 'target_is_self':
+                is_self_targeted = True
+            # 'and'组合中包含target_is_self也视为self-guard
+            elif gc.get('type') == 'and':
+                for sub in gc.get('conditions', []):
+                    if isinstance(sub, dict) and sub.get('type') == 'target_is_self':
+                        is_self_targeted = True
+                        break
+        # self-guard不是cover类
+        if is_self_targeted:
+            return False
         for block in parsed.get('effect_blocks', []):
             for eff in block.get('effects', []):
                 if eff.get('effect_type') in ('cover', 'guard'):
@@ -947,6 +1067,20 @@ class TriggerService:
 
         cond_type = condition.get('type') if isinstance(condition, dict) else None
         if cond_type is None:
+            return True
+
+        # 'and'组合：所有子条件都必须满足
+        if cond_type == 'and':
+            sub_conditions = condition.get('conditions', [])
+            if not sub_conditions:
+                return True
+            for sub_cond in sub_conditions:
+                sub_parsed = {'global_condition': sub_cond}
+                if not self._check_condition(sub_parsed, owner, timing, context):
+                    _log.info("[TRIGGER_COND] %s: and组合中条件 %s 不满足 => False",
+                              owner.name, sub_cond.get('type') if isinstance(sub_cond, dict) else sub_cond)
+                    return False
+            _log.info("[TRIGGER_COND] %s: and组合所有条件满足 => True", owner.name)
             return True
 
         op = condition.get('operator', '==')
@@ -1059,14 +1193,35 @@ class TriggerService:
             return result
 
         if cond_type == "enemy_hp_percent":
-            enemies = [u for u in context.battlefield.enemy_team if u.is_alive]
-            max_hp_pct = 0
-            for e in enemies:
+            # 优先检查触发源单位（on_hp_below上下文中的triggered_by）
+            # 如指定mark_name，则只检查持有该mark的单位（ポストリュード：乱調）
+            mark_name = condition.get('mark_name') if isinstance(condition, dict) else None
+            if mark_name:
+                enemies = [u for u in context.battlefield.enemy_team
+                          if u.is_alive and any(getattr(d, 'name', '') == mark_name for d in (u.debuffs or []))]
+                if enemies:
+                    crossed = [e for e in enemies
+                               if e.max_hp > 0 and e.current_hp / e.max_hp * 100 <= val]
+                    result = len(crossed) > 0
+                else:
+                    result = False
+                _log.info("[TRIGGER_COND] %s: enemy_hp_percent mark=%s matched=%d %s %.0f%% => %s",
+                          owner.name, mark_name, len(enemies), op, val, result)
+            elif context.triggered_by and context.triggered_by.is_alive:
+                e = context.triggered_by
                 pct = e.current_hp / e.max_hp * 100 if e.max_hp > 0 else 0
-                max_hp_pct = max(max_hp_pct, pct)
-            result = _eval_condition(max_hp_pct, op, val)
-            _log.info("[TRIGGER_COND] %s: enemy_hp_percent max=%.1f%% %s %.0f%% => %s",
-                      owner.name, max_hp_pct, op, val, result)
+                result = _eval_condition(pct, op, val)
+                _log.info("[TRIGGER_COND] %s: enemy_hp_percent triggered_by=%s hp=%.1f%% %s %.0f%% => %s",
+                          owner.name, e.name, pct, op, val, result)
+            else:
+                enemies = [u for u in context.battlefield.enemy_team if u.is_alive]
+                max_hp_pct = 0
+                for e in enemies:
+                    pct = e.current_hp / e.max_hp * 100 if e.max_hp > 0 else 0
+                    max_hp_pct = max(max_hp_pct, pct)
+                result = _eval_condition(max_hp_pct, op, val)
+                _log.info("[TRIGGER_COND] %s: enemy_hp_percent max=%.1f%% %s %.0f%% => %s",
+                          owner.name, max_hp_pct, op, val, result)
             return result
 
         if cond_type == "target_is_ally":
@@ -1417,6 +1572,10 @@ class TriggerService:
                 params['trigger_attacker'] = context.actor
             if context.primary_target:
                 params['primary_target'] = context.primary_target
+            elif context.triggered_by:
+                params['primary_target'] = context.triggered_by
+            if context.targets:
+                params['targets'] = context.targets
             action = TriggerAction(
                 skill_id=cand.skill_id,
                 owner_id=cand.owner.unit_id,

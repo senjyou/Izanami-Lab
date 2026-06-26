@@ -140,9 +140,15 @@ class AuraService:
         expired_before = [b.effect_type for b in unit.buffs + unit.debuffs if b.duration <= 0]
         self._update_duration(unit, [
             AuraUpdateTiming.EPHEMERAL_MANEUVER_END,
-            AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END,
             AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END
         ])
+        # DURABLE_SOURCE_MANEUVER_END: 只递减 source 是本单位的 buff（即本单位自己给自己上的）
+        # 其他单位上的 DURABLE_SOURCE_MANEUVER_END 由 process_source_maneuver_end 在施法者行动结束时递减
+        source_timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
+        for b in unit.buffs + unit.debuffs:
+            if b.timing_type == source_timing and getattr(b, 'source_unit_id', None) == unit.unit_id:
+                if b.duration > 0:
+                    b.duration -= 1
         expired_after = [b.effect_type for b in unit.buffs + unit.debuffs if b.duration <= 0]
         newly_expired = set(expired_after) - set(expired_before)
         if newly_expired:
@@ -174,6 +180,52 @@ class AuraService:
                 affected_units.append(unit)
         # 清理过期buff/debuff
         for unit in affected_units:
+            self.check_expiration(unit)
+
+    def process_shield_decay(self, unit: UnitState):
+        """
+        单位行动结束时，对所有 shield_decay_pct > 0 的盾 buff 进行衰减。
+        每行动减少 initial_shield_value × decay_pct / 100 的盾值。
+        当 shield_amount <= 0 时，将 duration 设为 0 触发清理。
+        实现 110012「シールドは1行動に付き最大値の25%減少する」等机制。
+        """
+        if not unit.is_alive:
+            return
+        modified = False
+        for b in unit.buffs:
+            if (b.effect_type in (SkillEffectType.SHIELD.value, "shield", "Shield")
+                    and getattr(b, 'shield_decay_pct', 0) > 0
+                    and getattr(b, 'initial_shield_value', 0) > 0
+                    and b.duration != 0):
+                initial = b.initial_shield_value
+                reduction = int(initial * b.shield_decay_pct / 100)
+                if reduction <= 0:
+                    reduction = 1  # 至少减1，避免永不过期
+                old_amount = b.shield_amount
+                b.shield_amount = max(0, b.shield_amount - reduction)
+                # 同步扣除 unit 的 shield 值
+                dmg_elem = getattr(b, 'damage_element', 0)
+                if dmg_elem == 1 and unit.physical_shield > 0:
+                    actual_remove = min(reduction, unit.physical_shield)
+                    unit.physical_shield -= actual_remove
+                elif dmg_elem == 2 and unit.en_shield > 0:
+                    actual_remove = min(reduction, unit.en_shield)
+                    unit.en_shield -= actual_remove
+                elif unit.shield > 0:
+                    actual_remove = min(reduction, unit.shield)
+                    unit.shield -= actual_remove
+                else:
+                    actual_remove = 0
+                _log.info("[SHIELD_DECAY] %s: shield buff %s decayed by %d (initial=%d pct=%d%%) amount %d->%d, unit_shield_removed=%d",
+                          unit.name, b.buff_id, reduction, initial, b.shield_decay_pct,
+                          old_amount, b.shield_amount, actual_remove)
+                # 当盾值耗尽时，标记为过期
+                if b.shield_amount <= 0:
+                    b.duration = 0
+                    _log.info("[SHIELD_DECAY] %s: shield buff %s EXPIRED (shield_amount reached 0)",
+                              unit.name, b.buff_id)
+                modified = True
+        if modified:
             self.check_expiration(unit)
 
     def process_round_end(self, unit: UnitState):

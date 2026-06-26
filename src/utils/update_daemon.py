@@ -27,6 +27,7 @@ from .integrity_verifier import IntegrityVerifier, VerifyResult
 from .patch_engine import PatchEngine, ApplyResult
 from .rollback_manager import RollbackManager, SnapshotInfo
 from .update_state import UpdateStateStore
+from .cold_updater import ColdUpdater
 
 
 @dataclass
@@ -234,16 +235,47 @@ class UpdateDaemon:
             self._notify_progress()
             return None
 
-        # 冷更新：提示用户手动下载
+        # 冷更新：尝试自动下载完整包
         if update_info.update_type == UpdateType.COLD:
-            progress = UpdateProgress(
-                status="COLD_UPDATE_REQUIRED",
-                target_version=update_info.latest_version,
-                current_version=self._current_version,
-                update_type=UpdateType.COLD,
-            )
-            if self._progress_callback:
-                self._progress_callback(progress)
+            manifest = update_info.manifest or {}
+            zip_url = manifest.get("package_url")
+            package_sha256 = manifest.get("package_sha256", "")
+
+            if zip_url and package_sha256:
+                # 有完整包信息，执行自动冷更新
+                progress = UpdateProgress(
+                    status="DOWNLOADING",
+                    target_version=update_info.latest_version,
+                    current_version=self._current_version,
+                    update_type=UpdateType.COLD,
+                    total_bytes=1,
+                )
+                self._notify_progress(progress)
+
+                success = ColdUpdater.execute(
+                    zip_url, package_sha256, self._app_data_dir,
+                    on_progress=lambda d, t: self._notify_cold_progress(
+                        d, t, update_info.latest_version),
+                )
+                if not success:
+                    # 自动冷更新失败，回退到手动下载提示
+                    progress = UpdateProgress(
+                        status="COLD_UPDATE_REQUIRED",
+                        target_version=update_info.latest_version,
+                        current_version=self._current_version,
+                        update_type=UpdateType.COLD,
+                        error_message="完整包下载或校验失败",
+                    )
+                    self._notify_progress(progress)
+            else:
+                # 无完整包信息，提示手动下载
+                progress = UpdateProgress(
+                    status="COLD_UPDATE_REQUIRED",
+                    target_version=update_info.latest_version,
+                    current_version=self._current_version,
+                    update_type=UpdateType.COLD,
+                )
+                self._notify_progress(progress)
             return progress
 
         # 有热/温更新
@@ -427,6 +459,18 @@ class UpdateDaemon:
                 continue
 
         return manifest
+
+    def _notify_cold_progress(self, downloaded_bytes: int, total_bytes: int, target_version: str):
+        """通知冷更新下载进度"""
+        progress = UpdateProgress(
+            status="DOWNLOADING",
+            target_version=target_version,
+            current_version=self._current_version,
+            update_type=UpdateType.COLD,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+        )
+        self._notify_progress(progress)
 
     def _notify_progress(self, progress: UpdateProgress = None):
         """通知进度回调"""

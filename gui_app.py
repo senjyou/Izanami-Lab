@@ -10148,6 +10148,17 @@ class MGGBattleSimulatorGUI:
 
         self._update_btn.config(text=status_text[:20])
 
+        # 冷更新下载进度（区别于热更新 DOWNLOADING）
+        if progress.status == "DOWNLOADING" and progress.update_type == UpdateType.COLD:
+            if progress.total_bytes and progress.total_bytes > 0:
+                dl_mb = progress.downloaded_bytes // 1024 // 1024
+                total_mb = progress.total_bytes // 1024 // 1024
+                pct = progress.downloaded_bytes * 100 // progress.total_bytes
+                self._update_btn.config(text=f"冷更新 {pct}% ({dl_mb}/{total_mb}MB)")
+            else:
+                self._update_btn.config(text="冷更新下载中...")
+            return  # 冷更新不进入后续 COMPLETED/FAILED 判断
+
         if progress.status == "COMPLETED":
             warm_count = len(progress.warm_files) if progress.warm_files else 0
             hot_count = len(progress.hot_files) if progress.hot_files else 0

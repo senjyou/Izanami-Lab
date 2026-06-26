@@ -38,6 +38,9 @@ The simulator currently supports a limited set of characters. More will be added
 | ギャルインフルエンサー   | フルート・メルヴィル  |
 | 厳格な規律の守護者     | 生駒葵         |
 | 風紀委員会の策謀家     | 姜小花         |
+| 聖夜のサンタシンガー    | 綺羅クララ       |
+| 眠れる社交界の淑女     | 夕凪舞亜        |
+| はだけるわんぱく浴衣    | ユリア・バーンズ    |
 
 ## Tactical Exercise Enemies
 
