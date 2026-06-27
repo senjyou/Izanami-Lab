@@ -474,16 +474,16 @@ class BattleNarrativeWriter:
         self._add(u"╚══════════════════════════════════════════════════╝")
 
     def composite_team_banner(self, team_index: int, total_teams: int):
-        """联合战术演习队伍出战横幅"""
+        """复合战术演习队伍出战横幅"""
         self._add("")
         self._add(u"╔══════════════════════════════════════════════════╗")
-        self._add(f"║       联合战术演习 · 队伍{team_index + 1}/{total_teams}出战             ║")
+        self._add(f"║       复合战术演习 · 队伍{team_index + 1}/{total_teams}出战             ║")
         self._add(u"╚══════════════════════════════════════════════════╝")
         self._add("")
 
     def composite_team_summary(self, team_index: int, net_damage: int, rounds: int,
                                team_wiped: bool, ally_stats: list, enemy_stats: list):
-        """联合战术演习单队战斗结果摘要
+        """复合战术演习单队战斗结果摘要
 
         Args:
             team_index: 队伍索引(0-based)
@@ -496,7 +496,7 @@ class BattleNarrativeWriter:
         result_text = "团灭" if team_wiped else "存活"
         self._add("")
         self._add(u"╔══════════════════════════════════════════════════╗")
-        self._add(f"║       队伍{team_index + 1} · 战斗结果")
+        self._add(f"║       复合战术演习 · 队伍{team_index + 1} · 战斗结果")
         self._add(u"╠══════════════════════════════════════════════════╣")
         self._add(f"║  净伤害: {net_damage:,}  回合: {rounds}  结果: {result_text}")
         self._add(u"║──────────────────────────────────────────────────║")
@@ -513,7 +513,7 @@ class BattleNarrativeWriter:
 
     def composite_final_summary(self, total_score: int, team_results: list,
                                 boss_killed_count: int, boss_stage: int):
-        """联合战术演习最终结果
+        """复合战术演习最终结果
 
         Args:
             total_score: 总分数
@@ -523,7 +523,7 @@ class BattleNarrativeWriter:
         """
         self._add("")
         self._add(u"╔══════════════════════════════════════════════════╗")
-        self._add(u"║       联合战术演习 · 最终结果")
+        self._add(u"║       复合战术演习 · 最终结果")
         self._add(u"╠══════════════════════════════════════════════════╣")
         self._add(f"║  总分数(净伤害): {total_score:,}")
         for i, tr in enumerate(team_results):

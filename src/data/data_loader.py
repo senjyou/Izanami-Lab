@@ -699,7 +699,7 @@ class DataLoader:
         return season_data.get(str(stage))
 
     def load_composite_tactic_enemies(self) -> Dict[str, Any]:
-        """加载联合战术演习敌方数据"""
+        """加载复合战术演习敌方数据"""
         if self._composite_tactic_enemies is not None:
             return self._composite_tactic_enemies
         self._composite_tactic_enemies = {}
@@ -711,7 +711,7 @@ class DataLoader:
         self._composite_tactic_enemies = raw
         endless = raw.get("endless", {})
         enemy_count = len(endless.get("enemies", []))
-        print(f"[OK] 已加载联合战术演习数据 ({enemy_count} 个敌人)")
+        print(f"[OK] 已加载复合战术演习数据 ({enemy_count} 个敌人)")
         return self._composite_tactic_enemies
 
     def get_composite_tactic_enemies(self) -> Dict[str, Any]:

@@ -332,6 +332,152 @@ def get_module_type_ids(char_type):
     return [int(f"{char_type}1"), int(f"{char_type}2"), int(f"{char_type}3")]
 
 
+# ─────────────────── 战斗结果表格面板（通用组件） ───────────────────
+
+class ResultTablePanel(ttk.Frame):
+    """战斗结果面板：上方摘要Text + 下方明细Treeview（Notebook分页）"""
+
+    def __init__(self, parent, app, title="战斗结果", font=("Cascadia Mono", 10)):
+        super().__init__(parent)
+        self.app = app
+        self._font = font
+        self._title = title
+        self._sort_reverse = False
+        self._trees: list[ttk.Treeview] = []
+
+        # 标题
+        self._title_label = ttk.Label(self, text=title, font=("Microsoft YaHei UI", 10, "bold"))
+        self._title_label.pack(pady=5)
+
+        # 垂直 PanedWindow：上方摘要，下方表格
+        self._paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
+        self._paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # ── 上方：摘要 Text ──
+        s = app._get_scheme() if hasattr(app, '_get_scheme') else None
+        text_bg = s["input_bg"] if s else _DARK_INPUT_BG
+        text_fg = s["fg"] if s else _DARK_FG
+        self._summary_text = scrolledtext.ScrolledText(
+            self._paned, width=50, height=12, wrap=tk.WORD,
+            font=font, bg=text_bg, fg=text_fg,
+            insertbackground=text_fg,
+            selectbackground=s["select_bg"] if s else _DARK_SELECT_BG,
+            selectforeground=s["select_fg"] if s else _DARK_SELECT_FG)
+        self._paned.add(self._summary_text, weight=1)
+
+        # ── 下方：Notebook（表格容器） ──
+        self._notebook = ttk.Notebook(self._paned)
+        self._paned.add(self._notebook, weight=2)
+
+        self.apply_theme()
+
+    def clear(self):
+        """清空摘要和表格"""
+        self._summary_text.delete("1.0", tk.END)
+        self._clear_tables()
+
+    def _clear_tables(self):
+        """仅清空表格（保留摘要文本）"""
+        for tab_id in self._notebook.tabs():
+            self._notebook.forget(tab_id)
+        self._trees = []
+
+    def set_summary(self, text: str):
+        """设置摘要文本（覆盖式）"""
+        self._summary_text.delete("1.0", tk.END)
+        self._summary_text.insert(tk.END, text)
+
+    def append_summary(self, text: str):
+        """追加摘要文本"""
+        self._summary_text.insert(tk.END, text)
+
+    def set_table(self, title: str, columns: list, rows: list,
+                  col_widths: list = None, col_aligns: list = None):
+        """设置单个表格（覆盖式，不清空摘要）"""
+        self._clear_tables()
+        self._add_table(title, columns, rows, col_widths, col_aligns)
+
+    def set_tables(self, tables: list):
+        """设置多个表格（Notebook分页，不清空摘要）"""
+        self._clear_tables()
+        for t in tables:
+            self._add_table(
+                t.get("title", ""),
+                t.get("columns", []),
+                t.get("rows", []),
+                t.get("col_widths"),
+                t.get("col_aligns"))
+
+    def _add_table(self, title: str, columns: list, rows: list,
+                   col_widths: list = None, col_aligns: list = None):
+        """添加一个表格到Notebook"""
+        if not columns:
+            return
+
+        # 创建表格容器
+        tab_frame = ttk.Frame(self._notebook)
+        self._notebook.add(tab_frame, text=f"{title}({len(rows)})" if rows else title)
+
+        # Treeview + 滚动条
+        tree_frame = ttk.Frame(tab_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=8)
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # 配置列
+        for i, col in enumerate(columns):
+            align = col_aligns[i] if col_aligns and i < len(col_aligns) else "w"
+            width = col_widths[i] if col_widths and i < len(col_widths) else 100
+            tree.heading(col, text=col, command=lambda c=col, t=tree: self._sort_by_column(t, c))
+            tree.column(col, anchor=align, width=width, stretch=False)
+
+        # 填充数据
+        for row_idx, row in enumerate(rows):
+            tag = "evenrow" if row_idx % 2 == 0 else "oddrow"
+            tree.insert("", tk.END, values=row, tags=(tag,))
+
+        self._trees.append(tree)
+        self.apply_theme()
+
+    def _sort_by_column(self, tree: ttk.Treeview, col: str):
+        """点击列头排序（升序/降序切换）"""
+        items = [(tree.set(k, col), k) for k in tree.get_children("")]
+        try:
+            items.sort(key=lambda x: float(x[0].replace(",", "").replace("%", "")),
+                       reverse=self._sort_reverse)
+        except (ValueError, AttributeError):
+            items.sort(key=lambda x: x[0], reverse=self._sort_reverse)
+        self._sort_reverse = not self._sort_reverse
+        for i, (val, k) in enumerate(items):
+            tree.move(k, "", i)
+
+    def apply_theme(self):
+        """应用当前主题"""
+        s = self.app._get_scheme() if hasattr(self.app, '_get_scheme') else None
+        if not s:
+            return
+
+        # 摘要 Text
+        self._summary_text.config(bg=s["input_bg"], fg=s["fg"],
+                                   insertbackground=s["fg"],
+                                   selectbackground=s["select_bg"],
+                                   selectforeground=s["select_fg"])
+
+        # Treeview 交替行颜色
+        for tree in self._trees:
+            tree.tag_configure("evenrow", background=s["surface"])
+            tree.tag_configure("oddrow", background=s["input_bg"])
+
+
 # ────────────────────────────── 全局参数 Tab ──────────────────────────────
 
 class GlobalParamsTab(ttk.Frame):
@@ -845,7 +991,7 @@ class CharacterParamsTab(ttk.Frame):
             card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
                             highlightbackground=s["border"], highlightthickness=2,
                             cursor="hand2")
-            card.grid(row=row, column=col, padx=PAD, pady=PAD)
+            card.grid(row=row, column=col, padx=PAD, pady=PAD, sticky="ew")
 
             # 头像
             photo = self._load_avatar_thumbnail(cid)
@@ -885,13 +1031,14 @@ class CharacterParamsTab(ttk.Frame):
 
     def _on_grid_card_click(self, cid):
         """网格视图卡片点击"""
-        self._selected_grid_cid = cid
         s = self.app._get_scheme()
         accent = s["accent"]
         surface = s["surface"]
-        # 统一bd=2不变，仅改变highlightbackground颜色来标识选中，避免整体偏移
-        for card_cid, card in self._grid_cards.items():
-            card.config(highlightbackground=surface)
+        # 仅恢复上一个选中卡片的边框，再高亮新卡片（避免遍历全部卡片）
+        prev = self._selected_grid_cid
+        if prev is not None and prev in self._grid_cards:
+            self._grid_cards[prev].config(highlightbackground=surface)
+        self._selected_grid_cid = cid
         if cid in self._grid_cards:
             self._grid_cards[cid].config(highlightbackground=accent)
         self._show_detail(cid)
@@ -3654,14 +3801,8 @@ class TeamBattleTab(ttk.Frame):
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=1)
 
-        ttk.Label(right_frame, text="模拟结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
-        self.result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
-                                                     font=("Cascadia Mono", 10),
-                                                     bg=_DARK_INPUT_BG, fg=_DARK_FG,
-                                                     insertbackground=_DARK_FG,
-                                                     selectbackground=_DARK_SELECT_BG,
-                                                     selectforeground=_DARK_SELECT_FG)
-        self.result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self._result_panel = ResultTablePanel(right_frame, self.app, title="模拟结果")
+        self._result_panel.pack(fill=tk.BOTH, expand=True)
 
     def _get_char_id_from_combo(self, value: str) -> Optional[int]:
         if value.startswith("[") and "] " in value:
@@ -3728,8 +3869,8 @@ class TeamBattleTab(ttk.Frame):
             return
 
         self.start_btn.config(state="disabled")
-        self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, "正在模拟...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在模拟...\n")
 
         thread = threading.Thread(target=self._run_simulation, args=(sel,), daemon=True)
         thread.start()
@@ -3858,7 +3999,7 @@ class TeamBattleTab(ttk.Frame):
         self.start_btn.config(state="normal")
         self.log_btn.config(state="normal")
         self.progress_var.set("完成!")
-        self.result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
 
         w = results
         total = w["total_runs"]
@@ -3895,7 +4036,6 @@ class TeamBattleTab(ttk.Frame):
                 return sum(lst) / len(lst) if lst else 0.0
 
             if total == 1:
-                # 单场：显示完整明细
                 out.append("")
                 out.append("─" * 60)
                 out.append(f"  【统计明细】")
@@ -3911,7 +4051,6 @@ class TeamBattleTab(ttk.Frame):
                 out.append(f"    提供回复: {all_enemy_healed[0]:,}")
                 out.append("─" * 60)
             else:
-                # 多场：显示场均统计
                 out.append("")
                 out.append("─" * 60)
                 out.append(f"  【统计明细 ({total} 场平均值)】")
@@ -3927,34 +4066,51 @@ class TeamBattleTab(ttk.Frame):
                 out.append(f"    提供回复: {_mean(all_enemy_healed):,.1f}")
                 out.append("─" * 60)
 
-        # 角色明细表
+        self._result_panel.set_summary("\n".join(out))
+
+        # 角色明细表（Treeview）
         def _avg(lst):
             return sum(lst) / len(lst) if lst else 0
 
-        out.append("")
-        out.append(f"  {_cjk_fit('角色', 22)} {_cjk_fit('阵营', 6)} {'平均伤害':>10} {'最大伤害':>10} {'存活率':>7}")
-        out.append(f"  {'-'*22} {'-'*6} {'-'*10} {'-'*10} {'-'*7}")
-
-        for cid in w["friends_chars"] + w["enemies_chars"]:
+        tables = []
+        # 我方角色
+        ally_rows = []
+        for cid in w["friends_chars"]:
             char = self.app.data_loader.get_character_by_id(cid)
             name = char.name if char else str(cid)
-            side = "己方" if cid in w["friends_chars"] else "敌方"
             dmg_list = w["char_dmg"].get(cid, [0])
             surv = w["char_survivals"].get(cid, 0)
             death = w["char_deaths"].get(cid, 0)
             sr = surv / (surv + death) * 100 if (surv + death) else 0
-            out.append(f"  {_cjk_fit(name, 22)} {_cjk_fit(side, 6)} {_avg(dmg_list):>10.0f} {max(dmg_list):>10} {sr:>6.1f}%")
+            ally_rows.append([name, f"{_avg(dmg_list):,.0f}", f"{max(dmg_list):,}", f"{sr:.1f}%"])
+        if ally_rows:
+            tables.append({"title": "我方角色", "columns": ["角色", "平均伤害", "最大伤害", "存活率"],
+                           "rows": ally_rows, "col_widths": [135, 110, 110, 80],
+                           "col_aligns": ["w", "e", "e", "e"]})
 
-        out.append("")
-        out.append("=" * 60)
+        # 敌方角色
+        enemy_rows = []
+        for cid in w["enemies_chars"]:
+            char = self.app.data_loader.get_character_by_id(cid)
+            name = char.name if char else str(cid)
+            dmg_list = w["char_dmg"].get(cid, [0])
+            surv = w["char_survivals"].get(cid, 0)
+            death = w["char_deaths"].get(cid, 0)
+            sr = surv / (surv + death) * 100 if (surv + death) else 0
+            enemy_rows.append([name, f"{_avg(dmg_list):,.0f}", f"{max(dmg_list):,}", f"{sr:.1f}%"])
+        if enemy_rows:
+            tables.append({"title": "敌方角色", "columns": ["角色", "平均伤害", "最大伤害", "存活率"],
+                           "rows": enemy_rows, "col_widths": [135, 110, 110, 80],
+                           "col_aligns": ["w", "e", "e", "e"]})
 
-        self.result_text.insert(tk.END, "\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _display_error(self, msg):
         self.start_btn.config(state="normal")
         self.log_btn.config(state="normal")
         self.progress_var.set("错误!")
-        self.result_text.insert(tk.END, f"\n❌ 模拟出错:\n{msg}\n")
+        self._result_panel.append_summary(f"\n❌ 模拟出错:\n{msg}\n")
 
     def _start_single_battle_with_log(self):
         sel = self._get_selection()
@@ -3964,8 +4120,8 @@ class TeamBattleTab(ttk.Frame):
 
         self.start_btn.config(state="disabled")
         self.log_btn.config(state="disabled")
-        self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, "正在单次模拟并生成日志...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在单次模拟并生成日志...\n")
 
         thread = threading.Thread(target=self._run_single_with_log, args=(sel,), daemon=True)
         thread.start()
@@ -4025,7 +4181,7 @@ class TeamBattleTab(ttk.Frame):
         self.start_btn.config(state="normal")
         self.log_btn.config(state="normal")
         self.progress_var.set("完成!")
-        self.result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
         out = []
         out.append("=" * 60)
         out.append(f"  单次模拟结果: {winner_text}")
@@ -4033,51 +4189,51 @@ class TeamBattleTab(ttk.Frame):
         out.append(f"  日志文件: {log_path}")
         out.append("=" * 60)
 
-        # 统计明细（参考战术演习格式，不含计分）
         score_data = result.get("score")
+        tables = []
         if score_data:
             out.append("")
             out.append("─" * 60)
             out.append(f"  【统计明细】")
             out.append("")
-
-            # 我方统计
             out.append(f"  【我方合计】")
             out.append(f"    造成伤害: {score_data.get('ally_total_damage_dealt', 0):,}")
             out.append(f"    受到伤害: {score_data.get('ally_total_damage_received', 0):,}")
             out.append(f"    提供回复: {score_data.get('ally_total_hp_healed', 0):,}")
             out.append("")
-
-            # 敌方统计
             out.append(f"  【敌方合计】")
             out.append(f"    造成伤害: {score_data.get('enemy_total_damage_dealt', 0):,}")
             out.append(f"    受到伤害: {score_data.get('enemy_total_damage_received', 0):,}")
             out.append(f"    提供回复: {score_data.get('enemy_total_hp_healed', 0):,}")
-            out.append("")
+            out.append("─" * 60)
 
-            # 单位明细
             unit_stats = score_data.get("unit_stats", {})
             ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
             enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
 
+            cols = ["角色", "造成伤害", "受到伤害", "提供回复"]
+            widths = [135, 120, 120, 120]
+            aligns = ["w", "e", "e", "e"]
+
             if ally_units:
-                out.append(f"  【我方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                rows = []
                 for uid, s in ally_units.items():
-                    name = s.get("name", uid)[:18]
-                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    name = s.get("name", uid)
+                    rows.append([name, f"{s['damage_dealt']:,}", f"{s['damage_received']:,}", f"{s['hp_healed']:,}"])
+                tables.append({"title": "我方角色明细", "columns": cols, "rows": rows,
+                               "col_widths": widths, "col_aligns": aligns})
 
             if enemy_units:
-                out.append(f"")
-                out.append(f"  【敌方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                rows = []
                 for uid, s in enemy_units.items():
-                    name = s.get("name", uid)[:18]
-                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    name = s.get("name", uid)
+                    rows.append([name, f"{s['damage_dealt']:,}", f"{s['damage_received']:,}", f"{s['hp_healed']:,}"])
+                tables.append({"title": "敌方角色明细", "columns": cols, "rows": rows,
+                               "col_widths": widths, "col_aligns": aligns})
 
-            out.append("─" * 60)
-
-        self.result_text.insert(tk.END, "\n".join(out))
+        self._result_panel.set_summary("\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _refresh_presets(self):
         self.preset_listbox.delete(0, tk.END)
@@ -4272,7 +4428,7 @@ class StepCritTab(ttk.Frame):
         preset_frame = ttk.LabelFrame(f, text="预设选择")
         preset_frame.pack(fill="x", padx=10, pady=5)
 
-        # 战斗模式：编队与战斗 / 战术演习 / 对抗压制战 / 联合战术演习
+        # 战斗模式：编队与战斗 / 战术演习 / 对抗压制战 / 复合战术演习
         battle_mode_frame = ttk.Frame(preset_frame)
         battle_mode_frame.pack(fill="x", padx=5, pady=2)
         self.battle_mode_var = tk.StringVar(value="team")
@@ -4282,7 +4438,7 @@ class StepCritTab(ttk.Frame):
                         value="tactical", command=self._on_battle_mode_change).pack(side="left", padx=5)
         ttk.Radiobutton(battle_mode_frame, text="对抗压制战", variable=self.battle_mode_var,
                         value="circle", command=self._on_battle_mode_change).pack(side="left", padx=5)
-        ttk.Radiobutton(battle_mode_frame, text="联合战术演习", variable=self.battle_mode_var,
+        ttk.Radiobutton(battle_mode_frame, text="复合战术演习", variable=self.battle_mode_var,
                         value="composite", command=self._on_battle_mode_change).pack(side="left", padx=5)
 
         # 预设列表
@@ -4486,7 +4642,7 @@ class StepCritTab(ttk.Frame):
         elif mode == "composite":
             COMPOSITE_PRESET_DIR.mkdir(parents=True, exist_ok=True)
             for f in sorted(COMPOSITE_PRESET_DIR.glob("*.json")):
-                self._preset_listbox.insert(tk.END, f"[联合] {f.stem}")
+                self._preset_listbox.insert(tk.END, f"[复合] {f.stem}")
 
     def _load_preset(self):
         """加载选中的预设"""
@@ -4496,7 +4652,7 @@ class StepCritTab(ttk.Frame):
             return
 
         item_text = self._preset_listbox.get(sel[0])
-        # 解析预设名称（去掉前缀 "[编队] " / "[演习] " / "[压制] " / "[联合] "）
+        # 解析预设名称（去掉前缀 "[编队] " / "[演习] " / "[压制] " / "[复合] "）
         preset_name = item_text.split("] ", 1)[1] if "] " in item_text else item_text
 
         mode = self.battle_mode_var.get()
@@ -4573,7 +4729,7 @@ class StepCritTab(ttk.Frame):
                     f"队{i+1}: {[c for c in t if c]}"
                     for i, t in enumerate(teams_positions)
                 )
-                self._preset_info_var.set(f"已加载联合演习预设: {preset_name}\n{teams_desc}")
+                self._preset_info_var.set(f"已加载复合演习预设: {preset_name}\n{teams_desc}")
             else:
                 parts = []
                 for i, t in enumerate(teams_positions):
@@ -4583,7 +4739,7 @@ class StepCritTab(ttk.Frame):
                             char = self.app.data_loader.get_character_by_id(cid)
                             names.append(self.app.format_char_name(char) if char else str(cid))
                     parts.append(f"队{i+1}: {', '.join(names) if names else '空'}")
-                self._preset_info_var.set(f"已加载联合演习预设: {preset_name}\n{' | '.join(parts)}")
+                self._preset_info_var.set(f"已加载复合演习预设: {preset_name}\n{' | '.join(parts)}")
 
     def _random_seed(self):
         import random as _r
@@ -4754,7 +4910,7 @@ class StepCritTab(ttk.Frame):
         self._append_output(f"=== 逐步暴击模拟器（回退重启） ===\n")
         prefill_count = len([c for c in prefill_seq if c in 'CN10'])
         self._append_output(f"模式: 交互式（预填 {prefill_count} 步）\n")
-        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "联合战术演习"}
+        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "复合战术演习"}
         self._append_output(f"战斗类型: {type_names.get(preset_type, preset_type)}\n")
         self._append_output(f"随机种子: {seed}\n")
         self._append_output(f"预填序列: {prefill_seq}\n\n")
@@ -4812,7 +4968,8 @@ class StepCritTab(ttk.Frame):
                 config.max_turns = max_turns
                 controller = CircleBattleController(bf, data_loader=self.app.data_loader,
                                                     config=config, narrative=narrative,
-                                                    season=sel["season"], stage=sel["stage"])
+                                                    season=sel["season"], stage=sel["stage"],
+                                                    enemy_state_overrides=sel.get("enemy_state_overrides"))
             elif preset_type == "composite":
                 from src.combat_v2.composite_tactic_controller import CompositeTacticController
                 config = BattleConfig()
@@ -5071,7 +5228,7 @@ class StepCritTab(ttk.Frame):
             teams_positions = sel.get("teams_positions", [])
             total_chars = sum(sum(1 for c in t if c is not None) for t in teams_positions)
             if total_chars == 0:
-                messagebox.showwarning("编队不完整", "请加载包含至少1支队伍角色的联合演习预设")
+                messagebox.showwarning("编队不完整", "请加载包含至少1支队伍角色的复合演习预设")
                 return
 
         self._simulator = StepCritSimulator()
@@ -5111,7 +5268,7 @@ class StepCritTab(ttk.Frame):
 
         self._append_output(f"=== 逐步暴击模拟器 ===\n")
         self._append_output(f"模式: {'预填序列' if mode == 'sequence' else '交互式'}\n")
-        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "联合战术演习"}
+        type_names = {"team": "编队与战斗", "tactical": "战术演习", "circle": "对抗压制战", "composite": "复合战术演习"}
         self._append_output(f"战斗类型: {type_names.get(preset_type, preset_type)}\n")
         if mode == "sequence" and self._simulator.get_crit_sequence_length() > 0:
             self._append_output(f"序列长度: {self._simulator.get_crit_sequence_length()}\n")
@@ -5194,7 +5351,7 @@ class StepCritTab(ttk.Frame):
         return bf
 
     def _build_composite_setup(self, sel, panel_config, player_config, stat_calculator):
-        """构建联合战术演习的战场和3支队伍
+        """构建复合战术演习的战场和3支队伍
 
         Returns:
             (bf, teams_units, teams_mem_cards, boss_unit_id, max_turns)
@@ -5284,7 +5441,8 @@ class StepCritTab(ttk.Frame):
                 config.max_turns = max_turns
                 controller = CircleBattleController(bf, data_loader=self.app.data_loader,
                                                     config=config, narrative=narrative,
-                                                    season=sel["season"], stage=sel["stage"])
+                                                    season=sel["season"], stage=sel["stage"],
+                                                    enemy_state_overrides=sel.get("enemy_state_overrides"))
             elif preset_type == "composite":
                 from src.combat_v2.composite_tactic_controller import CompositeTacticController
                 config = BattleConfig()
@@ -5429,7 +5587,8 @@ class StepCritTab(ttk.Frame):
                 config.max_turns = max_turns
                 controller = CircleBattleController(bf, data_loader=self.app.data_loader,
                                                     config=config, narrative=narrative,
-                                                    season=sel["season"], stage=sel["stage"])
+                                                    season=sel["season"], stage=sel["stage"],
+                                                    enemy_state_overrides=sel.get("enemy_state_overrides"))
             elif preset_type == "composite":
                 from src.combat_v2.composite_tactic_controller import CompositeTacticController
                 config = BattleConfig()
@@ -5937,14 +6096,8 @@ class TacticalExerciseTab(ttk.Frame):
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=1)
 
-        ttk.Label(right_frame, text="演习结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
-        self._result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
-                                                      font=("Cascadia Mono", 10),
-                                                      bg=_DARK_INPUT_BG, fg=_DARK_FG,
-                                                      insertbackground=_DARK_FG,
-                                                      selectbackground=_DARK_SELECT_BG,
-                                                      selectforeground=_DARK_SELECT_FG)
-        self._result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self._result_panel = ResultTablePanel(right_frame, self.app, title="演习结果")
+        self._result_panel.pack(fill=tk.BOTH, expand=True)
 
         # 初始化敌方预览（自动选中第一个）
         self._refresh_enemy_selection()
@@ -6431,8 +6584,8 @@ class TacticalExerciseTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, "正在进行战术演习...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在进行战术演习...\n")
 
         thread = threading.Thread(target=self._run_simulation, args=(sel,), daemon=True)
         thread.start()
@@ -6503,6 +6656,7 @@ class TacticalExerciseTab(ttk.Frame):
                 score_stats["friend_positions"] = friend_positions
                 score_stats["rate"] = result.get("rate", 0)
                 score_stats["elapsed"] = result.get("elapsed", 0)
+                score_stats["all_unit_stats"] = result.get("all_unit_stats", [])
 
             self.app.root.after(0, lambda: self._display_results(
                 sim_count, total_stages, total_turns, max_stages, losses, timeouts, score_stats))
@@ -6564,7 +6718,7 @@ class TacticalExerciseTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
 
         avg_stages = total_stages / sim_count if sim_count > 0 else 0
         avg_turns = total_turns / sim_count if sim_count > 0 else 0
@@ -6584,6 +6738,7 @@ class TacticalExerciseTab(ttk.Frame):
             out.append(f"  效率: {rate:.1f} 场/秒 | 耗时 {elapsed:.1f} 秒")
         out.append("=" * 60)
 
+        tables = []
         if score_stats and score_stats.get("all_scores"):
             all_scores = score_stats["all_scores"]
             n = len(all_scores)
@@ -6596,18 +6751,20 @@ class TacticalExerciseTab(ttk.Frame):
                     _, _, _, result = rec[0]
                     score_data = result.get("score", {})
                     if score_data:
-                        self._append_score_display(out, score_data)
+                        self._append_score_display(out, score_data, tables)
             else:
                 # 多场模拟：显示统计值
-                self._append_multi_score_display(out, score_stats, n)
+                self._append_multi_score_display(out, score_stats, n, tables)
 
-        self._result_text.insert(tk.END, "\n".join(out))
+        self._result_panel.set_summary("\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _display_error(self, msg):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("错误!")
-        self._result_text.insert(tk.END, f"\n❌ 演习出错:\n{msg}\n")
+        self._result_panel.append_summary(f"\n❌ 演习出错:\n{msg}\n")
 
     def _start_single_battle_with_log(self):
         sel = self._get_selection()
@@ -6617,8 +6774,8 @@ class TacticalExerciseTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, "正在单次战术演习并生成日志...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在单次战术演习并生成日志...\n")
 
         thread = threading.Thread(target=self._run_single_with_log, args=(sel,), daemon=True)
         thread.start()
@@ -6683,7 +6840,7 @@ class TacticalExerciseTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
         out = []
         out.append("=" * 60)
         out.append(f"  战术演习结果: {winner_text}")
@@ -6692,13 +6849,22 @@ class TacticalExerciseTab(ttk.Frame):
         out.append(f"  日志文件: {log_path}")
         out.append("=" * 60)
 
+        tables = []
         if score_data:
-            self._append_score_display(out, score_data)
+            self._append_score_display(out, score_data, tables)
 
-        self._result_text.insert(tk.END, "\n".join(out))
+        self._result_panel.set_summary("\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
-    def _append_score_display(self, out: list, score_data: dict):
-        """追加计分统计到输出列表"""
+    def _append_score_display(self, out: list, score_data: dict, tables: list = None):
+        """追加计分统计到输出列表
+
+        Args:
+            out: 摘要文本行列表
+            score_data: 计分数据
+            tables: 角色明细表数据列表（可选，传入则用Treeview表格呈现角色明细）
+        """
         out.append("")
         out.append("─" * 60)
         out.append(f"  【计分统计】")
@@ -6723,29 +6889,60 @@ class TacticalExerciseTab(ttk.Frame):
         out.append(f"    提供回复: {score_data.get('enemy_total_hp_healed', 0):,}")
         out.append("")
 
-        # 单位明细
+        # 单位明细：转为 Treeview 表格（角色 / 造成伤害 / 受到伤害 / 提供回复）
         unit_stats = score_data.get("unit_stats", {})
         ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
         enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
 
-        if ally_units:
-            out.append(f"  【我方角色明细】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
-            for uid, s in ally_units.items():
-                name = s.get("name", uid)[:18]
-                out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+        if tables is not None:
+            # 角色明细用 Treeview 表格呈现
+            columns = ["角色", "造成伤害", "受到伤害", "提供回复"]
+            col_widths = [135, 120, 120, 120]
+            col_aligns = ["w", "e", "e", "e"]
 
-        if enemy_units:
-            out.append(f"")
-            out.append(f"  【敌方角色明细】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
-            for uid, s in enemy_units.items():
-                name = s.get("name", uid)[:18]
-                out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+            if ally_units:
+                ally_rows = []
+                for uid, s in ally_units.items():
+                    name = s.get("name", uid)[:18]
+                    ally_rows.append([name,
+                                      f"{s.get('damage_dealt', 0):,}",
+                                      f"{s.get('damage_received', 0):,}",
+                                      f"{s.get('hp_healed', 0):,}"])
+                tables.append({"title": "我方角色明细", "columns": columns,
+                               "rows": ally_rows, "col_widths": col_widths,
+                               "col_aligns": col_aligns})
+
+            if enemy_units:
+                enemy_rows = []
+                for uid, s in enemy_units.items():
+                    name = s.get("name", uid)[:18]
+                    enemy_rows.append([name,
+                                       f"{s.get('damage_dealt', 0):,}",
+                                       f"{s.get('damage_received', 0):,}",
+                                       f"{s.get('hp_healed', 0):,}"])
+                tables.append({"title": "敌方角色明细", "columns": columns,
+                               "rows": enemy_rows, "col_widths": col_widths,
+                               "col_aligns": col_aligns})
+        else:
+            # 回退：以文本形式输出角色明细
+            if ally_units:
+                out.append(f"  【我方角色明细】")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                for uid, s in ally_units.items():
+                    name = s.get("name", uid)[:18]
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+
+            if enemy_units:
+                out.append(f"")
+                out.append(f"  【敌方角色明细】")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                for uid, s in enemy_units.items():
+                    name = s.get("name", uid)[:18]
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
 
         out.append("─" * 60)
 
-    def _append_multi_score_display(self, out: list, score_stats: dict, n: int):
+    def _append_multi_score_display(self, out: list, score_stats: dict, n: int, tables: list = None):
         """追加多场模拟计分统计到输出列表"""
         out.append("")
         out.append("─" * 60)
@@ -6799,6 +6996,49 @@ class TacticalExerciseTab(ttk.Frame):
 
         # 存储导出所需的上下文
         self._score_stats_cache = score_stats
+
+        # 角色明细表格（场均）：聚合 all_unit_stats
+        if tables is not None:
+            all_unit_stats = score_stats.get("all_unit_stats", [])
+            if all_unit_stats:
+                ally_agg: Dict[str, Dict[str, Any]] = {}
+                enemy_agg: Dict[str, Dict[str, Any]] = {}
+                for unit_stats in all_unit_stats:
+                    for uid, s in unit_stats.items():
+                        side = s.get("side", "ally")
+                        target = ally_agg if side == "ally" else enemy_agg
+                        if uid not in target:
+                            target[uid] = {"name": s.get("name", uid),
+                                           "damage_dealt": 0, "damage_received": 0, "hp_healed": 0}
+                        target[uid]["damage_dealt"] += s.get("damage_dealt", 0)
+                        target[uid]["damage_received"] += s.get("damage_received", 0)
+                        target[uid]["hp_healed"] += s.get("hp_healed", 0)
+
+                columns = ["角色", "造成伤害", "受到伤害", "提供回复"]
+                col_widths = [135, 120, 120, 120]
+                col_aligns = ["w", "e", "e", "e"]
+
+                if ally_agg:
+                    ally_rows = []
+                    for uid, s in ally_agg.items():
+                        ally_rows.append([s["name"][:18],
+                                          f"{s['damage_dealt'] / n:,.1f}",
+                                          f"{s['damage_received'] / n:,.1f}",
+                                          f"{s['hp_healed'] / n:,.1f}"])
+                    tables.append({"title": "我方角色明细(场均)", "columns": columns,
+                                   "rows": ally_rows, "col_widths": col_widths,
+                                   "col_aligns": col_aligns})
+
+                if enemy_agg:
+                    enemy_rows = []
+                    for uid, s in enemy_agg.items():
+                        enemy_rows.append([s["name"][:18],
+                                           f"{s['damage_dealt'] / n:,.1f}",
+                                           f"{s['damage_received'] / n:,.1f}",
+                                           f"{s['hp_healed'] / n:,.1f}"])
+                    tables.append({"title": "敌方角色明细(场均)", "columns": columns,
+                                   "rows": enemy_rows, "col_widths": col_widths,
+                                   "col_aligns": col_aligns})
 
     @staticmethod
     def _calculate_quantile(data: list, q: float) -> float:
@@ -6960,7 +7200,7 @@ class TacticalExerciseTab(ttk.Frame):
                            f"得分: {export_score:,}  阶段: {stages}")
                     if export_score != score:
                         msg += f"\n⚠ 注意: 导出得分({export_score:,})与记录得分({score:,})不一致，可能是计分逻辑已更新"
-                    self._result_text.insert(tk.END, f"\n{msg}\n")
+                    self._result_panel.append_summary(f"\n{msg}\n")
 
                 self.app.root.after(0, _on_done)
             except Exception as e:
@@ -6971,7 +7211,7 @@ class TacticalExerciseTab(ttk.Frame):
                     self._start_btn.config(state="normal")
                     self._log_btn.config(state="normal")
                     self._progress_var.set("错误!")
-                    self._result_text.insert(tk.END, f"\n❌ 导出{log_label}日志出错:\n{err_msg}\n")
+                    self._result_panel.append_summary(f"\n❌ 导出{log_label}日志出错:\n{err_msg}\n")
 
                 self.app.root.after(0, _on_err)
 
@@ -7438,13 +7678,13 @@ class CircleBattleTab(ttk.Frame):
         row1.pack(padx=5, pady=5, fill="x")
 
         ttk.Label(row1, text="赛季:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
-        self._var_season = tk.IntVar(value=5)
-        self._season_combo = ttk.Combobox(
-            row1, textvariable=self._var_season, state="readonly", width=6,
-            values=[str(s) for s in self.SUPPORTED_SEASONS],
+        self._var_season = tk.StringVar(value="5")
+        self._season_spinbox = ttk.Spinbox(
+            row1, from_=1, to=99, textvariable=self._var_season, width=6,
+            command=self._on_season_change,
         )
-        self._season_combo.pack(side=tk.LEFT, padx=(0, 15))
-        self._season_combo.bind("<<ComboboxSelected>>", self._on_season_change)
+        self._season_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+        self._season_spinbox.bind("<Return>", lambda e: self._on_season_change())
 
         ttk.Label(row1, text="阶段:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
         self._var_stage = tk.IntVar(value=100)
@@ -7471,6 +7711,8 @@ class CircleBattleTab(ttk.Frame):
         self._enemy_grid_frame.pack(fill="x", padx=5, pady=5)
         self._enemy_slots: List[Optional[Dict[str, Any]]] = [None] * 6
         self._enemy_grid_widgets: List[Dict[str, Any]] = []
+        self._enemy_hp_vars: List[tk.StringVar] = [tk.StringVar(value="") for _ in range(6)]
+        self._enemy_dead_vars: List[tk.BooleanVar] = [tk.BooleanVar(value=False) for _ in range(6)]
 
         enemy_slot_labels = ["左前(1)", "中前(2)", "右前(3)", "左后(4)", "中后(5)", "右后(6)"]
         for i, label in enumerate(enemy_slot_labels):
@@ -7480,7 +7722,7 @@ class CircleBattleTab(ttk.Frame):
             c = i % 3
             frame.grid(row=r, column=c, padx=3, pady=3)
             frame.grid_propagate(False)
-            frame.configure(width=164, height=140)
+            frame.configure(width=164, height=180)
             pos_label = ttk.Label(frame, text=label, font=("Microsoft YaHei UI", 8))
             pos_label.grid(row=0, column=0, sticky="w", padx=(3, 0))
 
@@ -7488,6 +7730,14 @@ class CircleBattleTab(ttk.Frame):
             slot["frame"].grid(row=1, column=0, padx=5, pady=(2, 2))
             slot["outer_frame"] = frame
             self._enemy_grid_widgets.append(slot)
+
+        # ── 批量操作按钮 ──
+        batch_btn_frame = ttk.Frame(enemy_frame)
+        batch_btn_frame.pack(fill="x", padx=5, pady=(2, 5))
+        ttk.Button(batch_btn_frame, text="小怪全死", width=10,
+                   command=self._set_small_enemies_dead).pack(side=tk.LEFT, padx=2)
+        ttk.Button(batch_btn_frame, text="全部满血复活", width=12,
+                   command=self._reset_all_enemy_states).pack(side=tk.LEFT, padx=2)
 
         # ── 己方编队 + 己方回忆卡（同行） ──
         ally_main = tk.Frame(f, bg=s["bg"])
@@ -7575,14 +7825,8 @@ class CircleBattleTab(ttk.Frame):
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=1)
 
-        ttk.Label(right_frame, text="战斗结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
-        self._result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
-                                                      font=("Cascadia Mono", 10),
-                                                      bg=_DARK_INPUT_BG, fg=_DARK_FG,
-                                                      insertbackground=_DARK_FG,
-                                                      selectbackground=_DARK_SELECT_BG,
-                                                      selectforeground=_DARK_SELECT_FG)
-        self._result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self._result_panel = ResultTablePanel(right_frame, self.app, title="战斗结果")
+        self._result_panel.pack(fill=tk.BOTH, expand=True)
 
         # 初始化敌方预览
         self._on_stage_change()
@@ -7594,7 +7838,7 @@ class CircleBattleTab(ttk.Frame):
 
     def _on_stage_change(self, event=None):
         """阶段变更时刷新敌方阵容预览"""
-        season = self._var_season.get()
+        season = int(self._var_season.get())
         stage = self._var_stage.get()
 
         stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
@@ -7618,11 +7862,16 @@ class CircleBattleTab(ttk.Frame):
             self._update_enemy_slot_display(widget, None)
 
     def _refresh_enemy_preview(self, stage_data: Dict):
-        """刷新敌方阵容预览（2x3网格）"""
+        """刷新敌方阵容预览（2x3网格），重置HP/死亡状态"""
         enemies = stage_data.get("enemies", [])
 
         # 先清空所有槽位
         self._enemy_slots = [None] * 6
+
+        # 重置HP/死亡状态（阶段切换时清空用户覆盖）
+        for i in range(6):
+            self._enemy_hp_vars[i].set("")
+            self._enemy_dead_vars[i].set(False)
 
         # 按slot填充敌方数据
         for enemy in enemies:
@@ -7635,8 +7884,100 @@ class CircleBattleTab(ttk.Frame):
             enemy_data = self._enemy_slots[i]
             self._update_enemy_slot_display(widget, enemy_data)
 
+    def _on_dead_toggle(self, slot_idx):
+        """死亡复选框切换时启用/禁用HP输入框"""
+        widget = self._enemy_grid_widgets[slot_idx]
+        hp_entry = widget.get("hp_entry")
+        if not hp_entry:
+            return
+        is_dead = self._enemy_dead_vars[slot_idx].get()
+        hp_entry.config(state="disabled" if is_dead else "normal")
+
+    def _set_small_enemies_dead(self):
+        """批量设置：除HP最高的单位（BOSS）外，所有敌方小怪初始死亡"""
+        # 找出当前所有已加载敌人的HP，定位最高HP的槽位作为BOSS
+        loaded_slots = []
+        max_hp = -1
+        boss_slot_idx = -1
+        for i, enemy_data in enumerate(self._enemy_slots):
+            if enemy_data is not None:
+                hp = enemy_data.get("hp", 0)
+                loaded_slots.append(i)
+                if hp > max_hp:
+                    max_hp = hp
+                    boss_slot_idx = i
+
+        if not loaded_slots:
+            messagebox.showinfo("提示", "当前无可操作的敌方单位")
+            return
+
+        for i in loaded_slots:
+            if i == boss_slot_idx:
+                # BOSS保持存活满血
+                self._enemy_dead_vars[i].set(False)
+                enemy = self._enemy_slots[i]
+                if enemy:
+                    self._enemy_hp_vars[i].set(str(enemy.get("hp", 0)))
+            else:
+                # 小怪标记死亡
+                self._enemy_dead_vars[i].set(True)
+            # 更新HP输入框状态
+            self._on_dead_toggle(i)
+
+    def _reset_all_enemy_states(self):
+        """批量重置：所有敌方单位满血存活"""
+        for i, enemy_data in enumerate(self._enemy_slots):
+            self._enemy_dead_vars[i].set(False)
+            if enemy_data is not None:
+                self._enemy_hp_vars[i].set(str(enemy_data.get("hp", 0)))
+            self._on_dead_toggle(i)
+
+    def _collect_enemy_state_overrides(self) -> Dict[int, Dict[str, Any]]:
+        """从GUI收集敌方初始状态覆盖"""
+        overrides = {}
+        for i, enemy_data in enumerate(self._enemy_slots):
+            if enemy_data is None:
+                continue
+            slot = i + 1  # 0-indexed → 1-indexed
+            is_dead = self._enemy_dead_vars[i].get()
+            hp_str = self._enemy_hp_vars[i].get().strip()
+            max_hp = enemy_data.get("hp", 0)
+
+            if is_dead:
+                overrides[slot] = {"dead": True}
+            elif hp_str:
+                try:
+                    hp_val = int(hp_str)
+                    if hp_val != max_hp and hp_val > 0:
+                        overrides[slot] = {"current_hp": min(hp_val, max_hp)}
+                    elif hp_val <= 0:
+                        # HP<=0 也视为死亡
+                        overrides[slot] = {"dead": True}
+                except ValueError:
+                    pass
+        return overrides
+
+    def _apply_enemy_state_overrides(self, overrides: Dict[int, Dict[str, Any]]):
+        """从预设数据恢复敌方初始状态覆盖到GUI"""
+        # 先重置所有
+        for i in range(6):
+            self._enemy_dead_vars[i].set(False)
+            enemy_data = self._enemy_slots[i]
+            if enemy_data:
+                self._enemy_hp_vars[i].set(str(enemy_data.get("hp", 0)))
+
+        # 应用预设覆盖
+        for slot, override in overrides.items():
+            i = slot - 1  # 1-indexed → 0-indexed
+            if 0 <= i < 6:
+                if override.get("dead"):
+                    self._enemy_dead_vars[i].set(True)
+                elif "current_hp" in override:
+                    self._enemy_hp_vars[i].set(str(override["current_hp"]))
+                self._on_dead_toggle(i)
+
     def _build_enemy_slot(self, parent, slot_idx):
-        """构建单个敌方槽位（横版头像，可点击查看详情）"""
+        """构建单个敌方槽位（横版头像，可点击查看详情，含HP覆盖和死亡开关）"""
         BANNER_W, BANNER_H = 154, 76
         s = self.app._get_scheme()
 
@@ -7651,20 +7992,40 @@ class CircleBattleTab(ttk.Frame):
         name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
                                font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
                                justify="center", height=2)
+        name_label.pack(pady=(1, 0))
 
-        # 点击打开详情弹窗
+        # ── HP覆盖 + 死亡开关 ──
+        state_frame = tk.Frame(slot_frame, bg=s["bg"])
+        state_frame.pack(pady=(1, 0))
+
+        ttk.Label(state_frame, text="HP:", font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
+        hp_entry = ttk.Entry(state_frame, textvariable=self._enemy_hp_vars[slot_idx],
+                             width=7, font=("Microsoft YaHei UI", 7))
+        hp_entry.pack(side=tk.LEFT, padx=(1, 3))
+
+        dead_check = ttk.Checkbutton(state_frame, text="死亡", variable=self._enemy_dead_vars[slot_idx],
+                                     command=lambda idx=slot_idx: self._on_dead_toggle(idx))
+        dead_check.pack(side=tk.LEFT)
+
+        # 点击头像/名称打开详情弹窗
         for widget in [slot_frame, avatar_canvas, name_label]:
             widget.bind("<Button-1>", lambda e, idx=slot_idx: self._open_enemy_detail(idx))
 
         return {"frame": slot_frame, "avatar_label": avatar_canvas,
-                "name_label": name_label, "slot_idx": slot_idx}
+                "name_label": name_label, "slot_idx": slot_idx,
+                "hp_entry": hp_entry, "dead_check": dead_check,
+                "state_frame": state_frame}
 
     def _update_enemy_slot_display(self, widget, enemy_data):
         """更新敌方槽位显示"""
         canvas = widget["avatar_label"]
         name_label = widget["name_label"]
+        hp_entry = widget.get("hp_entry")
+        dead_check = widget.get("dead_check")
+        state_frame = widget.get("state_frame")
         s = self.app._get_scheme()
         BANNER_W, BANNER_H = 154, 76
+        slot_idx = widget["slot_idx"]
 
         # 无论是否有敌人，都同步主题色（bg/fg）
         name_label.config(bg=s["bg"], fg=s["fg"])
@@ -7678,6 +8039,11 @@ class CircleBattleTab(ttk.Frame):
                                fill=s["border"], font=("Microsoft YaHei UI", 8))
             name_label.config(text="")
             name_label.pack_forget()
+            # 隐藏HP/死亡控件
+            if state_frame:
+                state_frame.pack_forget()
+            self._enemy_hp_vars[slot_idx].set("")
+            self._enemy_dead_vars[slot_idx].set(False)
         else:
             model_id = enemy_data.get("model_asset_id", "")
             photo = self._load_enemy_avatar(model_id)
@@ -7690,6 +8056,16 @@ class CircleBattleTab(ttk.Frame):
             name = enemy_data.get("name", "???")
             name_label.config(text=name)
             name_label.pack(pady=(1, 0))
+
+            # 显示HP/死亡控件，默认HP为max_hp
+            if state_frame:
+                state_frame.pack(pady=(1, 0))
+            # 仅在HP为空时设置默认值（避免覆盖用户输入）
+            if not self._enemy_hp_vars[slot_idx].get():
+                self._enemy_hp_vars[slot_idx].set(str(enemy_data.get("hp", 0)))
+            # 根据死亡状态启用/禁用HP输入
+            if hp_entry:
+                hp_entry.config(state="disabled" if self._enemy_dead_vars[slot_idx].get() else "normal")
 
     def _load_enemy_avatar(self, model_asset_id: str):
         """加载敌方头像（按ModelAssetId命名）"""
@@ -8091,8 +8467,9 @@ class CircleBattleTab(ttk.Frame):
             "friend_positions": friend_positions,
             "mems_friend": [e for e in mem_friend_positions if e],
             "mem_friend_positions": mem_friend_positions,
-            "season": self._var_season.get(),
+            "season": int(self._var_season.get()),
             "stage": self._var_stage.get(),
+            "enemy_state_overrides": self._collect_enemy_state_overrides(),
         }
 
     # ── 敌方单位创建 ──
@@ -8160,8 +8537,8 @@ class CircleBattleTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, f"正在进行对抗压制战 第{season}赛季 阶段{stage}...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary(f"正在进行对抗压制战 第{season}赛季 阶段{stage}...\n")
 
         thread = threading.Thread(target=self._run_simulation, args=(sel, stage_data), daemon=True)
         thread.start()
@@ -8198,6 +8575,7 @@ class CircleBattleTab(ttk.Frame):
                 positions_ally=GRID_ALLY_POSITIONS,
                 progress_callback=progress_cb,
                 memory_cards=self._build_memory_cards(sel.get("mems_friend", [])),
+                enemy_state_overrides=sel.get("enemy_state_overrides"),
             )
 
             self.app.root.after(0, lambda: self._display_results(sim_count, result, sel, stage_data))
@@ -8210,7 +8588,7 @@ class CircleBattleTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
 
         wins = result.get("wins", 0)
         losses = result.get("losses", 0)
@@ -8243,13 +8621,12 @@ class CircleBattleTab(ttk.Frame):
                 out.append(f"  最低: {min(failed_enemy_damage):,}")
                 out.append("─" * 60)
 
-        # 单位统计（取所有场次的平均值）
-        all_unit_stats = result.get("all_unit_stats", [])
-        if all_unit_stats:
-            out.append("")
-            out.append("─" * 60)
-            out.append(f"  【单位结算数据（场均）】")
+        self._result_panel.set_summary("\n".join(out))
 
+        # 单位统计（取所有场次的平均值）→ 表格化
+        all_unit_stats = result.get("all_unit_stats", [])
+        tables = []
+        if all_unit_stats:
             # 聚合每个单位的统计
             ally_agg = {}
             enemy_agg = {}
@@ -8273,50 +8650,59 @@ class CircleBattleTab(ttk.Frame):
 
             n = len(all_unit_stats)
 
+            cols = ["角色", "造成伤害", "受到伤害", "提供回复"]
+            widths = [135, 110, 110, 110]
+            aligns = ["w", "e", "e", "e"]
+
             if ally_agg:
-                out.append("")
-                out.append(f"  【我方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+                rows = []
                 for uid, s in ally_agg.items():
-                    name = s["name"][:18]
-                    out.append(f"    {_cjk_fit(name, 20)} "
-                               f"{s['damage_dealt'] / n:>12,.1f} "
-                               f"{s['damage_received'] / n:>12,.1f} "
-                               f"{s['hp_healed'] / n:>12,.1f} "
-                               f"{s['hp_received'] / n:>12,.1f}")
+                    rows.append([
+                        s["name"],
+                        f"{s['damage_dealt'] / n:,.1f}",
+                        f"{s['damage_received'] / n:,.1f}",
+                        f"{s['hp_healed'] / n:,.1f}",
+                    ])
+                tables.append({"title": "我方角色明细(场均)", "columns": cols,
+                               "rows": rows, "col_widths": widths, "col_aligns": aligns})
 
             if enemy_agg:
-                out.append("")
-                out.append(f"  【敌方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
+                rows = []
                 for uid, s in enemy_agg.items():
-                    name = s["name"][:18]
-                    out.append(f"    {_cjk_fit(name, 20)} "
-                               f"{s['damage_dealt'] / n:>12,.1f} "
-                               f"{s['damage_received'] / n:>12,.1f} "
-                               f"{s['hp_healed'] / n:>12,.1f} "
-                               f"{s['hp_received'] / n:>12,.1f}")
+                    rows.append([
+                        s["name"],
+                        f"{s['damage_dealt'] / n:,.1f}",
+                        f"{s['damage_received'] / n:,.1f}",
+                        f"{s['hp_healed'] / n:,.1f}",
+                    ])
+                tables.append({"title": "敌方角色明细(场均)", "columns": cols,
+                               "rows": rows, "col_widths": widths, "col_aligns": aligns})
 
-            # 合计
-            out.append("")
-            out.append(f"  【合计（场均）】")
+            # 合计（场均）
             ally_dmg = sum(s["damage_dealt"] for s in ally_agg.values()) / n
             ally_recv = sum(s["damage_received"] for s in ally_agg.values()) / n
             ally_heal = sum(s["hp_healed"] for s in ally_agg.values()) / n
             enemy_dmg = sum(s["damage_dealt"] for s in enemy_agg.values()) / n
             enemy_recv = sum(s["damage_received"] for s in enemy_agg.values()) / n
             enemy_heal = sum(s["hp_healed"] for s in enemy_agg.values()) / n
-            out.append(f"    我方 - 造成伤害: {ally_dmg:,.1f}  受到伤害: {ally_recv:,.1f}  提供回复: {ally_heal:,.1f}")
-            out.append(f"    敌方 - 造成伤害: {enemy_dmg:,.1f}  受到伤害: {enemy_recv:,.1f}  提供回复: {enemy_heal:,.1f}")
-            out.append("─" * 60)
+            sum_cols = ["阵营", "造成伤害", "受到伤害", "提供回复"]
+            sum_widths = [135, 110, 110, 110]
+            sum_aligns = ["w", "e", "e", "e"]
+            sum_rows = [
+                ["我方", f"{ally_dmg:,.1f}", f"{ally_recv:,.1f}", f"{ally_heal:,.1f}"],
+                ["敌方", f"{enemy_dmg:,.1f}", f"{enemy_recv:,.1f}", f"{enemy_heal:,.1f}"],
+            ]
+            tables.append({"title": "合计(场均)", "columns": sum_cols,
+                           "rows": sum_rows, "col_widths": sum_widths, "col_aligns": sum_aligns})
 
-        self._result_text.insert(tk.END, "\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _display_error(self, msg):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("错误!")
-        self._result_text.insert(tk.END, f"\n❌ 战斗出错:\n{msg}\n")
+        self._result_panel.append_summary(f"\n❌ 战斗出错:\n{msg}\n")
 
     # ── 单次战斗+日志 ──
 
@@ -8335,8 +8721,8 @@ class CircleBattleTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, f"正在单次战斗并生成日志 第{season}赛季 阶段{stage}...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary(f"正在单次战斗并生成日志 第{season}赛季 阶段{stage}...\n")
 
         thread = threading.Thread(target=self._run_single_with_log, args=(sel, stage_data), daemon=True)
         thread.start()
@@ -8378,7 +8764,8 @@ class CircleBattleTab(ttk.Frame):
             from src.combat_v2.circle_battle_controller import CircleBattleController
             controller = CircleBattleController(bf, data_loader=self.app.data_loader,
                                                 config=config, narrative=narrative,
-                                                season=sel["season"], stage=sel["stage"])
+                                                season=sel["season"], stage=sel["stage"],
+                                                enemy_state_overrides=sel.get("enemy_state_overrides"))
             result = controller.execute_battle()
 
             log_dir = _BASE_PATH / "data" / "battle_logs"
@@ -8408,7 +8795,7 @@ class CircleBattleTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
         out = []
         out.append("=" * 60)
         out.append(f"  对抗压制战 第{sel['season']}赛季 阶段{sel['stage']}: {winner_text}")
@@ -8416,59 +8803,76 @@ class CircleBattleTab(ttk.Frame):
         out.append(f"  日志文件: {log_path}")
         out.append("=" * 60)
 
+        tables = []
         if score_data:
             self._append_score_display(out, score_data)
+            # 构建角色明细 + 合计表格
+            unit_stats = score_data.get("unit_stats", {})
+            ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
+            enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
 
-        self._result_text.insert(tk.END, "\n".join(out))
+            cols = ["角色", "造成伤害", "受到伤害", "提供回复"]
+            widths = [135, 110, 110, 110]
+            aligns = ["w", "e", "e", "e"]
+
+            if ally_units:
+                rows = []
+                for uid, s in ally_units.items():
+                    rows.append([
+                        s.get("name", uid),
+                        f"{s['damage_dealt']:,}",
+                        f"{s['damage_received']:,}",
+                        f"{s['hp_healed']:,}",
+                    ])
+                tables.append({"title": "我方角色明细", "columns": cols,
+                               "rows": rows, "col_widths": widths, "col_aligns": aligns})
+
+            if enemy_units:
+                rows = []
+                for uid, s in enemy_units.items():
+                    rows.append([
+                        s.get("name", uid),
+                        f"{s['damage_dealt']:,}",
+                        f"{s['damage_received']:,}",
+                        f"{s['hp_healed']:,}",
+                    ])
+                tables.append({"title": "敌方角色明细", "columns": cols,
+                               "rows": rows, "col_widths": widths, "col_aligns": aligns})
+
+            # 合计表（从单位明细汇总）
+            ally_total_dmg = sum(s.get("damage_dealt", 0) for s in ally_units.values())
+            ally_total_recv = sum(s.get("damage_received", 0) for s in ally_units.values())
+            ally_total_heal = sum(s.get("hp_healed", 0) for s in ally_units.values())
+            enemy_total_dmg = sum(s.get("damage_dealt", 0) for s in enemy_units.values())
+            enemy_total_recv = sum(s.get("damage_received", 0) for s in enemy_units.values())
+            enemy_total_heal = sum(s.get("hp_healed", 0) for s in enemy_units.values())
+            sum_cols = ["阵营", "造成伤害", "受到伤害", "提供回复"]
+            sum_widths = [135, 110, 110, 110]
+            sum_aligns = ["w", "e", "e", "e"]
+            sum_rows = [
+                ["我方", f"{ally_total_dmg:,}", f"{ally_total_recv:,}", f"{ally_total_heal:,}"],
+                ["敌方", f"{enemy_total_dmg:,}", f"{enemy_total_recv:,}", f"{enemy_total_heal:,}"],
+            ]
+            tables.append({"title": "合计", "columns": sum_cols,
+                           "rows": sum_rows, "col_widths": sum_widths, "col_aligns": sum_aligns})
+
+        self._result_panel.set_summary("\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _append_score_display(self, out: list, score_data: dict):
-        """追加计分统计到输出列表"""
+        """追加计分统计摘要到输出列表（仅摘要文本，表格由调用方构建）"""
         out.append("")
         out.append("─" * 60)
         out.append(f"  【结算数据】")
-
-        # 我方统计
-        out.append(f"  【我方合计】")
+        out.append(f"  我方合计:")
         out.append(f"    造成伤害: {score_data.get('ally_total_damage_dealt', 0):,}")
         out.append(f"    受到伤害: {score_data.get('ally_total_damage_received', 0):,}")
         out.append(f"    提供回复: {score_data.get('ally_total_hp_healed', 0):,}")
-        out.append("")
-
-        # 敌方统计
-        out.append(f"  【敌方合计】")
+        out.append(f"  敌方合计:")
         out.append(f"    造成伤害: {score_data.get('enemy_total_damage_dealt', 0):,}")
         out.append(f"    受到伤害: {score_data.get('enemy_total_damage_received', 0):,}")
         out.append(f"    提供回复: {score_data.get('enemy_total_hp_healed', 0):,}")
-        out.append("")
-
-        # 单位明细
-        unit_stats = score_data.get("unit_stats", {})
-        ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
-        enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
-
-        if ally_units:
-            out.append(f"  【我方角色明细】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
-            for uid, s in ally_units.items():
-                name = s.get("name", uid)[:18]
-                out.append(f"    {_cjk_fit(name, 20)} "
-                           f"{s['damage_dealt']:>12,} "
-                           f"{s['damage_received']:>12,} "
-                           f"{s['hp_healed']:>12,} "
-                           f"{s.get('hp_received', 0):>12,}")
-
-        if enemy_units:
-            out.append(f"")
-            out.append(f"  【敌方角色明细】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'受到回复':>12}")
-            for uid, s in enemy_units.items():
-                name = s.get("name", uid)[:18]
-                out.append(f"    {_cjk_fit(name, 20)} "
-                           f"{s['damage_dealt']:>12,} "
-                           f"{s['damage_received']:>12,} "
-                           f"{s['hp_healed']:>12,} "
-                           f"{s.get('hp_received', 0):>12,}")
-
         out.append("─" * 60)
 
     # ── 配置预设管理 ──
@@ -8508,7 +8912,7 @@ class CircleBattleTab(ttk.Frame):
 
         # 恢复赛季/阶段
         if "season" in data:
-            self._var_season.set(data["season"])
+            self._var_season.set(str(data["season"]))
         if "stage" in data:
             self._var_stage.set(data["stage"])
         self._on_stage_change()
@@ -8532,6 +8936,18 @@ class CircleBattleTab(ttk.Frame):
                 else:
                     self._set_mem_slot(i, mid)
 
+        # 恢复敌方初始状态覆盖
+        enemy_overrides = data.get("enemy_state_overrides", {})
+        if enemy_overrides:
+            # JSON键为字符串，转为int
+            normalized = {}
+            for k, v in enemy_overrides.items():
+                try:
+                    normalized[int(k)] = v
+                except (ValueError, TypeError):
+                    pass
+            self._apply_enemy_state_overrides(normalized)
+
     def _delete_circle_preset(self):
         sel_idx = self._circle_preset_listbox.curselection()
         if not sel_idx:
@@ -8543,11 +8959,11 @@ class CircleBattleTab(ttk.Frame):
             self._refresh_circle_presets()
 
 
-# ────────────────────────────── 联合战术演习 ──────────────────────────────
+# ────────────────────────────── 复合战术演习 ──────────────────────────────
 
 
-class JointTacticExerciseTab(ttk.Frame):
-    """联合战术演习模式 - 3队依次出战，对BOSS总伤害=分数"""
+class CompositeTacticExerciseTab(ttk.Frame):
+    """复合战术演习模式 - 3队依次出战，对BOSS总伤害=分数"""
 
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -8607,7 +9023,7 @@ class JointTacticExerciseTab(ttk.Frame):
         f = scroll_frame
 
         # ── 标题 ──
-        ttk.Label(f, text="=== 联合战术演习 ===", font=("Microsoft YaHei UI", 11, "bold")).pack(
+        ttk.Label(f, text="=== 复合战术演习 ===", font=("Microsoft YaHei UI", 11, "bold")).pack(
             pady=(10, 5), padx=10, anchor="w")
 
         # ── 关卡信息 ──
@@ -8728,14 +9144,8 @@ class JointTacticExerciseTab(ttk.Frame):
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=1)
 
-        ttk.Label(right_frame, text="战斗结果", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
-        self._result_text = scrolledtext.ScrolledText(right_frame, width=50, wrap=tk.WORD,
-                                                      font=("Cascadia Mono", 10),
-                                                      bg=_DARK_INPUT_BG, fg=_DARK_FG,
-                                                      insertbackground=_DARK_FG,
-                                                      selectbackground=_DARK_SELECT_BG,
-                                                      selectforeground=_DARK_SELECT_FG)
-        self._result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self._result_panel = ResultTablePanel(right_frame, self.app, title="战斗结果")
+        self._result_panel.pack(fill=tk.BOTH, expand=True)
 
         # 初始化队伍列表显示
         self._refresh_team_list()
@@ -9351,7 +9761,7 @@ class JointTacticExerciseTab(ttk.Frame):
         }
 
     def _create_composite_enemy(self, enemy_data: Dict) -> UnitState:
-        """创建联合战术演习敌方单位"""
+        """创建复合战术演习敌方单位"""
         pos = enemy_data.get("position", 1)
         enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_LEFT_FRONT)
 
@@ -9443,8 +9853,8 @@ class JointTacticExerciseTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, "正在进行联合战术演习批量模拟...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在进行复合战术演习批量模拟...\n")
 
         thread = threading.Thread(target=self._run_simulation, args=(sel,), daemon=True)
         thread.start()
@@ -9489,11 +9899,11 @@ class JointTacticExerciseTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
 
         out = []
         out.append("=" * 60)
-        out.append("  联合战术演习结果")
+        out.append("  复合战术演习结果")
         out.append("=" * 60)
         out.append(f"  模拟场数: {sim_count}")
         out.append(f"  平均分数: {result.get('avg_score', 0):,.1f}")
@@ -9517,44 +9927,64 @@ class JointTacticExerciseTab(ttk.Frame):
             out.append(f"    队伍{i + 1}: {dmg:,.1f}")
         out.append("─" * 60)
 
+        self._result_panel.set_summary("\n".join(out))
+
         # 按队伍分组的单位统计
         team_ally_agg = result.get("team_ally_agg", [{}, {}, {}])
         enemy_agg = result.get("enemy_agg", {})
         n = sim_count if sim_count > 0 else 1
 
+        tables = []
+        columns = ["角色", "造成伤害", "受到伤害", "提供回复"]
+        col_widths = [135, 120, 120, 120]
+        col_aligns = ["w", "e", "e", "e"]
+
         for team_idx in range(3):
             team_units = team_ally_agg[team_idx] if team_idx < len(team_ally_agg) else {}
             if not team_units:
                 continue
-            out.append("")
-            out.append("─" * 60)
-            out.append(f"  【队伍{team_idx + 1}角色明细（场均）】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12}")
+            rows = []
             sorted_units = sorted(team_units.items(), key=lambda x: x[1]["damage_dealt"], reverse=True)
             for uid, s in sorted_units:
-                out.append(f"    {_cjk_fit(s['name'], 20)} "
-                           f"{s['damage_dealt'] / n:>12,.1f} "
-                           f"{s['damage_received'] / n:>12,.1f}")
-        out.append("─" * 60)
+                rows.append([
+                    s.get("name", uid),
+                    f"{s.get('damage_dealt', 0) / n:,.1f}",
+                    f"{s.get('damage_received', 0) / n:,.1f}",
+                    f"{s.get('hp_healed', 0) / n:,.1f}",
+                ])
+            tables.append({
+                "title": f"队伍{team_idx + 1}角色明细(场均)",
+                "columns": columns,
+                "rows": rows,
+                "col_widths": col_widths,
+                "col_aligns": col_aligns,
+            })
 
         if enemy_agg:
-            out.append("")
-            out.append("  【敌方角色明细（场均）】")
-            out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12}")
+            rows = []
             for uid, s in enemy_agg.items():
-                out.append(f"    {_cjk_fit(s['name'], 20)} "
-                           f"{s['damage_dealt'] / n:>12,.1f} "
-                           f"{s['damage_received'] / n:>12,.1f}")
+                rows.append([
+                    s.get("name", uid),
+                    f"{s.get('damage_dealt', 0) / n:,.1f}",
+                    f"{s.get('damage_received', 0) / n:,.1f}",
+                    f"{s.get('hp_healed', 0) / n:,.1f}",
+                ])
+            tables.append({
+                "title": "敌方角色明细(场均)",
+                "columns": columns,
+                "rows": rows,
+                "col_widths": col_widths,
+                "col_aligns": col_aligns,
+            })
 
-        out.append("─" * 60)
-
-        self._result_text.insert(tk.END, "\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     def _display_error(self, msg):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("错误!")
-        self._result_text.insert(tk.END, f"\n❌ 战斗出错:\n{msg}\n")
+        self._result_panel.append_summary(f"\n❌ 战斗出错:\n{msg}\n")
 
     # ── 单次战斗+日志 ──
 
@@ -9567,8 +9997,8 @@ class JointTacticExerciseTab(ttk.Frame):
 
         self._start_btn.config(state="disabled")
         self._log_btn.config(state="disabled")
-        self._result_text.delete("1.0", tk.END)
-        self._result_text.insert(tk.END, "正在单次战斗并生成日志...\n")
+        self._result_panel.clear()
+        self._result_panel.append_summary("正在单次战斗并生成日志...\n")
 
         thread = threading.Thread(target=self._run_single_with_log, args=(sel,), daemon=True)
         thread.start()
@@ -9652,11 +10082,11 @@ class JointTacticExerciseTab(ttk.Frame):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
-        self._result_text.delete("1.0", tk.END)
+        self._result_panel.clear()
 
         out = []
         out.append("=" * 60)
-        out.append("  联合战术演习 - 单次战斗结果")
+        out.append("  复合战术演习 - 单次战斗结果")
         out.append("=" * 60)
         out.append(f"  总分数(净伤害): {result.get('score', 0):,}")
         out.append(f"  BOSS被击杀次数: {result.get('boss_killed_count', 0)}")
@@ -9667,38 +10097,86 @@ class JointTacticExerciseTab(ttk.Frame):
 
         # 各队结果（含单位详情）
         team_results = result.get("team_results", [])
+        tables = []
+        ally_cols = ["角色", "造成伤害", "受到伤害", "提供回复", "状态"]
+        ally_widths = [120, 110, 110, 110, 50]
+        ally_aligns = ["w", "e", "e", "e", "center"]
+
+        # 聚合敌方统计（跨队伍累计受到伤害，取最终剩余HP）
+        enemy_agg: Dict[str, Dict[str, Any]] = {}
+
+        # 摘要中输出每队净伤害
+        if team_results:
+            out.append("")
+            out.append("  【各队净伤害】")
+            for tr in team_results:
+                idx = tr.get("team_index", 0) + 1
+                dmg = tr.get("damage_to_boss", 0)
+                rounds = tr.get("rounds_survived", 0)
+                wiped = "团灭" if tr.get("team_wiped", False) else "存活"
+                out.append(f"    队伍{idx}: 净伤害={dmg:,} 回合={rounds} {wiped}")
+            out.append("=" * 60)
+
         for tr in team_results:
             idx = tr.get("team_index", 0) + 1
-            dmg = tr.get("damage_to_boss", 0)
-            rounds = tr.get("rounds_survived", 0)
-            wiped = "团灭" if tr.get("team_wiped", False) else "存活"
-            out.append("")
-            out.append("─" * 60)
-            out.append(f"  【队伍{idx}】净伤害={dmg:,}  回合={rounds}  结果={wiped}")
 
             ally_stats = tr.get("ally_stats", [])
             if ally_stats:
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'状态':>4}")
+                rows = []
                 for s in sorted(ally_stats, key=lambda x: x.get("damage_dealt", 0), reverse=True):
                     status = "存活" if s.get("alive") else "阵亡"
-                    out.append(f"    {_cjk_fit(s.get('name', '?'), 20)} "
-                               f"{s.get('damage_dealt', 0):>12,} "
-                               f"{s.get('damage_received', 0):>12,} "
-                               f"{status:>4}")
+                    rows.append([
+                        s.get("name", "?"),
+                        f"{s.get('damage_dealt', 0):,}",
+                        f"{s.get('damage_received', 0):,}",
+                        f"{s.get('hp_healed', 0):,}",
+                        status,
+                    ])
+                tables.append({
+                    "title": f"队伍{idx}",
+                    "columns": ally_cols,
+                    "rows": rows,
+                    "col_widths": ally_widths,
+                    "col_aligns": ally_aligns,
+                })
 
+            # 聚合敌方统计
             enemy_stats = tr.get("enemy_stats", [])
-            if enemy_stats:
-                out.append(f"    {_cjk_fit('敌方', 20)} {'受到伤害':>12} {'剩余HP':>14}")
-                for s in enemy_stats:
-                    cur = s.get("current_hp", 0)
-                    mx = s.get("max_hp", 0)
-                    out.append(f"    {_cjk_fit(s.get('name', '?'), 20)} "
-                               f"{s.get('damage_received', 0):>12,} "
-                               f"{cur}/{mx}")
+            for s in enemy_stats:
+                name = s.get("name", "?")
+                if name not in enemy_agg:
+                    enemy_agg[name] = {
+                        "name": name,
+                        "total_damage_received": 0,
+                        "current_hp": s.get("current_hp", 0),
+                        "max_hp": s.get("max_hp", 0),
+                    }
+                enemy_agg[name]["total_damage_received"] += s.get("damage_received", 0)
+                enemy_agg[name]["current_hp"] = s.get("current_hp", 0)
+                enemy_agg[name]["max_hp"] = s.get("max_hp", 0)
 
-        out.append("─" * 60)
+        if enemy_agg:
+            enemy_cols = ["角色", "受到伤害", "剩余HP"]
+            enemy_widths = [120, 110, 110]
+            enemy_aligns = ["w", "e", "center"]
+            rows = []
+            for name, s in enemy_agg.items():
+                rows.append([
+                    s["name"],
+                    f"{s['total_damage_received']:,}",
+                    f"{s['current_hp']}/{s['max_hp']}",
+                ])
+            tables.append({
+                "title": "敌方角色明细",
+                "columns": enemy_cols,
+                "rows": rows,
+                "col_widths": enemy_widths,
+                "col_aligns": enemy_aligns,
+            })
 
-        self._result_text.insert(tk.END, "\n".join(out))
+        self._result_panel.set_summary("\n".join(out))
+        if tables:
+            self._result_panel.set_tables(tables)
 
     # ── 配置预设管理 ──
 
@@ -9841,7 +10319,7 @@ class MGGBattleSimulatorGUI:
         self.step_crit_tab = StepCritTab(self.notebook, self)
         self.tactical_tab = TacticalExerciseTab(self.notebook, self)
         self.circle_tab = CircleBattleTab(self.notebook, self)
-        self.composite_tab = JointTacticExerciseTab(self.notebook, self)
+        self.composite_tab = CompositeTacticExerciseTab(self.notebook, self)
 
         self.notebook.add(self.global_tab, text="全局参数")
         self.notebook.add(self.char_tab, text="角色参数")
@@ -9850,7 +10328,7 @@ class MGGBattleSimulatorGUI:
         self.notebook.add(self.step_crit_tab, text="逐步暴击")
         self.notebook.add(self.tactical_tab, text="战术演习")
         self.notebook.add(self.circle_tab, text="对抗压制战")
-        self.notebook.add(self.composite_tab, text="联合战术演习")
+        self.notebook.add(self.composite_tab, text="复合战术演习")
 
         # 主题下拉框（置于 Notebook 标签行右侧）
         self._theme_var = tk.StringVar(value=self._ui_config.get("theme", "深色"))
@@ -10049,7 +10527,7 @@ class MGGBattleSimulatorGUI:
                     self.circle_tab._update_enemy_slot_display(widget, enemy_data)
                 except Exception:
                     pass
-        # 联合战术演习Tab：刷新当前队伍槽位显示和框架背景
+        # 复合战术演习Tab：刷新当前队伍槽位显示和框架背景
         if hasattr(self, 'composite_tab'):
             ct = self.composite_tab
             # 只刷新当前队伍的显示（共享GUI组件，遍历所有队伍会导致覆盖）
@@ -10103,6 +10581,14 @@ class MGGBattleSimulatorGUI:
                     widget["frame"].config(bg=s["bg"])
                     enemy_data = ct._enemy_slots[i] if i < len(ct._enemy_slots) else None
                     ct._update_enemy_slot_display(widget, enemy_data)
+                except Exception:
+                    pass
+        # 战斗结果面板：刷新各Tab的ResultTablePanel主题（Text+Treeview配色）
+        for tab_attr in ('team_tab', 'tactical_tab', 'circle_tab', 'composite_tab'):
+            tab = getattr(self, tab_attr, None)
+            if tab is not None and hasattr(tab, '_result_panel'):
+                try:
+                    tab._result_panel.apply_theme()
                 except Exception:
                     pass
 

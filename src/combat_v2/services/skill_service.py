@@ -3315,12 +3315,12 @@ class SkillService:
         heal_base = heal_flags.get('heal_base', 'atk')
 
         # lowest_hp_priority: 选择HP比例最低的友方作为治疗目标
+        # 两层优先：1.自身以外优先 2.HP比例最低（第一层优先级 > 第二层）
         if heal_flags.get('lowest_hp_priority') and targets:
             from src.entities_v2.enums import Side as _SideH
             ally_team = battlefield.friend_team if caster.side == _SideH.ALLY else battlefield.enemy_team
             all_allies = [u for u in ally_team if u.is_alive]
             if all_allies:
-                all_allies.sort(key=lambda u: u.current_hp / max(u.max_hp, 1))
                 # target_count_lv15: Lv15时治疗目标数增加（如仲間想いのリカバリーLv15→2体）
                 _tc_lv15 = heal_flags.get('target_count_lv15')
                 _heal_count = 1
@@ -3329,10 +3329,20 @@ class SkillService:
                     _skill_level_h = caster.skill_levels.get(_skill_id_h, 1)
                     if _skill_level_h >= 15:
                         _heal_count = _tc_lv15
-                targets = all_allies[:_heal_count]
+                # 先取自身以外的友方按HP比例升序排序
+                others = [u for u in all_allies if u.unit_id != caster.unit_id]
+                others.sort(key=lambda u: u.current_hp / max(u.max_hp, 1))
+                if others:
+                    selected = others[:_heal_count]
+                    # 非自身友方不足时用自身补位
+                    if len(selected) < _heal_count and caster.is_alive:
+                        selected.append(caster)
+                    targets = selected
+                else:
+                    targets = [caster] if caster.is_alive else []
                 _log.info("[HEAL] %s: lowest_hp_priority -> %s (count=%d, hp_pct=%.1f%%)",
                           caster.name, [t.name for t in targets], _heal_count,
-                          targets[0].current_hp / max(targets[0].max_hp, 1) * 100)
+                          targets[0].current_hp / max(targets[0].max_hp, 1) * 100 if targets else 0)
 
         # 记录heal主目标，供后续block的lowest_hp_row_only引用
         if targets:
@@ -3602,19 +3612,21 @@ class SkillService:
                           targets[0].current_hp / max(targets[0].max_hp, 1) * 100)
 
         # en_type_priority for ally aura: prioritize EN type allies, fallback to self
-        # 配合 ally_single_include_self 使用：优先EN类型友方(自身以外) > 非EN类型友方(自身以外) > 自身
+        # 配合 ally_single_include_self 使用：
+        #   1. 先取不包括自身的EN类型友方列表，有则取离自身最近的
+        #   2. 若无EN类型友方，取离自身最近的友方(自身以外)
+        #   3. 若无任何自身以外友方，回退自身
+        # 注意：必须在select_targets缩窄到ONE_PAWN之前对完整友方列表排序，
+        #       否则最近的物理友方会先被选中而遗漏更远的EN友方
         if effect_flags_aura.get('en_type_priority') and targets:
             from src.entities_v2.enums import Side as _SideEN
             ally_team = battlefield.friend_team if caster.side == _SideEN.ALLY else battlefield.enemy_team
             others = [u for u in ally_team if u.is_alive and u.unit_id != caster.unit_id]
             if others:
-                # EN类型优先，非EN类型次之；每组内保持原有顺序（最近优先）
-                en_allies = [u for u in others if getattr(u, 'character_type', 0) == 2]
-                non_en_allies = [u for u in others if getattr(u, 'character_type', 0) != 2]
-                # 保持targets中已有的顺序（来自select_targets的最近优先顺序）
-                ordered_others = [u for u in targets if u.unit_id != caster.unit_id]
-                en_ordered = [u for u in ordered_others if u in en_allies]
-                non_en_ordered = [u for u in ordered_others if u in non_en_allies]
+                # 按距离施法者最近排序（与select_targets的NEAREST优先级一致）
+                others.sort(key=lambda u: self.target_service._get_sort_key(caster, u))
+                en_ordered = [u for u in others if getattr(u, 'character_type', 0) == 2]
+                non_en_ordered = [u for u in others if getattr(u, 'character_type', 0) != 2]
                 priority_list = en_ordered + non_en_ordered
                 if priority_list:
                     targets = [priority_list[0]]
@@ -4311,9 +4323,22 @@ class SkillService:
         normalized = _MASTERDATA_STATUS_MAP.get(status_type, status_type)
         is_debuff = normalized in self._get_debuff_types()
 
+        # 特殊索敌类型（furthest/highest_atk等）必须用ALL_PAWNS获取全部候选再后过滤，
+        # 否则ONE_PAWN会先选出最近敌方，后过滤只有1个目标可选（如130064燃烧应打最远却打最近）
+        _SPECIAL_POSTFILTER_TYPES = {
+            "enemy_single_highest_atk", "enemy_single_highest_spd",
+            "enemy_single_lowest_spd", "enemy_single_furthest",
+            "enemy_single_highest_ep",
+            "enemy_single_highest_hp_ratio_back_priority",
+            "enemy_single_lowest_hp_ratio",
+            "enemy_column_furthest", "enemy_column_mark_priority",
+        }
+        _st_range = self._resolve_target_range("enemies") if effect.target_type in _SPECIAL_POSTFILTER_TYPES \
+                    else self._resolve_target_range(effect.target_type)
+
         st_skill_obj = type('obj', (object,), {
             'display_target_type': self._resolve_target_type(effect.target_type),
-            'display_target_range': self._resolve_target_range(effect.target_type),
+            'display_target_range': _st_range,
             'display_target_priority': None,
             'target_type_name': effect.target_type,
         })()
@@ -4326,6 +4351,14 @@ class SkillService:
                       caster.name, effect.target_type, [t.name for t in targets])
         else:
             targets = self.target_service.select_targets(st_skill_obj, caster, battlefield)
+            # 对特殊索敌类型应用后过滤，与damage执行保持一致
+            if effect.target_type in _SPECIAL_POSTFILTER_TYPES and targets:
+                targets = self._postfilter_damage_targets(
+                    effect.target_type, targets, caster,
+                    getattr(effect, 'flags', {}) or {}
+                )
+                _log.info("[ADD_STATUS] %s: special postfilter %s -> %s",
+                          caster.name, effect.target_type, [t.name for t in targets])
 
         # cover替换：如果cover生效，debuff目标也应替换为cover者
         if is_debuff:
@@ -5819,16 +5852,15 @@ class SkillService:
                 target_list = selected or []
 
         # en_type_priority: 优先EN类型友方(自身以外) > 非EN类型友方(自身以外) > 自身
+        # 必须对完整友方列表按距离排序后再筛EN/非EN，否则ONE_PAWN缩窄后会遗漏更远的EN友方
         if effect_flags.get('en_type_priority') and target_list:
             from src.entities_v2.enums import Side as _SideSu
             _ally_team = battlefield.friend_team if caster.side == _SideSu.ALLY else battlefield.enemy_team
             _others = [u for u in _ally_team if u.is_alive and u.unit_id != caster.unit_id]
             if _others:
-                _en_allies = [u for u in _others if getattr(u, 'character_type', 0) == 2]
-                _non_en_allies = [u for u in _others if getattr(u, 'character_type', 0) != 2]
-                _ordered_others = [u for u in target_list if u.unit_id != caster.unit_id]
-                _en_ordered = [u for u in _ordered_others if u in _en_allies]
-                _non_en_ordered = [u for u in _ordered_others if u in _non_en_allies]
+                _others.sort(key=lambda u: self.target_service._get_sort_key(caster, u))
+                _en_ordered = [u for u in _others if getattr(u, 'character_type', 0) == 2]
+                _non_en_ordered = [u for u in _others if getattr(u, 'character_type', 0) != 2]
                 _priority_list = _en_ordered + _non_en_ordered
                 if _priority_list:
                     target_list = [_priority_list[0]]

@@ -85,10 +85,26 @@ class BattleFlowController:
         self._unit_display_names: Dict[str, str] = {}
         self._unit_id_map: Dict[str, UnitState] = {}
 
+    def _pre_synergy_setup(self) -> None:
+        """元素协同计算之前的钩子，供子类快照协同前属性（如基础max_hp）"""
+        pass
+
+    def _post_synergy_setup(self) -> None:
+        """元素协同计算完成后的钩子，供子类覆写以覆盖单位初始状态（如HP/死亡）"""
+        pass
+
+    def _log_initial_state(self) -> None:
+        """叙事头部输出后的钩子，供子类输出初始状态叙事（如开局即死的单位）"""
+        pass
+
     def execute_battle(self) -> Dict[str, Any]:
         _log.info("[BATTLE] ============ 战斗开始 ============")
 
+        self._pre_synergy_setup()
         apply_element_synergy(self.battlefield.get_all_units(), self.narrative)
+
+        self._build_display_names()
+        self._post_synergy_setup()
 
         _log.info("[BATTLE] 我方阵容:")
         for u in self.battlefield.friend_team:
@@ -100,8 +116,6 @@ class BattleFlowController:
                       u.name, u.current_hp, u.max_hp, u.attack, u.defense, u.speed)
         self.skill_service.set_battlefield(self.battlefield)
 
-        self._build_display_names()
-
         if self.narrative:
             char_count = len(self.battlefield.get_all_units())
             skills = self.data_loader.load_character_skills()
@@ -109,6 +123,8 @@ class BattleFlowController:
             self.narrative.header(self.battlefield.friend_team, self.battlefield.enemy_team,
                                   char_count, skill_count)
             self.narrative.battle_start()
+
+        self._log_initial_state()
 
         self.battlefield.current_trigger_phase = TriggerTiming.BATTLE_START
         battle_start_actions = self.trigger_service.trigger_battle_start(self.battlefield)
@@ -607,6 +623,13 @@ class BattleFlowController:
                 for applied in skill_result.get("effects_applied", [])
             )
 
+            # AS技能使用次数计数：无论是否造成伤害都需更新（如支援型AS技能 120111/120112）
+            # 必须在收集 skill_count_actions 之前更新，以确保 on_skill_use_count 触发器（如 130119/130081）能正确匹配
+            if skill_type == 1:
+                unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
+                _log.info("[SKILL_COUNT] AS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
+                          unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
+
             if damaged_targets:
                 unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
                 # hp_below triggers FIRST (priority over after_ally_attacked for same character,
@@ -678,10 +701,7 @@ class BattleFlowController:
                         self._deferred_crit_triggers = []
 
                     # 技能使用次数触发PS（おまけで、えいっ！等）也属于同时机
-                    # 先更新skill_use_count，再收集触发器
-                    unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
-                    _log.info("[SKILL_COUNT] AS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
-                              unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
+                    # skill_use_count已在上方统一更新（含非伤害型AS技能）
                     skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
                     if skill_count_actions:
                         all_post_as_actions.extend(skill_count_actions)
@@ -723,6 +743,52 @@ class BattleFlowController:
                 cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield, unique_damaged)
                 if cumulative_dmg_actions:
                     self._execute_global_trigger_actions(cumulative_dmg_actions)
+            else:
+                # 非伤害型AS技能（如支援型AS 120111/120112）：damaged_targets为空，跳过伤害相关触发器
+                # 但仍需处理 after_self_as、暴击触发器、skill_count_actions
+                if skill_type == 1:
+                    all_post_as_actions = []
+
+                    # 自身AS攻击后触发（如諸元修正）
+                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
+                    after_self_as = self.trigger_service.trigger_after_skill_use(
+                        unit, selected_skill, skill_result, self.battlefield,
+                        primary_target=_as_primary_target
+                    )
+                    all_post_as_actions.extend(after_self_as)
+
+                    # 暴击触发PS（ラッキー4！、ジャックポット等）也属于同时机
+                    if self._deferred_crit_triggers:
+                        for entry in list(self._deferred_crit_triggers):
+                            c, bf = entry[0], entry[1]
+                            crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            all_post_as_actions.extend(crit_actions)
+                        self._deferred_crit_triggers = []
+
+                    # 技能使用次数触发PS（skill_use_count已在上方统一更新）
+                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+                    if skill_count_actions:
+                        all_post_as_actions.extend(skill_count_actions)
+
+                    # 按速度降序→位置升序排序
+                    if all_post_as_actions:
+                        all_post_as_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS: %d same-timing PS actions collected",
+                                  len(all_post_as_actions))
+
+                    # 记录PP快照，用于后续判断PS是否实际执行
+                    self._pp_snapshot_before_as_triggers = {}
+                    for a in all_post_as_actions:
+                        o = a.instance.owner
+                        self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
+
+                    self._execute_trigger_actions(all_post_as_actions, unit)
+
+                    # PS技能可能产生新的暴击触发器，继续处理
+                    self._flush_deferred_crit_triggers(unit)
 
             if had_aura:
                 aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
@@ -1144,15 +1210,27 @@ class BattleFlowController:
 
         regen_amount, regen_details = self.status_service.apply_regen(unit, self.damage_service, self.battlefield)
         if regen_amount > 0:
-            # 计分追踪：记录回复（敌方回复需要从得分中扣除）
+            # 计分追踪：按HOT来源分别记录回复（敌方回复需要从得分中扣除）
+            # 修复: 之前source/target都填被治疗者，导致hp_healed错误累加到被治疗者
             tracker = getattr(self.battlefield, 'scoring_tracker', None)
             if tracker is not None:
                 unit_side = "ally" if unit.side.value == "ally" else "enemy"
-                tracker.record_heal(
-                    source_id=unit.unit_id, source_name=unit.name, source_side=unit_side,
-                    target_id=unit.unit_id, target_name=unit.name, target_side=unit_side,
-                    heal_amount=regen_amount,
-                )
+                all_units = self.battlefield.get_all_units()
+                for rd in regen_details:
+                    source_id = rd.get('source_unit_id') or unit.unit_id
+                    source_unit = next((u for u in all_units if u.unit_id == source_id), None)
+                    if source_unit:
+                        source_name = source_unit.name
+                        source_side = "ally" if source_unit.side.value == "ally" else "enemy"
+                    else:
+                        # 施法者已不在战场，回退到自身（保持兼容）
+                        source_name = unit.name
+                        source_side = unit_side
+                    tracker.record_heal(
+                        source_id=source_id, source_name=source_name, source_side=source_side,
+                        target_id=unit.unit_id, target_name=unit.name, target_side=unit_side,
+                        heal_amount=rd['amount'],
+                    )
             if self.narrative:
                 # HOT可能有多个来源，每个来源单独输出
                 for rd in regen_details:

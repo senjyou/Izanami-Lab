@@ -55343,7 +55343,13 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
-    "global_condition": null,
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {"type": "target_is_self"},
+        {"type": "actor_character_type", "value": 2}
+      ]
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -55362,7 +55368,7 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {"attack_limited": 1},
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -55372,8 +55378,10 @@
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "success",
-    "parse_notes": []
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: before_any_attacked + and(target_is_self + actor_character_type:2), guard%(attack_limited=1)"
+    ]
   },
   "230272": {
     "skill_id": 230272,
@@ -56789,7 +56797,13 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
-    "global_condition": null,
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {"type": "target_is_self"},
+        {"type": "actor_character_type", "value": 2}
+      ]
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -56808,7 +56822,7 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {"attack_limited": 1},
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -56818,8 +56832,10 @@
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "success",
-    "parse_notes": []
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: before_any_attacked + and(target_is_self + actor_character_type:2), guard%(attack_limited=1)"
+    ]
   },
   "230303": {
     "skill_id": 230303,
@@ -65606,8 +65622,8 @@
             "value": 0.0,
             "value_tag": "guard",
             "value_source": null,
-            "duration": -1,
-            "duration_type": "attacker_action",
+            "duration": null,
+            "duration_type": null,
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,

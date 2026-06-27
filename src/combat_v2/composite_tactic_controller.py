@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-联合战术演习（复合战术演习）模式控制器
+复合战术演习模式控制器
 src/combat_v2/composite_tactic_controller.py
 
 职责：
@@ -39,7 +39,7 @@ ENEMY_POSITION_MAP = {
 
 
 class CompositeTacticController(BattleFlowController):
-    """联合战术演习模式控制器"""
+    """复合战术演习模式控制器"""
 
     def __init__(self, battlefield: BattlefieldState, config: Optional[BattleConfig] = None,
                  data_loader: Any = None, narrative: Any = None,
@@ -71,6 +71,7 @@ class CompositeTacticController(BattleFlowController):
         self._enemy_hp_at_team_start = 0  # 全体敌方HP总和（队伍开始时）
         self._revival_max_hp_list: List[int] = []  # 本次队伍战斗中BOSS每次复活的最大HP
         self._enemy_damage_snapshot: Dict[str, int] = {}  # 敌方单位damage_taken_total快照（队伍开始时）
+        self._heal_snapshot: Dict[str, int] = {}  # 友方单位hp_healed快照（队伍开始时，取自ScoringTracker）
 
         # 标记
         self._is_composite_tactic = True
@@ -124,8 +125,8 @@ class CompositeTacticController(BattleFlowController):
     # ════════════════════════════════════════════════════════════════════════════
 
     def execute_battle(self) -> Dict[str, Any]:
-        """执行联合战术演习：3队依次出战"""
-        _log.info("[COMPOSITE_TACTIC] ============ 联合战术演习开始 ============")
+        """执行复合战术演习：3队依次出战"""
+        _log.info("[COMPOSITE_TACTIC] ============ 复合战术演习开始 ============")
         _log.info("[COMPOSITE_TACTIC] 共 %d 支队伍", len(self._teams))
 
         # 敌方元素协同（仅一次）
@@ -187,7 +188,7 @@ class CompositeTacticController(BattleFlowController):
         # 汇总结果
         total_score = sum(r["damage_to_boss"] for r in self._team_results)
 
-        _log.info("[COMPOSITE_TACTIC] ============ 联合战术演习结束 ============")
+        _log.info("[COMPOSITE_TACTIC] ============ 复合战术演习结束 ============")
         _log.info("[COMPOSITE_TACTIC] 总分数(净伤害=对敌方HP伤害-敌方回血): %d", total_score)
         _log.info("[COMPOSITE_TACTIC] BOSS被击杀次数: %d", self._boss_killed_count)
         _log.info("[COMPOSITE_TACTIC] BOSS最终阶段: %d", self._boss_stage)
@@ -248,6 +249,12 @@ class CompositeTacticController(BattleFlowController):
                       team_index + 1, boss.current_hp, boss.max_hp, self._boss_stage,
                       self._enemy_hp_at_team_start)
 
+        # 快照ScoringTracker中友方单位的hp_healed（用于计算该队期间提供治疗量）
+        self._heal_snapshot = {}
+        for u in self.battlefield.friend_team:
+            stats = self._scoring_tracker._unit_stats.get(u.unit_id)
+            self._heal_snapshot[u.unit_id] = stats.hp_healed if stats else 0
+
         # 输出队伍信息
         _log.info("[COMPOSITE_TACTIC] 我方阵容:")
         for u in self.battlefield.friend_team:
@@ -294,10 +301,16 @@ class CompositeTacticController(BattleFlowController):
         # 收集单位统计（供叙事日志和GUI结果显示使用）
         ally_stats = []
         for u in self.battlefield.friend_team:
+            # hp_healed 取该队期间的增量（ScoringTracker累积值 - 队伍开始时快照）
+            stats = self._scoring_tracker._unit_stats.get(u.unit_id)
+            current_hp_healed = stats.hp_healed if stats else 0
+            snapshot_hp_healed = self._heal_snapshot.get(u.unit_id, 0)
+            team_hp_healed = max(0, current_hp_healed - snapshot_hp_healed)
             ally_stats.append({
                 "name": self._get_display_name(u),
                 "damage_dealt": getattr(u, 'damage_dealt_total', 0),
                 "damage_received": getattr(u, 'damage_taken_total', 0),
+                "hp_healed": team_hp_healed,
                 "alive": u.is_alive,
             })
         enemy_stats = []
@@ -340,7 +353,7 @@ class CompositeTacticController(BattleFlowController):
     # ════════════════════════════════════════════════════════════════════════════
 
     def _check_battle_end(self) -> bool:
-        """联合战术演习：仅我方全灭时当前队伍战斗结束"""
+        """复合战术演习：仅我方全灭时当前队伍战斗结束"""
         alive_friends = [u for u in self.battlefield.friend_team if u.is_alive]
         if not alive_friends:
             _log.info("[COMPOSITE_TACTIC] ============ 队伍%d全灭 ============", self._current_team_index + 1)

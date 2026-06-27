@@ -379,6 +379,7 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_total_damage_received': score_data.get("enemy_total_damage_received", 0) if score_data else 0,
             'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0) if score_data else 0,
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
+            'unit_stats': score_data.get("unit_stats", {}) if score_data else {},
         })
 
     return results
@@ -507,7 +508,8 @@ def _worker_init_circle(data_dir: str,
                         positions_ally: List[Any],
                         season: int,
                         stage: int,
-                        mem_cards_data: list = None):
+                        mem_cards_data: list = None,
+                        enemy_state_overrides: dict = None):
     """对抗压制战 worker 初始化"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
@@ -536,6 +538,7 @@ def _worker_init_circle(data_dir: str,
         'max_turns': max_turns,
         'season': season,
         'stage': stage,
+        'enemy_state_overrides': enemy_state_overrides or {},
     }
     _worker_mem_cards = list(mem_cards_data) if mem_cards_data else []
 
@@ -561,6 +564,7 @@ def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
     max_turns = cc['max_turns']
     season = cc['season']
     stage = cc['stage']
+    enemy_state_overrides = cc.get('enemy_state_overrides', {})
 
     results = []
 
@@ -592,7 +596,8 @@ def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
         bc.max_turns = max_turns
 
         controller = CircleBattleController(bf, data_loader=dl, config=bc,
-                                            season=season, stage=stage)
+                                            season=season, stage=stage,
+                                            enemy_state_overrides=enemy_state_overrides)
         result = controller.execute_battle()
 
         winner = result.get('winner')
@@ -1122,6 +1127,7 @@ class BatchSimulator:
         all_enemy_received = []
         all_enemy_healed = []
         all_enemy_healing_received = []
+        all_unit_stats = []
 
         score_records = []
         completed = 0
@@ -1154,6 +1160,7 @@ class BatchSimulator:
                     all_enemy_received.append(stats['enemy_total_damage_received'])
                     all_enemy_healed.append(stats['enemy_total_hp_healed'])
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
+                    all_unit_stats.append(stats.get('unit_stats', {}))
 
                     score_records.append((stats['score'], completed - 1, stats['seed'], stats))
 
@@ -1181,6 +1188,7 @@ class BatchSimulator:
             "all_enemy_healed": all_enemy_healed,
             "all_enemy_healing_received": all_enemy_healing_received,
             "score_records": score_records,
+            "all_unit_stats": all_unit_stats,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
         }
@@ -1218,6 +1226,7 @@ class BatchSimulator:
         all_enemy_received = []
         all_enemy_healed = []
         all_enemy_healing_received = []
+        all_unit_stats = []
 
         score_records = []
         completed = 0
@@ -1271,6 +1280,7 @@ class BatchSimulator:
                     all_enemy_received.append(score_data.get("enemy_total_damage_received", 0))
                     all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
                     all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
+                    all_unit_stats.append(score_data.get("unit_stats", {}))
                     score_records.append((score_data.get("total_score", 0), completed - 1, seed, result))
 
             if progress_callback:
@@ -1293,6 +1303,7 @@ class BatchSimulator:
             "all_enemy_healed": all_enemy_healed,
             "all_enemy_healing_received": all_enemy_healing_received,
             "score_records": score_records,
+            "all_unit_stats": all_unit_stats,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
         }
@@ -1313,6 +1324,7 @@ class BatchSimulator:
         progress_callback: Callable[[int, int], None] = None,
         batch_size: int = None,
         memory_cards: list = None,
+        enemy_state_overrides: dict = None,
     ) -> Dict[str, Any]:
         """执行对抗压制战多进程批量模拟"""
         if positions_ally is None:
@@ -1339,6 +1351,7 @@ class BatchSimulator:
                 enemies_data, max_turns, total_runs,
                 positions_ally, seed_batches, progress_callback,
                 season=season, stage=stage, memory_cards=memory_cards,
+                enemy_state_overrides=enemy_state_overrides,
             )
         except Exception as e:
             print(f"  [WARN] 多进程对抗压制战失败，回退到单进程模式: {e}")
@@ -1348,13 +1361,14 @@ class BatchSimulator:
                 enemies_data, max_turns, total_runs,
                 positions_ally, seed_batches, progress_callback,
                 season=season, stage=stage, memory_cards=memory_cards,
+                enemy_state_overrides=enemy_state_overrides,
             )
 
     def _run_multiprocess_circle(
         self, panel_config, friends_chars, friend_positions,
         enemies_data, max_turns, total_runs,
         positions_ally, seed_batches, progress_callback,
-        season=5, stage=100, memory_cards=None,
+        season=5, stage=100, memory_cards=None, enemy_state_overrides=None,
     ):
         n_workers = min(self.max_workers, len(seed_batches))
 
@@ -1369,6 +1383,7 @@ class BatchSimulator:
             season,
             stage,
             memory_cards if memory_cards else [],
+            enemy_state_overrides if enemy_state_overrides else {},
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1453,7 +1468,7 @@ class BatchSimulator:
         self, panel_config, friends_chars, friend_positions,
         enemies_data, max_turns, total_runs,
         positions_ally, seed_batches, progress_callback,
-        season=5, stage=100, memory_cards=None,
+        season=5, stage=100, memory_cards=None, enemy_state_overrides=None,
     ):
         from src.entities_v2.battlefield_state import BattlefieldState
         from src.entities_v2.enums import Side, Position
@@ -1510,7 +1525,8 @@ class BatchSimulator:
                 bc.max_turns = max_turns
 
                 controller = CircleBattleController(bf, data_loader=dl, config=bc,
-                                                    season=season, stage=stage)
+                                                    season=season, stage=stage,
+                                                    enemy_state_overrides=enemy_state_overrides)
                 result = controller.execute_battle()
 
                 winner = result.get('winner')
@@ -1794,16 +1810,25 @@ class BatchSimulator:
                 total_turns_sum += result.get("total_turns", 0)
 
                 # 单位统计（己方单位key含队伍索引，避免同角色重复编组时key冲突）
+                # hp_healed 从 team_results.ally_stats 提取（CompositeTacticController已采集）
+                team_results = result.get("team_results", [])
                 unit_stats = {}
                 for team_idx, team_units in enumerate(teams_units):
-                    for u in team_units:
+                    # 该队的 ally_stats（按队伍顺序对应）
+                    team_ally_stats = (team_results[team_idx].get("ally_stats", [])
+                                       if team_idx < len(team_results) else [])
+                    # 按 name 建立索引（ally_stats 顺序与 team_units 顺序一致）
+                    for u_idx, u in enumerate(team_units):
                         key = f"{u.unit_id}_t{team_idx}"
+                        hp_healed = 0
+                        if u_idx < len(team_ally_stats):
+                            hp_healed = team_ally_stats[u_idx].get("hp_healed", 0)
                         unit_stats[key] = {
                             "name": u.name, "side": "ally", "team": team_idx,
                             "uid": u.unit_id,
                             "damage_dealt": getattr(u, 'damage_dealt_total', 0),
                             "damage_received": getattr(u, 'damage_taken_total', 0),
-                            "hp_healed": 0,
+                            "hp_healed": hp_healed,
                             "hp_received": 0,
                         }
                 for u in bf.enemy_team:
@@ -2131,10 +2156,16 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
         total_turns = result.get("total_turns", 0)
 
         # 收集单位统计（己方单位key含队伍索引，避免同角色重复编组时key冲突）
+        # hp_healed 从 team_results.ally_stats 提取（CompositeTacticController已采集）
         unit_stats = {}
         for team_idx, team_units in enumerate(teams_units):
-            for u in team_units:
+            team_ally_stats = (team_results[team_idx].get("ally_stats", [])
+                               if team_idx < len(team_results) else [])
+            for u_idx, u in enumerate(team_units):
                 key = f"{u.unit_id}_t{team_idx}"
+                hp_healed = 0
+                if u_idx < len(team_ally_stats):
+                    hp_healed = team_ally_stats[u_idx].get("hp_healed", 0)
                 unit_stats[key] = {
                     "name": u.name,
                     "side": "ally",
@@ -2142,7 +2173,7 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
                     "uid": u.unit_id,
                     "damage_dealt": getattr(u, 'damage_dealt_total', 0),
                     "damage_received": getattr(u, 'damage_taken_total', 0),
-                    "hp_healed": 0,
+                    "hp_healed": hp_healed,
                     "hp_received": 0,
                 }
 
