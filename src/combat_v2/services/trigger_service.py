@@ -599,8 +599,14 @@ class TriggerService:
                     break
         elif ctx.targets:
             # For on_debuff_applied (non-knockout): set primary_target to the first target
-            # so debuff_applied_target can resolve correctly
-            ctx.primary_target = ctx.targets[0]
+            # so debuff_applied_target can resolve correctly.
+            # 优先选择非actor自身的目标（避免130125等"其他友方被上debuff"类技能
+            # 把primary_target误设为施法者自身，导致remove_debuff作用于自身）
+            if actor:
+                non_actor_targets = [t for t in ctx.targets if t.unit_id != actor.unit_id]
+                ctx.primary_target = non_actor_targets[0] if non_actor_targets else ctx.targets[0]
+            else:
+                ctx.primary_target = ctx.targets[0]
         if applied_debuff_types:
             ctx.applied_debuff_types = applied_debuff_types
         return self.check_triggers(TriggerTiming.PAWN_RECEIVED_AURA, ctx)
@@ -991,6 +997,15 @@ class TriggerService:
                         else:
                             # triggers when SELF receives a status ailment (e.g. ヴォルコワの血脈Ω)
                             return owner.unit_id in [t.unit_id for t in context.targets]
+                    elif gc and isinstance(gc, dict) and gc.get('type') == 'target_is_ally':
+                        # triggers when an ALLY (same side) receives a debuff
+                        # (e.g. 130125 気合い入れていこー！: 味方にデバフが付与された時)
+                        # exclude_self=1: 只在其他友方（排除自身）被上debuff时触发
+                        exclude_self = bool(gc.get('exclude_self', 0))
+                        if exclude_self:
+                            return any(t.side == owner.side and t.unit_id != owner.unit_id
+                                       for t in context.targets)
+                        return any(t.side == owner.side for t in context.targets)
                     else:
                         # triggers when ANY debuff is applied to an ENEMY unit
                         return any(t.side != owner.side for t in context.targets)
@@ -1237,11 +1252,26 @@ class TriggerService:
         if cond_type == "target_is_ally":
             if not context.targets:
                 return True
-            target = context.targets[0]
+            exclude_self = bool(condition.get('exclude_self', 0))
+            # 遍历所有目标，找到第一个满足"同阵营"且（非exclude_self或非自身）的目标作为判断依据
+            # 这样即使targets[0]是自身，也能正确识别后续的其他友方目标
+            target = None
+            for t in context.targets:
+                if t.side != owner.side:
+                    continue
+                if exclude_self and t.unit_id == owner.unit_id:
+                    continue
+                target = t
+                break
+            # 若未找到合适目标，回退到targets[0]（保持原行为，让is_ally=False自然返回False）
+            if target is None:
+                target = context.targets[0]
             is_ally = target.side == owner.side
+            if exclude_self and target.unit_id == owner.unit_id:
+                is_ally = False
             result = (is_ally == bool(val))
-            _log.info("[TRIGGER_COND] %s: target_is_ally=%s expect=%s => %s",
-                      owner.name, is_ally, bool(val), result)
+            _log.info("[TRIGGER_COND] %s: target_is_ally=%s expect=%s exclude_self=%s target=%s => %s",
+                      owner.name, is_ally, bool(val), exclude_self, target.name, result)
             return result
 
         if cond_type == "target_hp_not_cross_below":

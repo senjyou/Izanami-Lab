@@ -257,7 +257,16 @@ class UpdateDaemon:
                     on_progress=lambda d, t: self._notify_cold_progress(
                         d, t, update_info.latest_version),
                 )
-                if not success:
+                if success:
+                    # 下载校验完成，等待用户确认是否重启应用
+                    progress = UpdateProgress(
+                        status="COLD_UPDATE_DOWNLOADED",
+                        target_version=update_info.latest_version,
+                        current_version=self._current_version,
+                        update_type=UpdateType.COLD,
+                    )
+                    self._notify_progress(progress)
+                else:
                     # 自动冷更新失败，回退到手动下载提示
                     progress = UpdateProgress(
                         status="COLD_UPDATE_REQUIRED",

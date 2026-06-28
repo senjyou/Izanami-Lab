@@ -7,8 +7,8 @@ src/utils/cold_updater.py
 - 校验 SHA-256
 - 解压到 staging
 - 生成 updater.bat（结束 exe → xcopy 替换 → 重启 → 清理）
-- 启动 bat
-- os._exit(0) 立即退出 Python 进程（避免文件锁定）
+- execute() 下载校验完成后返回 True（不退出进程），等待用户确认
+- apply_pending() 由 GUI 主线程调用，启动 bat + os._exit(0)
 
 成功路径不返回（进程已退出），仅失败时返回 False。
 """
@@ -35,6 +35,10 @@ class ColdUpdater:
     EXE_NAME = "Izanami Lab.exe"
     APP_DIR_NAME = "Izanami Lab"  # ZIP 内顶层目录名
 
+    # 待应用的冷更新信息（execute 完成后存储，apply_pending 使用）
+    _pending_staging: Optional[Path] = None
+    _pending_bat: Optional[Path] = None
+
     @staticmethod
     def execute(
         zip_url: str,
@@ -42,7 +46,10 @@ class ColdUpdater:
         app_dir: Path,
         on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> bool:
-        """执行冷更新
+        """执行冷更新下载与校验（不退出进程）
+
+        下载 ZIP → 校验 SHA-256 → 解压 → 生成 updater.bat。
+        完成后存储 staging 信息到类变量，等待 apply_pending() 应用。
 
         Args:
             zip_url: ZIP 包下载地址
@@ -51,8 +58,8 @@ class ColdUpdater:
             on_progress: 下载进度回调(downloaded_bytes, total_bytes)
 
         Returns:
-            是否成功启动更新流程。
-            成功时调用 os._exit(0)，不会返回；仅失败时返回 False。
+            True 表示下载校验完成，更新已就绪（等待 apply_pending 应用）；
+            False 表示下载或校验失败。
         """
         app_dir = Path(app_dir)
 
@@ -91,7 +98,25 @@ class ColdUpdater:
         # 4. 生成 updater.bat
         bat_path = ColdUpdater._generate_updater_bat(extract_dir, app_dir, staging)
 
-        # 5. 启动 updater.bat（独立进程，不随父进程退出）
+        # 5. 存储待应用信息，等待用户确认后由 apply_pending() 应用
+        ColdUpdater._pending_staging = staging
+        ColdUpdater._pending_bat = bat_path
+        return True
+
+    @staticmethod
+    def apply_pending() -> bool:
+        """应用已就绪的冷更新（启动 updater.bat + os._exit）
+
+        由 GUI 主线程在用户确认后调用。
+
+        Returns:
+            True 表示已启动 updater.bat 并即将退出（实际不会返回，os._exit）；
+            False 表示无待应用更新或启动失败。
+        """
+        bat_path = ColdUpdater._pending_bat
+        if not bat_path or not bat_path.exists():
+            return False
+
         try:
             subprocess.Popen(
                 ["cmd", "/c", str(bat_path)],
@@ -102,9 +127,14 @@ class ColdUpdater:
         except OSError:
             return False
 
-        # 6. 立即退出（不等待清理，避免文件锁定）
+        # 立即退出（不等待清理，避免文件锁定）
         os._exit(0)
         # 不可达
+
+    @staticmethod
+    def has_pending() -> bool:
+        """是否存在待应用的冷更新"""
+        return bool(ColdUpdater._pending_bat and ColdUpdater._pending_bat.exists())
 
     @staticmethod
     def _download_zip(

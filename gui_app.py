@@ -49,6 +49,7 @@ from src.entities.memory_card import MemoryCard, MemoryHighlight
 from version import __version__, __repository__, __release_url__
 from src.utils.update_daemon import UpdateDaemon, UpdateProgress
 from src.utils.version_checker import UpdateType
+from src.utils.cold_updater import ColdUpdater
 
 
 # ── CJK 文本视觉宽度对齐工具 ──
@@ -2578,6 +2579,64 @@ class CustomDummyTab(ttk.Frame):
 
 # ────────────────────────────── 回忆卡选择弹窗 ──────────────────────────────
 
+def _bind_modal_minimize_restore(dialog, parent):
+    """为模态弹窗绑定父窗口最小化/恢复处理。
+
+    修复bug：打开弹窗后最小化主界面（如Win+D显示桌面），再从任务栏恢复时
+    无法恢复、无法关闭程序。根因：grab_set锁在不可见的弹窗上，Windows无法
+    激活被grab锁定的主窗口，导致整个应用输入被锁死。
+    方案：主窗口最小化时grab_release解锁；恢复时deiconify弹窗并重新grab_set。
+    """
+    top = parent.winfo_toplevel()
+
+    def _on_top_unmap(event):
+        # 主窗口被最小化/隐藏时，释放grab避免锁死整个应用
+        if event.widget is not top:
+            return
+        try:
+            if dialog.winfo_exists():
+                dialog.grab_release()
+        except Exception:
+            pass
+
+    def _on_top_map(event):
+        # 主窗口恢复显示时，恢复弹窗并重新建立模态grab
+        if event.widget is not top:
+            return
+
+        def _restore():
+            try:
+                if not dialog.winfo_exists():
+                    return
+                # 处理iconic和withdrawn两种隐藏状态
+                state = str(dialog.state())
+                if state in ('iconic', 'withdrawn'):
+                    dialog.deiconify()
+                dialog.lift()
+                dialog.focus_force()
+                dialog.grab_set()
+            except Exception:
+                pass
+
+        # 延迟执行，确保窗口管理器状态已稳定
+        try:
+            top.after(50, _restore)
+        except Exception:
+            pass
+
+    map_id = top.bind("<Map>", _on_top_map, "+")
+    unmap_id = top.bind("<Unmap>", _on_top_unmap, "+")
+
+    def _cleanup(event=None):
+        try:
+            top.unbind("<Map>", map_id)
+            top.unbind("<Unmap>", unmap_id)
+        except Exception:
+            pass
+
+    dialog.bind("<Destroy>", _cleanup, "+")
+
+
 class MemoryPickerDialog(tk.Toplevel):
     """回忆卡可视化选择弹窗：16:9横版卡片网格 + 稀有度筛选 + 搜索"""
 
@@ -2593,6 +2652,7 @@ class MemoryPickerDialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.grab_set()
+        _bind_modal_minimize_restore(self, parent)
         self.resizable(True, True)
         self.geometry("680x620")
         self.minsize(500, 400)
@@ -2873,6 +2933,7 @@ class EnemyPickerDialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.grab_set()
+        _bind_modal_minimize_restore(self, parent)
         self.resizable(True, True)
         self.geometry("440x400")
         self.minsize(300, 300)
@@ -3043,6 +3104,7 @@ class CharacterPickerDialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.grab_set()
+        _bind_modal_minimize_restore(self, parent)
         self.resizable(True, True)
         self.geometry("520x620")
         self.minsize(400, 400)
@@ -7385,6 +7447,7 @@ class EnemyDetailDialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.grab_set()
+        _bind_modal_minimize_restore(self, parent)
         self.resizable(True, True)
         self.geometry("640x720")
         self.minsize(520, 600)
@@ -10653,6 +10716,7 @@ class MGGBattleSimulatorGUI:
             "FAILED": f"更新失败",
             "ROLLING_BACK": "正在回滚...",
             "COLD_UPDATE_REQUIRED": f"发现新版本 v{progress.target_version}",
+            "COLD_UPDATE_DOWNLOADED": f"更新已就绪 v{progress.target_version}",
         }.get(progress.status, "检查更新")
 
         self._update_btn.config(text=status_text[:20])
@@ -10688,6 +10752,9 @@ class MGGBattleSimulatorGUI:
         elif progress.status == "COLD_UPDATE_REQUIRED":
             self._show_cold_update_dialog(progress)
 
+        elif progress.status == "COLD_UPDATE_DOWNLOADED":
+            self._show_cold_update_ready_dialog(progress)
+
     def _show_cold_update_dialog(self, progress: UpdateProgress):
         """显示冷更新（完整包下载）对话框"""
         message = (
@@ -10699,6 +10766,26 @@ class MGGBattleSimulatorGUI:
         if result:
             import webbrowser
             webbrowser.open(f"https://github.com/{__repository__}/releases")
+
+    def _show_cold_update_ready_dialog(self, progress: UpdateProgress):
+        """冷更新下载校验完成，询问用户是否立即重启应用"""
+        message = (
+            f"更新 v{progress.target_version} 已下载完成并通过校验。\n\n"
+            f"是否立即重启应用以应用更新？\n"
+            f"（选择「否」可继续使用当前版本，但需重新检查更新才能再次下载）"
+        )
+        result = messagebox.askyesno("冷更新已就绪", message)
+        if result:
+            # 用户确认，启动 updater.bat + os._exit(0)
+            if not ColdUpdater.apply_pending():
+                messagebox.showerror(
+                    "更新失败",
+                    "无法启动更新程序，请稍后重试或前往 GitHub 手动下载。",
+                )
+                self._update_btn.config(state="normal", text="检查更新")
+        else:
+            # 用户选择稍后，恢复按钮供下次检查
+            self._update_btn.config(state="normal", text="检查更新")
 
     def _on_data_refresh(self, updated_files: list):
         """数据刷新回调（热更新后通知 UI 刷新）"""

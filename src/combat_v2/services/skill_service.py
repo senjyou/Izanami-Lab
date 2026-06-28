@@ -1767,6 +1767,24 @@ class SkillService:
         elif effect.target_type == "debuff_applied_target":
             # Use the primary_target from trigger context (e.g., PS2 attacking the knockout target)
             primary_target = getattr(self, '_primary_target', None)
+            # 检查当前PS是否设置了exclude_self（如130125：remove_debuff应作用于被上debuff的友方而非自身）
+            current_skill_id = getattr(self, '_current_skill_id', 0)
+            parsed_skill = self.data_loader.get_parsed_skill_data(current_skill_id) if current_skill_id else None
+            gc = parsed_skill.get('global_condition', {}) if parsed_skill else {}
+            exclude_self = bool(gc.get('exclude_self', 0)) if gc else False
+            if exclude_self:
+                # exclude_self: 从触发上下文中找非自身的友方目标
+                # 多个友方同时被上debuff时，选取距离自身最近的被上debuff的友方
+                ctx_targets = getattr(self, '_damaged_targets', None) or []
+                non_self_targets = [t for t in ctx_targets
+                                     if t.unit_id != caster.unit_id and t.is_alive
+                                     and t.side == caster.side]
+                if non_self_targets:
+                    nearest = self.target_service.get_nearest_ally(caster, non_self_targets)
+                    if nearest:
+                        primary_target = nearest
+                        _log.info("[DAMAGE_APPLY] %s: debuff_applied_target exclude_self -> redirected to nearest %s",
+                                  caster.name, primary_target.name)
             if primary_target and primary_target.is_alive:
                 targets = [primary_target]
                 _log.info("[DAMAGE_APPLY] %s: debuff_applied_target -> %s",
@@ -3569,6 +3587,25 @@ class SkillService:
         # Handle debuff_applied_target: use primary_target from trigger context
         if effect.target_type == "debuff_applied_target":
             primary_target = getattr(self, '_primary_target', None)
+            # 检查当前PS是否设置了exclude_self（如130125 気合い入れていこー！：
+            # 其他友方被上debuff时触发，remove_debuff应作用于被上debuff的友方而非自身）
+            current_skill_id = getattr(self, '_current_skill_id', 0)
+            parsed_skill = self.data_loader.get_parsed_skill_data(current_skill_id) if current_skill_id else None
+            gc = parsed_skill.get('global_condition', {}) if parsed_skill else {}
+            exclude_self = bool(gc.get('exclude_self', 0)) if gc else False
+            if exclude_self:
+                # exclude_self: 从触发上下文中找非自身的友方目标
+                # 多个友方同时被上debuff时，选取距离自身最近的被上debuff的友方
+                ctx_targets = getattr(self, '_damaged_targets', None) or []
+                non_self_targets = [t for t in ctx_targets
+                                     if t.unit_id != caster.unit_id and t.is_alive
+                                     and t.side == caster.side]
+                if non_self_targets:
+                    nearest = self.target_service.get_nearest_ally(caster, non_self_targets)
+                    if nearest:
+                        primary_target = nearest
+                        _log.info("[AURA_APPLY] %s: debuff_applied_target exclude_self -> redirected to nearest %s",
+                                  caster.name, primary_target.name)
             if primary_target and primary_target.is_alive:
                 targets = [primary_target]
                 _log.info("[AURA_APPLY] %s: debuff_applied_target -> %s",
@@ -4139,6 +4176,10 @@ class SkillService:
             # For marks, store the mark_name from flags as the name for counting
             if effect.effect_type == "mark" and effect_flags_aura.get('mark_name'):
                 aura_name = effect_flags_aura.get('mark_name')
+            # 通用buff_name: 允许任意aura效果设置独特的name，用于linked_buff_id精确联动
+            # （如130126 PS2的shield消失时联动移除atk_up，需要atk_up有匹配的name）
+            elif effect_flags_aura and effect_flags_aura.get('buff_name'):
+                aura_name = effect_flags_aura.get('buff_name')
 
             # 从flags中解析value_tag: 0=百分比, 1=固定值
             resolved_value_tag = 0
@@ -4651,8 +4692,16 @@ class SkillService:
 
         # count参数：限制每个目标解除的debuff数量（LIFO：从最近施加的开始解除）
         # count <= 0 或未指定表示解除全部
+        # count_tag: 通过tag解析count值（如PS1 130125的cure tag，按技能等级插值）
         effect_flags_rd = getattr(effect, 'flags', {}) or {}
         max_count = effect_flags_rd.get('count', 0)
+        count_tag = effect_flags_rd.get('count_tag')
+        if count_tag:
+            resolved_count = self._resolve_tag_value_for_caster(caster, effect, count_tag)
+            if resolved_count is not None:
+                max_count = int(resolved_count)
+                _log.info("[REMOVE_DEBUFF] %s: count_tag='%s' resolved to %d",
+                          caster.name, count_tag, max_count)
 
         # lowest_hp_priority: 优先使用前序heal block记录的_last_primary_target，
         # 避免heal后HP变化导致remove_debuff选到不同友方
@@ -4670,6 +4719,35 @@ class SkillService:
                     'target_type_name': effect.target_type,
                 })()
                 targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+        elif effect.target_type == "debuff_applied_target":
+            # debuff_applied_target: 使用触发上下文中的primary_target
+            # （如130125 気合い入れていこー！：其他友方被上debuff时触发，remove_debuff作用于被上debuff的友方）
+            primary_target = getattr(self, '_primary_target', None)
+            # 检查当前PS是否设置了exclude_self
+            current_skill_id = getattr(self, '_current_skill_id', 0)
+            parsed_skill = self.data_loader.get_parsed_skill_data(current_skill_id) if current_skill_id else None
+            gc = parsed_skill.get('global_condition', {}) if parsed_skill else {}
+            exclude_self = bool(gc.get('exclude_self', 0)) if gc else False
+            if exclude_self:
+                # exclude_self: 从触发上下文中找非自身的友方目标
+                # 多个友方同时被上debuff时，选取距离自身最近的被上debuff的友方
+                ctx_targets = getattr(self, '_damaged_targets', None) or []
+                non_self_targets = [t for t in ctx_targets
+                                     if t.unit_id != caster.unit_id and t.is_alive
+                                     and t.side == caster.side]
+                if non_self_targets:
+                    nearest = self.target_service.get_nearest_ally(caster, non_self_targets)
+                    if nearest:
+                        primary_target = nearest
+                        _log.info("[REMOVE_DEBUFF] %s: debuff_applied_target exclude_self -> redirected to nearest %s",
+                                  caster.name, primary_target.name)
+            if primary_target and primary_target.is_alive:
+                targets = [primary_target]
+                _log.info("[REMOVE_DEBUFF] %s: debuff_applied_target -> %s",
+                          caster.name, primary_target.name)
+            else:
+                _log.info("[REMOVE_DEBUFF] %s: debuff_applied_target no primary_target, skip", caster.name)
+                targets = []
         else:
             target_skill_obj = type('obj', (object,), {
                 'display_target_type': self._resolve_target_type(effect.target_type),
@@ -5699,6 +5777,20 @@ class SkillService:
                               caster.name, target.name, base_value, dmg_pct, raw_power, cap, cap_atk_pct)
                 else:
                     _log.info("[HP_RATIO_DMG] %s -> %s: target_current_hp=%d dmg_pct=%.0f raw_power=%.1f",
+                              caster.name, target.name, base_value, dmg_pct, raw_power)
+            elif value_source == "caster_current_hp":
+                # 基于施法者当前HP（如技能110053 RAY OF HERO）
+                base_value = caster.current_hp
+                raw_power = base_value * dmg_pct / 100.0
+                # 应用ATK上限
+                if cap_atk_pct > 0:
+                    effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
+                    cap = effective_atk * cap_atk_pct / 100.0
+                    raw_power = min(raw_power, cap)
+                    _log.info("[HP_RATIO_DMG] %s -> %s: caster_current_hp=%d dmg_pct=%.0f raw=%.1f cap=%.1f(ATK*%d%%)",
+                              caster.name, target.name, base_value, dmg_pct, raw_power, cap, cap_atk_pct)
+                else:
+                    _log.info("[HP_RATIO_DMG] %s -> %s: caster_current_hp=%d dmg_pct=%.0f raw_power=%.1f",
                               caster.name, target.name, base_value, dmg_pct, raw_power)
             else:
                 # 原有逻辑：基于自身消耗的HP
