@@ -559,6 +559,7 @@ class SkillService:
                                     "enemy_single_highest_atk", "enemy_single_highest_spd",
                                     "enemy_single_lowest_spd", "enemy_single_furthest",
                                     "enemy_single_highest_ep",
+                                    "enemy_single_highest_hp_ratio",
                                     "enemy_single_highest_hp_ratio_back_priority",
                                     "enemy_single_lowest_hp_ratio",
                                     "enemy_column_furthest", "enemy_column_mark_priority",
@@ -1238,7 +1239,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority"):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -1347,6 +1348,12 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         best = dmg_targets[0]
                         _log.info("[SKILL_EXEC] %s: highest_hp_ratio_back_priority filter -> %s",
+                                  caster.name, best.name)
+                    elif effect.target_type == "enemy_single_highest_hp_ratio" and dmg_targets:
+                        dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        _log.info("[SKILL_EXEC] %s: highest_hp_ratio filter -> %s",
                                   caster.name, best.name)
                     elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
                         # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
@@ -3487,6 +3494,21 @@ class SkillService:
             _resolved_range = (DisplayTargetRange.TWO_PAWNS.value if _aura_target_count == 2
                                else DisplayTargetRange.ALL_PAWNS.value)
 
+        # 特殊索敌类型（highest_atk/highest_spd/highest_hp_ratio等）需用ALL_PAWNS获取全部候选再后过滤，
+        # 否则ONE_PAWN会先选出最近敌方，后过滤只有1个目标可选（与damage路径保持一致）
+        _AURA_SPECIAL_POSTFILTER_TYPES = {
+            "enemy_single_highest_atk", "enemy_single_highest_spd",
+            "enemy_single_lowest_spd", "enemy_single_furthest",
+            "enemy_single_highest_ep",
+            "enemy_single_highest_hp_ratio",
+            "enemy_single_highest_hp_ratio_back_priority",
+            "enemy_single_lowest_hp_ratio",
+            "enemy_column_furthest", "enemy_column_mark_priority",
+        }
+        if effect.target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
+            from ...entities_v2.enums import DisplayTargetRange
+            _resolved_range = DisplayTargetRange.ALL_PAWNS.value
+
         aura_skill_obj = type('obj', (object,), {
             'display_target_type': self._resolve_target_type(effect.target_type),
             'display_target_range': _resolved_range,
@@ -3626,6 +3648,31 @@ class SkillService:
                 best_spd = self.damage_service._calculate_final_stat(best, "speed") if self.damage_service else best.speed
                 _log.info("[AURA_APPLY] %s: highest_spd filter -> %s (spd=%d)",
                           caster.name, best.name, best_spd)
+
+        if effect.target_type == "enemy_single_highest_hp_ratio_back_priority":
+            if targets:
+                back_targets = [u for u in targets if self.target_service._is_back_row(u)]
+                if back_targets:
+                    targets = [max(back_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                else:
+                    targets = [max(targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                best = targets[0]
+                _log.info("[AURA_APPLY] %s: highest_hp_ratio_back_priority filter -> %s",
+                          caster.name, best.name)
+
+        if effect.target_type == "enemy_single_highest_hp_ratio":
+            if targets:
+                targets = [max(targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                best = targets[0]
+                _log.info("[AURA_APPLY] %s: highest_hp_ratio filter -> %s",
+                          caster.name, best.name)
+
+        if effect.target_type == "enemy_single_lowest_hp_ratio":
+            if targets:
+                targets = [min(targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+                best = targets[0]
+                _log.info("[AURA_APPLY] %s: lowest_hp_ratio filter -> %s",
+                          caster.name, best.name)
 
         if effect.target_type == "ally_back" and caster.position.name.endswith("BACK"):
             if caster.is_alive and caster not in targets:
@@ -4125,11 +4172,19 @@ class SkillService:
             if _add_status_flag:
                 _hlf['add_status'] = _add_status_flag
                 _hlf['add_status_duration'] = duration
+            # scale_by_target_hp_ratio: 按目标当前HP比例线性缩放value
+            # （如130017「最高{def}%低下させる」「対象のHPが多いほど高い効果を発揮する」）
+            final_value = value
+            if effect_flags_aura and effect_flags_aura.get('scale_by_target_hp_ratio'):
+                hp_ratio = (target.current_hp / target.max_hp) if target.max_hp > 0 else 0
+                final_value = value * hp_ratio
+                _log.info("[AURA_APPLY] %s -> %s: scale_by_target_hp_ratio hp_ratio=%.3f value %.1f -> %.1f",
+                          caster.name, target.name, hp_ratio, value, final_value)
             aura = BuffState(
                 buff_id=f"{_aura_source_unit_id}_{mapped_effect_type}_{target.unit_id}",
                 name=aura_name,
                 effect_type=mapped_effect_type,
-                value=value,
+                value=final_value,
                 duration=duration,
                 timing_type=timing,
                 source_unit_id=_aura_source_unit_id,
@@ -4336,7 +4391,7 @@ class SkillService:
                 "target": target.name,
                 "target_id": target.unit_id,
                 "effect": display_effect,
-                "value": value,
+                "value": final_value,
                 "duration": duration,
                 "dur_type": dur_type,
                 "source": caster.name,
@@ -4387,6 +4442,7 @@ class SkillService:
             "enemy_single_highest_atk", "enemy_single_highest_spd",
             "enemy_single_lowest_spd", "enemy_single_furthest",
             "enemy_single_highest_ep",
+            "enemy_single_highest_hp_ratio",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_column_furthest", "enemy_column_mark_priority",
@@ -5363,6 +5419,7 @@ class SkillService:
                  "enemy_single_highest_spd", "enemy_single_lowest_spd",
                  "enemy_lowest_hp", "enemy_single_furthest", "last_target",
                  "enemy_back_row",
+                 "enemy_single_highest_hp_ratio",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
         if t in ("friends", "friend", "ally_single"):
@@ -5386,6 +5443,7 @@ class SkillService:
                  "enemy_single_lowest_spd",
                  "enemy_single_furthest",
                  "enemy_single_highest_ep",
+                 "enemy_single_highest_hp_ratio",
                  "enemy_single_highest_hp_ratio_back_priority",
                  "enemy_single_lowest_hp_ratio"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
@@ -5431,6 +5489,8 @@ class SkillService:
                 dmg_targets = [max(back_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
             else:
                 dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+        elif target_type == "enemy_single_highest_hp_ratio":
+            dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
         elif target_type == "enemy_single_lowest_hp_ratio":
             dmg_targets = [min(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
         elif target_type == "enemy_column_furthest":

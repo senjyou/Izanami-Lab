@@ -426,6 +426,14 @@ class BattleNarrativeWriter:
     def shield_added(self, unit_name: str, amount: int, total: int):
         self._add(f"  [护盾] {unit_name} 获得护盾 +{amount} (总护盾:{total})")
 
+    def shield_decay(self, unit_name: str, buff_name: str, reduction: int,
+                     old_amount: int, new_amount: int, initial: int, expired: bool):
+        """衰减型盾行动结束衰减叙事（如110012「薄暮の宵火」）"""
+        if expired:
+            self._add(f"  [护盾衰减] {unit_name} 的「{buff_name}」减少 {reduction} (初始最大值:{initial}) → 剩余 {new_amount}，盾值耗尽消失")
+        else:
+            self._add(f"  [护盾衰减] {unit_name} 的「{buff_name}」减少 {reduction} (初始最大值:{initial}) → 剩余 {new_amount}")
+
     def memory_effect(self, card_name: str, target_name: str, effect_desc: str):
         self._add(f"  [回忆卡] {card_name} → {target_name} : {effect_desc}")
 

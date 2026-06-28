@@ -261,7 +261,7 @@ def _compute_max_ep_worker(dl, skill_ids: list) -> int:
         sk = dl.get_skill_by_id(sid)
         if sk and sk.skill_type == 3:
             return sk.resource_cost
-    return 8
+    return 0  # 无EX技能的单位无EP条
 
 
 # ============ 战术演习 Worker ============

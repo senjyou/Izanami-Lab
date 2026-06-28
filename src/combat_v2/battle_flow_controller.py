@@ -2889,7 +2889,13 @@ class BattleFlowController:
                     if bid not in curr_ids:
                         self.narrative.effect_expired(u.name, etype, is_debuff=is_debuff)
         # 单位行动结束时，衰减带 shield_decay_pct 的盾 buff（如110012「1行動に付き最大値の25%減少する」）
-        self.aura_service.process_shield_decay(unit)
+        decay_details = self.aura_service.process_shield_decay(unit)
+        if decay_details and self.narrative:
+            display_name = self._get_display_name(unit)
+            for buff_name, reduction, old_amt, new_amt, initial, expired in decay_details:
+                self.narrative.shield_decay(
+                    display_name, buff_name, reduction, old_amt, new_amt, initial, expired
+                )
         for buff_obj, kind, etype, prev_dur in prev_alive_durations.values():
             if prev_dur > 0:
                 if id(buff_obj) not in existing_ids and not getattr(buff_obj, 'skip_restore', False):

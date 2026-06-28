@@ -48,6 +48,7 @@ class BuffState:
     shield_amount: int = 0  # 盾buff贡献的实际盾值，用于叠加盾正确扣除
     shield_decay_pct: int = 0  # shield每行动衰减百分比（基于initial_shield_value）
     initial_shield_value: int = 0  # shield初始值（用于衰减计算）
+    shield_decay_skipped_first: bool = False  # 衰减型盾: 是否已跳过施法当次行动（首次衰减前为False）
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效

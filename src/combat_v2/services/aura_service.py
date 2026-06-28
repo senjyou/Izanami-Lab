@@ -188,15 +188,28 @@ class AuraService:
         每行动减少 initial_shield_value × decay_pct / 100 的盾值。
         当 shield_amount <= 0 时，将 duration 设为 0 触发清理。
         实现 110012「シールドは1行動に付き最大値の25%減少する」等机制。
+
+        注意：施法当次行动不衰减（shield_decay_skipped_first标记），从下次行动结束开始衰减。
+
+        Returns:
+            list: 衰减详情列表 [(buff_name, reduction, old_amount, new_amount, initial, expired), ...]
+                  供调用方输出叙事日志使用。
         """
+        decay_details = []
         if not unit.is_alive:
-            return
+            return decay_details
         modified = False
         for b in unit.buffs:
             if (b.effect_type in (SkillEffectType.SHIELD.value, "shield", "Shield")
                     and getattr(b, 'shield_decay_pct', 0) > 0
                     and getattr(b, 'initial_shield_value', 0) > 0
                     and b.duration != 0):
+                # 跳过施法当次行动（首次衰减前 shield_decay_skipped_first=False）
+                if not getattr(b, 'shield_decay_skipped_first', False):
+                    b.shield_decay_skipped_first = True
+                    _log.info("[SHIELD_DECAY] %s: shield buff %s 跳过当次行动衰减 (首次衰减豁免)",
+                              unit.name, b.buff_id)
+                    continue
                 initial = b.initial_shield_value
                 reduction = int(initial * b.shield_decay_pct / 100)
                 if reduction <= 0:
@@ -219,14 +232,19 @@ class AuraService:
                 _log.info("[SHIELD_DECAY] %s: shield buff %s decayed by %d (initial=%d pct=%d%%) amount %d->%d, unit_shield_removed=%d",
                           unit.name, b.buff_id, reduction, initial, b.shield_decay_pct,
                           old_amount, b.shield_amount, actual_remove)
+                expired = b.shield_amount <= 0
+                decay_details.append((
+                    getattr(b, 'name', 'Shield'), reduction, old_amount, b.shield_amount, initial, expired
+                ))
                 # 当盾值耗尽时，标记为过期
-                if b.shield_amount <= 0:
+                if expired:
                     b.duration = 0
                     _log.info("[SHIELD_DECAY] %s: shield buff %s EXPIRED (shield_amount reached 0)",
                               unit.name, b.buff_id)
                 modified = True
         if modified:
             self.check_expiration(unit)
+        return decay_details
 
     def process_round_end(self, unit: UnitState):
         """

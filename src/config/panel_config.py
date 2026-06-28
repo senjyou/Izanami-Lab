@@ -16,6 +16,7 @@ class PanelConfig:
     - equipment_enabled: 是否启用装备系统
 
     角色个体配置（针对每个角色单独设置，未设置则使用角色默认值）:
+    - character_levels: {character_id: level}  (未设置则使用全局 character_level)
     - rarities: {character_id: rarity}
     - affection_levels: {character_id: affection_level}
     - modules: {character_id: [ModuleConfig]}
@@ -28,6 +29,7 @@ class PanelConfig:
     equipment_enabled: bool = True
     equipment_bonuses: Dict[int, Dict[str, int]] = field(default_factory=dict)
 
+    character_levels: Dict[int, int] = field(default_factory=dict)
     rarities: Dict[int, int] = field(default_factory=dict)
     affection_levels: Dict[int, int] = field(default_factory=dict)
     modules: Dict[int, List[ModuleConfig]] = field(default_factory=dict)
@@ -58,7 +60,7 @@ class PanelConfig:
             rarity = max_rarity
         return CharacterConfig(
             character_id=char_id,
-            level=self.character_level,
+            level=self.character_levels.get(char_id, self.character_level),
             rarity=rarity,
             affection_level=self.affection_levels.get(char_id, 1),
             skill_levels=self.skill_levels.get(char_id, {}),

@@ -660,6 +660,8 @@ class GlobalParamsTab(ttk.Frame):
 
     def _save_global_config_with_feedback(self):
         self._save_global_config()
+        # 传播全局等级到所有 override 且非 1 级的角色（链接等级系统语义）
+        self.app._propagate_global_level_change(self.var_level.get())
         messagebox.showinfo("保存", "全局参数已保存")
 
     def _load_global_config(self):
@@ -725,6 +727,8 @@ class GlobalParamsTab(ttk.Frame):
         self.var_max_turns.set(30)
         messagebox.showinfo("重置", "全局参数已重置为默认值")
         self._save_global_config()
+        # 重置后同样传播等级（355）到所有 override 且非 1 级的角色
+        self.app._propagate_global_level_change(self.var_level.get())
 
     def _bind_mousewheel(self, canvas):
         def _on_mousewheel(event):
@@ -1158,16 +1162,26 @@ class CharacterParamsTab(ttk.Frame):
 
         ttk.Label(basic_content, text="基础参数", font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w", pady=(0, 5))
 
+        init_level = cfg.get("level", self.app.global_tab.var_level.get()) if cfg.get("override") else self.app.global_tab.var_level.get()
+        level_row = ttk.Frame(basic_content)
+        level_row.pack(fill="x", pady=3)
+        ttk.Label(level_row, text="角色等级:", width=8).pack(side="left")
+        level_var = tk.IntVar(value=init_level)
+        ttk.Spinbox(level_row, from_=1, to=999, textvariable=level_var, width=5).pack(side="left", padx=3)
+
         init_rarity = cfg.get("rarity", self.app.global_tab.var_rarity.get()) if cfg.get("override") else self.app.global_tab.var_rarity.get()
         max_rarity = get_max_rarity_for(char.default_rarity)
-        # 如果当前稀有度超过上限，截断到上限
+        min_rarity = char.default_rarity
+        # 截断到 [min_rarity, max_rarity] 范围内
         if init_rarity > max_rarity:
             init_rarity = max_rarity
+        elif init_rarity < min_rarity:
+            init_rarity = min_rarity
         rarity_row = ttk.Frame(basic_content)
         rarity_row.pack(fill="x", pady=3)
         ttk.Label(rarity_row, text="稀有度:", width=8).pack(side="left")
         rarity_var = tk.IntVar(value=init_rarity)
-        cb = ttk.Combobox(rarity_row, textvariable=rarity_var, values=list(range(5, max_rarity + 1)), state="readonly", width=5)
+        cb = ttk.Combobox(rarity_row, textvariable=rarity_var, values=list(range(min_rarity, max_rarity + 1)), state="readonly", width=5)
         cb.pack(side="left", padx=3)
         rarity_name_var = tk.StringVar(value=RARITY_NAMES.get(rarity_var.get(), ""))
         ttk.Label(rarity_row, textvariable=rarity_name_var, width=6).pack(side="left", padx=3)
@@ -1251,6 +1265,7 @@ class CharacterParamsTab(ttk.Frame):
         self._build_detail_gears_inline(mod_right, cid, cfg)
 
         v = {
+            "level": level_var,
             "rarity": rarity_var, "affection": aff_var,
             "mod_tier": mod_tier_var, "mod_level": mod_lv_var,
         }
@@ -1642,6 +1657,7 @@ class CharacterParamsTab(ttk.Frame):
     def _apply_detail(self, cid, char, v):
         config = self.app.char_config.setdefault(cid, {"override": False})
         config["override"] = True
+        config["level"] = v["level"].get()
         config["rarity"] = v["rarity"].get()
         config["affection"] = v["affection"].get()
         # 保存每个技能的独立等级
@@ -1694,6 +1710,7 @@ class CharacterParamsTab(ttk.Frame):
             if cfg.get("override"):
                 panel.rarities[cid] = cfg.get("rarity", char.default_rarity)
                 panel.affection_levels[cid] = cfg.get("affection", 40)
+                panel.character_levels[cid] = cfg.get("level", gv["character_level"])
             else:
                 panel.rarities[cid] = gv["default_rarity"]
                 panel.affection_levels[cid] = gv["default_affection"]
@@ -1751,7 +1768,8 @@ class CharacterParamsTab(ttk.Frame):
             stats = sc.calculate_stats(cc, player_config)
 
             r_name = RARITY_NAMES.get(panel.rarities[cid], "")
-            self.preview_labels["level"].config(text=str(gv["character_level"]))
+            effective_level = panel.character_levels.get(cid, gv["character_level"])
+            self.preview_labels["level"].config(text=str(effective_level))
             self.preview_labels["rarity"].config(text=f"{panel.rarities[cid]} ({r_name})")
             self.preview_labels["affection"].config(text=str(panel.affection_levels[cid]))
             self.preview_labels["hp"].config(text=str(int(stats.hp)))
@@ -1897,6 +1915,7 @@ class CharacterParamsTab(ttk.Frame):
             return {"override": False}
         return {
             "override": True,
+            "level": cfg.get("level", self.app.global_tab.var_level.get()),
             "rarity": cfg.get("rarity", 14),
             "affection": cfg.get("affection", 40),
             "skill_level": cfg.get("skill_level", 15),
@@ -8034,6 +8053,10 @@ class CircleBattleTab(ttk.Frame):
         canvas.config(bg=s["bg"])
         canvas._banner_photo = None
 
+        # 同步HP覆盖框架背景（tk.Frame不会随ttk主题自动更新）
+        if state_frame:
+            state_frame.config(bg=s["bg"])
+
         if enemy_data is None:
             canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="空位",
                                fill=s["border"], font=("Microsoft YaHei UI", 8))
@@ -10883,6 +10906,32 @@ class MGGBattleSimulatorGUI:
         except Exception:
             pass
 
+    def _propagate_global_level_change(self, new_level: int):
+        """全局等级变化时，同步更新所有 override 且非 1 级的角色等级。
+
+        游戏的「链接等级系统」语义：
+        - level == 1：角色锁定在 1 级（不加入链接系统），保持不变
+        - level != 1：角色加入链接系统，跟随全局等级
+        """
+        changed_cids = []
+        for cid, cfg in self.char_config.items():
+            if not cfg.get("override"):
+                continue
+            saved_level = cfg.get("level")
+            if saved_level is None or saved_level == 1:
+                continue
+            if saved_level != new_level:
+                cfg["level"] = new_level
+                changed_cids.append(cid)
+        if changed_cids:
+            self._save_char_config()
+            # 若当前角色参数页正在显示受影响角色，刷新详情以同步 Spinbox 与预览
+            char_tab = getattr(self, "char_tab", None)
+            if char_tab is not None:
+                current_cid = getattr(char_tab, "preview_cid", None)
+                if current_cid in changed_cids:
+                    char_tab._show_detail(current_cid)
+
     def _build_panel_config_from_gui(self, global_vals: Dict) -> PanelConfig:
         panel = PanelConfig(
             character_level=global_vals["character_level"],
@@ -10909,6 +10958,7 @@ class MGGBattleSimulatorGUI:
             if cc.get("override"):
                 panel.rarities[cid] = cc["rarity"]
                 panel.affection_levels[cid] = cc["affection"]
+                panel.character_levels[cid] = cc["level"]
                 tid = get_module_type_ids(char.character_type)
                 panel.modules[cid] = [
                     ModuleConfig(module_id=mid, tier=cc["mod_tier"], level=cc["mod_level"],
@@ -10944,7 +10994,7 @@ class MGGBattleSimulatorGUI:
             sk = self.data_loader.get_skill_by_id(sid)
             if sk and sk.skill_type == 3:
                 return sk.resource_cost
-        return 8
+        return 0  # 无EX技能的单位无EP条
 
     def _create_unit(self, panel_config, player_config, stat_calculator,
                      char_id, side, pos):

@@ -41,6 +41,10 @@ The simulator currently supports a limited set of characters. More will be added
 | 聖夜のサンタシンガー    | 綺羅クララ       |
 | 眠れる社交界の淑女     | 夕凪舞亜        |
 | はだけるわんぱく浴衣    | ユリア・バーンズ    |
+| 旋律を紡ぐ静謐のディーヴァ | シエナ・クラーク    |
+| 期待応える輝きの穹     | 一条白奈        |
+| 毒舌メイド娘        | ハリエット・ミルズ   |
+| 純白のラッキーガール    | 一条白奈        |
 
 ## Tactical Exercise Enemies
 
