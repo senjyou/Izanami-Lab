@@ -36,6 +36,8 @@ _MASTERDATA_STATUS_MAP = {
     "freeze": SkillEffectType.FREEZE.value,
     "凍結": SkillEffectType.FREEZE.value,
     "knockout": SkillEffectType.KNOCKOUT.value,
+    "confusion": SkillEffectType.CONFUSION.value,
+    "混乱": SkillEffectType.CONFUSION.value,
     "mark": SkillEffectType.MARK.value,
     "good_luck": "good_luck",
     "action_damage": SkillEffectType.ACTION_DAMAGE.value,
@@ -385,6 +387,7 @@ class SkillService:
         技能选择AI:
         1. EP满 (current_ep == max_ep) → 选择EX技能
         2. 否则 → 第一个可用的AS技能 (AP足够 + 未冷却 + 活跃敌方)
+        混乱时：EX/PS被过滤，仅含伤害效果的AS可用；无则待机。
         """
 
         def _is_usable(skill_id: int) -> bool:
@@ -393,33 +396,65 @@ class SkillService:
                 return False
             return self.check_skill_cost(unit, skill_id)
 
+        # 混乱状态检查
+        is_confused = getattr(unit, 'is_confused', False)
+
         enemies = [u for u in self._battlefield.enemy_team if u.is_alive]
         if not enemies:
             _log.info("[SKILL_SEL] %s: no alive enemies -> standby", unit.name)
             return None
 
-        for sid in unit.skills:
-            resolved = self._resolver.resolve(sid, unit.skill_levels.get(sid, 1))
-            if not resolved:
-                continue
+        # EX技能：混乱时跳过
+        if not is_confused:
+            for sid in unit.skills:
+                resolved = self._resolver.resolve(sid, unit.skill_levels.get(sid, 1))
+                if not resolved:
+                    continue
 
-            if resolved.skill_type == 3:
-                if unit.current_ep >= unit.max_extra_point and _is_usable(sid):
-                    _log.info("[SKILL_SEL] %s: EP full -> EX skill [%s] (id=%d)",
-                              unit.name, resolved.name, sid)
-                    return sid
+                if resolved.skill_type == 3:
+                    if unit.current_ep >= unit.max_extra_point and _is_usable(sid):
+                        _log.info("[SKILL_SEL] %s: EP full -> EX skill [%s] (id=%d)",
+                                  unit.name, resolved.name, sid)
+                        return sid
 
+        # AS技能：混乱时仅选含伤害效果的AS
         for sid in unit.skills:
             resolved = self._resolver.resolve(sid, unit.skill_levels.get(sid, 1))
             if not resolved:
                 continue
             if resolved.skill_type == 1 and _is_usable(sid):
-                _log.info("[SKILL_SEL] %s: AS skill [%s] (id=%d) pwr=%.1f cost=%d",
-                          unit.name, resolved.name, sid, resolved.power, resolved.resource_cost)
+                if is_confused and not self._skill_has_damage_effect(sid, unit.skill_levels.get(sid, 1)):
+                    _log.info("[SKILL_SEL] %s: CONFUSED -> skip AS [%s] (id=%d, no damage effect)",
+                              unit.name, resolved.name, sid)
+                    continue
+                _log.info("[SKILL_SEL] %s: AS skill [%s] (id=%d) pwr=%.1f cost=%d%s",
+                          unit.name, resolved.name, sid, resolved.power, resolved.resource_cost,
+                          " (CONFUSED)" if is_confused else "")
                 return sid
 
-        _log.info("[SKILL_SEL] %s: no usable skill -> standby", unit.name)
+        _log.info("[SKILL_SEL] %s: no usable skill -> standby%s",
+                  unit.name, " (CONFUSED)" if is_confused else "")
         return None
+
+    def _skill_has_damage_effect(self, skill_id: int, level: int = 1) -> bool:
+        """检查技能是否包含即时伤害效果（damage/hp_ratio_damage/damage_special）"""
+        parsed = self.data_loader.get_parsed_skill_data(skill_id) if hasattr(self, 'data_loader') else None
+        if not parsed:
+            return False
+        effect_blocks = parsed.get('effect_blocks', [])
+        for block in effect_blocks:
+            # 检查block条件
+            block_cond = block.get('condition') if isinstance(block, dict) else None
+            if block_cond and isinstance(block_cond, dict):
+                level_min = block_cond.get('active_level_min')
+                if level_min is not None and level < level_min:
+                    continue
+            effects = block.get('effects', []) if isinstance(block, dict) else []
+            for eff in effects:
+                etype = eff.get('effect_type', '')
+                if etype in ('damage', 'hp_ratio_damage', 'damage_special'):
+                    return True
+        return False
 
     def execute_skill(self, caster: UnitState, skill_id: int,
                       battlefield: BattlefieldState, skip_cost: bool = False,
@@ -448,6 +483,7 @@ class SkillService:
         self._skill_evaded_targets = set()  # 技能级别：所有block中完全闪避的目标集合
         self._debuff_immune_blocked_targets = set()  # 技能级别：被debuff_immune免疫的目标集合
         self._skill_all_attacked_targets = []  # 技能级别：所有block中已攻击的目标累积（用于跨block的attacked_targets）
+        self._most_recent_damage = 0  # 技能级别：累计该技能所有damage block的伤害，供lifesteal等使用
 
         # 快照技能执行前的mark状态（用于has_mark_at_start条件和target_has_mark条件）
         self._marks_at_start = {}
@@ -1014,6 +1050,20 @@ class SkillService:
                     _log.info("[SKILL_EXEC] %s: block %d total_damage_le PASS (%d <= %d)",
                               caster.name, block.block_id, total_dmg, threshold)
 
+                elif cond_type == 'caster_back_row':
+                    # 施法者处于后排时执行（如「粛清です」block2: 后排时对前排友方追加伤害）
+                    from ...entities_v2.enums import Position as _PosCbr
+                    back_positions = {
+                        _PosCbr.ALLY_LEFT_BACK, _PosCbr.ALLY_CENTER_BACK, _PosCbr.ALLY_RIGHT_BACK,
+                        _PosCbr.ENEMY_LEFT_BACK, _PosCbr.ENEMY_CENTER_BACK, _PosCbr.ENEMY_RIGHT_BACK,
+                    }
+                    if caster.position not in back_positions:
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (caster_back_row: position=%s not back)",
+                                  caster.name, block.block_id, caster.position)
+                        continue
+                    _log.info("[SKILL_EXEC] %s: block %d caster_back_row PASS (position=%s)",
+                              caster.name, block.block_id, caster.position)
+
             level_min_val = block_condition.get('level_min') if isinstance(block_condition, dict) else None
             level_max_val = block_condition.get('level_max') if isinstance(block_condition, dict) else None
             if level_min_val is not None or level_max_val is not None:
@@ -1438,42 +1488,25 @@ class SkillService:
                     result["effects_applied"].append(applied)
                     if "damage" in applied:
                         result["total_damage"] += applied["damage"]
+                    # 附魔伤害+sub_unit伤害紧跟主伤害结算（绑定在一起）
+                    # 主伤害全段miss时_enchant_skip标记会跳过附魔，确保miss不触发附魔
+                    if applied.get("effect_type") == "damage":
+                        _dmg_targets = applied.get("targets", [])
+                        if _dmg_targets:
+                            _enchant_results = self._apply_block_enchant_damage(
+                                caster, _dmg_targets, battlefield, result["total_damage"])
+                            if _enchant_results:
+                                for _er in _enchant_results:
+                                    result["effects_applied"].append(_er)
+                                    if _er.get("effect_type") == "damage":
+                                        result["total_damage"] = _er["total_damage"]
 
             # Note: _block_damage_targets is NOT cleared here, so that subsequent blocks
             # in the same skill can reuse the cached targets (e.g., aura effects in block 3
             # should target the same unit as damage in block 2). It will be cleared after
             # all blocks are processed.
 
-            # Process enchant/sub_unit damage after any block that contains damage effects
-            if block_has_damage:
-                _log.info("[ENCHANT_BLOCK] %s: block_idx=%d, checking for enchant damage (effects_applied=%d)",
-                          caster.name, block_idx, len(result["effects_applied"]))
-                block_targets = []
-                seen_ids = set()
-                for applied in result["effects_applied"]:
-                    if applied.get("effect_type") == "damage":
-                        for t in applied.get("targets", []):
-                            tid = t.get("target_id")
-                            if tid and tid not in seen_ids:
-                                seen_ids.add(tid)
-                                block_targets.append(t)
-                _log.info("[ENCHANT_BLOCK] %s: block_targets=%d, total_damage=%d",
-                          caster.name, len(block_targets), result["total_damage"])
-                if block_targets:
-                    enchant_results = self._apply_block_enchant_damage(caster, block_targets, battlefield, result["total_damage"])
-                    if enchant_results:
-                        for er in enchant_results:
-                            result["effects_applied"].append(er)
-                            if er.get("effect_type") == "damage":
-                                result["total_damage"] = er["total_damage"]
-                                _log.info("[ENCHANT_BLOCK] %s: enchant damage applied, new total_damage=%d",
-                                          caster.name, result["total_damage"])
-                    else:
-                        _log.info("[ENCHANT_BLOCK] %s: enchant_results is None", caster.name)
-                else:
-                    _log.info("[ENCHANT_BLOCK] %s: block_targets empty, skipping enchant", caster.name)
-
-            # 附魔伤害结算后，执行延迟的hp_threshold_cross效果
+            # 附魔伤害已紧跟每个damage效果结算，此处执行延迟的hp_threshold_cross效果
             for effect in block_hp_threshold_deferred:
                 _log.info("[SKILL_EXEC] %s: applying deferred hp_threshold_cross effect_type=%s (after enchant damage)",
                           caster.name, effect.effect_type)
@@ -1677,6 +1710,14 @@ class SkillService:
                           caster.name, etype, skill_level, level_min)
                 return None
 
+        # 混乱过滤：仅允许伤害类效果和consume_hp执行，其他效果FAIL
+        if getattr(caster, 'is_confused', False):
+            _CONFUSION_WHITELIST = {"damage", "hp_ratio_damage", "damage_special", "consume_hp"}
+            if etype not in _CONFUSION_WHITELIST:
+                _log.info("[CONFUSION] %s: effect %s FAIL (confused, only damage effects allowed)",
+                          caster.name, etype)
+                return None
+
         if etype == "damage":
             return self._apply_damage(caster, effect, battlefield)
 
@@ -1737,6 +1778,9 @@ class SkillService:
 
         elif etype == "remove_shield":
             return self._apply_remove_shield(caster, effect, battlefield)
+
+        elif etype == "remove_sub_unit":
+            return self._apply_remove_sub_unit(caster, effect, battlefield)
 
         elif etype == "cover":
             return self._apply_cover(caster, effect, battlefield)
@@ -2636,7 +2680,7 @@ class SkillService:
                             "source_actual_damage": target["actual_damage"],
                         })
 
-        self._most_recent_damage = total_damage
+        self._most_recent_damage += total_damage
 
         self._previous_damage_target_ids = set(t["target_id"] for t in targets_hit)
 
@@ -2767,6 +2811,14 @@ class SkillService:
                     _log.info("[ENCHANT_DMG] guard reduction: rate=%.4f dmg=%.1f", guard_rate, dmg)
 
                 extra_dmg = max(1, int(dmg))
+                # 混乱减免：附魔伤害也受混乱减免影响
+                if getattr(caster, 'is_confused', False):
+                    confusion_buff = self.damage_service._get_confusion_buff(caster)
+                    if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
+                        orig_extra = extra_dmg
+                        extra_dmg = max(1, int(extra_dmg * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
+                        _log.info("[ENCHANT_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                                  orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
                 hp_before = target.current_hp
                 target.current_hp = max(0, target.current_hp - extra_dmg)
                 total_damage += extra_dmg
@@ -2876,6 +2928,12 @@ class SkillService:
                               caster.name, target_info.get("target_id"), target is not None,
                               target.is_alive if target else "N/A")
                     continue
+                # 主伤害全段闪避的目标不触发sub_unit伤害（与附魔伤害一致）
+                target_evades = target_info.get("hit_evades", [])
+                if target_evades and all(target_evades):
+                    _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit for %s (all hits evaded)",
+                              caster.name, target.name)
+                    continue
 
                 b_def = self.damage_service._calculate_final_stat(target, "defense")
 
@@ -2917,6 +2975,14 @@ class SkillService:
                     dmg *= (1.0 - guard_rate)
 
                 extra_dmg = max(1, int(dmg))
+                # 混乱减免：子单位追加伤害也受混乱减免影响（召唤者混乱时）
+                if getattr(caster, 'is_confused', False):
+                    confusion_buff = self.damage_service._get_confusion_buff(caster)
+                    if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
+                        orig_extra = extra_dmg
+                        extra_dmg = max(1, int(extra_dmg * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
+                        _log.info("[SUB_UNIT_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                                  orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
                 hp_before = target.current_hp
 
                 # Shield absorption (same logic as normal damage)
@@ -3093,6 +3159,12 @@ class SkillService:
         _log.info("[ENCHANT_BLOCK] %s: _apply_block_enchant_damage called, targets_hit=%s, total_dmg=%d",
                   caster.name, [(t.get('target_id'), t.get('target')) for t in targets_hit], total_damage)
         new_total, enchant_targets, carried_debuff_targets = self._process_enchant_damage(caster, targets_hit, battlefield, total_damage)
+        # 附魔伤害+sub_unit伤害累加到技能累计伤害，供延迟执行的lifesteal使用
+        enchant_damage_delta = new_total - total_damage
+        if enchant_damage_delta > 0:
+            self._most_recent_damage += enchant_damage_delta
+            _log.info("[ENCHANT_BLOCK] %s: enchant+sub_unit damage %d accumulated to _most_recent_damage (total=%d)",
+                      caster.name, enchant_damage_delta, self._most_recent_damage)
         results = []
         if enchant_targets:
             _log.info("[ENCHANT_BLOCK] %s: enchant_targets=%s, new_total=%d", caster.name,
@@ -4417,9 +4489,41 @@ class SkillService:
             if actual_is_debuff:
                 self._debuffs_applied_this_skill.add(aura.buff_id)
             # Build detail string for aura log
+            # 在buff已添加到单位身上时立即计算stat类detail，避免EPHEMERAL_SKILL_END清理后叙事层拿到未buff的值
             aura_detail = ""
             if effect.effect_type == "shield":
                 aura_detail = f"护盾+{shield_value}"
+            elif self.damage_service and mapped_effect_type in (
+                SkillEffectType.STATUS_ATTACK.value, SkillEffectType.STATUS_DEFENSE.value,
+                SkillEffectType.STATUS_SPEED.value, SkillEffectType.STATUS_MAX_HP.value,
+                SkillEffectType.DEALT_DAMAGE.value, SkillEffectType.RECEIVED_DAMAGE.value,
+            ):
+                if mapped_effect_type == SkillEffectType.STATUS_ATTACK.value:
+                    aura_detail = f"ATK→{self.damage_service._calculate_final_stat(target, 'attack')}"
+                elif mapped_effect_type == SkillEffectType.STATUS_DEFENSE.value:
+                    aura_detail = f"DEF→{self.damage_service._calculate_final_stat(target, 'defense')}"
+                elif mapped_effect_type == SkillEffectType.STATUS_SPEED.value:
+                    aura_detail = f"SPD→{self.damage_service._calculate_final_stat(target, 'speed')}"
+                elif mapped_effect_type == SkillEffectType.STATUS_MAX_HP.value:
+                    aura_detail = f"最大HP→{self.damage_service._calculate_final_stat(target, 'max_hp')}"
+                elif mapped_effect_type == SkillEffectType.DEALT_DAMAGE.value:
+                    total = 0.0
+                    for b in target.buffs:
+                        if b.effect_type == SkillEffectType.DEALT_DAMAGE.value:
+                            total += self.damage_service._normalize_buff_value(b)
+                    for b in target.debuffs:
+                        if b.effect_type == SkillEffectType.DEALT_DAMAGE.value:
+                            total -= self.damage_service._normalize_buff_value(b)
+                    aura_detail = f"与ダメージ{int(total*100):+d}%"
+                elif mapped_effect_type == SkillEffectType.RECEIVED_DAMAGE.value:
+                    total = 0.0
+                    for b in target.buffs:
+                        if b.effect_type == SkillEffectType.RECEIVED_DAMAGE.value:
+                            total += self.damage_service._normalize_buff_value(b)
+                    for b in target.debuffs:
+                        if b.effect_type == SkillEffectType.RECEIVED_DAMAGE.value:
+                            total -= self.damage_service._normalize_buff_value(b)
+                    aura_detail = f"被ダメージ{int(total*100):+d}%"
 
             # mark效果：使用mark_name作为显示名称
             display_effect = mapped_effect_type
@@ -4580,6 +4684,13 @@ class SkillService:
             value = poison_damage_pct / 100.0
             _log.info("[ADD_STATUS] %s: poison pct=%d -> value=%.3f",
                       caster.name, poison_damage_pct, value)
+        elif status_type == "confusion":
+            # 混乱参数从flags读取，存入BuffState专用字段
+            value = 0  # 混乱本身无value，参数在专用字段
+            _log.info("[ADD_STATUS] %s: confusion params from flags: dmg_reduction=%s proxy_atk_pct=%s",
+                      caster.name,
+                      add_status_flags.get('confusion_dmg_reduction'),
+                      add_status_flags.get('confusion_proxy_atk_pct'))
         effect_dur = getattr(effect, 'duration', None)
         if effect_dur is not None:
             duration = effect_dur
@@ -4653,6 +4764,10 @@ class SkillService:
                 caster_attack=self.damage_service._calculate_final_stat(caster, "attack"),
                 is_debuff=is_debuff,
             )
+            # 混乱专用参数：从flags读取并写入BuffState
+            if normalized == SkillEffectType.CONFUSION.value:
+                aura.confusion_dmg_reduction = float(add_status_flags.get('confusion_dmg_reduction', 0.0))
+                aura.confusion_proxy_atk_pct = float(add_status_flags.get('confusion_proxy_atk_pct', 10.0))
             was_charging = target.is_charging and target.charge_skill_id
             charge_skill_id = target.charge_skill_id if was_charging else 0
             charge_skill_name = ""
@@ -5365,9 +5480,10 @@ class SkillService:
 
     def _get_debuff_types(self):
         return {
-            "poison", "conflagration", "freeze", "knockout", "mark", "action_damage",
+            "poison", "conflagration", "freeze", "knockout", "confusion", "mark", "action_damage",
             SkillEffectType.POISON.value, SkillEffectType.CONFLAGRATION.value,
             SkillEffectType.FREEZE.value, SkillEffectType.KNOCKOUT.value,
+            SkillEffectType.CONFUSION.value,
             SkillEffectType.MARK.value, SkillEffectType.ACTION_DAMAGE.value,
             "received_damage", "attribute_attack", "attribute_defense",
             "block_auras", "block_evade",
@@ -5801,6 +5917,14 @@ class SkillService:
 
             hp_before = target.current_hp
             actual_damage = int(raw_power)
+            # 混乱减免（仅减免，不应用代理数值——代理数值仅在ATK-DEF模式适用）
+            if getattr(caster, 'is_confused', False):
+                confusion_buff = self.damage_service._get_confusion_buff(caster) if self.damage_service else None
+                if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
+                    orig_actual = actual_damage
+                    actual_damage = max(1, int(actual_damage * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
+                    _log.info("[HP_RATIO_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                              orig_actual, actual_damage, confusion_buff.confusion_dmg_reduction)
             target.current_hp = max(0, target.current_hp - actual_damage)
             total_damage += actual_damage
             caster.damage_dealt_total += actual_damage
@@ -5826,7 +5950,7 @@ class SkillService:
                 self._pending_deaths.add(target.unit_id)
                 _log.info("[HP_RATIO_DMG] %s: death deferred for %s", caster.name, target.name)
 
-        self._most_recent_damage = total_damage
+        self._most_recent_damage += total_damage
         if value_source != "target_lost_hp":
             self._hp_consumed = 0
 
@@ -5877,6 +6001,15 @@ class SkillService:
                 continue
 
             current_raw = raw_damage
+
+            # 混乱减免（仅减免，代理数值仅适用于ATK-DEF模式，damage_special不应用代理）
+            if getattr(caster, 'is_confused', False):
+                confusion_buff = self.damage_service._get_confusion_buff(caster) if self.damage_service else None
+                if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
+                    orig_raw = current_raw
+                    current_raw = max(1, int(current_raw * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
+                    _log.info("[DAMAGE_SPECIAL] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                              orig_raw, current_raw, confusion_buff.confusion_dmg_reduction)
 
             # evade check: 可被闪避
             evaded = False
@@ -6106,6 +6239,11 @@ class SkillService:
         import uuid
         sub_unit_name = effect_flags.get('sub_unit_name', 'SubUnit')
         caster_atk_snapshot = self.damage_service._calculate_final_stat(caster, "attack")
+        _log.info("[SUB_UNIT_CREATE] %s: base_atk=%d, final_atk(snapshot)=%d (buffs=%d, atk_up=%d)",
+                  caster.name, getattr(caster, 'attack', 0), caster_atk_snapshot,
+                  len(caster.buffs),
+                  sum(1 for b in caster.buffs
+                      if b.effect_type == SkillEffectType.STATUS_ATTACK.value))
 
         # 解析add_status_to_attack中的value_tag为实际数值
         if add_status_info and add_status_info.get('value_tag'):
@@ -6126,52 +6264,59 @@ class SkillService:
                     _log.warning("[SUB_UNIT] %s: failed to resolve value_tag '%s': %s",
                                 caster.name, add_status_info.get('value_tag'), _e)
 
+        # apply_count: 对每个目标应用N个独立实例（如PS1/PS2的カムラッド×3）
+        apply_count = int(effect_flags.get('apply_count', 1) or 1)
+        if apply_count < 1:
+            apply_count = 1
+
         applied_targets = []
         for target in target_list:
-            buff_id = f"{caster.unit_id}_SubUnit_{target.unit_id}_{uuid.uuid4().hex[:8]}"
+            for _ in range(apply_count):
+                buff_id = f"{caster.unit_id}_SubUnit_{target.unit_id}_{uuid.uuid4().hex[:8]}"
 
-            # 构造hit_limited_flags存储add_status_to_attack信息
-            hlf = {}
-            if add_status_info:
-                hlf['add_status_to_attack'] = add_status_info
+                # 构造hit_limited_flags存储add_status_to_attack信息
+                hlf = {}
+                if add_status_info:
+                    hlf['add_status_to_attack'] = add_status_info
 
-            sub_unit_buff = BuffState(
-                buff_id=buff_id,
-                name=sub_unit_name,
-                effect_type=SkillEffectType.SUB_UNIT.value,
-                value=atk_pct,
-                duration=duration,
-                timing_type=timing,
-                source_unit_id=caster.unit_id,
-                source_skill_id=self._current_skill_id,
-                caster_attack=caster_atk_snapshot,
-                is_debuff=False,
-                is_stackable=True,  # SubUnit can coexist as multiple instances
-                sub_unit_hp=sub_unit_max_hp,
-                sub_unit_max_hp=sub_unit_max_hp,
-                hit_limited_flags=hlf,
-            )
+                sub_unit_buff = BuffState(
+                    buff_id=buff_id,
+                    name=sub_unit_name,
+                    effect_type=SkillEffectType.SUB_UNIT.value,
+                    value=atk_pct,
+                    duration=duration,
+                    timing_type=timing,
+                    source_unit_id=caster.unit_id,
+                    source_skill_id=self._current_skill_id,
+                    caster_attack=caster_atk_snapshot,
+                    is_debuff=False,
+                    is_stackable=True,  # SubUnit can coexist as multiple instances
+                    sub_unit_hp=sub_unit_max_hp,
+                    sub_unit_max_hp=sub_unit_max_hp,
+                    hit_limited_flags=hlf,
+                )
 
-            self.aura_service.add_aura(target, sub_unit_buff)
-            self._newly_created_sub_unit_ids.add(buff_id)
-            _log.info("[SUB_UNIT] %s -> %s: sub_unit '%s' applied, HP=%d/%d, atk_dmg=%.1f%%, dur=%d(%s), buff_id=%s, add_status=%s",
-                      caster.name, target.name, sub_unit_name,
-                      sub_unit_max_hp, sub_unit_max_hp, atk_pct, duration, dur_type, buff_id,
-                      add_status_info.get('status') if add_status_info else 'none')
-            applied_targets.append(target)
+                self.aura_service.add_aura(target, sub_unit_buff)
+                self._newly_created_sub_unit_ids.add(buff_id)
+                _log.info("[SUB_UNIT] %s -> %s: sub_unit '%s' applied, HP=%d/%d, atk_dmg=%.1f%%, dur=%d(%s), buff_id=%s, add_status=%s",
+                          caster.name, target.name, sub_unit_name,
+                          sub_unit_max_hp, sub_unit_max_hp, atk_pct, duration, dur_type, buff_id,
+                          add_status_info.get('status') if add_status_info else 'none')
+                # 每个独立 sub_unit 实例作为单独条目，叙事层按实例输出日志
+                applied_targets.append({
+                    "target": target.name,
+                    "target_id": target.unit_id,
+                    "sub_unit_name": sub_unit_name,
+                    "sub_unit_hp": sub_unit_max_hp,
+                    "sub_unit_max_hp": sub_unit_max_hp,
+                    "atk_dmg_pct": atk_pct,
+                    "duration": duration,
+                    "dur_type": dur_type,
+                })
 
         return {
             "effect_type": "sub_unit",
-            "targets": [{
-                "target": t.name,
-                "target_id": t.unit_id,
-                "sub_unit_name": sub_unit_name,
-                "sub_unit_hp": sub_unit_max_hp,
-                "sub_unit_max_hp": sub_unit_max_hp,
-                "atk_dmg_pct": atk_pct,
-                "duration": duration,
-                "dur_type": dur_type,
-            } for t in applied_targets],
+            "targets": applied_targets,
             "total_damage": 0,
         }
 
@@ -6194,6 +6339,7 @@ class SkillService:
             targets = [caster]
         else:
             targets = []
+        removed_info = []
         for target in targets:
             if not target.is_alive:
                 continue
@@ -6201,6 +6347,7 @@ class SkillService:
             shield_buffs = [b for b in target.buffs
                            if b.effect_type in (SkillEffectType.SHIELD.value, "shield", "Shield")]
             removed_count = len(shield_buffs)
+            removed_names = [getattr(b, 'name', b.effect_type) for b in shield_buffs]
             for b in shield_buffs:
                 target.buffs.remove(b)
             # 清零shield值
@@ -6212,7 +6359,52 @@ class SkillService:
             target.en_shield = 0
             _log.info("[REMOVE_SHIELD] %s: removed %d shield buffs, shield %d->0, physical_shield %d->0, en_shield %d->0",
                       target.name, removed_count, old_shield, old_physical, old_en)
-        return {"effect_type": "remove_shield", "targets": [{"target_id": t.unit_id, "target_name": t.name} for t in targets if t.is_alive]}
+            removed_info.append({
+                "target_id": target.unit_id,
+                "target_name": target.name,
+                "removed_count": removed_count,
+                "removed_names": removed_names,
+            })
+        return {"effect_type": "remove_shield", "targets": removed_info}
+
+    def _apply_remove_sub_unit(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
+        """移除目标所有sub_unit buff（如技能130136 PS1清除自身カムラッドⅠ/Ⅱ）"""
+        rs_target_type = getattr(effect, 'target_type', 'self')
+        if rs_target_type == "self":
+            target_list = [caster]
+        elif self.target_service:
+            cached_targets = getattr(self, '_block_damage_targets', None)
+            if cached_targets is not None and isinstance(cached_targets, dict) and rs_target_type in cached_targets:
+                target_list = list(cached_targets[rs_target_type])
+            else:
+                target_skill_obj = type('obj', (object,), {
+                    'display_target_type': self._resolve_target_type(rs_target_type),
+                    'display_target_range': self._resolve_target_range(rs_target_type),
+                    'display_target_priority': None,
+                    'target_type_name': rs_target_type,
+                })()
+                target_list = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+        else:
+            target_list = []
+
+        removed_info = []
+        for target in target_list:
+            if not target.is_alive:
+                continue
+            sub_buffs = [b for b in target.buffs if b.effect_type == SkillEffectType.SUB_UNIT.value]
+            removed_count = len(sub_buffs)
+            removed_names = [getattr(b, 'name', 'SubUnit') for b in sub_buffs]
+            for b in sub_buffs:
+                target.buffs.remove(b)
+            _log.info("[REMOVE_SUB_UNIT] %s: removed %d sub_unit buffs (names=%s)",
+                      target.name, removed_count, removed_names)
+            removed_info.append({
+                "target_id": target.unit_id,
+                "target_name": target.name,
+                "removed_count": removed_count,
+                "removed_names": removed_names,
+            })
+        return {"effect_type": "remove_sub_unit", "targets": removed_info}
 
     def _apply_remove_mark(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         """移除指定名称的mark

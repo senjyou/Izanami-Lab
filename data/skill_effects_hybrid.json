@@ -66548,5 +66548,493 @@
     "display_target_type": 3,
     "parse_status": "success",
     "parse_notes": []
+  },
+  "110059": {
+    "skill_id": 110059,
+    "name": "鉄の女",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "confusion",
+              "confusion_dmg_reduction_tag": "dmg",
+              "confusion_proxy_atk_pct": 10.0
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: 敵全体に1行動混乱付与(dmg%减免, ATK×10%代理数值)"
+    ]
+  },
+  "120130": {
+    "skill_id": 120130,
+    "name": "粛清です",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 3,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "caster_back_row"
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "ally_front_row",
+            "target_identifier": null,
+            "value": 25,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "ally_front_row",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "ally_front_row",
+            "target_identifier": null,
+            "value": 15,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
+        "effects": [
+          {
+            "effect_type": "lifesteal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS1: EN攻撃enemy_row威力, 後列時ally_front_row威力25+EX+1+dmg_dealt_up15%(1action,stackable), Lv11+ lifesteal(cure%)"
+    ]
+  },
+  "120131": {
+    "skill_id": 120131,
+    "name": "システマ・ヴラシェーニヤΑ",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "lifesteal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 17.5,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "警戒",
+              "is_buff_mark": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 35,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "mark_condition": "警戒"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS2: EN攻撃enemy_single威力 + lifesteal17.5% + 警戒mark(2action) + dmg_taken_down35%(2action,mark_condition=警戒)"
+    ]
+  },
+  "130136": {
+    "skill_id": 130136,
+    "name": "この魂、レドフカに捧げます",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_skill_use_count",
+    "global_condition": {
+      "type": "skill_use_count_modulo",
+      "value": 4
+    },
+    "simultaneous_limit": false,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_sub_unit",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 30,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "skill",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "sub_unit",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "sub_unit_name": "カムラッドⅡ",
+              "sub_unit_hp_pct": 15.0,
+              "apply_count": 3
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS1: on_skill_use_count(4), remove_shield+remove_sub_unit(self), atk_up30%(skill,stackable), sub_unit カムラッドⅡ×3(2action,HP=15%maxHP,ATK×atk%EN追加)"
+    ]
+  },
+  "130137": {
+    "skill_id": 130137,
+    "name": "ヴォルコワの血脈Α",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "consume_hp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 60,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hp_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "sub_unit",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "sub_unit_name": "カムラッドⅠ",
+              "sub_unit_hp_pct": 15.0,
+              "apply_count": 3
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS2: on_turn_start(戦闘中1度,cooldown=99), consume_hp60%(current_hp), sub_unit カムラッドⅠ×3(永久,HP=15%maxHP,ATK×atk%EN追加), Lv11+ cheat_death(cure%回復)"
+    ]
   }
 }

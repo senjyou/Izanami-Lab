@@ -2013,6 +2013,14 @@ class BattleFlowController:
                 for rd in applied.get("removed_details", []):
                     target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
                     self.narrative.buff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+            elif applied.get("effect_type") == "remove_shield":
+                for rd in applied.get("targets", []):
+                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                    self.narrative.shield_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
+            elif applied.get("effect_type") == "remove_sub_unit":
+                for rd in applied.get("targets", []):
+                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                    self.narrative.sub_unit_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
             elif applied.get("effect_type") == "sub_unit":
                 for su in applied.get("targets", []):
                     target_dname = self._get_display_name(su.get('target_id', su.get('target')))

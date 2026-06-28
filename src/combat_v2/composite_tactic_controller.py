@@ -7,7 +7,8 @@ src/combat_v2/composite_tactic_controller.py
 职责：
 - 管理3支队伍依次出战的战斗流程
 - 每队最多5回合，团灭或打完5回合后切换下一队
-- 敌方HP跨队伍继承，但buff/debuff/AP/PP/EP不继承（重置为初始值）
+- 敌方HP跨队伍继承，非回忆卡buff/debuff(含异常状态)及技能冷却跨队伍继承，
+  回忆卡buff/debuff清除，AP/PP/EP重置为初始值
 - 仅BOSS(Enemy1)死亡后复活并增强，小怪不复活
 - BOSS复活阶段跨队伍继承
 - 分数 = 三队对BOSS造成的总伤害（含溢出）
@@ -539,20 +540,27 @@ class CompositeTacticController(BattleFlowController):
 
     def _reset_enemy_state_for_new_team(self):
         """队伍切换时重置敌方状态：
-        - 保留: HP（含死亡状态）、BOSS阶段增量buff、非回忆卡buff/debuff
+        - 保留: HP（含死亡状态）、BOSS阶段增量buff、非回忆卡buff/debuff、技能冷却状态、
+                异常状态(眩晕/冻结/炎上/毒等debuff)
         - 清除: 回忆卡buff/debuff(is_memory_buff=True，但stage_开头的阶段增量buff除外)
-        - 重置: AP/PP/EP → 初始值
+        - 重置: AP/PP/EP → 初始值、蓄力状态
 
         注：回忆卡随队伍切换而更换，其施加的buff/debuff不可跨队伍继承；
         但敌方自身技能施加的buff/debuff应保留（队伍切换不清除敌方状态）。
+        异常状态(眩晕/冻结/炎上/毒)属于debuff，同样跨队伍继承——例如敌方在前一队
+        被施加眩晕(剩余2行动)，切换到下一队时仍处于眩晕状态。
+        技能冷却也属于敌方自身状态，跨队伍继承。
         """
         for enemy in self.battlefield.enemy_team:
             # 保留阶段增量buff(stage_开头)和非回忆卡buff，清除回忆卡buff
             enemy.buffs = [b for b in enemy.buffs if b.buff_id.startswith("stage_") or not b.is_memory_buff]
             # 清除回忆卡debuff(is_memory_buff=True)，保留技能施加的普通debuff
+            # （含眩晕/冻结/炎上/毒等异常状态，均随非回忆卡debuff保留跨队伍继承）
             enemy.debuffs = [d for d in enemy.debuffs if not d.is_memory_buff]
-            enemy.is_stunned = False
-            enemy.is_frozen = False
+            # 眩晕/冻结标志位从过滤后的debuffs列表重新派生，保持与debuffs一致
+            # （回忆卡施加的眩晕/冻结被移除后标志位归False，技能施加的则保留True）
+            enemy.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in enemy.debuffs)
+            enemy.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in enemy.debuffs)
 
             # 重置AP/PP/EP为初始值
             initial = self._enemy_initial_resources.get(enemy.unit_id, {})
@@ -560,8 +568,9 @@ class CompositeTacticController(BattleFlowController):
             enemy.current_pp = initial.get("pp", enemy.initial_passive_point)
             enemy.current_ep = initial.get("ep", 0)
 
-            # 重置技能冷却
-            enemy.skill_cooldowns.clear()
+            # 保留技能冷却状态（跨队伍继承，不清空）
+            # 例：敌方在前一队最后一次行动使用AS1（冷却2），行动后冷却保持2（因递减基于行动前快照，
+            # 而使用前AS1可用不在快照中故不递减），切换到下一队时AS1仍冷却中无法直接使用。
 
             # 重置蓄力状态
             enemy.is_charging = False

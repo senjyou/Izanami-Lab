@@ -242,6 +242,14 @@ class SkillDataResolver:
                             _log.info("[RESOLVER] skill=%d sub_unit_hp_pct_tag=%s resolved=%.1f",
                                       skill_id, sub_unit_hp_pct_tag, resolved_val)
 
+                    confusion_dmg_reduction_tag = flags.get('confusion_dmg_reduction_tag')
+                    if confusion_dmg_reduction_tag:
+                        resolved_val = tag_values.get(confusion_dmg_reduction_tag)
+                        if resolved_val is not None:
+                            flags['confusion_dmg_reduction'] = resolved_val
+                            _log.info("[RESOLVER] skill=%d confusion_dmg_reduction_tag=%s resolved=%.1f",
+                                      skill_id, confusion_dmg_reduction_tag, resolved_val)
+
                 effects.append(ResolvedEffect(
                     effect_type=effect_data.get('effect_type', 'unknown'),
                     target_type=effect_data.get('target_type', 'unknown'),

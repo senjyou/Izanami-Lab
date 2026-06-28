@@ -215,6 +215,7 @@ class SkillEffectType(Enum):
     CONFLAGRATION = "Conflagration"                   # 13: 炎上 (持续伤害，可叠加)
     FREEZE = "Freeze"                                 # 33: 冻结 (无法行动，受击解除)
     KNOCKOUT = "Knockout"                             # 32: 眩晕/气绝 (无法行动)
+    CONFUSION = "Confusion"                           # 混乱 (技能过滤+目标反转+伤害减免)
     MARK = "Mark"                                     # 41: 标记
     ACTION_DAMAGE = "ActionDamage"                    # 行動時ダメージ (行动时受到攻击力x%伤害)
     
@@ -264,6 +265,7 @@ class SkillEffectType(Enum):
             SkillEffectType.CONFLAGRATION,
             SkillEffectType.FREEZE,
             SkillEffectType.KNOCKOUT,
+            SkillEffectType.CONFUSION,
             SkillEffectType.MARK,
             SkillEffectType.BLOCK_AURAS, # 通常作为禁疗/禁Buff
             SkillEffectType.BLOCK_SPECIFIC_AURA,

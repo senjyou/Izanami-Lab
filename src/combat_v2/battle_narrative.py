@@ -245,6 +245,16 @@ class BattleNarrativeWriter:
         names_str = ", ".join(f"«{n}»" for n in removed_names)
         self._add(f"  [解除增益] {target_name} 解除了 {removed_count} 个增益效果: {names_str} (来源:{source_name})")
 
+    def shield_removed(self, target_name: str, removed_count: int, removed_names: List[str], source_name: str):
+        if removed_count > 0:
+            names_str = ", ".join(f"«{n}»" for n in removed_names)
+            self._add(f"  [解除护盾] {target_name} 解除了 {removed_count} 个护盾: {names_str} (来源:{source_name})")
+
+    def sub_unit_removed(self, target_name: str, removed_count: int, removed_names: List[str], source_name: str):
+        if removed_count > 0:
+            names_str = ", ".join(f"«{n}»" for n in removed_names)
+            self._add(f"  [解除子单位] {target_name} 解除了 {removed_count} 个子单位: {names_str} (来源:{source_name})")
+
     def mark_removed(self, target_name: str, mark_name: str, removed_count: int, source_name: str):
         self._add(f"  [标记清除] {target_name} 的 «{mark_name}» x{removed_count} 被清除 (来源:{source_name})")
 
@@ -279,7 +289,9 @@ class BattleNarrativeWriter:
 
     def buff_applied(self, target_name: str, effect: str, source_name: str, duration: int = 0, dur_type: str = "turn", detail: str = ""):
         detail_str = f" {detail}" if detail else ""
-        if duration > 0:
+        if dur_type == "skill":
+            self._add(f"  [获得增益] {target_name} «{effect}»{detail_str} (来源:{source_name} 持续:技能结束前)")
+        elif duration > 0:
             if dur_type == "action":
                 unit_label = "行动"
             elif dur_type == "hit":
@@ -293,7 +305,9 @@ class BattleNarrativeWriter:
 
     def debuff_applied(self, target_name: str, effect: str, source_name: str, duration: int = 0, dur_type: str = "turn", detail: str = ""):
         detail_str = f" {detail}" if detail else ""
-        if duration > 0:
+        if dur_type == "skill":
+            self._add(f"  [获得减益] {target_name} «{effect}»{detail_str} (来源:{source_name} 持续:技能结束前)")
+        elif duration > 0:
             if dur_type == "action":
                 unit_label = "行动"
             elif dur_type == "hit":
@@ -340,9 +354,13 @@ class BattleNarrativeWriter:
     def sub_unit_applied(self, target_name: str, sub_unit_name: str, sub_unit_hp: int,
                          sub_unit_max_hp: int, atk_dmg_pct: float, duration: int, dur_type: str = "action",
                          source_name: str = ""):
-        unit_label = "行动" if dur_type == "action" else "回合"
+        if duration is None or duration < 0:
+            duration_label = "永続"
+        else:
+            unit_label = "行动" if dur_type == "action" else "回合"
+            duration_label = f"{duration}{unit_label}"
         source_info = f" (来源:{source_name})" if source_name else ""
-        self._add(f"  [子单位] {target_name} 召唤了「{sub_unit_name}」 HP:{sub_unit_hp}/{sub_unit_max_hp} 攻击力:{atk_dmg_pct:.1f}% 持续:{duration}{unit_label}{source_info}")
+        self._add(f"  [子单位] {target_name} 召唤了「{sub_unit_name}」 HP:{sub_unit_hp}/{sub_unit_max_hp} 攻击力:{atk_dmg_pct:.1f}% 持续:{duration_label}{source_info}")
 
     def sub_unit_damage(self, sub_unit_name: str, target_name: str, damage: int,
                         hp_after: int, max_hp: int, crit: bool = False,

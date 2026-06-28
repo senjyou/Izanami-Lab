@@ -623,6 +623,9 @@ class TriggerService:
                 continue
             if unit.is_stunned or unit.is_frozen or unit.is_charging:
                 continue
+            # 混乱中：PS触发器完全不评估（技能被过滤不能使用）
+            if getattr(unit, 'is_confused', False):
+                continue
 
             char_skills = self.data_loader.get_character_skills(unit.character_id)
             if not char_skills:

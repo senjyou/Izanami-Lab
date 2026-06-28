@@ -46,6 +46,8 @@ The simulator currently supports a limited set of characters. More will be added
 | 毒舌メイド娘         | ハリエット・ミルズ   |
 | 純白のラッキーガール     | 一条白奈        |
 | 想い響かせるヒーローシンガー | リリー・ラヴォア    |
+| 天真爛漫トラブルメーカー   | タリサ・マナンダル   |
+| 歴戦の鉄母          | オルガ・ヴォルコワ   |
 
 ## Tactical Exercise Enemies
 

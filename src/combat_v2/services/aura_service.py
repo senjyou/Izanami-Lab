@@ -23,7 +23,7 @@ class AuraService:
                       unit.name, aura.effect_type, aura.value, aura.duration)
             return False
 
-        # 1.5 眩晕/冻结: 立即同步标志位，防止同回合内PS触发检查漏过
+        # 1.5 眩晕/冻结/混乱: 立即同步标志位，防止同回合内PS触发检查漏过
         if aura.effect_type == SkillEffectType.KNOCKOUT.value:
             unit.is_stunned = True
             # 眩晕立即打断蓄力（AP已扣除，不退还）
@@ -34,6 +34,8 @@ class AuraService:
                 unit.charge_skill_id = 0
         elif aura.effect_type == SkillEffectType.FREEZE.value:
             unit.is_frozen = True
+        elif aura.effect_type == SkillEffectType.CONFUSION.value:
+            unit.is_confused = True
 
         # 2. 区分 Buff 和 Debuff 列表
         target_list = self._get_target_list(unit, aura)
@@ -74,7 +76,8 @@ class AuraService:
 
         if existing_index != -1:
             # 存在同源同ID: 覆盖 (刷新持续时间/数值)
-            if aura.effect_type in [SkillEffectType.KNOCKOUT.value, SkillEffectType.FREEZE.value]:
+            if aura.effect_type in [SkillEffectType.KNOCKOUT.value, SkillEffectType.FREEZE.value,
+                                     SkillEffectType.CONFUSION.value]:
                 old_dur = target_list[existing_index].duration
                 if aura.duration > old_dur:
                     target_list[existing_index] = aura
@@ -102,7 +105,16 @@ class AuraService:
 
             if existing_by_type != -1:
                 old_aura = target_list[existing_by_type]
-                if abs(aura.value) > abs(old_aura.value):
+                if aura.effect_type == SkillEffectType.CONFUSION.value:
+                    # 混乱：保留持续时间更长的一个（含参数），与眩晕/冻结一致
+                    if aura.duration > old_aura.duration:
+                        target_list[existing_by_type] = aura
+                        _log.info("[AURA] %s: confusion replaced (new dur %d > old dur %d, diff source)",
+                                  unit.name, aura.duration, old_aura.duration)
+                    else:
+                        _log.info("[AURA] %s: confusion IGNORED (old dur %d >= new dur %d, diff source)",
+                                  unit.name, old_aura.duration, aura.duration)
+                elif abs(aura.value) > abs(old_aura.value):
                     target_list[existing_by_type] = aura
                     _log.info("[AURA] %s: non-stackable %s value updated %.1f -> %.1f (max, diff source)",
                               unit.name, aura.effect_type, old_aura.value, aura.value)
@@ -362,9 +374,10 @@ class AuraService:
     # ========== 内部逻辑 ==========
 
     def _sync_stun_freeze_flags(self, unit: UnitState):
-        """根据当前debuffs同步眩晕/冻结标志位"""
+        """根据当前debuffs同步眩晕/冻结/混乱标志位"""
         unit.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in unit.debuffs)
         unit.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in unit.debuffs)
+        unit.is_confused = any(b.effect_type == SkillEffectType.CONFUSION.value for b in unit.debuffs)
 
     def _get_target_list(self, unit: UnitState, aura: BuffState) -> List[BuffState]:
         if aura.is_debuff:

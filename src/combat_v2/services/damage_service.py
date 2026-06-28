@@ -120,6 +120,16 @@ class DamageService:
         debuff_val = self._aggregate_buff_value(debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, unit=unit, attacker=attacker)
         return buff_val - debuff_val
 
+    def _get_confusion_buff(self, unit: UnitState):
+        """获取单位的混乱debuff，无则返回None"""
+        for buff in unit.debuffs:
+            if buff.effect_type == SkillEffectType.CONFUSION.value:
+                return buff
+        for buff in unit.buffs:
+            if buff.effect_type == SkillEffectType.CONFUSION.value:
+                return buff
+        return None
+
     def _aggregate_buff_value_signed_filtered(self, buffs: List[BuffState], debuffs: List[BuffState],
                                                effect_type: str, damage_element: int = 0,
                                                value_tag: int = None, unit: UnitState = None,
@@ -212,6 +222,21 @@ class DamageService:
 
             base_diff = max(1, atk - defense)
             _log.info("[DMG_CALC] step1_base_diff: final_atk=%d final_def=%d => base_diff=%d", atk, defense, base_diff)
+
+        # 混乱处理：代理数值（ATK ≤ DEF时用ATK×代理%替代base_diff）
+        confusion_dmg_reduction = 0.0
+        if getattr(attacker, 'is_confused', False):
+            confusion_buff = self._get_confusion_buff(attacker)
+            if confusion_buff:
+                confusion_dmg_reduction = confusion_buff.confusion_dmg_reduction
+                proxy_pct = confusion_buff.confusion_proxy_atk_pct
+                # 仅在正常 ATK-DEF 模式下应用代理数值（received_damage模式不适用）
+                if base_value_source != "received_damage" and atk <= defense and proxy_pct > 0:
+                    orig_base_diff = base_diff
+                    base_diff = max(1, int(atk * proxy_pct / 100.0))
+                    _log.info("[DMG_CALC] CONFUSION proxy: atk=%d <= def=%d, base_diff %d -> %d (atk×%.0f%%)",
+                              atk, defense, orig_base_diff, base_diff, proxy_pct)
+                _log.info("[DMG_CALC] CONFUSION: dmg_reduction=%.1f%%", confusion_dmg_reduction)
         
         # 2. 技能威力因子
         skill_power_val = getattr(skill_data, "power", 100) or 100
@@ -329,6 +354,13 @@ class DamageService:
 
             final_hit_damage = math.floor(raw_damage)
             final_hit_damage = max(1, final_hit_damage)
+
+            # 混乱伤害减免：所有伤害按dmg_reduction%减少
+            if confusion_dmg_reduction > 0:
+                orig_final = final_hit_damage
+                final_hit_damage = max(1, int(final_hit_damage * (1 - confusion_dmg_reduction / 100.0)))
+                _log.info("[DMG_CALC] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                          orig_final, final_hit_damage, confusion_dmg_reduction)
 
             _log.info("[DMG_CALC]   hit[%d]: base_diff=%d skill_factor=%.4f attr_factor=%.4f crit_factor=%.2f dealt_mult=%.4f received_mult=%.4f guard_mult=%.4f hp_scaling=%.4f raw=%.2f final=%d",
                       i_hit + 1, base_diff, skill_factor, attr_factor, crit_factor,

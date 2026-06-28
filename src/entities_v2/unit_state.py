@@ -56,6 +56,8 @@ class BuffState:
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
     skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」）
+    confusion_dmg_reduction: float = 0.0  # 混乱专用: 伤害减免百分比（如50表示减免50%）
+    confusion_proxy_atk_pct: float = 0.0  # 混乱专用: 代理数值百分比（如10表示ATK×10%替代ATK-DEF）
 
 
 from .enums import UnitActionPhase
@@ -131,6 +133,7 @@ class UnitState:
     is_alive: bool = True
     is_stunned: bool = False
     is_frozen: bool = False
+    is_confused: bool = False
     is_death_notified: bool = False
     skill_use_count_pending: bool = False
     role_type: int = 0  # RoleType: 1=物理アタッカー, 2=ENアタッカー, 3=タンク, 4=サポート, 5=コントロール

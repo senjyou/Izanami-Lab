@@ -266,22 +266,40 @@ class TargetService:
         ally_side = caster.side
         enemy_side = Side.ENEMY if ally_side == Side.ALLY else Side.ALLY
 
+        # 混乱中：敌方↔友方反转
+        is_confused = getattr(caster, 'is_confused', False)
+
         if t_type == DisplayTargetType.SELF:
             return [caster]
 
         elif t_type == DisplayTargetType.SELF_AND_FRIENDS:
+            if is_confused:
+                # 反转：自身 + 所有敌方（自身优先级最后，在_select_targets中处理）
+                return [caster] + bf.get_alive_units(enemy_side)
             return bf.get_alive_units(ally_side)
 
         elif t_type == DisplayTargetType.FRIENDS:
+            if is_confused:
+                # 反转：所有敌方
+                return bf.get_alive_units(enemy_side)
             return [u for u in bf.get_alive_units(ally_side) if u.unit_id != caster.unit_id]
 
         elif t_type == DisplayTargetType.ENEMIES:
+            if is_confused:
+                # 反转：所有友方（含自身，自身优先级最后在_select_targets中处理）
+                return bf.get_alive_units(ally_side)
             return bf.get_alive_units(enemy_side)
 
         elif t_type == DisplayTargetType.SELF_AND_FRIENDS_AND_ENEMIES:
             return [u for u in all_units if u.is_alive]
 
         elif t_type == DisplayTargetType.ADJACENT_ENEMIES:
+            if is_confused:
+                # 反转：邻接友方（不含自身，自身优先级最后）
+                ally_units = [u for u in all_units if u.side == ally_side and u.is_alive and u.unit_id != caster.unit_id]
+                if not ally_units:
+                    return []
+                return self._get_adjacent_to_closest(ally_units, caster)
             enemy_units = [u for u in all_units if u.side == Side.ENEMY and u.is_alive]
             if not enemy_units:
                 return []
@@ -301,6 +319,16 @@ class TargetService:
 
         if not ordered:
             return []
+
+        # 混乱中：自身优先级最后（攻击优先度最後尾）
+        # 将自身移到候选列表末尾，使其他单位优先被选中
+        if getattr(caster, 'is_confused', False) and len(ordered) > 1:
+            non_self = [u for u in ordered if u.unit_id != caster.unit_id]
+            self_in_list = [u for u in ordered if u.unit_id == caster.unit_id]
+            if self_in_list and non_self:
+                ordered = non_self + self_in_list
+                _log.info("[TARGET]   CONFUSED: self moved to last priority -> %s",
+                          [t.name for t in ordered])
 
         # ally_single_include_self: 优先自身以外的友方，无其他友方时回退自身
         if target_type_name == 'ally_single_include_self':

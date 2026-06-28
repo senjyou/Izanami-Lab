@@ -25,6 +25,23 @@ class StatusService:
             _log.info("[STATUS] %s is FROZEN", unit.name)
         return frozen
 
+    def is_confused(self, unit: UnitState) -> bool:
+        """检查单位是否混乱"""
+        confused = self._has_effect(unit, SkillEffectType.CONFUSION.value)
+        if confused:
+            _log.info("[STATUS] %s is CONFUSED", unit.name)
+        return confused
+
+    def get_confusion_buff(self, unit: UnitState):
+        """获取单位的混乱debuff（用于读取参数），无则返回None"""
+        for buff in unit.debuffs:
+            if buff.effect_type == SkillEffectType.CONFUSION.value:
+                return buff
+        for buff in unit.buffs:
+            if buff.effect_type == SkillEffectType.CONFUSION.value:
+                return buff
+        return None
+
     def apply_burn_damage(self, unit: UnitState) -> tuple:
         burn_buffs = [b for b in unit.debuffs if b.effect_type == SkillEffectType.CONFLAGRATION.value]
         count = len(burn_buffs)
