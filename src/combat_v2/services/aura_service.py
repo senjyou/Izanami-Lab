@@ -310,11 +310,19 @@ class AuraService:
                     _log.info("[LINKED_BUFF] %s: linked debuff %s removed (triggered by %s expiration)",
                               unit.name, lb.name, removed_buff.name)
 
-        # 检查linked_mark联动：当mark消失时，linked到该mark的debuff也消失
+        # 检查linked_mark联动：当mark消失时，linked到该mark的buff/debuff也消失
         for removed_buff in expired_buffs + expired_debuffs:
             if removed_buff.effect_type == SkillEffectType.MARK.value:
                 mark_name = getattr(removed_buff, 'name', '')
                 if mark_name:
+                    # 联动移除linked的buffs（如負けん気对应的atk_up）
+                    linked_buffs = [b for b in unit.buffs
+                                   if getattr(b, 'linked_buff_id', '') == mark_name]
+                    for lb in linked_buffs:
+                        unit.buffs.remove(lb)
+                        _log.info("[LINKED_MARK] %s: buff %s removed (linked to mark %s expiration)",
+                                  unit.name, lb.name, mark_name)
+                    # 联动移除linked的debuffs
                     linked_debuffs = [d for d in unit.debuffs
                                     if getattr(d, 'linked_buff_id', '') == mark_name]
                     for ld in linked_debuffs:

@@ -52,6 +52,7 @@ class TriggerContext:
     skill: Optional[Any] = None
     damage_map: Dict[str, int] = field(default_factory=dict)
     heal_map: Dict[str, int] = field(default_factory=dict)
+    total_damage: int = 0  # 触发技能的总伤害（用于after_as_attack的total_damage_le条件）
 
     tags: Set[str] = field(default_factory=set)
     # For on_debuff_applied: set of target_ids that received a NEW knockout (not a refresh)
@@ -140,9 +141,11 @@ class TriggerService:
     def trigger_after_skill_use(self, actor: UnitState, skill_id: int,
                                  result: Dict, battlefield: BattlefieldState,
                                  primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
+        total_damage = result.get("total_damage", 0) if result else 0
         ctx = TriggerContext(
             TriggerTiming.AFTER_SKILL_USE, battlefield,
             actor=actor, skill=skill_id, primary_target=primary_target,
+            total_damage=total_damage,
         )
         return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx)
 
@@ -714,12 +717,19 @@ class TriggerService:
             if owner.unit_id != context.actor.unit_id:
                 return False
             # after_as_attack仅限AS技能(skill_type=1)触发，EX/PS技能不触发
+            # 除非PS配置了allow_ex_trigger: true（如「徹底的にやってやろうじゃん！」）
+            allow_ex = parsed.get('allow_ex_trigger', False) if parsed else False
             if context.skill is not None and self.data_loader:
                 skill_data = self.data_loader.get_skill_by_id(context.skill)
-                if skill_data and skill_data.skill_type != SkillType.AS.value:
-                    _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (skill %d is not AS type=%d)",
-                              owner.name, context.skill, skill_data.skill_type if skill_data else -1)
-                    return False
+                if skill_data:
+                    if skill_data.skill_type == SkillType.AS.value:
+                        pass  # AS always allowed
+                    elif skill_data.skill_type == SkillType.EX.value and allow_ex:
+                        pass  # EX allowed when flag set
+                    else:
+                        _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (skill %d is not AS type=%d, allow_ex=%s)",
+                                  owner.name, context.skill, skill_data.skill_type, allow_ex)
+                        return False
             return True
 
         if timing == TriggerTiming.BEFORE_AS_ATTACKED:
@@ -1576,6 +1586,8 @@ class TriggerService:
                 params['primary_target'] = context.triggered_by
             if context.targets:
                 params['targets'] = context.targets
+            if context.total_damage:
+                params['total_damage'] = context.total_damage
             action = TriggerAction(
                 skill_id=cand.skill_id,
                 owner_id=cand.owner.unit_id,

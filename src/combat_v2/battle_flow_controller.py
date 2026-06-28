@@ -1311,12 +1311,17 @@ class BattleFlowController:
             trigger_attacker = action.parameters.get('trigger_attacker') if hasattr(action, 'parameters') else None
             primary_target = action.parameters.get('primary_target') if hasattr(action, 'parameters') else None
             damaged_targets = action.parameters.get('targets') if hasattr(action, 'parameters') else None
+            total_damage = action.parameters.get('total_damage') if hasattr(action, 'parameters') else None
             if trigger_attacker:
                 self.skill_service._trigger_attacker = trigger_attacker
             if primary_target:
                 self.skill_service._primary_target = primary_target
             if damaged_targets:
                 self.skill_service._damaged_targets = damaged_targets
+            if total_damage is not None:
+                self.skill_service._trigger_total_damage = total_damage
+            else:
+                self.skill_service._trigger_total_damage = 0
 
             skill_result = self.skill_service.execute_skill(
                 caster=owner,

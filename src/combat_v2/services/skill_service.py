@@ -121,6 +121,7 @@ class SkillService:
         self._prev_block_damage_targets = {}
         self._current_attack_targets: List[UnitState] = []  # 当前AS技能攻击的所有目标（用于PS cover效果选择）
         self._current_skill_id: int = 0
+        self._trigger_total_damage: int = 0  # 触发PS的技能总伤害（用于total_damage_le条件）
         self._current_skill_priority: Optional[int] = None
         self._last_damage_hp_before: Dict[str, int] = {}
         self._newly_created_sub_unit_ids: set = set()  # SubUnit buff_ids created in current skill, skip their first attack
@@ -144,6 +145,24 @@ class SkillService:
             name = ''
         self._skill_name_cache[skill_id] = name
         return name
+
+    def _resolve_tag_value_for_caster(self, caster: UnitState, effect, tag_name: str):
+        """解析指定tag的数值（基于当前技能等级）"""
+        if not tag_name or not hasattr(self, '_resolver') or not self._resolver:
+            return None
+        skill_id = getattr(self, '_current_skill_id', 0) or 0
+        if not skill_id:
+            return None
+        _skill_level = caster.skill_levels.get(skill_id, 1)
+        meta = self.data_loader.get_skill_by_id(skill_id)
+        if not meta:
+            return None
+        try:
+            tag_values = self._resolver._resolve_template_tags(meta, _skill_level)
+            resolved = tag_values.get(tag_name)
+            return float(resolved) if resolved is not None else None
+        except Exception:
+            return None
 
     def set_battlefield(self, battlefield: BattlefieldState):
         self._battlefield = battlefield
@@ -219,12 +238,17 @@ class SkillService:
             trigger_attacker = action.parameters.get('trigger_attacker') if hasattr(action, 'parameters') else None
             primary_target = action.parameters.get('primary_target') if hasattr(action, 'parameters') else None
             damaged_targets = action.parameters.get('targets') if hasattr(action, 'parameters') else None
+            total_damage = action.parameters.get('total_damage') if hasattr(action, 'parameters') else None
             if trigger_attacker:
                 self._trigger_attacker = trigger_attacker
             if primary_target:
                 self._primary_target = primary_target
             if damaged_targets:
                 self._damaged_targets = damaged_targets
+            if total_damage is not None:
+                self._trigger_total_damage = total_damage
+            else:
+                self._trigger_total_damage = 0
 
             # 保存外层技能的_current_skill_id，防止内层execute_skill覆盖
             saved_current_skill_id = self._current_skill_id
@@ -977,6 +1001,17 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (target_has_mark '%s' on %s: no target has mark before attack)",
                                   caster.name, block.block_id, mark_name, target_names)
                         continue
+
+                elif cond_type == 'total_damage_le':
+                    # 触发PS的技能总伤害 ≤ value 时执行（如「徹底的にやってやろうじゃん！」負けん気解除）
+                    threshold = block_condition.get('value', 0)
+                    total_dmg = getattr(self, '_trigger_total_damage', 0)
+                    if total_dmg > threshold:
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (total_damage_le: %d > %d)",
+                                  caster.name, block.block_id, total_dmg, threshold)
+                        continue
+                    _log.info("[SKILL_EXEC] %s: block %d total_damage_le PASS (%d <= %d)",
+                              caster.name, block.block_id, total_dmg, threshold)
 
             level_min_val = block_condition.get('level_min') if isinstance(block_condition, dict) else None
             level_max_val = block_condition.get('level_max') if isinstance(block_condition, dict) else None
@@ -3916,6 +3951,29 @@ class SkillService:
                               caster.name, target.name, mark_name_to_check)
                     continue
 
+            # max_stacks: 若目标已持有同名mark达到上限则跳过（如「負けん気」最大持有数）
+            if effect.effect_type == "mark":
+                _max_stacks = effect_flags_aura.get('max_stacks')
+                _max_stacks_tag = effect_flags_aura.get('max_stacks_tag')
+                if _max_stacks is not None or _max_stacks_tag:
+                    _actual_max = _max_stacks
+                    if _max_stacks_tag:
+                        _resolved = self._resolve_tag_value_for_caster(caster, effect, _max_stacks_tag)
+                        if _resolved is not None:
+                            _actual_max = int(_resolved)
+                    if _actual_max is not None:
+                        _mark_name_check = effect_flags_aura.get('mark_name', '')
+                        _current_count = sum(1 for b in target.buffs
+                                            if b.effect_type == SkillEffectType.MARK.value
+                                            and getattr(b, 'name', '') == _mark_name_check)
+                        _current_count += sum(1 for d in target.debuffs
+                                             if d.effect_type == SkillEffectType.MARK.value
+                                             and getattr(d, 'name', '') == _mark_name_check)
+                        if _current_count >= _actual_max:
+                            _log.info("[AURA_APPLY] %s -> %s: mark '%s' SKIPPED (max_stacks %d >= %d)",
+                                      caster.name, target.name, _mark_name_check, _current_count, _actual_max)
+                            continue
+
             if actual_is_debuff and self._has_debuff_immune(target):
                 _log.info("[AURA_APPLY] %s -> %s: DEBUFF BLOCKED (debuff_immune active)",
                           caster.name, target.name)
@@ -6005,10 +6063,26 @@ class SkillService:
         return {"effect_type": "remove_shield", "targets": [{"target_id": t.unit_id, "target_name": t.name} for t in targets if t.is_alive]}
 
     def _apply_remove_mark(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
-        """移除指定名称的mark"""
+        """移除指定名称的mark
+
+        支持的flags:
+        - mark_name: 要移除的mark名称
+        - remove_all: 移除所有匹配的mark
+        - remove_linked: 移除mark时联动移除linked_buff_id匹配的buff/debuff（包括buffs，不仅debuffs）
+        - value: 移除指定数量的mark（如value=3移除3个）
+        """
         effect_flags = getattr(effect, 'flags', None) or {}
         mark_name = effect_flags.get('mark_name', '')
         remove_all = effect_flags.get('remove_all', False)
+        remove_linked = effect_flags.get('remove_linked', True)  # 默认联动移除
+        # 支持value字段指定移除数量（如負けん気移除3个）
+        remove_count = getattr(effect, 'value', None)
+        if remove_count is None:
+            remove_count = effect_flags.get('count', 0)
+        try:
+            remove_count = int(remove_count) if remove_count is not None else 0
+        except (TypeError, ValueError):
+            remove_count = 0
 
         cached_targets = getattr(self, '_block_damage_targets', None)
         if cached_targets is not None and isinstance(cached_targets, dict) and effect.target_type in cached_targets:
@@ -6049,13 +6123,27 @@ class SkillService:
                     elif m in target.buffs:
                         target.buffs.remove(m)
                     removed += 1
-                # 同时移除linked到该mark的debuff
-                linked_debuffs = [d for d in target.debuffs
-                                if getattr(d, 'linked_buff_id', '') == mark_name]
-                for ld in linked_debuffs:
-                    target.debuffs.remove(ld)
-                    _log.info("[LINKED_MARK] %s: debuff %s removed (linked to mark %s removal)",
-                              target.name, ld.name, mark_name)
+                # 联动移除linked到该mark的buff/debuff
+                if remove_linked:
+                    self._remove_linked_buffs_by_mark(target, mark_name)
+            elif remove_count > 0:
+                # 移除指定数量的mark（如負けん気移除3个）
+                for _ in range(remove_count):
+                    _found = False
+                    for lst in [target.debuffs, target.buffs]:
+                        for b in lst:
+                            if b.effect_type == SkillEffectType.MARK.value and b.name == mark_name:
+                                lst.remove(b)
+                                removed += 1
+                                _found = True
+                                break
+                        if _found:
+                            break
+                    if not _found:
+                        break  # 没有更多mark了
+                # 每移除1个mark联动移除1个linked buff/debuff
+                if remove_linked and removed > 0:
+                    self._remove_linked_buffs_by_mark(target, mark_name, max_count=removed)
             else:
                 # 移除1个mark
                 for lst in [target.debuffs, target.buffs]:
@@ -6066,14 +6154,9 @@ class SkillService:
                             break
                     if removed:
                         break
-                # 同时移除linked到该mark的debuff（仅移除1个mark时也联动）
-                if removed:
-                    linked_debuffs = [d for d in target.debuffs
-                                    if getattr(d, 'linked_buff_id', '') == mark_name]
-                    for ld in linked_debuffs:
-                        target.debuffs.remove(ld)
-                        _log.info("[LINKED_MARK] %s: debuff %s removed (linked to mark %s removal)",
-                                  target.name, ld.name, mark_name)
+                # 同时移除linked到该mark的buff/debuff（仅移除1个mark时也联动）
+                if remove_linked and removed:
+                    self._remove_linked_buffs_by_mark(target, mark_name, max_count=1)
 
             _log.info("[REMOVE_MARK] %s: removed %d mark(s) '%s'", target.name, removed, mark_name)
             all_removed.append({
@@ -6087,6 +6170,34 @@ class SkillService:
             "targets": all_removed,
             "mark_name": mark_name,
         }
+
+    def _remove_linked_buffs_by_mark(self, target: UnitState, mark_name: str, max_count: int = 0) -> None:
+        """联动移除linked_buff_id匹配mark_name的buff/debuff
+
+        max_count > 0 时只移除指定数量，max_count=0 时移除全部
+        """
+        removed = 0
+        # 移除linked的buffs
+        linked_buffs = [b for b in target.buffs
+                       if getattr(b, 'linked_buff_id', '') == mark_name]
+        for lb in linked_buffs:
+            if max_count > 0 and removed >= max_count:
+                break
+            target.buffs.remove(lb)
+            removed += 1
+            _log.info("[LINKED_MARK] %s: buff %s removed (linked to mark %s removal)",
+                      target.name, lb.name, mark_name)
+        # 移除linked的debuffs
+        if max_count == 0 or removed < max_count:
+            linked_debuffs = [d for d in target.debuffs
+                            if getattr(d, 'linked_buff_id', '') == mark_name]
+            for ld in linked_debuffs:
+                if max_count > 0 and removed >= max_count:
+                    break
+                target.debuffs.remove(ld)
+                removed += 1
+                _log.info("[LINKED_MARK] %s: debuff %s removed (linked to mark %s removal)",
+                          target.name, ld.name, mark_name)
 
     def _apply_cover(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         """

@@ -129,6 +129,23 @@ class VersionChecker:
         except (requests.exceptions.RequestException, AttributeError):
             return None
 
+    def _fetch_manifest_by_version(self, version: str) -> Optional[Dict[str, Any]]:
+        """根据版本号直接下载 manifest.json
+
+        用于 HTML 回退路径：当 GitHub API 不可用时（如 rate limit），
+        通过 releases/download/{tag}/manifest.json 直接下载 manifest，
+        确保 ColdUpdater 能获取 package_url / package_sha256。
+        """
+        url = f"https://github.com/{self.repository}/releases/download/v{version}/manifest.json"
+        try:
+            resp = requests.get(url, timeout=15, headers={
+                'User-Agent': f'Izanami-Lab/{self.current_version}',
+            })
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.exceptions.RequestException, ValueError):
+            return None
+
     def _fetch_manifest(self, release_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """从 Release 资产中获取 manifest.json"""
         assets = release_data.get("assets", [])
@@ -187,12 +204,14 @@ class VersionChecker:
                 manifest=manifest,
             )
 
-        # 回退 HTML 方式（无法获取 manifest）
+        # 回退 HTML 方式（API 不可用时使用）
+        # 通过 HTML 解析版本号后，直接下载 manifest.json 以获取完整更新信息
         html_result = self._fetch_via_html()
         if html_result is not None:
             latest_version, url = html_result
             has_update = self._compare_versions(latest_version)
-            update_type = self._determine_update_type(latest_version) if has_update else UpdateType.WARM
+            manifest = self._fetch_manifest_by_version(latest_version) if has_update else None
+            update_type = self._determine_update_type(latest_version, manifest) if has_update else UpdateType.WARM
 
             return UpdateInfo(
                 has_update=has_update,
@@ -200,6 +219,7 @@ class VersionChecker:
                 latest_version=latest_version,
                 release_url=url,
                 update_type=update_type,
+                manifest=manifest,
             )
 
         return None
