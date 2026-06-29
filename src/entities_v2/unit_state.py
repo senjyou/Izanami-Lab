@@ -55,9 +55,11 @@ class BuffState:
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
-    skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」）
+    skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」)
+    just_applied: bool = False  # 当次行动中由add_aura施加/刷新/忽略的buff标记，process_maneuver_end跳过递减
     confusion_dmg_reduction: float = 0.0  # 混乱专用: 伤害减免百分比（如50表示减免50%）
     confusion_proxy_atk_pct: float = 0.0  # 混乱专用: 代理数值百分比（如10表示ATK×10%替代ATK-DEF）
+    sub_unit_link_group: str = ""  # [GAME_BUG_SIMULATION] 跨目标联动失效: 同一次技能(如110050)创建的多个子機共享同一link_group，任一失效时其余同步失效
 
 
 from .enums import UnitActionPhase

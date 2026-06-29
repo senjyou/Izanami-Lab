@@ -27,6 +27,7 @@ scripts/
 split_data/
 dump/
 references/
+.dbg/
 data/*.bak
 data/*.bak*
 

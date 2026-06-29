@@ -596,6 +596,7 @@ class SkillService:
                                     "enemy_single_lowest_spd", "enemy_single_furthest",
                                     "enemy_single_highest_ep",
                                     "enemy_single_highest_hp_ratio",
+                                    "enemy_single_highest_current_hp",
                                     "enemy_single_highest_hp_ratio_back_priority",
                                     "enemy_single_lowest_hp_ratio",
                                     "enemy_column_furthest", "enemy_column_mark_priority",
@@ -1129,6 +1130,20 @@ class SkillService:
                     effect_flags_block = getattr(effect, 'flags', {}) or {}
                     target_count = effect_flags_block.get('target_count', 1)
 
+                    # is_follow_up 追撃型PS（如 チェイスブレイダー/ポイズンチェイス）：
+                    # 当 _primary_target 由触发上下文传入时（PS触发场景），追击AS主目标而非重新索敌。
+                    # AS技能内部的 is_follow_up（如 hp_threshold_cross 追加攻撃）不触发此分支，
+                    # 因为 AS 执行时 _primary_target 为 None，会继续走下方的缓存/索敵逻辑。
+                    if effect_flags_block.get('is_follow_up', False):
+                        _ps_primary = getattr(self, '_primary_target', None)
+                        if (_ps_primary is not None and _ps_primary.is_alive
+                                and _ps_primary.side != caster.side):
+                            self._block_damage_targets[effect.target_type] = [_ps_primary]
+                            self._last_primary_target = _ps_primary
+                            _log.info("[SKILL_EXEC] %s: is_follow_up using _primary_target=%s as damage target",
+                                      caster.name, _ps_primary.name)
+                            continue
+
                     # 如果缓存中的目标数量与当前效果需要的不同，且不是追击类效果，删除缓存重新索敌
                     if effect.target_type in self._block_damage_targets:
                         cached = self._block_damage_targets[effect.target_type]
@@ -1289,7 +1304,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority"):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -1405,6 +1420,12 @@ class SkillService:
                         best = dmg_targets[0]
                         _log.info("[SKILL_EXEC] %s: highest_hp_ratio filter -> %s",
                                   caster.name, best.name)
+                    elif effect.target_type == "enemy_single_highest_current_hp" and dmg_targets:
+                        dmg_targets = [max(dmg_targets, key=lambda u: u.current_hp)]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        best = dmg_targets[0]
+                        _log.info("[SKILL_EXEC] %s: highest_current_hp filter -> %s (hp=%d)",
+                                  caster.name, best.name, best.current_hp)
                     elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
                         # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
                         pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
@@ -1547,6 +1568,19 @@ class SkillService:
 
         self._skill_kills = False
 
+        # 执行延迟的on_crit块：在所有正常block执行完毕后、attack_limited cleanup之前执行
+        # 这样追加伤害（如110002第6hit）能与主伤害共享同一技能内的debuff（如ふわとろのきもち的50%易伤）
+        # 按target去重：同一目标多次暴击只处理一次，避免重复施加易伤/追加伤害
+        if self._deferred_on_crit_targets:
+            _seen_crit_targets = set()
+            for entry in self._deferred_on_crit_targets:
+                c, t, bf, eff = entry
+                if t.unit_id in _seen_crit_targets:
+                    continue
+                _seen_crit_targets.add(t.unit_id)
+                self._apply_on_crit_blocks(c, t, bf, eff)
+            self._deferred_on_crit_targets.clear()
+
         # Attack-limited debuff cleanup: consumed once per skill execution (all blocks' hits affected)
         # Only consume if this skill actually dealt damage. Non-damage skills (e.g. PS buffs
         # triggered inline) should not consume attack_limited debuffs.
@@ -1624,14 +1658,6 @@ class SkillService:
                                         unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
                                         _log.info("[ATTACK_LIMITED] %s: caster debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
 
-        # 执行延迟的on_crit块：在所有正常block执行完毕后、阵亡判定前执行
-        # 确保on_crit块添加的效果不会被后续block（如remove_mark）错误清除
-        if self._deferred_on_crit_targets:
-            for entry in self._deferred_on_crit_targets:
-                c, t, bf, eff = entry
-                self._apply_on_crit_blocks(c, t, bf, eff)
-            self._deferred_on_crit_targets.clear()
-
         # 延迟阵亡判定：技能完整结算后，统一设置 is_alive=False
         if self._pending_deaths:
             _log.info("[SKILL_EXEC] %s: processing %d pending deaths", caster.name, len(self._pending_deaths))
@@ -1688,7 +1714,7 @@ class SkillService:
                 all_units = battlefield.get_all_units() if battlefield else []
                 for unit in all_units:
                     self.aura_service._update_duration(unit, [AuraUpdateTiming.EPHEMERAL_SKILL_END])
-                    self.aura_service.check_expiration(unit)
+                    self.aura_service.check_expiration(unit, all_units)
             except (AttributeError, TypeError):
                 pass
         return result
@@ -2183,6 +2209,28 @@ class SkillService:
                     caster.buffs.append(temp_aura)
                     _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> dmg_dealt_up +%.1f%% (dealt_damage乘区)",
                               caster.name, cond_desc, bonus_pct)
+                elif bonus_type == 'received_damage':
+                    # 易伤乘区：添加临时dmg_taken_up debuff到目标（attack_limited=1，仅本次攻击生效）
+                    # 与目标已有的易伤debuff叠加（is_stackable=True），影响received_mult计算
+                    first_target = targets[0]
+                    import uuid
+                    temp_vuln = BuffState(
+                        buff_id=f"{caster.unit_id}_ReceivedDamage_{first_target.unit_id}_cond_{uuid.uuid4().hex[:8]}",
+                        name="ConditionalVulnerability",
+                        effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+                        value=bonus_pct,
+                        duration=1,
+                        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                        source_unit_id=caster.unit_id,
+                        source_skill_id=self._current_skill_id,
+                        caster_attack=0,
+                        is_debuff=True,
+                        attack_limited=1,
+                        is_stackable=True,
+                    )
+                    first_target.debuffs.append(temp_vuln)
+                    _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> dmg_taken_up +%.1f%% on %s (received_damage易伤乘区)",
+                              caster.name, cond_desc, bonus_pct, first_target.name)
                 elif cond_power_bonus.get('value_type') == 'percent':
                     # percent: bonus_pct是百分比值，直接作为power加成（独立倍率乘区）
                     original_power = dmg_skill_obj.power
@@ -2436,6 +2484,10 @@ class SkillService:
                         if sub_buff.sub_unit_hp <= 0:
                             target.buffs = [b for b in target.buffs if b.buff_id != sub_buff.buff_id]
                             _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' EXPIRED (HP=0)", target.name, sub_buff.name)
+                            # [GAME_BUG_SIMULATION] 子機Ⅱ跨目标联动失效（HP耗尽触发）
+                            # 原实现路径：sub_unit_link_group为空时_cascade_linked_sub_unit_expiry直接返回
+                            self.aura_service._cascade_linked_sub_unit_expiry(
+                                sub_buff, target, battlefield.get_all_units())
 
             actual_damage = shield_portion + direct_damage
             # 非闪避命中最低1点伤害，可作用于护盾或HP
@@ -2457,6 +2509,32 @@ class SkillService:
                         target.shield -= 1
                         shield_absorbed += 1
                         min_absorbed = True
+                    # 子单位 HP 仍可吸收这1点最低伤害（与原伤害吸收顺序一致：盾→子单位→HP）
+                    if not min_absorbed:
+                        sub_unit_buffs_min = [b for b in target.buffs
+                                              if b.effect_type == SkillEffectType.SUB_UNIT.value and b.sub_unit_hp > 0]
+                        if sub_unit_buffs_min:
+                            sub_buff_min = sub_unit_buffs_min[0]
+                            sub_buff_min.sub_unit_hp -= 1
+                            shield_absorbed += 1
+                            min_absorbed = True
+                            sub_unit_absorbs.append({
+                                "sub_unit_name": sub_buff_min.name,
+                                "absorbed": 1,
+                                "sub_unit_hp_after": sub_buff_min.sub_unit_hp,
+                                "sub_unit_max_hp": sub_buff_min.sub_unit_max_hp,
+                            })
+                            _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' absorbs 1 minimum damage, HP %d->%d",
+                                      target.name, sub_buff_min.name,
+                                      sub_buff_min.sub_unit_hp + 1, sub_buff_min.sub_unit_hp)
+                            if sub_buff_min.sub_unit_hp <= 0:
+                                target.buffs = [b for b in target.buffs if b.buff_id != sub_buff_min.buff_id]
+                                _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' EXPIRED (HP=0) from minimum damage",
+                                          target.name, sub_buff_min.name)
+                                # [GAME_BUG_SIMULATION] 子機Ⅱ跨目标联动失效（最低1点伤害耗尽触发）
+                                # 原实现路径：sub_unit_link_group为空时_cascade_linked_sub_unit_expiry直接返回
+                                self.aura_service._cascade_linked_sub_unit_expiry(
+                                    sub_buff_min, target, battlefield.get_all_units())
                 if not min_absorbed:
                     actual_damage = 1
             overflow = max(0, actual_damage - hp_before)
@@ -2732,6 +2810,219 @@ class SkillService:
 
         enchant_targets = []
 
+        # Process sub-unit additional damage: each sub-unit adds 1 hit per target
+        for sub_buff in sub_unit_buffs[:]:
+            if sub_buff.sub_unit_hp <= 0:
+                _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit '%s' (HP=0)", caster.name, sub_buff.name)
+                continue
+            # Skip SubUnits created in the current skill (they should not attack on the turn they're summoned)
+            if sub_buff.buff_id in self._newly_created_sub_unit_ids:
+                _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit '%s' (just created this turn)", caster.name, sub_buff.name)
+                continue
+            # Sub-unit damage formula:
+            # max(0, snapshot_atk + min(0, a_atk - b_def)) * power% * 1.5(crit) * a_dealt * b_received
+            # where a = source unit (main unit), b = target (enemy)
+            source_unit_id = sub_buff.source_unit_id
+            snapshot_atk = sub_buff.caster_attack  # ATK snapshotted when SubUnit was created
+            source_unit = None
+            a_atk = snapshot_atk  # fallback
+            for u in battlefield.get_all_units():
+                if u.unit_id == source_unit_id:
+                    a_atk = self.damage_service._calculate_final_stat(u, "attack")
+                    source_unit = u
+                    break
+            # 暴击率使用持有者(caster)的当前暴击率，与附魔伤害一致（非创建者source_unit的暴击率）
+            a_crit_rate = self.damage_service._calculate_crit_rate(caster)
+            power_pct = sub_buff.value / 100.0
+            _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' source_id=%s snapshot_atk=%d a_atk=%d power=%.1f%% targets_hit=%d crit_rate=%.4f(from caster)",
+                      caster.name, sub_buff.name, source_unit_id, snapshot_atk, a_atk, power_pct * 100, len(targets_hit), a_crit_rate)
+
+            for target_info in targets_hit:
+                target = next((u for u in battlefield.get_all_units() if u.unit_id == target_info.get("target_id")), None)
+                if not target or not target.is_alive:
+                    _log.info("[SUB_UNIT_DMG] %s: skipping target %s (found=%s alive=%s)",
+                              caster.name, target_info.get("target_id"), target is not None,
+                              target.is_alive if target else "N/A")
+                    continue
+                # 主伤害全段闪避的目标不触发sub_unit伤害（与附魔伤害一致）
+                target_evades = target_info.get("hit_evades", [])
+                if target_evades and all(target_evades):
+                    _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit for %s (all hits evaded)",
+                              caster.name, target.name)
+                    continue
+
+                b_def = self.damage_service._calculate_final_stat(target, "defense")
+
+                # 子单位伤害公式: max(0, snapshot_atk + min(0, a_atk - b_def)) * power%
+                base = max(0, snapshot_atk + min(0, a_atk - b_def))
+
+                dmg = base * power_pct
+
+                # 暴击: 独立roll，使用caster(持有者)的暴击率，暴伤固定1.5倍（与附魔伤害一致）
+                self.damage_service._crit_context = {
+                    'source': 'sub_unit',
+                    'attacker_name': caster.name,
+                    'attacker_id': caster.unit_id,
+                    'target_name': target.name,
+                    'target_id': target.unit_id,
+                    'skill_name': self._get_skill_name(self._current_skill_id),
+                    'skill_id': self._current_skill_id,
+                    'hit_number': 1,
+                    'total_hits': 1,
+                    'cannot_crit': False,
+                    'sub_unit_name': sub_buff.name if hasattr(sub_buff, 'name') else '',
+                }
+                is_sub_crit = self.damage_service._check_crit(a_crit_rate)
+                if is_sub_crit:
+                    dmg *= 1.5
+
+                # a增减伤区 (持有者的给予伤害倍率，子单位伤害应继承持有者造伤乘区)
+                # 与附魔伤害一致使用caster，而非source_unit(创建者)
+                target_hp_before_attack = target_info.get("hp_before", target.current_hp)
+                a_dealt_mult = self.damage_service._get_damage_dealt_multiplier(
+                    caster, target, defender_hp_for_condition=target_hp_before_attack)
+                # b增减伤区 (被攻击对象的受击增减伤倍率，攻击时即时套用)
+                b_received_mult = self.damage_service._get_damage_received_multiplier(target, attacker=caster)
+                # 属性克制因子 (主单位的属性对目标的属性)
+                advantage = self.damage_service._get_attribute_factor(source_unit.element if source_unit else caster.element, target.element, source_unit or caster)
+
+                dmg *= a_dealt_mult * b_received_mult * advantage
+
+                guard_rate = self.damage_service._aggregate_buff_value_signed(
+                    target.buffs, target.debuffs, SkillEffectType.GUARD.value)
+                if guard_rate > 0:
+                    dmg *= (1.0 - guard_rate)
+
+                extra_dmg = max(1, int(dmg))
+                # 混乱减免：子单位追加伤害也受混乱减免影响（召唤者混乱时）
+                if getattr(caster, 'is_confused', False):
+                    confusion_buff = self.damage_service._get_confusion_buff(caster)
+                    if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
+                        orig_extra = extra_dmg
+                        extra_dmg = max(1, int(extra_dmg * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
+                        _log.info("[SUB_UNIT_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
+                                  orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
+                hp_before = target.current_hp
+
+                # Shield absorption (same logic as normal damage)
+                shield_absorbed = 0
+                remaining = extra_dmg
+
+                # Determine damage type from source unit's character_type
+                source_char_type = getattr(source_unit, 'character_type', 1) if source_unit else 1
+                is_en_damage = (source_char_type == 2)
+
+                if is_en_damage and target.en_shield > 0 and remaining > 0:
+                    if remaining <= target.en_shield:
+                        shield_absorbed += remaining
+                        target.en_shield -= remaining
+                        remaining = 0
+                    else:
+                        shield_absorbed += target.en_shield
+                        remaining -= target.en_shield
+                        target.en_shield = 0
+
+                if not is_en_damage and remaining > 0 and target.physical_shield > 0:
+                    if remaining <= target.physical_shield:
+                        shield_absorbed += remaining
+                        target.physical_shield -= remaining
+                        remaining = 0
+                    else:
+                        shield_absorbed += target.physical_shield
+                        remaining -= target.physical_shield
+                        target.physical_shield = 0
+
+                if remaining > 0 and target.shield > 0:
+                    if remaining <= target.shield:
+                        shield_absorbed += remaining
+                        target.shield -= remaining
+                        remaining = 0
+                    else:
+                        shield_absorbed += target.shield
+                        remaining -= target.shield
+                        target.shield = 0
+
+                # Apply remaining damage to HP
+                target.current_hp = max(0, target.current_hp - remaining)
+                total_damage += extra_dmg
+                caster.damage_dealt_total += extra_dmg
+                target.damage_taken_total += extra_dmg
+
+                # 计分追踪：记录子单位伤害
+                tracker = getattr(battlefield, 'scoring_tracker', None)
+                if tracker is not None:
+                    source_side = "ally" if caster.side.value == "ally" else "enemy"
+                    target_side = "ally" if target.side.value == "ally" else "enemy"
+                    tracker.record_damage(
+                        source_id=caster.unit_id, source_name=caster.name, source_side=source_side,
+                        target_id=target.unit_id, target_name=target.name, target_side=target_side,
+                        actual_damage=extra_dmg, shield_absorbed=shield_absorbed,
+                    )
+
+                enchant_targets.append({
+                    "target_id": target.unit_id,
+                    "target": target.unit_id,
+                    "hp_before": hp_before,
+                    "hp_after": target.current_hp,
+                    "actual_damage": extra_dmg,
+                    "damage": extra_dmg,
+                    "shield_absorbed": shield_absorbed,
+                    "crit": is_sub_crit,
+                    "hits": [extra_dmg],
+                    "hit_crits": [is_sub_crit],
+                    "sub_unit_name": sub_buff.name,
+                    "calc_detail": {
+                        "snapshot_atk": snapshot_atk,
+                        "a_atk": a_atk,
+                        "b_def": b_def,
+                        "base_diff": base,
+                        "power_pct": power_pct * 100,
+                        "crit_factor": 1.5 if is_sub_crit else 1.0,
+                        "a_dealt_mult": a_dealt_mult,
+                        "b_received_mult": b_received_mult,
+                        "advantage": advantage,
+                        "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
+                    },
+                })
+
+                _log.info("[SUB_UNIT_DMG] %s sub_unit '%s' -> %s: extra=%d shield=%d (snapshot_atk=%d a_atk=%d b_def=%d power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f) hp: %d->%d",
+                          caster.name, sub_buff.name, target.name, extra_dmg, shield_absorbed, snapshot_atk, a_atk, b_def,
+                          power_pct * 100, is_sub_crit, advantage, a_dealt_mult, b_received_mult,
+                          hp_before, target.current_hp)
+
+                # add_status_to_attack: 子機追加伤害时同时施加debuff（如spd_down）
+                sub_hlf = getattr(sub_buff, 'hit_limited_flags', {}) or {}
+                add_status_info = sub_hlf.get('add_status_to_attack') if sub_hlf else None
+                if add_status_info and target.is_alive:
+                    status_name = add_status_info.get('status', 'spd_down')
+                    status_value = add_status_info.get('value', 0)
+                    # value=0时不施加debuff（Lv1-10时spd=0，不触发降速）
+                    if status_value and status_value > 0:
+                        status_duration = add_status_info.get('duration', 1)
+                        # 映射status名称到effect_type
+                        status_effect_map = {
+                            'spd_down': SkillEffectType.STATUS_SPEED.value,
+                            'atk_down': SkillEffectType.STATUS_ATTACK.value,
+                            'def_down': SkillEffectType.STATUS_DEFENSE.value,
+                        }
+                        status_et = status_effect_map.get(status_name, SkillEffectType.STATUS_SPEED.value)
+                        status_aura = BuffState(
+                            buff_id=f"{caster.unit_id}_SubUnitStatus_{target.unit_id}_{sub_buff.buff_id[-8:]}",
+                            name=f"SubUnit_{status_name}",
+                            effect_type=status_et,
+                            value=status_value,
+                            duration=status_duration,
+                            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                            source_unit_id=sub_buff.source_unit_id,
+                            source_skill_id=sub_buff.source_skill_id,
+                            caster_attack=0,
+                            is_debuff=True,
+                            is_stackable=add_status_info.get('stackable', False),
+                        )
+                        self.aura_service.add_aura(target, status_aura)
+                        _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' add_status_to_attack %s(%.1f) -> %s (dur=%d)",
+                                  caster.name, sub_buff.name, status_name, status_value, target.name, status_duration)
+
         for eb in enchant_buffs:
             if eb.hit_limited <= 0:
                 continue
@@ -2893,216 +3184,6 @@ class SkillService:
             if eb.hit_limited <= 0:
                 caster.buffs = [b for b in caster.buffs if b.buff_id != eb.buff_id]
                 _log.info("[ENCHANT_DMG] %s: enchant_damage buff EXPIRED", caster.name)
-
-        # Process sub-unit additional damage: each sub-unit adds 1 hit per target
-        for sub_buff in sub_unit_buffs[:]:
-            if sub_buff.sub_unit_hp <= 0:
-                _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit '%s' (HP=0)", caster.name, sub_buff.name)
-                continue
-            # Skip SubUnits created in the current skill (they should not attack on the turn they're summoned)
-            if sub_buff.buff_id in self._newly_created_sub_unit_ids:
-                _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit '%s' (just created this turn)", caster.name, sub_buff.name)
-                continue
-            # Sub-unit damage formula:
-            # max(0, snapshot_atk + min(0, a_atk - b_def)) * power% * 1.5(crit) * a_dealt * b_received
-            # where a = source unit (main unit), b = target (enemy)
-            source_unit_id = sub_buff.source_unit_id
-            snapshot_atk = sub_buff.caster_attack  # ATK snapshotted when SubUnit was created
-            source_unit = None
-            a_atk = snapshot_atk  # fallback
-            a_crit_rate = 0.2  # fallback
-            for u in battlefield.get_all_units():
-                if u.unit_id == source_unit_id:
-                    a_atk = self.damage_service._calculate_final_stat(u, "attack")
-                    a_crit_rate = self.damage_service._calculate_crit_rate(u)
-                    source_unit = u
-                    break
-            power_pct = sub_buff.value / 100.0
-            _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' source_id=%s snapshot_atk=%d a_atk=%d power=%.1f%% targets_hit=%d",
-                      caster.name, sub_buff.name, source_unit_id, snapshot_atk, a_atk, power_pct * 100, len(targets_hit))
-
-            for target_info in targets_hit:
-                target = next((u for u in battlefield.get_all_units() if u.unit_id == target_info.get("target_id")), None)
-                if not target or not target.is_alive:
-                    _log.info("[SUB_UNIT_DMG] %s: skipping target %s (found=%s alive=%s)",
-                              caster.name, target_info.get("target_id"), target is not None,
-                              target.is_alive if target else "N/A")
-                    continue
-                # 主伤害全段闪避的目标不触发sub_unit伤害（与附魔伤害一致）
-                target_evades = target_info.get("hit_evades", [])
-                if target_evades and all(target_evades):
-                    _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit for %s (all hits evaded)",
-                              caster.name, target.name)
-                    continue
-
-                b_def = self.damage_service._calculate_final_stat(target, "defense")
-
-                # 子单位伤害公式: max(0, snapshot_atk + min(0, a_atk - b_def)) * power%
-                base = max(0, snapshot_atk + min(0, a_atk - b_def))
-
-                dmg = base * power_pct
-
-                # 暴击: 独立roll，使用a的暴击率，暴伤固定1.5倍
-                self.damage_service._crit_context = {
-                    'source': 'sub_unit',
-                    'attacker_name': caster.name,
-                    'attacker_id': caster.unit_id,
-                    'target_name': target.name,
-                    'target_id': target.unit_id,
-                    'skill_name': self._get_skill_name(self._current_skill_id),
-                    'skill_id': self._current_skill_id,
-                    'hit_number': 1,
-                    'total_hits': 1,
-                    'cannot_crit': False,
-                    'sub_unit_name': sub_buff.name if hasattr(sub_buff, 'name') else '',
-                }
-                is_sub_crit = self.damage_service._check_crit(a_crit_rate)
-                if is_sub_crit:
-                    dmg *= 1.5
-
-                # a增减伤区 (主单位的给予伤害倍率，攻击时即时套用)
-                a_dealt_mult = self.damage_service._get_damage_dealt_multiplier(source_unit, target) if source_unit else 1.0
-                # b增减伤区 (被攻击对象的受击增减伤倍率，攻击时即时套用)
-                b_received_mult = self.damage_service._get_damage_received_multiplier(target, attacker=source_unit or caster)
-                # 属性克制因子 (主单位的属性对目标的属性)
-                advantage = self.damage_service._get_attribute_factor(source_unit.element if source_unit else caster.element, target.element, source_unit or caster)
-
-                dmg *= a_dealt_mult * b_received_mult * advantage
-
-                guard_rate = self.damage_service._aggregate_buff_value_signed(
-                    target.buffs, target.debuffs, SkillEffectType.GUARD.value)
-                if guard_rate > 0:
-                    dmg *= (1.0 - guard_rate)
-
-                extra_dmg = max(1, int(dmg))
-                # 混乱减免：子单位追加伤害也受混乱减免影响（召唤者混乱时）
-                if getattr(caster, 'is_confused', False):
-                    confusion_buff = self.damage_service._get_confusion_buff(caster)
-                    if confusion_buff and confusion_buff.confusion_dmg_reduction > 0:
-                        orig_extra = extra_dmg
-                        extra_dmg = max(1, int(extra_dmg * (1 - confusion_buff.confusion_dmg_reduction / 100.0)))
-                        _log.info("[SUB_UNIT_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
-                                  orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
-                hp_before = target.current_hp
-
-                # Shield absorption (same logic as normal damage)
-                shield_absorbed = 0
-                remaining = extra_dmg
-
-                # Determine damage type from source unit's character_type
-                source_char_type = getattr(source_unit, 'character_type', 1) if source_unit else 1
-                is_en_damage = (source_char_type == 2)
-
-                if is_en_damage and target.en_shield > 0 and remaining > 0:
-                    if remaining <= target.en_shield:
-                        shield_absorbed += remaining
-                        target.en_shield -= remaining
-                        remaining = 0
-                    else:
-                        shield_absorbed += target.en_shield
-                        remaining -= target.en_shield
-                        target.en_shield = 0
-
-                if not is_en_damage and remaining > 0 and target.physical_shield > 0:
-                    if remaining <= target.physical_shield:
-                        shield_absorbed += remaining
-                        target.physical_shield -= remaining
-                        remaining = 0
-                    else:
-                        shield_absorbed += target.physical_shield
-                        remaining -= target.physical_shield
-                        target.physical_shield = 0
-
-                if remaining > 0 and target.shield > 0:
-                    if remaining <= target.shield:
-                        shield_absorbed += remaining
-                        target.shield -= remaining
-                        remaining = 0
-                    else:
-                        shield_absorbed += target.shield
-                        remaining -= target.shield
-                        target.shield = 0
-
-                # Apply remaining damage to HP
-                target.current_hp = max(0, target.current_hp - remaining)
-                total_damage += extra_dmg
-                caster.damage_dealt_total += extra_dmg
-                target.damage_taken_total += extra_dmg
-
-                # 计分追踪：记录子单位伤害
-                tracker = getattr(battlefield, 'scoring_tracker', None)
-                if tracker is not None:
-                    source_side = "ally" if caster.side.value == "ally" else "enemy"
-                    target_side = "ally" if target.side.value == "ally" else "enemy"
-                    tracker.record_damage(
-                        source_id=caster.unit_id, source_name=caster.name, source_side=source_side,
-                        target_id=target.unit_id, target_name=target.name, target_side=target_side,
-                        actual_damage=extra_dmg, shield_absorbed=shield_absorbed,
-                    )
-
-                enchant_targets.append({
-                    "target_id": target.unit_id,
-                    "target": target.unit_id,
-                    "hp_before": hp_before,
-                    "hp_after": target.current_hp,
-                    "actual_damage": extra_dmg,
-                    "damage": extra_dmg,
-                    "shield_absorbed": shield_absorbed,
-                    "crit": is_sub_crit,
-                    "hits": [extra_dmg],
-                    "hit_crits": [is_sub_crit],
-                    "sub_unit_name": sub_buff.name,
-                    "calc_detail": {
-                        "snapshot_atk": snapshot_atk,
-                        "a_atk": a_atk,
-                        "b_def": b_def,
-                        "base_diff": base,
-                        "power_pct": power_pct * 100,
-                        "crit_factor": 1.5 if is_sub_crit else 1.0,
-                        "a_dealt_mult": a_dealt_mult,
-                        "b_received_mult": b_received_mult,
-                        "advantage": advantage,
-                        "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
-                    },
-                })
-
-                _log.info("[SUB_UNIT_DMG] %s sub_unit '%s' -> %s: extra=%d shield=%d (snapshot_atk=%d a_atk=%d b_def=%d power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f) hp: %d->%d",
-                          caster.name, sub_buff.name, target.name, extra_dmg, shield_absorbed, snapshot_atk, a_atk, b_def,
-                          power_pct * 100, is_sub_crit, advantage, a_dealt_mult, b_received_mult,
-                          hp_before, target.current_hp)
-
-                # add_status_to_attack: 子機追加伤害时同时施加debuff（如spd_down）
-                sub_hlf = getattr(sub_buff, 'hit_limited_flags', {}) or {}
-                add_status_info = sub_hlf.get('add_status_to_attack') if sub_hlf else None
-                if add_status_info and target.is_alive:
-                    status_name = add_status_info.get('status', 'spd_down')
-                    status_value = add_status_info.get('value', 0)
-                    # value=0时不施加debuff（Lv1-10时spd=0，不触发降速）
-                    if status_value and status_value > 0:
-                        status_duration = add_status_info.get('duration', 1)
-                        # 映射status名称到effect_type
-                        status_effect_map = {
-                            'spd_down': SkillEffectType.STATUS_SPEED.value,
-                            'atk_down': SkillEffectType.STATUS_ATTACK.value,
-                            'def_down': SkillEffectType.STATUS_DEFENSE.value,
-                        }
-                        status_et = status_effect_map.get(status_name, SkillEffectType.STATUS_SPEED.value)
-                        status_aura = BuffState(
-                            buff_id=f"{caster.unit_id}_SubUnitStatus_{target.unit_id}_{sub_buff.buff_id[-8:]}",
-                            name=f"SubUnit_{status_name}",
-                            effect_type=status_et,
-                            value=status_value,
-                            duration=status_duration,
-                            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
-                            source_unit_id=sub_buff.source_unit_id,
-                            source_skill_id=sub_buff.source_skill_id,
-                            caster_attack=0,
-                            is_debuff=True,
-                            is_stackable=add_status_info.get('stackable', False),
-                        )
-                        self.aura_service.add_aura(target, status_aura)
-                        _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' add_status_to_attack %s(%.1f) -> %s (dur=%d)",
-                                  caster.name, sub_buff.name, status_name, status_value, target.name, status_duration)
 
         carried_debuff_targets = []
         for sb in carried_spd_buffs:
@@ -3297,6 +3378,9 @@ class SkillService:
                         'hp_scaling_bonus': 0.0,
                         'cannot_crit': eff_flags.get('cannot_crit', False),
                         'bonus_crit_rate': 0.0,
+                        'skill_id': self._current_skill_id,
+                        'name': self._get_skill_name(self._current_skill_id),
+                        'base_value_source': eff_flags.get('value_source', None),
                     })()
                     tso = type('obj', (object,), {
                         'display_target_type': self._resolve_target_type(effect.target_type),
@@ -3355,6 +3439,22 @@ class SkillService:
                         dt.current_hp = max(0, dt.current_hp - actual)
                         _log.info("[ON_CRIT] %s -> %s: extra damage %d (hp now %d)",
                                   caster.name, dt.name, actual, dt.current_hp)
+                        # === 伤害统计累加（与主流程 _apply_damage 保持一致） ===
+                        # on_crit 追加伤害必须计入统计/lifesteal基础值/scoring
+                        overflow = max(0, actual - hp_before)
+                        caster.damage_dealt_total += actual
+                        dt.damage_taken_total += actual
+                        self._most_recent_damage += actual
+                        tracker = getattr(battlefield, 'scoring_tracker', None)
+                        if tracker is not None:
+                            caster_side = "ally" if caster.side.value == "ally" else "enemy"
+                            target_side = "ally" if dt.side.value == "ally" else "enemy"
+                            tracker.record_damage(
+                                source_id=caster.unit_id, source_name=caster.name, source_side=caster_side,
+                                target_id=dt.unit_id, target_name=dt.name, target_side=target_side,
+                                actual_damage=actual, shield_absorbed=shield_absorbed,
+                                overflow=overflow if target_side == "enemy" else 0,
+                            )
                         # 生成叙事日志条目
                         on_crit_targets_hit.append({
                             "target": dt.name,
@@ -3462,8 +3562,10 @@ class SkillService:
                     if _skill_level_h >= 15:
                         _heal_count = _tc_lv15
                 # 先取自身以外的友方按HP比例升序排序
+                # tiebreaker: HP比例相同时（如全员满血）按距离施法者最近排序
                 others = [u for u in all_allies if u.unit_id != caster.unit_id]
-                others.sort(key=lambda u: u.current_hp / max(u.max_hp, 1))
+                others.sort(key=lambda u: (u.current_hp / max(u.max_hp, 1),
+                                           self.target_service._get_sort_key(caster, u)))
                 if others:
                     selected = others[:_heal_count]
                     # 非自身友方不足时用自身补位
@@ -3591,6 +3693,7 @@ class SkillService:
             "enemy_single_lowest_spd", "enemy_single_furthest",
             "enemy_single_highest_ep",
             "enemy_single_highest_hp_ratio",
+            "enemy_single_highest_current_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_column_furthest", "enemy_column_mark_priority",
@@ -3775,6 +3878,13 @@ class SkillService:
                 best = targets[0]
                 _log.info("[AURA_APPLY] %s: highest_hp_ratio filter -> %s",
                           caster.name, best.name)
+
+        if effect.target_type == "enemy_single_highest_current_hp":
+            if targets:
+                targets = [max(targets, key=lambda u: u.current_hp)]
+                best = targets[0]
+                _log.info("[AURA_APPLY] %s: highest_current_hp filter -> %s (hp=%d)",
+                          caster.name, best.name, best.current_hp)
 
         if effect.target_type == "enemy_single_lowest_hp_ratio":
             if targets:
@@ -4294,7 +4404,7 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s -> %s: scale_by_target_hp_ratio hp_ratio=%.3f value %.1f -> %.1f",
                           caster.name, target.name, hp_ratio, value, final_value)
             aura = BuffState(
-                buff_id=f"{_aura_source_unit_id}_{mapped_effect_type}_{target.unit_id}",
+                buff_id=f"{_aura_source_unit_id}_{self._current_skill_id}_{mapped_effect_type}_{target.unit_id}",
                 name=aura_name,
                 effect_type=mapped_effect_type,
                 value=final_value,
@@ -4588,6 +4698,7 @@ class SkillService:
             "enemy_single_lowest_spd", "enemy_single_furthest",
             "enemy_single_highest_ep",
             "enemy_single_highest_hp_ratio",
+            "enemy_single_highest_current_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_column_furthest", "enemy_column_mark_priority",
@@ -5614,11 +5725,16 @@ class SkillService:
                  "enemy_lowest_hp", "enemy_single_furthest", "last_target",
                  "enemy_back_row",
                  "enemy_single_highest_hp_ratio",
+                 "enemy_single_highest_current_hp",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
         if t in ("friends", "friend", "ally_single"):
             return DisplayTargetType.FRIENDS.value
         if t in ("ally_single_include_self",):
+            return DisplayTargetType.SELF_AND_FRIENDS.value
+        # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 两阶段链式最近索敌
+        # 候选池必须含自身（自身在前排时 A=自身），故映射到 SELF_AND_FRIENDS
+        if t in ("ally_single_chained_nearest",):
             return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("ally_front", "ally_front_row", "ally_back", "ally_column", "ally_row",
                  "ally_highest_atk"):
@@ -5633,11 +5749,13 @@ class SkillService:
         t = effect_target_type.lower() if effect_target_type else "unknown"
         if t in ("self",): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_single", "ally_single", "ally_single_include_self",
+                 "ally_single_chained_nearest",
                  "enemy_single_highest_atk", "enemy_single_highest_spd",
                  "enemy_single_lowest_spd",
                  "enemy_single_furthest",
                  "enemy_single_highest_ep",
                  "enemy_single_highest_hp_ratio",
+                 "enemy_single_highest_current_hp",
                  "enemy_single_highest_hp_ratio_back_priority",
                  "enemy_single_lowest_hp_ratio"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
@@ -5685,6 +5803,8 @@ class SkillService:
                 dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
         elif target_type == "enemy_single_highest_hp_ratio":
             dmg_targets = [max(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+        elif target_type == "enemy_single_highest_current_hp":
+            dmg_targets = [max(dmg_targets, key=lambda u: u.current_hp)]
         elif target_type == "enemy_single_lowest_hp_ratio":
             dmg_targets = [min(dmg_targets, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
         elif target_type == "enemy_column_furthest":
@@ -6269,6 +6389,13 @@ class SkillService:
         if apply_count < 1:
             apply_count = 1
 
+        # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 子機Ⅱ跨目标联动失效
+        # 游戏内bug: 多个子機Ⅱ的持续时间仅看最先失效的单位，一方失效时另一方同时失效
+        # 通过shared link_group_id将本次技能创建的所有子機Ⅱ关联，任一失效时级联移除其余
+        # 原实现路径（无linked_expiry flag）保持不变，link_group_id为空字符串不影响原有逻辑
+        linked_expiry = bool(effect_flags.get('linked_expiry', False))
+        link_group_id = f"linked_subunit_{uuid.uuid4().hex[:8]}" if linked_expiry else ""
+
         applied_targets = []
         for target in target_list:
             for _ in range(apply_count):
@@ -6294,6 +6421,7 @@ class SkillService:
                     sub_unit_hp=sub_unit_max_hp,
                     sub_unit_max_hp=sub_unit_max_hp,
                     hit_limited_flags=hlf,
+                    sub_unit_link_group=link_group_id,
                 )
 
                 self.aura_service.add_aura(target, sub_unit_buff)

@@ -10008,7 +10008,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
         team_damages = result.get("team_avg_damages", [0, 0, 0])
         out.append("")
         out.append("─" * 60)
-        out.append("  【各队伍平均净伤害】")
+        out.append("  【各队伍平均得分】")
         for i, dmg in enumerate(team_damages):
             out.append(f"    队伍{i + 1}: {dmg:,.1f}")
         out.append("─" * 60)
@@ -10174,7 +10174,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
         out.append("=" * 60)
         out.append("  复合战术演习 - 单次战斗结果")
         out.append("=" * 60)
-        out.append(f"  总分数(净伤害): {result.get('score', 0):,}")
+        out.append(f"  总分数: {result.get('score', 0):,}")
         out.append(f"  BOSS被击杀次数: {result.get('boss_killed_count', 0)}")
         out.append(f"  BOSS最终阶段: {result.get('boss_stage', 0)}")
         out.append(f"  总回合数: {result.get('total_turns', 0)}")
@@ -10191,16 +10191,16 @@ class CompositeTacticExerciseTab(ttk.Frame):
         # 聚合敌方统计（跨队伍累计受到伤害，取最终剩余HP）
         enemy_agg: Dict[str, Dict[str, Any]] = {}
 
-        # 摘要中输出每队净伤害
+        # 摘要中输出每队得分
         if team_results:
             out.append("")
-            out.append("  【各队净伤害】")
+            out.append("  【各队得分】")
             for tr in team_results:
                 idx = tr.get("team_index", 0) + 1
                 dmg = tr.get("damage_to_boss", 0)
                 rounds = tr.get("rounds_survived", 0)
                 wiped = "团灭" if tr.get("team_wiped", False) else "存活"
-                out.append(f"    队伍{idx}: 净伤害={dmg:,} 回合={rounds} {wiped}")
+                out.append(f"    队伍{idx}: 得分={dmg:,} 回合={rounds} {wiped}")
             out.append("=" * 60)
 
         for tr in team_results:

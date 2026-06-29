@@ -2188,7 +2188,7 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
                 "hp_received": 0,
             }
 
-        # 各队净伤害（对敌方HP伤害 - 敌方回血，盾伤不计）
+        # 各队得分（对敌方伤害 - 敌方回血）
         team_damages = [tr.get("damage_to_boss", 0) for tr in team_results]
 
         results.append({

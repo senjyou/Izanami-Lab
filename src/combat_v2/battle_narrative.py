@@ -513,7 +513,7 @@ class BattleNarrativeWriter:
 
         Args:
             team_index: 队伍索引(0-based)
-            net_damage: 净伤害
+            net_damage: 得分（对敌方伤害-敌方回血）
             rounds: 回合数
             team_wiped: 是否团灭
             ally_stats: [(name, damage_dealt, damage_received, alive), ...]
@@ -524,7 +524,7 @@ class BattleNarrativeWriter:
         self._add(u"╔══════════════════════════════════════════════════╗")
         self._add(f"║       复合战术演习 · 队伍{team_index + 1} · 战斗结果")
         self._add(u"╠══════════════════════════════════════════════════╣")
-        self._add(f"║  净伤害: {net_damage:,}  回合: {rounds}  结果: {result_text}")
+        self._add(f"║  得分: {net_damage:,}  回合: {rounds}  结果: {result_text}")
         self._add(u"║──────────────────────────────────────────────────║")
         self._add(u"║  ◆ 己方单位统计")
         for name, dmg_dealt, dmg_recv, alive in ally_stats:
@@ -551,10 +551,10 @@ class BattleNarrativeWriter:
         self._add(u"╔══════════════════════════════════════════════════╗")
         self._add(u"║       复合战术演习 · 最终结果")
         self._add(u"╠══════════════════════════════════════════════════╣")
-        self._add(f"║  总分数(净伤害): {total_score:,}")
+        self._add(f"║  总分数: {total_score:,}")
         for i, tr in enumerate(team_results):
             result = "团灭" if tr.get("team_wiped") else "存活"
-            self._add(f"║  队伍{i + 1}: 净伤害{tr.get('damage_to_boss', 0):,} "
+            self._add(f"║  队伍{i + 1}: 得分{tr.get('damage_to_boss', 0):,} "
                       f"回合{tr.get('rounds_survived', 0)} {result}")
         self._add(u"║──────────────────────────────────────────────────║")
         self._add(f"║  BOSS被击杀次数: {boss_killed_count}")

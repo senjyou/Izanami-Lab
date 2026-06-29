@@ -23,6 +23,9 @@ class AuraService:
                       unit.name, aura.effect_type, aura.value, aura.duration)
             return False
 
+        # 标记：当次行动中由add_aura处理的buff，process_maneuver_end跳过递减
+        aura.just_applied = True
+
         # 1.5 眩晕/冻结/混乱: 立即同步标志位，防止同回合内PS触发检查漏过
         if aura.effect_type == SkillEffectType.KNOCKOUT.value:
             unit.is_stunned = True
@@ -76,6 +79,7 @@ class AuraService:
 
         if existing_index != -1:
             # 存在同源同ID: 覆盖 (刷新持续时间/数值)
+            target_list[existing_index].just_applied = True
             if aura.effect_type in [SkillEffectType.KNOCKOUT.value, SkillEffectType.FREEZE.value,
                                      SkillEffectType.CONFUSION.value]:
                 old_dur = target_list[existing_index].duration
@@ -94,40 +98,40 @@ class AuraService:
                     _log.info("[AURA] %s: non-stackable %s duration refreshed %.1f (value kept, same buff_id)",
                               unit.name, aura.effect_type, aura.value)
         else:
-            # 不同源但同effect_type的不可叠加buff：取最大值
-            existing_by_type = -1
-            for i, existing in enumerate(target_list):
-                if (existing.effect_type == aura.effect_type
-                        and not existing.is_memory_buff
-                        and not existing.is_stackable):
-                    existing_by_type = i
-                    break
+            # 不同源（不同技能）但同effect_type的不可叠加buff
+            control_types = [SkillEffectType.KNOCKOUT.value, SkillEffectType.FREEZE.value,
+                             SkillEffectType.CONFUSION.value]
+            if aura.effect_type in control_types:
+                # 控制类效果（眩晕/冻结/混乱）：保留持续时间更长的
+                existing_by_type = -1
+                for i, existing in enumerate(target_list):
+                    if (existing.effect_type == aura.effect_type
+                            and not existing.is_memory_buff
+                            and not existing.is_stackable):
+                        existing_by_type = i
+                        break
 
-            if existing_by_type != -1:
-                old_aura = target_list[existing_by_type]
-                if aura.effect_type == SkillEffectType.CONFUSION.value:
-                    # 混乱：保留持续时间更长的一个（含参数），与眩晕/冻结一致
+                if existing_by_type != -1:
+                    old_aura = target_list[existing_by_type]
+                    old_aura.just_applied = True
                     if aura.duration > old_aura.duration:
                         target_list[existing_by_type] = aura
-                        _log.info("[AURA] %s: confusion replaced (new dur %d > old dur %d, diff source)",
-                                  unit.name, aura.duration, old_aura.duration)
+                        _log.info("[AURA] %s: %s replaced (new dur %d > old dur %d, diff source)",
+                                  unit.name, aura.effect_type, aura.duration, old_aura.duration)
                     else:
-                        _log.info("[AURA] %s: confusion IGNORED (old dur %d >= new dur %d, diff source)",
-                                  unit.name, old_aura.duration, aura.duration)
-                elif abs(aura.value) > abs(old_aura.value):
-                    target_list[existing_by_type] = aura
-                    _log.info("[AURA] %s: non-stackable %s value updated %.1f -> %.1f (max, diff source)",
-                              unit.name, aura.effect_type, old_aura.value, aura.value)
-                elif aura.duration > old_aura.duration and abs(aura.value) == abs(old_aura.value):
-                    old_aura.duration = aura.duration
-                    _log.info("[AURA] %s: non-stackable %s duration refreshed %.1f (value kept, diff source)",
-                              unit.name, aura.effect_type, aura.value)
+                        _log.info("[AURA] %s: %s IGNORED (old dur %d >= new dur %d, diff source)",
+                                  unit.name, aura.effect_type, old_aura.duration, aura.duration)
                 else:
-                    _log.info("[AURA] %s: non-stackable %s IGNORED (existing %.1f >= new %.1f)",
-                              unit.name, aura.effect_type, old_aura.value, aura.value)
+                    target_list.append(aura)
+                    _log.info("[AURA] %s add control %s [%s] val=%s dur=%d -> APPEND",
+                              unit.name, aura.effect_type, list_name, aura.value, aura.duration)
             else:
+                # 非控制类不可叠加buff：不同源时共存（coexist）
+                # 属性计算时_aggregate_buff_value取最大值，所以共存不影响当前效果
+                # 但当高数值buff过期时，低数值buff仍然存活，正确过渡
+                # （如 リフシルト15% 与 外殻強化25% 共存，25%过期后15%仍然生效）
                 target_list.append(aura)
-                _log.info("[AURA] %s add non-stackable %s [%s] val=%s dur=%d -> APPEND",
+                _log.info("[AURA] %s add non-stackable %s [%s] val=%s dur=%d -> COEXIST (diff source)",
                           unit.name, aura.effect_type, list_name, aura.value, aura.duration)
 
         return True
@@ -160,6 +164,9 @@ class AuraService:
         for b in unit.buffs + unit.debuffs:
             if b.timing_type == source_timing and getattr(b, 'source_unit_id', None) == unit.unit_id:
                 if b.duration > 0:
+                    # 当次行动中由add_aura施加的buff跳过递减（skip_restore除外）
+                    if getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False):
+                        continue
                     b.duration -= 1
         expired_after = [b.effect_type for b in unit.buffs + unit.debuffs if b.duration <= 0]
         newly_expired = set(expired_after) - set(expired_before)
@@ -171,6 +178,10 @@ class AuraService:
         施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff/debuff。
         修复duration_owner="caster"机制：原本只在buff持有者行动结束时递减，
         现在正确地在施法者行动结束时递减。
+
+        注意：这里不检查just_applied。just_applied只保护"自身施法自身"的buff
+        （在process_maneuver_end的DURABLE_SOURCE_MANEUVER_END循环中处理）。
+        施加给其他单位的buff应在施法者当次行动结束时正常递减。
         """
         source_timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
         affected_units = []
@@ -192,7 +203,7 @@ class AuraService:
                 affected_units.append(unit)
         # 清理过期buff/debuff
         for unit in affected_units:
-            self.check_expiration(unit)
+            self.check_expiration(unit, all_units)
 
     def process_shield_decay(self, unit: UnitState):
         """
@@ -282,11 +293,20 @@ class AuraService:
         if newly_expired:
             _log.info("[AURA_TURN_END] %s expired: %s", unit.name, list(newly_expired))
 
-    def check_expiration(self, unit: UnitState):
+    def check_expiration(self, unit: UnitState, all_units: Optional[List[UnitState]] = None):
         """清理过期 Aura (Duration == 0 表示已过期, Duration < 0 表示永久)"""
         # 先收集过期的buff，用于联动检查（排除unremovable）
         expired_buffs = [b for b in unit.buffs if b.duration == 0 and not getattr(b, 'unremovable', False)]
         expired_debuffs = [b for b in unit.debuffs if b.duration == 0 and not getattr(b, 'unremovable', False)]
+
+        # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 子機Ⅱ跨目标联动失效
+        # 当本目标的linked sub_unit过期时，级联移除其他目标上同link_group的子機Ⅱ
+        # 原实现路径（无all_units或sub_unit_link_group为空）保持不变
+        if all_units is not None:
+            for expired in expired_buffs:
+                if (expired.effect_type == SkillEffectType.SUB_UNIT.value
+                        and getattr(expired, 'sub_unit_link_group', '')):
+                    self._cascade_linked_sub_unit_expiry(expired, unit, all_units)
 
         # 护盾buff过期时，需清除对应的shield值
         for b in expired_buffs:
@@ -359,7 +379,41 @@ class AuraService:
                         unit.debuffs.remove(ld)
                         _log.info("[LINKED_MARK] %s: debuff %s removed (linked to mark %s expiration)",
                                   unit.name, ld.name, mark_name)
-        
+
+    def _cascade_linked_sub_unit_expiry(self, expired_buff: BuffState, source_unit: UnitState,
+                                         all_units: List[UnitState]) -> List[tuple]:
+        """[GAME_BUG_SIMULATION] 跨目标联动移除子機Ⅱ
+
+        仿真游戏内bug: 技能「装いを新たに」(110050)创建的多个子機Ⅱ中，
+        任一子機Ⅱ失效（持续时间到/HP耗尽）时，其余子機Ⅱ同时失效。
+
+        原实现路径：sub_unit_link_group为空时直接返回，不影响原有逻辑。
+        仅当linked_expiry flag启用时，_apply_sub_unit会生成共享的link_group_id。
+        """
+        link_group = getattr(expired_buff, 'sub_unit_link_group', '')
+        if not link_group:
+            return []
+        removed = []
+        for unit in all_units:
+            if unit.unit_id == source_unit.unit_id:
+                continue
+            if not unit.is_alive:
+                continue
+            # 只级联未过期的linked sub_unit（duration>0），避免重复移除
+            linked_buffs = [b for b in unit.buffs
+                           if b.effect_type == SkillEffectType.SUB_UNIT.value
+                           and getattr(b, 'sub_unit_link_group', '') == link_group
+                           and b.duration > 0]
+            for lb in linked_buffs:
+                lb.duration = 0
+                lb.sub_unit_hp = 0
+                _log.info("[LINKED_SUB_UNIT] %s: sub_unit '%s' cascade-expired (linked to %s on %s, group=%s)",
+                          unit.name, lb.name, expired_buff.name, source_unit.name, link_group)
+                removed.append((unit.name, lb.name))
+            if linked_buffs:
+                unit.buffs = [b for b in unit.buffs if b.duration != 0 or getattr(b, 'unremovable', False)]
+        return removed
+
     def get_aura_value(self, unit: UnitState, effect_type: str) -> float:
         """获取某类 Aura 的总值 (Sum)"""
         total = 0.0
@@ -390,25 +444,35 @@ class AuraService:
 
         for b in unit.buffs:
             if b.timing_type in target_timings:
-                # EPHEMERAL类型：无论duration值如何，直接设为0移除
+                # EPHEMERAL类型：无论duration值如何、是否just_applied，直接设为0移除
+                # 这是"技能/行动结束时立即消失"的语义，不能被just_applied保护
                 if b.timing_type in [
                     AuraUpdateTiming.EPHEMERAL_SKILL_END.value,
                     AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value
                 ]:
                     b.duration = 0
-                elif b.duration < 0:
+                    continue
+                # DURABLE类型：当次行动中由add_aura施加的buff跳过递减（skip_restore除外）
+                if getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False):
+                    continue
+                if b.duration < 0:
                     continue
                 else:
                     b.duration -= 1
 
         for b in unit.debuffs:
             if b.timing_type in target_timings:
+                # EPHEMERAL类型：无论duration值如何、是否just_applied，直接设为0移除
                 if b.timing_type in [
                     AuraUpdateTiming.EPHEMERAL_SKILL_END.value,
                     AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value
                 ]:
                     b.duration = 0
-                elif b.duration < 0:
+                    continue
+                # DURABLE类型：当次行动中由add_aura施加的buff跳过递减（skip_restore除外）
+                if getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False):
+                    continue
+                if b.duration < 0:
                     continue
                 else:
                     b.duration -= 1
@@ -436,37 +500,33 @@ class AuraService:
         return False
 
     def _handle_poison_stacking(self, target_list: List[BuffState], new_poison: BuffState):
+        """毒叠加逻辑: 不可叠加。
+
+        重复赋予毒时，保留伤害上限更大的效果（即 caster_attack 更高的），
+        持续时间继承更长的。毒伤害 = min(HP*value%, caster_attack)，
+        所以 caster_attack 更高的毒伤害上限更高。
         """
-        毒叠加逻辑:
-        "不可叠加: 重复赋予毒时，保留伤害上限更大的效果"
-        比较的是：施法者攻击力×100% (即 new_poison.caster_attack or implicit capped value? )
-        文档公式: 毒伤害 = min(HP*%, Atk*100%). 上限是 Atk*100%.
-        所以比较 caster_attack (snapshot).
-        """
-        # 假设 BuffState 有 store caster_attack 的地方? 
-        # 目前 BuffState 定义: value, duration... no caster_attack explicitly except in mechanics doc suggestion.
-        # 之前 Mechanics Doc 建议:
-        # caster_attack: int # 快照攻击力
-        # 但 UnitState.py 还没加这个字段!
-        # 为了不改动 UnitState (尽量)，我们可以用 extra fields or metadata?
-        # 或者现在加。
-        # 鉴于 Poison 逻辑依赖它，且 Mechanics Doc 明确说了需要，我们假设 BuffState 后续会加，或者现在加。
-        # 这里先假设 new_poison.value 已经是 "Damage Cap" ? 不，value是百分比.
-        # 我们只能比较 new_poison vs existing_poison's priority?
-        # 简单处理: 如果已存在 Poison，比较 Duration * Value? 
-        # Doc: "比较的是：施法者攻击力×100%"
-        # 那么我们必须在 BuffState 存 caster_attack.
-        
-        # 临时: 总是覆盖? 或者是 "Keep Newest" ?
-        # Doc: "持续时间和伤害上限都更优时才覆盖" -> "保留伤害上限更大的".
-        # 如果无法获取 Attack，暂定**覆盖** (Newest wins)，这是最常见的 RPG 逻辑之一。
-        
-        # 移除旧 Poison
         existing = next((b for b in target_list if b.effect_type == SkillEffectType.POISON.value), None)
-        if existing:
-            # 比较逻辑缺失，做个 TODO
-            # Assuming new is better for now, or just replace.
+        if not existing:
+            target_list.append(new_poison)
+            return
+
+        # 保留 caster_attack 更高的作为伤害来源，持续时间继承更长的
+        if new_poison.caster_attack > existing.caster_attack:
+            # 新毒伤害上限更高 → 以新毒为基础，继承更长的持续时间
+            if existing.duration > new_poison.duration:
+                new_poison.duration = existing.duration
             target_list.remove(existing)
-            
-        target_list.append(new_poison)
+            target_list.append(new_poison)
+            _log.info("[AURA] poison replaced: caster_attack %d -> %d (higher cap), duration=%d",
+                      existing.caster_attack, new_poison.caster_attack, new_poison.duration)
+        else:
+            # 旧毒伤害上限更高或相等 → 保留旧毒，继承更长的持续时间
+            old_dur = existing.duration
+            if new_poison.duration > existing.duration:
+                existing.duration = new_poison.duration
+            existing.just_applied = True  # 防止当次行动结束时递减duration
+            _log.info("[AURA] poison kept existing: caster_attack %d >= %d, duration %d -> %d (inherited longer)",
+                      existing.caster_attack, new_poison.caster_attack, old_dur, existing.duration)
+
 

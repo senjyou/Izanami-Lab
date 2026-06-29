@@ -238,12 +238,21 @@ class TriggerService:
 
     def trigger_after_ally_as_attack(self, actor: UnitState, skill_id: int,
                                        targets: List[UnitState],
-                                       battlefield: BattlefieldState) -> List[TriggerAction]:
-        """其他友方AS攻击后触发（同阵营、非自身、AS技能）"""
+                                       battlefield: BattlefieldState,
+                                       primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
+        """其他友方AS攻击后触发（同阵营、非自身、AS技能）
+
+        追撃型PS（如 チェイスブレイダー）仅追击AS主目标：primary_target 阵亡时
+        由 _match_trigger_timing 判定不触发。若调用方未显式传入 primary_target，
+        从 targets[0] 推导（保持向后兼容）。
+        """
+        if primary_target is None and targets:
+            primary_target = targets[0]
         ctx = TriggerContext(
             TriggerTiming.AFTER_ALLY_AS_ATTACK, battlefield,
             actor=actor, skill=skill_id,
             targets=targets,
+            primary_target=primary_target,
         )
         return self.check_triggers(TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx)
 
@@ -921,9 +930,26 @@ class TriggerService:
 
         if timing == TriggerTiming.AFTER_ALLY_AS_ATTACK:
             # 其他友方AS攻击后触发：同阵营、非自身
+            # 追撃型PS（如 チェイスブレイダー）仅追击AS主目标：
+            # 主目标阵亡或不为敌方时不触发
             if context.actor is None:
                 return False
             if owner.side != context.actor.side or owner.unit_id == context.actor.unit_id:
+                return False
+            primary = context.primary_target
+            if primary is None and context.targets:
+                primary = context.targets[0]
+            if primary is None:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_ALLY_AS_ATTACK blocked (no primary target)",
+                          owner.name)
+                return False
+            if not primary.is_alive:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_ALLY_AS_ATTACK blocked (primary target %s not alive)",
+                          owner.name, primary.name)
+                return False
+            if primary.side == owner.side:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_ALLY_AS_ATTACK blocked (primary target %s same side as owner)",
+                          owner.name, primary.name)
                 return False
             return True
 

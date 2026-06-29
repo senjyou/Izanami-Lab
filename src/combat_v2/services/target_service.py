@@ -349,7 +349,7 @@ class TargetService:
                 _log.info("[TARGET]   enemy_nearest_and_farthest: only 1 candidate, returning single target")
                 return [ordered[0]]
             nearest = ordered[0]
-            # 使用_get_farthest_key正确破平局（同距离优先左列），参考カオスキャノン的furthest filter
+            # 使用_get_farthest_key正确破平局（同距离优先左列），参考カオスキャノンのfurthest filter
             farthest = min(candidates, key=lambda u: self._get_farthest_key(caster, u))
             # 防止最近和最远是同一单位（理论上不会，但安全检查）
             if nearest.unit_id == farthest.unit_id:
@@ -357,6 +357,37 @@ class TargetService:
             _log.info("[TARGET]   enemy_nearest_and_farthest: nearest=%s, farthest=%s",
                       nearest.name, farthest.name)
             return [nearest, farthest]
+
+        # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 两阶段链式最近索敌
+        # 仿真游戏内bug：原技能配置为 ally_single + target_count:2（走下方 TWO_PAWNS 分支，
+        # 选距离自身最近的A + 距离A最近的B）。但游戏内实际表现为：
+        #   Stage 1: A = 距离自身最近的前排友方（自身位于前排时 A = 自身）
+        #   Stage 2: B = 距离A最近的友方（不分前后排，排除A本身）
+        # 友方A和友方B为该技能的目标。
+        # 注意：原 ally_single + target_count 实现路径保留在下方 TWO_PAWNS 分支，未删除。
+        if target_type_name == 'ally_single_chained_nearest':
+            # Stage 1: 选取距离自身最近的前排友方A
+            if self._is_front_row(caster):
+                ally_a = caster
+            else:
+                front_allies = [u for u in ordered if self._is_front_row(u)]
+                if front_allies:
+                    front_allies.sort(key=lambda u: self._get_sort_key(caster, u))
+                    ally_a = front_allies[0]
+                else:
+                    # 回退：无前排友方时取距离自身最近的友方
+                    ally_a = ordered[0]
+            # Stage 2: 选取距离A最近的友方B（不分前后排，排除A本身）
+            other_allies = [u for u in ordered if u.unit_id != ally_a.unit_id]
+            if other_allies:
+                other_allies.sort(key=lambda u: self._get_sort_key(ally_a, u))
+                ally_b = other_allies[0]
+                _log.info("[TARGET]   ally_single_chained_nearest: A=%s(front), B=%s(nearest to A)",
+                          ally_a.name, ally_b.name)
+                return [ally_a, ally_b]
+            _log.info("[TARGET]   ally_single_chained_nearest: A=%s(front), no other ally for B",
+                      ally_a.name)
+            return [ally_a]
 
         if r_type == DisplayTargetRange.ONE_PAWN:
             return [ordered[0]]

@@ -81,7 +81,6 @@ class BattleFlowController:
         self.action_axis.set_damage_service(self.damage_service)
         self._acted_this_round = set()  # 当前轮次已行动的unit_id
         self._round_eligible_ids: set = set()  # 当前轮次初始行动单位集合
-        self._pre_action_buff_ids: set = set()
         self._unit_display_names: Dict[str, str] = {}
         self._unit_id_map: Dict[str, UnitState] = {}
 
@@ -241,6 +240,14 @@ class BattleFlowController:
         self._execute_global_trigger_actions(non_preemptive_actions)
         self.battlefield.current_trigger_phase = None
 
+        # グローバル触发器（turn_start/memory_card）で付与されたbuffのjust_appliedをクリア
+        # これらは行動中に付与されたものではないため、最初の行動終了時に正常に減算されるべき
+        # （just_appliedは「当次行動中に付与されたbuffを递減から保護」する仕組みだが、
+        #   グローバル触发器は行動中ではないため保護対象外）
+        for u in self.battlefield.get_all_units():
+            for b in u.buffs + u.debuffs:
+                b.just_applied = False
+
         round_in_turn = 0
         while True:
             self.action_axis.generate_action_axis(self.battlefield)
@@ -302,6 +309,15 @@ class BattleFlowController:
         self._execute_global_trigger_actions(turn_end_actions)
         self.battlefield.current_trigger_phase = None
 
+        # グローバル触发器（turn_end/memory_card）で付与されたbuffのjust_appliedをクリア
+        # グローバル触发器は行動中ではないため、just_applied保護は不要
+        # 次ターンの最初の行動終了時に正常にdurationが減算されるようにする
+        # （例: グローリーコール(130022)のatk_up buff duration=2が
+        #   次ターン2行動で正常に消失するように）
+        for u in self.battlefield.get_all_units():
+            for b in u.buffs + u.debuffs:
+                b.just_applied = False
+
         # 回合结束冷却递减 (cooldown_update_timing: 1)
         snapshot = getattr(self, '_turn_start_cooldowns_snapshot', {})
         for u in self.battlefield.get_all_units():
@@ -310,7 +326,7 @@ class BattleFlowController:
                 # 回合制buff/debuff持续时间递减 (duration_type="turn"，如damage_link)
                 self.aura_service.process_turn_end(u)
                 # 清理过期buff/debuff
-                self.aura_service.check_expiration(u)
+                self.aura_service.check_expiration(u, self.battlefield.get_all_units())
 
         if self.narrative:
             all_alive = [u for u in self.battlefield.friend_team + self.battlefield.enemy_team if u.is_alive]
@@ -319,7 +335,6 @@ class BattleFlowController:
         return False
 
     def _execute_unit_action(self, unit: UnitState, turn: int) -> None:
-        self._pre_action_buff_ids = {id(b) for b in unit.buffs + unit.debuffs}
         self.battlefield.round_number += 1
 
         # 更新所有存活单位的prev_hp_percent为当前HP百分比
@@ -644,84 +659,107 @@ class BattleFlowController:
                 primary_target = damaged_targets[0] if damaged_targets else None
 
                 if skill_type == 1:
-                    # AS技能执行结束后，所有同时机触发器合并后按速度→位置排序执行
-                    # 包括：after_ally_attacked, after_self_attacked, after_as_attacked,
-                    #       after_as_attacked_ally, after_ally_as_attack, on_critical
-                    all_post_as_actions = []
+                    # AS技能执行结束后，触发器分两阶段执行：
+                    # Phase 1（被攻撃反応）: after_ally_attacked, after_self_attacked,
+                    #   after_as_attacked, after_as_attacked_ally
+                    #   这些是对"被攻击"的反应，必须先于追撃型PS执行
+                    #   （如 外殻強化 的 def_up 必须在 チェイスブレイダー 追撃前生效）
+                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack, after_self_as,
+                    #   on_critical, skill_use_count
+                    # 每阶段内部按速度→位置排序
 
-                    # 收集各类触发器
+                    # ===== 收集 Phase 1: 被攻撃反応 =====
+                    phase1_actions = []
+
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
                     # Suppress after_ally_attacked for owners who already triggered hp_below
                     # (e.g. ぽよぽよプロテクト takes priority over イケてる♡イケてる)
                     after_ally = [a for a in after_ally if a.instance.owner.unit_id not in owners_with_hp_below]
-                    all_post_as_actions.extend(after_ally)
+                    phase1_actions.extend(after_ally)
 
                     after_self = self.trigger_service.trigger_after_self_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
-                    all_post_as_actions.extend(after_self)
+                    phase1_actions.extend(after_self)
 
                     # 自身被AS攻击后触发（如フレンジーキャノン、捲土重来）
                     # 仅AS技能主目标触发
                     after_as_attacked = self.trigger_service.trigger_after_as_attacked(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
-                    all_post_as_actions.extend(after_as_attacked)
+                    phase1_actions.extend(after_as_attacked)
 
                     # 友方被AS技能攻击后触发（如ラッキー4！）
                     after_as_ally = self.trigger_service.trigger_after_as_attacked_ally(
                         damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
                     )
-                    all_post_as_actions.extend(after_as_ally)
+                    phase1_actions.extend(after_as_ally)
 
-                    # 其他友方AS攻击后触发（如ポイズンチェイス）
+                    # ===== 收集 Phase 2: AS攻撃後追撃 =====
+                    phase2_actions = []
+
+                    # 其他友方AS攻击后触发（如ポイズンチェイス、チェイスブレイダー）
+                    # 传入primary_target使追撃型PS仅追击AS主目标，主目标阵亡时不触发
                     after_ally_as = self.trigger_service.trigger_after_ally_as_attack(
-                        unit, selected_skill, damaged_targets, self.battlefield
+                        unit, selected_skill, damaged_targets, self.battlefield,
+                        primary_target=primary_target,
                     )
-                    all_post_as_actions.extend(after_ally_as)
+                    phase2_actions.extend(after_ally_as)
 
-                    # 自身AS攻击后触发（如諸元修正）也属于同时机，需与after_ally_as_attack合并排序
+                    # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
+                    # 暴击事件在AS执行中发生，应先于after_self_as(AS结束后触发)执行
+                    # （如 アンデッドリベンジ on_critical 需先于 ハロウィン・オブ・ザ・デッド after_as_attack）
+                    if self._deferred_crit_triggers:
+                        for entry in list(self._deferred_crit_triggers):
+                            c, bf = entry[0], entry[1]
+                            crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            phase2_actions.extend(crit_actions)
+                        self._deferred_crit_triggers = []
+
+                    # 自身AS攻击后触发（如諸元修正、ファイティングブースト）也属于同时机
                     # 传递primary_target给after_self_as触发器，使PS技能（如アーマー・ジャム）能获取AS攻击目标
                     _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
                     after_self_as = self.trigger_service.trigger_after_skill_use(
                         unit, selected_skill, skill_result, self.battlefield,
                         primary_target=_as_primary_target
                     )
-                    all_post_as_actions.extend(after_self_as)
-
-                    # 暴击触发PS（ラッキー4！、ジャックポット等）也属于同时机
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
-                            all_post_as_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
+                    phase2_actions.extend(after_self_as)
 
                     # 技能使用次数触发PS（おまけで、えいっ！等）也属于同时机
                     # skill_use_count已在上方统一更新（含非伤害型AS技能）
                     skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
                     if skill_count_actions:
-                        all_post_as_actions.extend(skill_count_actions)
+                        phase2_actions.extend(skill_count_actions)
 
-                    # 按速度降序→位置升序排序
-                    if all_post_as_actions:
-                        all_post_as_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] %d same-timing PS actions collected, sorted by speed→position",
-                                  len(all_post_as_actions))
-
-                    # 记录PP快照，用于后续判断PS是否实际执行
+                    # 记录PP快照（两阶段合并），用于后续判断PS是否实际执行
+                    all_for_snapshot = phase1_actions + phase2_actions
                     self._pp_snapshot_before_as_triggers = {}
-                    for a in all_post_as_actions:
+                    for a in all_for_snapshot:
                         o = a.instance.owner
                         self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
 
-                    self._execute_trigger_actions(all_post_as_actions, unit)
+                    # ===== 执行 Phase 1: 被攻撃反応 =====
+                    if phase1_actions:
+                        phase1_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] Phase1 (被攻撃反応): %d actions sorted by speed→position",
+                                  len(phase1_actions))
+                    self._execute_trigger_actions(phase1_actions, unit)
+                    # Phase 1 可能产生新的暴击触发器
+                    self._flush_deferred_crit_triggers(unit)
 
+                    # ===== 执行 Phase 2: AS攻撃後追撃 =====
+                    if phase2_actions:
+                        phase2_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃): %d actions sorted by speed→position",
+                                  len(phase2_actions))
+                    self._execute_trigger_actions(phase2_actions, unit)
                     # PS技能可能产生新的暴击触发器，继续处理
                     self._flush_deferred_crit_triggers(unit)
                 else:
@@ -1131,6 +1169,30 @@ class BattleFlowController:
             if self.narrative:
                 self.narrative.frozen(self._get_display_name(unit))
 
+        # DoT结算顺序: 毒 → 炎上（按游戏内表现）
+        # 毒伤害依赖当前HP（current_hp * pct），必须先结算，否则炎上先扣HP会导致毒伤害亏损
+        poison_dmg, poison_calc = self.status_service.apply_poison_damage(unit)
+        if poison_dmg > 0:
+            unit.damage_taken_total += poison_dmg
+            poison_sources = [b for b in unit.debuffs if b.effect_type == SkillEffectType.POISON.value]
+            if poison_sources:
+                source_id = poison_sources[0].source_unit_id
+                source_unit = next((u for u in self.battlefield.get_all_units() if u.unit_id == source_id), None)
+                if source_unit:
+                    source_unit.damage_dealt_total += poison_dmg
+                tracker = getattr(self.battlefield, 'scoring_tracker', None)
+                if tracker is not None:
+                    source_side = "ally" if source_unit and source_unit.side.value == "ally" else "enemy"
+                    target_side = "ally" if unit.side.value == "ally" else "enemy"
+                    source_name = source_unit.name if source_unit else source_id
+                    tracker.record_damage(
+                        source_id=source_id, source_name=source_name, source_side=source_side,
+                        target_id=unit.unit_id, target_name=unit.name, target_side=target_side,
+                        actual_damage=poison_dmg, shield_absorbed=0,
+                    )
+            if self.narrative:
+                self.narrative.poison_damage(self._get_display_name(unit), poison_dmg, unit.current_hp, unit.max_hp, poison_calc)
+
         burn_dmg, burn_stacks, burn_calc = self.status_service.apply_burn_damage(unit)
         if burn_dmg > 0:
             unit.damage_taken_total += burn_dmg
@@ -1153,28 +1215,6 @@ class BattleFlowController:
                     )
             if self.narrative:
                 self.narrative.burn_damage(self._get_display_name(unit), burn_dmg, unit.current_hp, unit.max_hp, burn_stacks, burn_calc)
-
-        poison_dmg, poison_calc = self.status_service.apply_poison_damage(unit)
-        if poison_dmg > 0:
-            unit.damage_taken_total += poison_dmg
-            poison_sources = [b for b in unit.debuffs if b.effect_type == SkillEffectType.POISON.value]
-            if poison_sources:
-                source_id = poison_sources[0].source_unit_id
-                source_unit = next((u for u in self.battlefield.get_all_units() if u.unit_id == source_id), None)
-                if source_unit:
-                    source_unit.damage_dealt_total += poison_dmg
-                tracker = getattr(self.battlefield, 'scoring_tracker', None)
-                if tracker is not None:
-                    source_side = "ally" if source_unit and source_unit.side.value == "ally" else "enemy"
-                    target_side = "ally" if unit.side.value == "ally" else "enemy"
-                    source_name = source_unit.name if source_unit else source_id
-                    tracker.record_damage(
-                        source_id=source_id, source_name=source_name, source_side=source_side,
-                        target_id=unit.unit_id, target_name=unit.name, target_side=target_side,
-                        actual_damage=poison_dmg, shield_absorbed=0,
-                    )
-            if self.narrative:
-                self.narrative.poison_damage(self._get_display_name(unit), poison_dmg, unit.current_hp, unit.max_hp, poison_calc)
 
         # ダメージリンク転送（DoT用）: 炎上/毒のダメージもリンク対象
         # ただしDoTリンクダメージはシールドで吸収不可（公式仕様）
@@ -1269,6 +1309,63 @@ class BattleFlowController:
                             new_knockout_target_ids.add(status_detail["target_id"])
         return aura_target_ids, new_knockout_target_ids, applied_debuff_types
 
+    # 主动攻击型 PS trigger_type 集合：这些 PS 的伤害应触发被攻撃反応（after_self_attacked 等）。
+    # 反应型 PS（after_self_attacked/after_ally_attacked/after_as_attacked 等）不在集合中，
+    # 避免反应链递归。全局型 PS（on_turn_end/on_cumulative_damage/on_hp_below/on_unit_count_below）
+    # 走 _execute_global_trigger_actions 路径，已自带被攻撃反応处理，也不在此集合中。
+    _ACTIVE_ATTACK_TRIGGER_TYPES = {
+        'on_skill_use_count', 'on_critical',
+        'after_as_attack', 'after_own_action', 'after_ally_as_attack',
+    }
+
+    def _trigger_being_attacked_reactions(self, attacker: UnitState,
+                                          damaged_targets: list,
+                                          skill_name: str) -> None:
+        """对 PS 攻击的 damaged_targets 触发被攻撃反応触发器。
+
+        顺序：hp_below → after_self_attacked → after_ally_attacked（hp_below owner 抑制 after_ally_attacked）。
+        必须在死亡处理前执行，确保被攻击方的 PS（如「外殻強化」230029 的 def_up）
+        在被击杀前能反应。
+
+        与 AS 路径不同，PS 攻击不触发 after_as_attacked/after_as_attacked_ally
+        （仅 AS 主目标）和 after_ally_as_attack/after_self_as（AS 攻撃後追撃型PS）。
+        """
+        if not damaged_targets:
+            return
+        unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
+        primary_target = damaged_targets[0]
+
+        # hp_below 优先于 after_self_attacked（与 AS 路径保持一致）
+        hp_below_actions = self.trigger_service.trigger_hp_below(
+            self.battlefield, unique_damaged)
+        self._execute_trigger_actions(hp_below_actions, attacker)
+        owners_with_hp_below = set(
+            a.instance.owner.unit_id for a in hp_below_actions)
+
+        # after_self_attacked: 被攻击方自身的 PS（如「外殻強化」def_up）
+        after_self_actions = self.trigger_service.trigger_after_self_attacked(
+            unique_damaged, self.battlefield,
+            actor=attacker, primary_target=primary_target)
+        if after_self_actions:
+            _log.info("[POST_PS_ATTACK] after_self_attacked triggers: %d (from PS[%s] by %s)",
+                      len(after_self_actions), skill_name, attacker.name)
+        self._execute_trigger_actions(after_self_actions, attacker)
+
+        # after_ally_attacked: 被攻击方友方的 PS（hp_below owner 抑制）
+        after_ally_actions = self.trigger_service.trigger_after_ally_attacked(
+            unique_damaged, self.battlefield,
+            actor=attacker, primary_target=primary_target)
+        after_ally_actions = [
+            a for a in after_ally_actions
+            if a.instance.owner.unit_id not in owners_with_hp_below]
+        if after_ally_actions:
+            _log.info("[POST_PS_ATTACK] after_ally_attacked triggers: %d (from PS[%s] by %s)",
+                      len(after_ally_actions), skill_name, attacker.name)
+        self._execute_trigger_actions(after_ally_actions, attacker)
+
+        # 被攻撃反応 PS 可能产生新的暴击触发器
+        self._flush_deferred_crit_triggers(attacker)
+
     def _execute_trigger_actions(self, actions, source_unit: UnitState) -> None:
         if not actions:
             return
@@ -1343,12 +1440,13 @@ class BattleFlowController:
             self._cleanup_guard_buffs(owner)
 
             if skill_result.get("success"):
-                self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
+                damaged_targets_reaction = self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
                 self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
 
                 # crit_count_mod触发器：PS技能执行成功后清空暴击计数器
                 # 延迟清空确保PP不足时计数器保持不变，下次暴击仍可触发
                 parsed = self.data_loader.get_parsed_skill_data(action.skill_id) if self.data_loader else None
+                trigger_type = None
                 if parsed:
                     gc = parsed.get('global_condition', {})
                     if gc and gc.get('type') == 'crit_count_mod':
@@ -1372,6 +1470,14 @@ class BattleFlowController:
                 # 检查PS技能触发的skill_use_count_modulo触发器（如「お母様、見ててください……！」）
                 # 如果PP足够，立即执行；PP不足则设置pending，等待下一次PS技能执行后再检查
                 self._check_and_execute_ps_skill_count_triggers(owner)
+
+                # 触发被攻撃反応触发器：主动攻击型 PS（如 on_skill_use_count 的「期待に応えたい」、
+                # on_critical、after_as_attack、after_ally_as_attack）的攻击应触发被攻击方的 PS
+                # （如「外殻強化」after_self_attacked 的 def_up），与全局 PS 攻击路径一致。
+                # 必须在死亡处理前触发，确保被攻击方的 PS 在被击杀前能反应。
+                # 反应型 PS（after_self_attacked/after_ally_attacked 等）不再触发被攻撃反応，避免递归。
+                if trigger_type in self._ACTIVE_ATTACK_TRIGGER_TYPES and damaged_targets_reaction:
+                    self._trigger_being_attacked_reactions(owner, damaged_targets_reaction, skill_name)
 
                 # 收集debuff触发数据（但延迟到复活后执行，确保被击杀的目标复活后能触发自身PS）
                 ps_deferred_aura_data = None
@@ -1625,7 +1731,7 @@ class BattleFlowController:
                 self.skill_service._damaged_targets = None
 
             if skill_result.get("success"):
-                self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
+                damaged_targets_reaction = self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
                 self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
 
                 # crit_count_mod触发器：PS技能执行成功后清空暴击计数器
@@ -1646,6 +1752,15 @@ class BattleFlowController:
 
                 # Update skill_use_count for PS skills (needed for skill_use_count_modulo triggers)
                 owner.skill_use_count[action.skill_id] = owner.skill_use_count.get(action.skill_id, 0) + 1
+
+                # 触发被攻撃反応触发器：on_turn_end 等全局PS攻击技能（如「リストリクションエッジ」）
+                # 的攻击应触发被攻击方的 PS（如「外殻強化」after_self_attacked）
+                # 必须在死亡处理前触发，确保被攻击方的 PS 在被击杀前能反应
+                # 注意：与 AS 路径不同，全局PS攻击不触发 after_as_attacked/after_as_attacked_ally
+                #       （那两个仅 AS 主目标触发），也不触发 after_ally_as_attack/after_self_as
+                #       （那两个是 AS 攻击后的追撃型PS）
+                if damaged_targets_reaction:
+                    self._trigger_being_attacked_reactions(owner, damaged_targets_reaction, skill_name)
 
                 # 收集debuff触发数据（但延迟到复活后执行，确保被击杀的目标复活后能触发自身PS）
                 global_deferred_aura_data = None
@@ -2851,32 +2966,31 @@ class BattleFlowController:
     def _process_aura_expiry(self, unit: UnitState):
         if not unit.is_alive:
             return
-        existing_ids = self._pre_action_buff_ids
-        prev_alive_durations = {}
-        # 始终记录buff/debuff的先前duration（恢复逻辑依赖此数据）
+        # 记录递减前存活的buff/debuff（用于过期叙事日志）
+        prev_alive = {}
         for b in unit.buffs:
             if b.duration > 0:
-                prev_alive_durations[id(b)] = (b, "buff", b.effect_type, b.duration)
+                prev_alive[id(b)] = (b, "buff", b.effect_type)
         for b in unit.debuffs:
             if b.duration > 0:
-                prev_alive_durations[id(b)] = (b, "debuff", b.effect_type, b.duration)
-        # narrative日志：输出duration变化
+                prev_alive[id(b)] = (b, "debuff", b.effect_type)
+        # narrative日志：输出duration变化（just_applied的buff跳过，不递减也不输出）
         if self.narrative:
             for b in unit.buffs:
-                if b.duration > 0 and id(b) in existing_ids:
+                if b.duration > 0 and not (getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False)):
                     dur_after = b.duration - 1
                     if dur_after > 0:
                         dur_type = "action" if b.timing_type == AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value else "turn"
                         self.narrative.effect_update(unit.name, b.effect_type, dur_after, dur_type)
             for b in unit.debuffs:
-                if b.duration > 0 and id(b) in existing_ids:
+                if b.duration > 0 and not (getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False)):
                     dur_after = b.duration - 1
                     if dur_after > 0:
                         dur_type = "action" if b.timing_type == AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value else "turn"
                         self.narrative.effect_update(unit.name, b.effect_type, dur_after, dur_type)
+        # process_maneuver_end 内部跳过 just_applied 的buff
         self.aura_service.process_maneuver_end(unit)
         # 施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff
-        # 捕获其他单位 buff ID 集合（用于过期叙事日志：只报告彻底消失的 buff）
         _other_units_buff_ids_before = {}
         if self.narrative:
             for u in self.battlefield.get_all_units():
@@ -2886,7 +3000,6 @@ class BattleFlowController:
                         if hasattr(b, 'buff_id'):
                             _other_units_buff_ids_before[u.unit_id].add((id(b), b.effect_type, getattr(b, 'is_debuff', False)))
         self.aura_service.process_source_maneuver_end(unit, self.battlefield.get_all_units())
-        # 对比快照，输出被 process_source_maneuver_end 彻底清理的 buff 的叙事日志
         if self.narrative:
             for u in self.battlefield.get_all_units():
                 if u.unit_id == unit.unit_id or not u.is_alive:
@@ -2896,7 +3009,7 @@ class BattleFlowController:
                 for bid, etype, is_debuff in before_set:
                     if bid not in curr_ids:
                         self.narrative.effect_expired(u.name, etype, is_debuff=is_debuff)
-        # 单位行动结束时，衰减带 shield_decay_pct 的盾 buff（如110012「1行動に付き最大値の25%減少する」）
+        # 衰减型盾
         decay_details = self.aura_service.process_shield_decay(unit)
         if decay_details and self.narrative:
             display_name = self._get_display_name(unit)
@@ -2904,18 +3017,20 @@ class BattleFlowController:
                 self.narrative.shield_decay(
                     display_name, buff_name, reduction, old_amt, new_amt, initial, expired
                 )
-        for buff_obj, kind, etype, prev_dur in prev_alive_durations.values():
-            if prev_dur > 0:
-                if id(buff_obj) not in existing_ids and not getattr(buff_obj, 'skip_restore', False):
-                    buff_obj.duration = prev_dur
-                elif buff_obj.duration <= 0:
-                    if self.narrative:
-                        if etype == "SubUnit":
-                            self.narrative.sub_unit_expired(unit.name, getattr(buff_obj, 'name', 'SubUnit'))
-                        else:
-                            self.narrative.effect_expired(unit.name, etype, is_debuff=(kind == "debuff"))
-        # 恢复逻辑完成后，统一清理已过期的buff/debuff
-        self.aura_service.check_expiration(unit)
+        # 过期叙事日志
+        for buff_obj, kind, etype in prev_alive.values():
+            if buff_obj.duration <= 0:
+                if self.narrative:
+                    if etype == "SubUnit":
+                        self.narrative.sub_unit_expired(unit.name, getattr(buff_obj, 'name', 'SubUnit'))
+                    else:
+                        self.narrative.effect_expired(unit.name, etype, is_debuff=(kind == "debuff"))
+        # 清除 just_applied 标记（所有单位）
+        for u in self.battlefield.get_all_units():
+            for b in u.buffs + u.debuffs:
+                b.just_applied = False
+        # 统一清理已过期的buff/debuff
+        self.aura_service.check_expiration(unit, self.battlefield.get_all_units())
 
     def _log(self, message: str) -> None:
         _log.info(message)

@@ -69,10 +69,12 @@ class CompositeTacticController(BattleFlowController):
         # 分数追踪
         self._boss_damage_total = 0
         self._team_results: List[Dict] = []
-        self._enemy_hp_at_team_start = 0  # 全体敌方HP总和（队伍开始时）
-        self._revival_max_hp_list: List[int] = []  # 本次队伍战斗中BOSS每次复活的最大HP
+        self._enemy_hp_at_team_start = 0  # 全体敌方HP总和（队伍开始时，用于日志）
+        self._revival_max_hp_list: List[int] = []  # 本次队伍战斗中BOSS每次复活的最大HP（用于日志）
         self._enemy_damage_snapshot: Dict[str, int] = {}  # 敌方单位damage_taken_total快照（队伍开始时）
         self._heal_snapshot: Dict[str, int] = {}  # 友方单位hp_healed快照（队伍开始时，取自ScoringTracker）
+        self._boss_damage_taken_snapshot: int = 0  # BOSS的damage_taken_total快照（队伍开始时）
+        self._boss_heal_received_snapshot: int = 0  # BOSS的hp_received快照（队伍开始时）
 
         # 标记
         self._is_composite_tactic = True
@@ -172,7 +174,7 @@ class CompositeTacticController(BattleFlowController):
             team_result = self._run_team_battle(team_index)
             self._team_results.append(team_result)
 
-            _log.info("[COMPOSITE_TACTIC] 队伍 %d 结束: 净伤害=%d, 回合=%d, 团灭=%s",
+            _log.info("[COMPOSITE_TACTIC] 队伍 %d 结束: 得分=%d, 回合=%d, 团灭=%s",
                       team_index + 1, team_result["damage_to_boss"],
                       team_result["rounds_survived"], team_result["team_wiped"])
 
@@ -190,7 +192,7 @@ class CompositeTacticController(BattleFlowController):
         total_score = sum(r["damage_to_boss"] for r in self._team_results)
 
         _log.info("[COMPOSITE_TACTIC] ============ 复合战术演习结束 ============")
-        _log.info("[COMPOSITE_TACTIC] 总分数(净伤害=对敌方HP伤害-敌方回血): %d", total_score)
+        _log.info("[COMPOSITE_TACTIC] 总分数(得分=对BOSS伤害-BOSS回血): %d", total_score)
         _log.info("[COMPOSITE_TACTIC] BOSS被击杀次数: %d", self._boss_killed_count)
         _log.info("[COMPOSITE_TACTIC] BOSS最终阶段: %d", self._boss_stage)
 
@@ -237,7 +239,7 @@ class CompositeTacticController(BattleFlowController):
         # 重建显示名称
         self._build_display_names()
 
-        # 记录全体敌方HP总和（用于计算该队净伤害=对敌方HP伤害-敌方回血量）
+        # 记录全体敌方HP总和（用于日志参考）
         boss = self._find_boss()
         if boss:
             self._enemy_hp_at_team_start = sum(e.current_hp for e in self.battlefield.enemy_team if e.is_alive)
@@ -249,6 +251,17 @@ class CompositeTacticController(BattleFlowController):
             _log.info("[COMPOSITE_TACTIC] 队伍%d开始, BOSS HP=%d/%d, 阶段=%d, 全敌HP合计=%d",
                       team_index + 1, boss.current_hp, boss.max_hp, self._boss_stage,
                       self._enemy_hp_at_team_start)
+
+        # 快照BOSS的damage_taken_total和hp_received（用于计算该队期间对BOSS的伤害和BOSS回血的增量）
+        # 计分公式: 得分 = 对BOSS伤害 - BOSS回血（小怪伤害不计入分数）
+        boss_for_snapshot = self._find_boss()
+        if boss_for_snapshot:
+            self._boss_damage_taken_snapshot = boss_for_snapshot.damage_taken_total
+            boss_stats = self._scoring_tracker._unit_stats.get(boss_for_snapshot.unit_id)
+            self._boss_heal_received_snapshot = boss_stats.hp_received if boss_stats else 0
+        else:
+            self._boss_damage_taken_snapshot = 0
+            self._boss_heal_received_snapshot = 0
 
         # 快照ScoringTracker中友方单位的hp_healed（用于计算该队期间提供治疗量）
         self._heal_snapshot = {}
@@ -285,12 +298,19 @@ class CompositeTacticController(BattleFlowController):
         # 波次结束触发
         self.trigger_service.trigger_wave_end(self.battlefield)
 
-        # 计算该队对敌方的净伤害（对敌方HP伤害 - 敌方回血量，打在盾上的不算）
-        # 公式：(队伍开始时全敌HP + BOSS复活HP) - 队伍结束时全敌HP = 净HP减少量
-        boss = self._find_boss()
-        revival_hp_sum = sum(self._revival_max_hp_list)
-        enemy_hp_at_end = sum(e.current_hp for e in self.battlefield.enemy_team if e.is_alive)
-        net_damage = (self._enemy_hp_at_team_start + revival_hp_sum) - enemy_hp_at_end
+        # 计算该队得分 = 对BOSS伤害 - BOSS回血（小怪伤害不计入分数）
+        # 使用BOSS的damage_taken_total和ScoringTracker中BOSS的hp_received的增量
+        boss_for_score = self._find_boss()
+        if boss_for_score:
+            current_boss_damage = boss_for_score.damage_taken_total
+            boss_stats = self._scoring_tracker._unit_stats.get(boss_for_score.unit_id)
+            current_boss_heal = boss_stats.hp_received if boss_stats else 0
+        else:
+            current_boss_damage = self._boss_damage_taken_snapshot
+            current_boss_heal = self._boss_heal_received_snapshot
+        team_boss_damage = current_boss_damage - self._boss_damage_taken_snapshot
+        team_boss_heal = current_boss_heal - self._boss_heal_received_snapshot
+        net_damage = team_boss_damage - team_boss_heal
         if net_damage < 0:
             net_damage = 0
 
@@ -541,15 +561,17 @@ class CompositeTacticController(BattleFlowController):
     def _reset_enemy_state_for_new_team(self):
         """队伍切换时重置敌方状态：
         - 保留: HP（含死亡状态）、BOSS阶段增量buff、非回忆卡buff/debuff、技能冷却状态、
-                异常状态(眩晕/冻结/炎上/毒等debuff)
+                异常状态(眩晕/冻结/炎上/毒等debuff)、EP（跨队伍继承）
         - 清除: 回忆卡buff/debuff(is_memory_buff=True，但stage_开头的阶段增量buff除外)
-        - 重置: AP/PP/EP → 初始值、蓄力状态
+        - 重置: AP/PP → 初始值、蓄力状态
 
         注：回忆卡随队伍切换而更换，其施加的buff/debuff不可跨队伍继承；
         但敌方自身技能施加的buff/debuff应保留（队伍切换不清除敌方状态）。
         异常状态(眩晕/冻结/炎上/毒)属于debuff，同样跨队伍继承——例如敌方在前一队
         被施加眩晕(剩余2行动)，切换到下一队时仍处于眩晕状态。
         技能冷却也属于敌方自身状态，跨队伍继承。
+        EP（充能点）属于敌方累积能量，跨队伍继承——例如敌方在前一队战斗中积累的EP，
+        切换到下一队时保持不变。
         """
         for enemy in self.battlefield.enemy_team:
             # 保留阶段增量buff(stage_开头)和非回忆卡buff，清除回忆卡buff
@@ -562,11 +584,10 @@ class CompositeTacticController(BattleFlowController):
             enemy.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in enemy.debuffs)
             enemy.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in enemy.debuffs)
 
-            # 重置AP/PP/EP为初始值
+            # 重置AP/PP为初始值（EP跨队伍继承，不重置）
             initial = self._enemy_initial_resources.get(enemy.unit_id, {})
             enemy.current_ap = initial.get("ap", enemy.initial_active_point)
             enemy.current_pp = initial.get("pp", enemy.initial_passive_point)
-            enemy.current_ep = initial.get("ep", 0)
 
             # 保留技能冷却状态（跨队伍继承，不清空）
             # 例：敌方在前一队最后一次行动使用AS1（冷却2），行动后冷却保持2（因递减基于行动前快照，

@@ -334,8 +334,7 @@
         "block_id": 2,
         "condition": {
           "type": "on_crit",
-          "once_per_skill": false,
-          "apply_timing": "immediate"
+          "once_per_skill": false
         },
         "effects": [
           {
@@ -7531,7 +7530,8 @@
                   "type": "target_has_burn"
                 },
                 "value_tag": "dmg",
-                "value_type": "percent"
+                "value_type": "percent",
+                "bonus_type": "received_damage"
               }
             },
             "ignore_defense": 0,
@@ -23605,7 +23605,16 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "conditional_power_bonus": {
+                "condition": {
+                  "type": "target_has_burn"
+                },
+                "value_tag": "dmg",
+                "value_type": "percent",
+                "bonus_type": "received_damage"
+              }
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -41573,7 +41582,16 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "conditional_power_bonus": {
+                "condition": {
+                  "type": "target_has_burn"
+                },
+                "value_tag": "dmg",
+                "value_type": "percent",
+                "bonus_type": "received_damage"
+              }
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -65101,7 +65119,7 @@
         "effects": [
           {
             "effect_type": "damage",
-            "target_type": "enemy_single_highest_hp_ratio_back_priority",
+            "target_type": "enemy_single_highest_current_hp",
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
@@ -65255,7 +65273,7 @@
         "effects": [
           {
             "effect_type": "def_up",
-            "target_type": "ally_single",
+            "target_type": "ally_single_chained_nearest",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "def",
@@ -65275,7 +65293,7 @@
           },
           {
             "effect_type": "sub_unit",
-            "target_type": "ally_single",
+            "target_type": "ally_single_chained_nearest",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "atk",
@@ -65290,7 +65308,8 @@
               "sub_unit_name": "子機Ⅱ",
               "sub_unit_hp_pct": 25,
               "target_count": 2,
-              "is_en_attack": true
+              "is_en_attack": true,
+              "linked_expiry": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
