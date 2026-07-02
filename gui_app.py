@@ -174,6 +174,70 @@ ENEMY_AVATAR_MAP = {
     101209: 110301,   # ユリア・バーンズ
 }
 
+# 用户模式下己方编队可选角色白名单数据源（与 SUPPORTED_CHARACTERS.md 同步维护）
+SUPPORTED_CHARACTERS_PATH = _BASE_PATH / "SUPPORTED_CHARACTERS.md"
+
+
+def load_supported_ally_ids(data_loader) -> set:
+    """解析 SUPPORTED_CHARACTERS.md 的"## 己方角色"section，
+    提取"称号"列并匹配 characters.json 中 name 字段，返回允许的 character_id 集合。
+    解析失败或文件缺失时返回空集合（调用方应在用户模式下回退到"无白名单"以避免锁死）。
+    """
+    ids: set = set()
+    try:
+        if not SUPPORTED_CHARACTERS_PATH.exists():
+            return ids
+        with open(SUPPORTED_CHARACTERS_PATH, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+        # 定位 "## 己方角色" section
+        start_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("## 己方角色"):
+                start_idx = i + 1
+                break
+        if start_idx < 0:
+            return ids
+
+        # 收集该 section 内的表格行（跳过表头和分隔行），直到遇到 <br />/下一个 ## 或非表格行
+        # section 标题与表格之间可能存在空行，跳过空行
+        titles: List[str] = []
+        for line in lines[start_idx:]:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("## "):
+                break
+            if stripped.startswith("<br"):
+                break
+            if not stripped.startswith("|"):
+                break
+            # 跳过表头分隔行（如 | --- | --- |）
+            cells = [c.strip() for c in stripped.split("|")]
+            # split("|") 首尾为空字符串，cells[0]=""，cells[1]=称号, cells[2]=角色, cells[3]=简称
+            if len(cells) < 2:
+                continue
+            first_cell = cells[1]
+            if not first_cell or set(first_cell) <= {"-", ":"}:
+                continue
+            if first_cell == "称号":
+                continue
+            titles.append(first_cell)
+
+        if not titles:
+            return ids
+
+        # 匹配 characters.json 中 name 字段
+        chars = data_loader.load_characters()
+        title_set = set(titles)
+        for cid, char in chars.items():
+            if getattr(char, "name", None) in title_set:
+                ids.add(cid)
+    except Exception:
+        return ids
+    return ids
+
+
 SCHOOL_LABELS = [
     ("物理", "physical_level"), ("EN", "en_level"), ("敏捷", "agility_level"),
     ("火", "fire_level"), ("水", "water_level"), ("风", "wind_level"),
@@ -3093,13 +3157,15 @@ class EnemyPickerDialog(tk.Toplevel):
 class CharacterPickerDialog(tk.Toplevel):
     """角色选择二级弹窗：头像网格 + 属性筛选 + 搜索"""
 
-    def __init__(self, parent, app, title="选择角色"):
+    def __init__(self, parent, app, title="选择角色", for_ally: bool = True):
         super().__init__(parent)
         self.app = app
         self.result: Optional[int] = None  # 选中的角色ID
         self._current_filter = 0
         self._filtered_ids: List[int] = []
         self._thumb_cache: Dict[int, tk.PhotoImage] = {}
+        # for_ally=True 时在用户模式下应用己方白名单过滤；敌方场景传 False 不过滤
+        self._for_ally = for_ally
 
         self.title(title)
         self.transient(parent)
@@ -3216,8 +3282,17 @@ class CharacterPickerDialog(tk.Toplevel):
     def _get_filtered_ids(self):
         """获取过滤后的角色ID列表（包含自定义木桩）"""
         search_text = self._search_var.get().strip().lower()
+        # 用户模式 + 己方场景：仅显示 SUPPORTED_CHARACTERS.md 白名单中的角色
+        # 开发者模式 / 敌方场景：不做白名单限制；自定义木桩（cid<0）始终不受限
+        restrict_to_supported = (
+            self._for_ally
+            and not self.app.is_developer_mode()
+            and getattr(self.app, "supported_ally_ids", None)
+        )
         result = []
         for cid in self.app.char_ids:
+            if restrict_to_supported and cid not in self.app.supported_ally_ids:
+                continue
             char = self.app.data_loader.get_character_by_id(cid)
             if not char:
                 continue
@@ -3599,7 +3674,7 @@ class TeamBattleTab(ttk.Frame):
 
     def _open_char_picker(self, slot_idx, is_enemy):
         """打开角色选择弹窗"""
-        dialog = CharacterPickerDialog(self, self.app, title="选择角色")
+        dialog = CharacterPickerDialog(self, self.app, title="选择角色", for_ally=not is_enemy)
         self.wait_window(dialog)
         if dialog.result is not None:
             slots = self.enemy_slots if is_enemy else self.friend_slots
@@ -10739,6 +10814,9 @@ class MGGBattleSimulatorGUI:
         self.char_ids = sorted([int(k) for k in chars_data.keys()])
         self.char_config = {cid: {"override": False} for cid in self.char_ids}
         self._load_char_config()
+
+        # 用户模式下己方编队可选角色白名单（来自 SUPPORTED_CHARACTERS.md）
+        self.supported_ally_ids = load_supported_ally_ids(self.data_loader)
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True)

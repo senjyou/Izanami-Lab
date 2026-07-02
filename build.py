@@ -110,6 +110,12 @@ def build():
     data_count = sum(1 for _ in data_dst.rglob("*") if _.is_file())
     print(f"  已复制 {data_count} 个数据文件")
 
+    # 复制 SUPPORTED_CHARACTERS.md 到输出目录（用户模式己方白名单数据源）
+    supported_md = SCRIPT_DIR / "SUPPORTED_CHARACTERS.md"
+    if supported_md.exists():
+        shutil.copy2(supported_md, output_dir / "SUPPORTED_CHARACTERS.md")
+        print(f"  已复制: {supported_md.name}")
+
     # 统计总大小
     total_size = sum(
         f.stat().st_size for f in output_dir.rglob("*") if f.is_file()
