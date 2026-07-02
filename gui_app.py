@@ -8036,6 +8036,20 @@ class CircleBattleTab(ttk.Frame):
         self._progress_var = tk.StringVar(value="")
         ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
 
+        # ── 特殊值日志导出按钮 ──
+        export_frame = ttk.LabelFrame(f, text="特殊值日志导出（批量模拟后可用，以我方伤害为标准）")
+        export_frame.pack(pady=5, fill="x", padx=10)
+        btn_row = ttk.Frame(export_frame)
+        btn_row.pack(pady=5)
+        self._export_max_btn = ttk.Button(btn_row, text="导出最高伤害日志", command=self._export_max_log, width=18)
+        self._export_max_btn.pack(side=tk.LEFT, padx=3)
+        self._export_min_btn = ttk.Button(btn_row, text="导出最低伤害日志", command=self._export_min_log, width=18)
+        self._export_min_btn.pack(side=tk.LEFT, padx=3)
+        self._export_q1_btn = ttk.Button(btn_row, text="导出Q1伤害日志", command=self._export_q1_log, width=18)
+        self._export_q1_btn.pack(side=tk.LEFT, padx=3)
+        self._export_q3_btn = ttk.Button(btn_row, text="导出Q3伤害日志", command=self._export_q3_log, width=18)
+        self._export_q3_btn.pack(side=tk.LEFT, padx=3)
+
         # ── 结果输出 ──
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=1)
@@ -8846,6 +8860,39 @@ class CircleBattleTab(ttk.Frame):
                 out.append(f"  最低: {min(failed_enemy_damage):,}")
                 out.append("─" * 60)
 
+        # 特殊值日志导出（以我方对敌方造成伤害为标准）
+        score_records = result.get("score_records", [])
+        if score_records:
+            sorted_records = sorted(score_records, key=lambda x: x[0])
+            max_rec = sorted_records[-1]
+            min_rec = sorted_records[0]
+            q1_rec = self._find_quantile_record(sorted_records, 0.25)
+            q3_rec = self._find_quantile_record(sorted_records, 0.75)
+
+            out.append("")
+            out.append("─" * 60)
+            out.append(f"  【特殊值日志导出（我方伤害标准）】")
+            if max_rec:
+                out.append(f"    最高伤害: {max_rec[0]:,} (第{max_rec[1]+1}场)")
+            if min_rec:
+                out.append(f"    最低伤害: {min_rec[0]:,} (第{min_rec[1]+1}场)")
+            if q1_rec:
+                out.append(f"    Q1伤害: {q1_rec[0]:,} (第{q1_rec[1]+1}场)")
+            if q3_rec:
+                out.append(f"    Q3伤害: {q3_rec[0]:,} (第{q3_rec[1]+1}场)")
+            out.append(f"    （点击下方按钮导出对应战斗日志）")
+            out.append("─" * 60)
+
+            # 存储导出所需的上下文
+            self._score_stats_cache = {
+                "max_record": max_rec,
+                "min_record": min_rec,
+                "q1_record": q1_rec,
+                "q3_record": q3_rec,
+                "sel": sel,
+                "stage_data": stage_data,
+            }
+
         self._result_panel.set_summary("\n".join(out))
 
         # 单位统计（取所有场次的平均值）→ 表格化
@@ -9117,6 +9164,147 @@ class CircleBattleTab(ttk.Frame):
         out.append(f"    受到伤害: {score_data.get('enemy_total_damage_received', 0):,}")
         out.append(f"    提供回复: {score_data.get('enemy_total_hp_healed', 0):,}")
         out.append("─" * 60)
+
+    # ── 特殊值日志导出 ──
+
+    @staticmethod
+    def _find_quantile_record(sorted_records: list, q: float):
+        """在排序后的记录列表中查找最接近指定分位数的记录"""
+        if not sorted_records:
+            return None
+        n = len(sorted_records)
+        idx = int(q * (n - 1))
+        idx = max(0, min(idx, n - 1))
+        return sorted_records[idx]
+
+    def _export_special_log(self, record, log_label: str, sel: dict, stage_data: dict):
+        """导出特殊值对应的战斗日志（以我方伤害为标准）
+
+        Args:
+            record: (ally_damage, run_idx, seed, stats) 元组
+            log_label: 日志标签（如 "最高伤害"、"Q1"）
+            sel: 编队选择信息
+            stage_data: 阶段数据
+        """
+        if not record:
+            messagebox.showwarning("无数据", f"没有可导出的{log_label}记录")
+            return
+
+        ally_damage, run_idx, seed, stats = record
+
+        log_dir = _BASE_PATH / "data" / "battle_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"circle_battle_{log_label}_{ally_damage}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+        self._start_btn.config(state="disabled")
+        self._log_btn.config(state="disabled")
+        self._progress_var.set(f"正在导出{log_label}日志...")
+
+        def _do_export():
+            try:
+                global_vals = self.app.global_tab.get_values()
+                panel_config = self.app._build_panel_config_from_gui(global_vals)
+                player_config = panel_config.get_player_config()
+                lerp_data = self.app.data_loader.load_level_lerp_data()
+                stat_calculator = StatCalculator(lerp_data, data_loader=self.app.data_loader)
+                narrative = BattleNarrativeWriter()
+
+                random.seed(seed)
+
+                friend_positions = sel.get("friend_positions", sel.get("friends", []))
+                bf = BattlefieldState()
+
+                for i, cid in enumerate(friend_positions):
+                    if cid is not None:
+                        u = self.app._create_unit(panel_config, player_config, stat_calculator,
+                                                  cid, Side.ALLY, GRID_ALLY_POSITIONS[i])
+                        if u:
+                            bf.add_unit(u)
+
+                for enemy_data in stage_data["enemies"]:
+                    enemy_unit = self._create_circle_battle_enemy(enemy_data)
+                    if enemy_unit:
+                        bf.add_unit(enemy_unit)
+
+                bf.memory_cards = self._build_memory_cards(sel.get("mems_friend", []))
+
+                config = BattleConfig()
+                config.max_turns = stage_data["max_turn"]
+
+                from src.combat_v2.circle_battle_controller import CircleBattleController
+                controller = CircleBattleController(bf, data_loader=self.app.data_loader,
+                                                    config=config, narrative=narrative,
+                                                    season=sel["season"], stage=sel["stage"],
+                                                    enemy_state_overrides=sel.get("enemy_state_overrides"))
+                result = controller.execute_battle()
+                narrative.write(str(log_path))
+
+                score_data = result.get("score", {})
+                export_damage = score_data.get("ally_total_damage_dealt", 0) if score_data else 0
+                turns = result.get("total_turns", 0)
+
+                def _on_done():
+                    self._start_btn.config(state="normal")
+                    self._log_btn.config(state="normal")
+                    self._progress_var.set("完成!")
+                    msg = (f"{log_label}日志已导出:\n{log_path}\n"
+                           f"我方伤害: {export_damage:,}  回合数: {turns}")
+                    if export_damage != ally_damage:
+                        msg += (f"\n⚠ 注意: 导出伤害({export_damage:,})与记录伤害({ally_damage:,})不一致，"
+                                f"可能是战斗逻辑已更新")
+                    self._result_panel.append_summary(f"\n{msg}\n")
+
+                self.app.root.after(0, _on_done)
+            except Exception as e:
+                import traceback
+                err_msg = str(e) + "\n" + traceback.format_exc()
+
+                def _on_err():
+                    self._start_btn.config(state="normal")
+                    self._log_btn.config(state="normal")
+                    self._progress_var.set("错误!")
+                    self._result_panel.append_summary(f"\n❌ 导出{log_label}日志出错:\n{err_msg}\n")
+
+                self.app.root.after(0, _on_err)
+
+        thread = threading.Thread(target=_do_export, daemon=True)
+        thread.start()
+
+    def _export_max_log(self):
+        """导出最高伤害日志"""
+        cache = getattr(self, '_score_stats_cache', {})
+        rec = cache.get("max_record")
+        sel = cache.get("sel")
+        stage_data = cache.get("stage_data")
+        if rec and sel and stage_data:
+            self._export_special_log(rec, "最高伤害", sel, stage_data)
+
+    def _export_min_log(self):
+        """导出最低伤害日志"""
+        cache = getattr(self, '_score_stats_cache', {})
+        rec = cache.get("min_record")
+        sel = cache.get("sel")
+        stage_data = cache.get("stage_data")
+        if rec and sel and stage_data:
+            self._export_special_log(rec, "最低伤害", sel, stage_data)
+
+    def _export_q1_log(self):
+        """导出Q1伤害日志"""
+        cache = getattr(self, '_score_stats_cache', {})
+        rec = cache.get("q1_record")
+        sel = cache.get("sel")
+        stage_data = cache.get("stage_data")
+        if rec and sel and stage_data:
+            self._export_special_log(rec, "Q1伤害", sel, stage_data)
+
+    def _export_q3_log(self):
+        """导出Q3伤害日志"""
+        cache = getattr(self, '_score_stats_cache', {})
+        rec = cache.get("q3_record")
+        sel = cache.get("sel")
+        stage_data = cache.get("stage_data")
+        if rec and sel and stage_data:
+            self._export_special_log(rec, "Q3伤害", sel, stage_data)
 
     # ── 配置预设管理 ──
 

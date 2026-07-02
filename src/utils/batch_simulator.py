@@ -1422,6 +1422,7 @@ class BatchSimulator:
         all_enemy_healing_received = []
         failed_enemy_damage_received = []
         all_unit_stats = []
+        score_records = []
 
         completed = 0
         t0 = time.time()
@@ -1431,6 +1432,7 @@ class BatchSimulator:
                 _worker_run_batch_circle, seed_batches
             ):
                 for stats in batch_results:
+                    run_idx = completed
                     completed += 1
 
                     winner = stats['winner']
@@ -1443,7 +1445,8 @@ class BatchSimulator:
                         losses += 1
                         failed_enemy_damage_received.append(stats.get('enemy_damage_received', 0))
 
-                    all_ally_damage.append(stats['ally_total_damage_dealt'])
+                    ally_dmg = stats['ally_total_damage_dealt']
+                    all_ally_damage.append(ally_dmg)
                     all_ally_received.append(stats['ally_total_damage_received'])
                     all_ally_healed.append(stats['ally_total_hp_healed'])
                     all_enemy_damage.append(stats['enemy_total_damage_dealt'])
@@ -1451,6 +1454,8 @@ class BatchSimulator:
                     all_enemy_healed.append(stats['enemy_total_hp_healed'])
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
+
+                    score_records.append((ally_dmg, run_idx, stats['seed'], stats))
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
@@ -1476,6 +1481,7 @@ class BatchSimulator:
             "all_enemy_healing_received": all_enemy_healing_received,
             "all_unit_stats": all_unit_stats,
             "failed_enemy_damage_received": failed_enemy_damage_received,
+            "score_records": score_records,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
         }
@@ -1512,14 +1518,16 @@ class BatchSimulator:
         all_enemy_healing_received = []
         failed_enemy_damage_received = []
         all_unit_stats = []
+        score_records = []
 
         completed = 0
         t0 = time.time()
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
-                random.seed(seed)
+                run_idx = completed
                 completed += 1
+                random.seed(seed)
 
                 bf = BattlefieldState()
 
@@ -1564,7 +1572,8 @@ class BatchSimulator:
                             enemy_damage_received += stats.get("damage_received", 0)
                     failed_enemy_damage_received.append(enemy_damage_received)
 
-                all_ally_damage.append(score_data.get("ally_total_damage_dealt", 0))
+                ally_dmg = score_data.get("ally_total_damage_dealt", 0)
+                all_ally_damage.append(ally_dmg)
                 all_ally_received.append(score_data.get("ally_total_damage_received", 0))
                 all_ally_healed.append(score_data.get("ally_total_hp_healed", 0))
                 all_enemy_damage.append(score_data.get("enemy_total_damage_dealt", 0))
@@ -1572,6 +1581,22 @@ class BatchSimulator:
                 all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                 all_unit_stats.append(unit_stats)
+
+                stats = {
+                    'seed': seed,
+                    'winner': winner,
+                    'result': result.get('result', 'UNKNOWN'),
+                    'total_turns': turns,
+                    'ally_total_damage_dealt': ally_dmg,
+                    'ally_total_damage_received': score_data.get("ally_total_damage_received", 0),
+                    'ally_total_hp_healed': score_data.get("ally_total_hp_healed", 0),
+                    'enemy_total_damage_dealt': score_data.get("enemy_total_damage_dealt", 0),
+                    'enemy_total_damage_received': score_data.get("enemy_total_damage_received", 0),
+                    'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0),
+                    'enemy_healing_received': score_data.get("enemy_healing_received", 0),
+                    'unit_stats': unit_stats,
+                }
+                score_records.append((ally_dmg, run_idx, seed, stats))
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
@@ -1593,6 +1618,7 @@ class BatchSimulator:
             "all_enemy_healing_received": all_enemy_healing_received,
             "all_unit_stats": all_unit_stats,
             "failed_enemy_damage_received": failed_enemy_damage_received,
+            "score_records": score_records,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
         }
