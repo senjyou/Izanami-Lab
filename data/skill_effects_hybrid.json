@@ -2250,7 +2250,7 @@
         "effects": [
           {
             "effect_type": "damage",
-            "target_type": "enemy_single",
+            "target_type": "enemy_column",
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
@@ -2258,24 +2258,7 @@
             "duration": null,
             "duration_type": null,
             "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
+            "hit_count": 3,
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
@@ -2284,13 +2267,13 @@
           },
           {
             "effect_type": "atk_up",
-            "target_type": "enemy_single",
+            "target_type": "self",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "atk",
             "value_source": null,
             "duration": 2,
-            "duration_type": null,
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
@@ -2301,6 +2284,23 @@
             },
             "ignore_defense": 0,
             "ignore_shield": 0
+          },
+          {
+            "effect_type": "debuff_immune",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
           }
         ]
       }
@@ -2309,7 +2309,9 @@
     "display_target_range": 7,
     "display_target_type": 3,
     "parse_status": "success",
-    "parse_notes": []
+    "parse_notes": [
+      "EX: enemy_column(前后列纵列2人) damage 3hit + self atk_up(2行动,可叠加) + self debuff_immune(2行动)"
+    ]
   },
   "110026": {
     "skill_id": 110026,
@@ -7410,7 +7412,7 @@
         "effects": [
           {
             "effect_type": "damage",
-            "target_type": "enemy_single",
+            "target_type": "enemy_column",
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
@@ -7418,7 +7420,7 @@
             "duration": null,
             "duration_type": null,
             "duration_tag": null,
-            "hit_count": null,
+            "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
@@ -7427,20 +7429,43 @@
           },
           {
             "effect_type": "spd_down",
-            "target_type": "enemy_single",
+            "target_type": "enemy_column",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "spd",
             "value_source": null,
             "duration": 1,
-            "duration_type": null,
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "value_type": "fixed_or_percent"
+              "value_type": "fixed"
             },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "active_level_min", "value": 11},
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_column",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "knockout",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {"type": "target_character_type", "value": [1, 3]},
+            "flags": {},
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -7451,7 +7476,9 @@
     "display_target_range": 7,
     "display_target_type": 3,
     "parse_status": "success",
-    "parse_notes": []
+    "parse_notes": [
+      "AS1: enemy_column damage + spd_down(1行动,fixed) + Lv11+ add_status(knockout) 仅对物理/敏捷类型目标(character_type∈[1,3])"
+    ]
   },
   "120063": {
     "skill_id": 120063,
@@ -7475,6 +7502,29 @@
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "active_level_min", "value": 11},
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "adjacent_enemies",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力2",
             "value_source": null,
             "duration": null,
             "duration_type": null,
@@ -12862,16 +12912,35 @@
             "value": null,
             "value_tag": "威力",
             "value_source": null,
-            "duration": 3,
+            "duration": null,
             "duration_type": null,
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "add_status": "poison",
-              "status_duration": 3,
               "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "poison",
+            "target_type": "last_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "carried_debuff": true,
+              "hit_limited": 1,
+              "poison_damage_pct": 10
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -13469,7 +13538,13 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
-    "global_condition": null,
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {"type": "actor_character_type", "value": [1, 3]},
+        {"type": "target_is_self"}
+      ]
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -13488,7 +13563,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "attack_limited": 1,
+              "value_type": "percent"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -13511,7 +13589,7 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
-    "global_condition": null,
+    "global_condition": {"type": "round_number", "operator": ">", "value": 1},
     "effect_blocks": [
       {
         "block_id": 1,
@@ -13519,9 +13597,28 @@
         "effects": [
           {
             "effect_type": "damage",
-            "target_type": "enemy_single",
+            "target_type": "enemy_column",
             "target_identifier": null,
             "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_preemptive": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_column",
+            "target_identifier": null,
+            "value": 1,
             "value_tag": null,
             "value_source": null,
             "duration": null,
@@ -13529,27 +13626,8 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": null,
+            "condition": {"type": "target_character_type", "value": [1, 3]},
             "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": 0,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {
-              "is_preemptive": true
-            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -67055,5 +67133,2230 @@
     "parse_notes": [
       "PS2: on_turn_start(戦闘中1度,cooldown=99), consume_hp60%(current_hp), sub_unit カムラッドⅠ×3(永久,HP=15%maxHP,ATK×atk%EN追加), Lv11+ cheat_death(cure%回復)"
     ]
+  },
+  "120151": {
+    "skill_id": 120151,
+    "name": "遅効の毒計",
+    "skill_type": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "genwaku",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "genwaku"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "凶兆",
+          "operator": ">=",
+          "value": 4
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": 100.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_mark",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "remove_all": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: highest_atk EN damage + genwaku(1action) + 凶兆+1 + action_damage(dmg%,1action) + 凶兆>=4: add EN dmg100 + remove all 凶兆"
+    ]
+  },
+  "120152": {
+    "skill_id": 120152,
+    "name": "逆転の方策",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": {
+      "type": "self_lacks_mark",
+      "mark_name": "深慮"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_rate_down",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crt",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_dmg_down",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crtdmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "凶兆",
+          "operator": ">=",
+          "value": 4
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 100.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "remove_all": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 3hit EN damage + crit_rate_down(crt) + crit_dmg_down(crtdmg) + 凶兆+1 + action_damage + 凶兆>=4: add EN dmg100 + remove all. self_lacks_mark(深慮) gate"
+    ]
+  },
+  "120153": {
+    "skill_id": 120153,
+    "name": "一点突破の戦術",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: enemy_single EN damage + 凶兆 mark+1"
+    ]
+  },
+  "130151": {
+    "skill_id": 130151,
+    "name": "起死回生の一手",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_cumulative_damage",
+    "global_condition": {
+      "type": "self_lacks_mark",
+      "mark_name": "深慮"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "shield",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "hit_limited": 1,
+              "shield_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_hp_below",
+          "pct": 20
+        },
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 25.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "深慮",
+              "is_buff_mark": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "self_hp_below",
+          "pct": 20
+        },
+        "effects": [
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "ex",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 25.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "深慮",
+              "is_buff_mark": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ],
+        "level_min": 11
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death25%+深慮 + Lv11: add_ep(ex)+cheat_death+深慮"
+    ]
+  },
+  "110068": {
+    "skill_id": 110068,
+    "name": "静かな時を",
+    "skill_type": 3,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "凶兆",
+          "operator": ">=",
+          "value": 2
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_down",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": 100.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "凶兆",
+          "operator": "<",
+          "value": 2
+        },
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "凶兆",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: enemy_all EN damage + 凶兆>=2: dmg_dealt_down100%(1attack) + 凶兆<2: 凶兆 mark+1"
+    ]
+  },
+  "210098": {
+    "skill_id": 210098,
+    "name": "真・紫影の斬撃",
+    "skill_type": 3,
+    "resource_cost": 10,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: 敵全体に威力ダメージ"
+    ]
+  },
+  "220369": {
+    "skill_id": 220369,
+    "name": "紫影の斬撃",
+    "skill_type": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 敵全体威力ダメージ + on_crit PP+1"
+    ]
+  },
+  "220370": {
+    "skill_id": 220370,
+    "name": "ラピッドファイア",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 2,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_spd",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 2,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: Atk最高敵2hit + Spd最高敵2hit + on_crit PP+1"
+    ]
+  },
+  "230391": {
+    "skill_id": 230391,
+    "name": "カウンターショット",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": false
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 被AS攻撃後反撃 trigger_attacker + on_crit PP+1"
+    ]
+  },
+  "230393": {
+    "skill_id": 230393,
+    "name": "見切り構え・素",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_any_attacked",
+    "global_condition": {
+      "type": "target_is_self"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "guard",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "guard",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_rate_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 被攻撃前 guard 50% + crit_rate +1% 永久重複可 (target_is_self: 仅自身被攻击时触发)"
+    ]
+  },
+  "220367": {
+    "skill_id": 220367,
+    "name": "大ノ掃射",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "hp_scaling": {
+                "max_bonus_pct": 100
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "remove_buff_by_type",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "filter": [
+                "atk_up",
+                "crit_rate_up"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 横一列EN + 対象HP比例+100% + on_crit 自身atk/crit_rate全解除"
+    ],
+    "simultaneous_limit": null
+  },
+  "220368": {
+    "skill_id": 220368,
+    "name": "大ノ双弾",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "target_count": 2,
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "remove_buff_by_type",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "filter": [
+                "atk_up",
+                "crit_rate_up"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 2,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 敵2体EN + on_crit 自身atk/crit_rate全解除"
+    ],
+    "simultaneous_limit": null
+  },
+  "230389": {
+    "skill_id": 230389,
+    "name": "大ノ反撃",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "shield_from_damage",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 80,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0,
+            "value_type": "percent"
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "on_crit",
+          "once_per_skill": true
+        },
+        "effects": [
+          {
+            "effect_type": "remove_buff_by_type",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "filter": [
+                "atk_up",
+                "crit_rate_up"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 被AS反撃 + 与ダメ80%シールド + on_crit 自身atk/crit_rate全解除"
+    ],
+    "simultaneous_limit": null
+  },
+  "230390": {
+    "skill_id": 230390,
+    "name": "大ノ増幅",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attack",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 10.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_rate_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 10.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 自身AS後 atk+10% + crit_rate+10% 永久重複可"
+    ],
+    "simultaneous_limit": null
+  },
+  "220365": {
+    "skill_id": 220365,
+    "name": "鳴ノ掃射",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": 3.15,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 横一列EN + 被ダメ+3.15% (永続, 重複可)"
+    ]
+  },
+  "220366": {
+    "skill_id": 220366,
+    "name": "鳴ノ双弾",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "target_count": 2,
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_down",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 15.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 2,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 敵2体EN + 与ダメ-15% (1行動, 重複可)"
+    ]
+  },
+  "230386": {
+    "skill_id": 230386,
+    "name": "鳴ノ硬直",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "target_without_mark",
+          "mark_name": "神鳴り"
+        },
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "stun"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "target_has_mark",
+          "mark_name": "神鳴り"
+        },
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "confusion",
+              "confusion_dmg_reduction_tag": "dmg",
+              "confusion_proxy_atk_pct": 10.0
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 被AS反撃 気絶(未所持神鳴り)/混乱(所持) 分歧"
+    ]
+  },
+  "230387": {
+    "skill_id": 230387,
+    "name": "鳴ノ抑制",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": {
+      "type": "round_number",
+      "operator": ">",
+      "value": 1
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "神鳴り",
+              "priority_no_mark": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "ally_front",
+            "target_identifier": null,
+            "value": 30.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "mark_condition": "神鳴り"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 2,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: ターン開始 敵1体に神鳴りmark + 味方前衛dmg-30% (神鳴り所持相手から)"
+    ]
+  },
+  "220362": {
+    "skill_id": 220362,
+    "name": "土ノ浸食",
+    "skill_type": 1,
+    "resource_cost": 2,
+    "cooldown": 3,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "block_buff_by_type",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "source_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "blocked_buff_types": [
+                "max_hp_up",
+                "atk_up",
+                "def_up",
+                "spd_up",
+                "crit_rate_up"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "stealth",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 敵全体 buff_block 5类 2行動 + 自身ステルス 2行動 (source_action, 死亡解除)"
+    ],
+    "simultaneous_limit": null
+  },
+  "220363": {
+    "skill_id": 220363,
+    "name": "土ノ掃射",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": 10.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true,
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 横一列EN + 行動時ENダメージ 10% 2行動"
+    ],
+    "simultaneous_limit": null
+  },
+  "220364": {
+    "skill_id": 220364,
+    "name": "土ノ双弾",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "target_count": 2,
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 10.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true,
+              "value_type": "percent",
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 2,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 敵2体EN + 行動時ENダメージ 10% 1行動"
+    ],
+    "simultaneous_limit": null
+  },
+  "230385": {
+    "skill_id": 230385,
+    "name": "土ノ付加",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_ally_as_attack",
+    "global_condition": {
+      "type": "target_is_front_ally"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "atk_down",
+            "target_type": "ally_single",
+            "target_identifier": "trigger_attacker",
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "carried_debuff": true,
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "def_down",
+            "target_type": "ally_single",
+            "target_identifier": "trigger_attacker",
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "carried_debuff": true,
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "spd_down",
+            "target_type": "ally_single",
+            "target_identifier": "trigger_attacker",
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "carried_debuff": true,
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_rate_down",
+            "target_type": "ally_single",
+            "target_identifier": "trigger_attacker",
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "carried_debuff": true,
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 2,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 目の前の味方AS前 atk/def/spd/crt -5% 1行動 (同時発動制限, carried_debuff载荷: 友方攻击时施加给敌人)"
+    ],
+    "simultaneous_limit": true
+  },
+  "220360": {
+    "skill_id": 220360,
+    "name": "若ノ掃射",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row_of_lowest_def",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "split_heal_by_damage",
+            "target_type": "ally_all",
+            "target_identifier": null,
+            "value": 100,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "source_block_id": 1,
+              "split_among_targets": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0,
+            "value_type": "percent"
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 防御最低敵所在横列EN + 与ダメ100%味方全体均等分配回復"
+    ],
+    "simultaneous_limit": null
+  },
+  "220361": {
+    "skill_id": 220361,
+    "name": "若ノ双弾",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_lowest_def_x2",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "target_count": 2,
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "split_heal_by_damage",
+            "target_type": "ally_single_lowest_hp_x2",
+            "target_identifier": null,
+            "value": 100,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "source_block_id": 1,
+              "split_among_targets": true,
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0,
+            "value_type": "percent"
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 25.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 2,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 防御低2体EN + 与ダメ100%HP低2体分配回復 + 自身与ダメ+25% (1行動, 重複可)"
+    ],
+    "simultaneous_limit": null
+  },
+  "230383": {
+    "skill_id": 230383,
+    "name": "若ノ再生",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_ally_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "ally_single",
+            "target_identifier": "trigger_attacker",
+            "value": 35.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 2,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 味方被攻撃後 受击者威力35回復"
+    ],
+    "simultaneous_limit": null
+  },
+  "230384": {
+    "skill_id": 230384,
+    "name": "若ノ減衰",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_as_attacked",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "attacker_is_back_row"
+        },
+        {
+          "type": "target_is_other_ally"
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "skill_power_down",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 50.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0,
+            "value_type": "percent"
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 他の味方が後列敵からの攻撃直前 当該敵威力-50% (attacker_action, 同時発動制限)"
+    ],
+    "simultaneous_limit": true
   }
 }

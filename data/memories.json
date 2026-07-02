@@ -3606,5 +3606,54 @@
         "skill_master_id": 400206
       }
     ]
+  },
+  "10026": {
+    "memory_id": 10026,
+    "name": "ジーナには内緒で",
+    "description": "なっ！？　先ほど巻き込んだことをまだ怒っているのか！？ あれはいつも我の逃げ先にいたエレーナにも責任が……！",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 2,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400207
+      }
+    ]
+  },
+  "20075": {
+    "memory_id": 20075,
+    "name": "甘えあうのじゃ",
+    "description": "よく頑張ったのう……そなたのことは、 ちゃんと儂が見ておったぞい……",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 146,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400208
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": 2,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400209
+      }
+    ]
   }
 }

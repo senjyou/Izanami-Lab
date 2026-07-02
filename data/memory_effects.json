@@ -5497,5 +5497,85 @@
         ]
       }
     ]
+  },
+  "400207": {
+    "skill_id": 400207,
+    "name": "回復2T終了【ENアタッカー】",
+    "description": "2ターンごとのターン終了時に発動。ENアタッカーの味方のHPを最大HPの2%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 2
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400208": {
+    "skill_id": 400208,
+    "name": "攻撃上昇【タチアナ】",
+    "description": "戦闘開始時に発動。タチアナ・ドロズドヴァの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400209": {
+    "skill_id": 400209,
+    "name": "攻撃上昇【ENタイプ】",
+    "description": "戦闘開始時に発動。ENタイプの味方全員の攻撃力を175上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 175,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }

@@ -115,7 +115,10 @@ def _worker_run_batch(seeds: List[int]) -> List[Dict[str, Any]]:
         for i, cid in enumerate(e_positions):
             if cid is not None:
                 pos = pos_e[i] if i < len(pos_e) else Position.ENEMY_CENTER_FRONT
-                u = _create_unit_worker(dl, pc, pl, sc, cid, Side.ENEMY, pos)
+                if isinstance(cid, dict):
+                    u = _create_circle_battle_enemy_worker(dl, cid)
+                else:
+                    u = _create_unit_worker(dl, pc, pl, sc, cid, Side.ENEMY, pos)
                 if u:
                     bf.add_unit(u)
                     enemies.append(u)
@@ -391,7 +394,12 @@ def _create_tactical_enemy_worker(dl, enemy_data: Dict[str, Any], enemy_pos):
     from src.entities_v2.enums import Side
 
     skill_ids = enemy_data.get("skill_ids", [])
-    skill_levels = {sid: 15 for sid in skill_ids}
+    # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+    raw_skill_levels = enemy_data.get("skill_levels", {})
+    if raw_skill_levels:
+        skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
+    else:
+        skill_levels = {sid: 15 for sid in skill_ids}
 
     max_ep = 0
     for sid in skill_ids:
@@ -454,7 +462,12 @@ def _create_circle_battle_enemy_worker(dl, enemy_data: Dict[str, Any]):
     enemy_pos = Position(pos_str)
 
     skill_ids = enemy_data.get("skill_ids", [])
-    skill_levels = {sid: 15 for sid in skill_ids}
+    # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+    raw_skill_levels = enemy_data.get("skill_levels", {})
+    if raw_skill_levels:
+        skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
+    else:
+        skill_levels = {sid: 15 for sid in skill_ids}
 
     max_ep = 0
     for sid in skill_ids:
@@ -963,7 +976,10 @@ class BatchSimulator:
                 for i, cid in enumerate(enemy_positions):
                     if cid is not None:
                         pos = positions_enemy[i] if i < len(positions_enemy) else Position.ENEMY_CENTER_FRONT
-                        u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ENEMY, pos)
+                        if isinstance(cid, dict):
+                            u = _create_circle_battle_enemy_worker(dl, cid)
+                        else:
+                            u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ENEMY, pos)
                         if u:
                             bf.add_unit(u)
                             enemies.append(u)

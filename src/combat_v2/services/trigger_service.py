@@ -1089,8 +1089,8 @@ class TriggerService:
     def _is_cover_ps(self, parsed: Dict) -> bool:
         """判断PS技能是否为援护类（包含cover或guard效果，但不含self-guard）
 
-        self-guard（global_condition=target_is_self + guard效果）不是援护类，
-        不应触发"无其他友方可保护则不触发"的限制。
+        self-guard（global_condition=target_is_self，或所有 guard/cover effect 均为
+        target_type=self）不是援护类，不应触发"无其他友方可保护则不触发"的限制。
         """
         # 检查是否为self-guard：global_condition=target_is_self
         gc = parsed.get('global_condition')
@@ -1104,14 +1104,21 @@ class TriggerService:
                     if isinstance(sub, dict) and sub.get('type') == 'target_is_self':
                         is_self_targeted = True
                         break
-        # self-guard不是cover类
-        if is_self_targeted:
-            return False
+        # 收集所有 guard/cover effect
+        guard_cover_effects = []
         for block in parsed.get('effect_blocks', []):
             for eff in block.get('effects', []):
                 if eff.get('effect_type') in ('cover', 'guard'):
-                    return True
-        return False
+                    guard_cover_effects.append(eff)
+        if not guard_cover_effects:
+            return False
+        # 若所有 guard/cover effect 均为 target_type=self，视为 self-guard，不是 cover
+        if all(eff.get('target_type') == 'self' for eff in guard_cover_effects):
+            return False
+        # self-guard不是cover类（global_condition层面）
+        if is_self_targeted:
+            return False
+        return True
 
     def _check_condition(self, parsed: Dict, owner: UnitState,
                           timing: TriggerTiming, context: TriggerContext) -> bool:
@@ -1350,6 +1357,16 @@ class TriggerService:
             _log.info("[TRIGGER_COND] %s: target_is_self => %s", owner.name, result)
             return result
 
+        if cond_type == "target_is_other_ally":
+            # 他の味方が攻撃される直前に発動系（如 若ノ減衰 230384）
+            # 攻击目标中必须存在 PS 持有者以外的同阵营单位
+            if not context.targets:
+                return False
+            result = any(t.unit_id != owner.unit_id and t.side == owner.side
+                         for t in context.targets)
+            _log.info("[TRIGGER_COND] %s: target_is_other_ally => %s", owner.name, result)
+            return result
+
         if cond_type == "self_has_mark":
             # 检查PS持有者自身是否持有指定mark（用于如ストイックリコイル的前置条件）
             mark_name = condition.get('mark_name', '')
@@ -1412,7 +1429,11 @@ class TriggerService:
             if actor is None:
                 _log.info("[TRIGGER_COND] %s: actor_character_type -> no actor => False", owner.name)
                 return False
-            result = getattr(actor, 'character_type', 0) == val
+            # Support int (single type) or list (multiple types, e.g. [1,3] for physical or agile)
+            if isinstance(val, list):
+                result = getattr(actor, 'character_type', 0) in val
+            else:
+                result = getattr(actor, 'character_type', 0) == val
             _log.info("[TRIGGER_COND] %s: actor_character_type=%s need=%s => %s",
                       owner.name, getattr(actor, 'character_type', 0), val, result)
             return result
@@ -1429,12 +1450,20 @@ class TriggerService:
                           owner.name, context.triggered_by.name, context.triggered_by.position,
                           front_pos, result)
                 return result
-            if not context.targets:
+            # 对于 before_ally_as_attack 等触发器，context.targets 可能为空，
+            # 但 context.actor 是发起 AS 的攻击者，应作为检查目标
+            # (如 230385 土ノ付加: 土雷正前方友方 AS 前对其施加 debuff)
+            check_units = list(context.targets) if context.targets else []
+            if not check_units and context.actor:
+                check_units = [context.actor]
+            if not check_units:
                 return False
             front_pos = _get_front_position(owner.position)
             if not front_pos:
                 return False
-            result = any(t.position == front_pos for t in context.targets if t.side == owner.side)
+            result = any(t.position == front_pos for t in check_units if t.side == owner.side)
+            _log.info("[TRIGGER_COND] %s: target_is_front_ally check_units=%s front_pos=%s => %s",
+                      owner.name, [u.name for u in check_units], front_pos, result)
             return result
 
         if cond_type == "front_ally_hp_below":

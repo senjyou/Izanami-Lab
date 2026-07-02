@@ -22987,5 +22987,300 @@
         }
       ]
     }
+  },
+  "110068": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 80.0
+        },
+        {
+          "level": 3,
+          "value": 84.9800033569336
+        },
+        {
+          "level": 4,
+          "value": 94.93000030517578
+        },
+        {
+          "level": 6,
+          "value": 99.91000366210938
+        },
+        {
+          "level": 7,
+          "value": 109.87000274658203
+        },
+        {
+          "level": 9,
+          "value": 114.83999633789062
+        },
+        {
+          "level": 10,
+          "value": 124.80000305175781
+        },
+        {
+          "level": 15,
+          "value": 169.60000610351562
+        }
+      ]
+    }
+  },
+  "120151": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 60.0
+        },
+        {
+          "level": 3,
+          "value": 63.72999954223633
+        },
+        {
+          "level": 4,
+          "value": 71.19999694824219
+        },
+        {
+          "level": 6,
+          "value": 74.93000030517578
+        },
+        {
+          "level": 7,
+          "value": 82.4000015258789
+        },
+        {
+          "level": 9,
+          "value": 86.12999725341797
+        },
+        {
+          "level": 10,
+          "value": 93.5999984741211
+        }
+      ]
+    },
+    "genwaku": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 50.0
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        },
+        {
+          "level": 15,
+          "value": 70.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0,
+          "type": "TagValue"
+        },
+        {
+          "level": 10,
+          "value": 10.0,
+          "type": "TagValue"
+        },
+        {
+          "level": 15,
+          "value": 10.0,
+          "type": "TagValue"
+        }
+      ]
+    }
+  },
+  "120152": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 30.0
+        },
+        {
+          "level": 3,
+          "value": 31.8700008392334
+        },
+        {
+          "level": 4,
+          "value": 35.599998474121094
+        },
+        {
+          "level": 6,
+          "value": 37.470001220703125
+        },
+        {
+          "level": 7,
+          "value": 41.20000076293945
+        },
+        {
+          "level": 9,
+          "value": 43.06999969482422
+        },
+        {
+          "level": 10,
+          "value": 46.79999923706055
+        }
+      ]
+    },
+    "crt": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0
+        },
+        {
+          "level": 10,
+          "value": 10.0
+        },
+        {
+          "level": 15,
+          "value": 20.0
+        }
+      ]
+    },
+    "crtdmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 25.0
+        },
+        {
+          "level": 10,
+          "value": 25.0
+        },
+        {
+          "level": 15,
+          "value": 50.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0,
+          "type": "TagValue"
+        },
+        {
+          "level": 10,
+          "value": 10.0,
+          "type": "TagValue"
+        },
+        {
+          "level": 15,
+          "value": 10.0,
+          "type": "TagValue"
+        }
+      ]
+    }
+  },
+  "120153": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 90.0
+        },
+        {
+          "level": 3,
+          "value": 95.5999984741211
+        },
+        {
+          "level": 4,
+          "value": 106.80000305175781
+        },
+        {
+          "level": 6,
+          "value": 112.4000015258789
+        },
+        {
+          "level": 7,
+          "value": 123.5999984741211
+        },
+        {
+          "level": 9,
+          "value": 129.1999969482422
+        },
+        {
+          "level": 10,
+          "value": 140.39999389648438
+        },
+        {
+          "level": 15,
+          "value": 190.8000030517578
+        }
+      ]
+    }
+  },
+  "130151": {
+    "shield": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 7.5
+        },
+        {
+          "level": 3,
+          "value": 8.039999961853027
+        },
+        {
+          "level": 4,
+          "value": 9.119999885559082
+        },
+        {
+          "level": 6,
+          "value": 9.65999984741211
+        },
+        {
+          "level": 7,
+          "value": 10.739999771118164
+        },
+        {
+          "level": 9,
+          "value": 11.279999732971191
+        },
+        {
+          "level": 10,
+          "value": 12.5
+        }
+      ]
+    },
+    "ex": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 1.0
+        },
+        {
+          "level": 15,
+          "value": 5.0
+        }
+      ]
+    }
   }
 }

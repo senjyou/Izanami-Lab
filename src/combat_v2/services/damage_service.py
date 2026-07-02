@@ -241,7 +241,19 @@ class DamageService:
         # 2. 技能威力因子
         skill_power_val = getattr(skill_data, "power", 100) or 100
         skill_factor = skill_power_val / 100.0
-        _log.info("[DMG_CALC] step2_skill_factor: power=%.1f => factor=%.4f", skill_power_val, skill_factor)
+        # skill_power_down debuff: 攻击者持有的SkillPower威力扣减debuff (S6 若雷 230384)
+        # 多个skill_power_down debuff叠加（取和），按百分比扣减skill_factor
+        _sp_down_pct = 0.0
+        for _db in attacker.debuffs:
+            if _db.effect_type == SkillEffectType.SKILL_POWER_DOWN.value:
+                _sp_down_pct += float(getattr(_db, 'value', 0) or 0)
+        if _sp_down_pct > 0:
+            _orig_factor = skill_factor
+            skill_factor = skill_factor * max(0.0, 1.0 - _sp_down_pct / 100.0)
+            _log.info("[DMG_CALC] SKILL_POWER_DOWN: %.1f%% reduction -> factor %.4f -> %.4f",
+                      _sp_down_pct, _orig_factor, skill_factor)
+        _log.info("[DMG_CALC] step2_skill_factor: power=%.1f => factor=%.4f (after sp_down=%.1f%%)",
+                  skill_power_val, skill_factor, _sp_down_pct)
         
         # 3. 属性克制因子
         skill_element = getattr(skill_data, "element", None) or attacker.element
@@ -393,6 +405,8 @@ class DamageService:
             "ignore_shield_pct": getattr(skill_data, 'ignore_shield', 0) or 0,
             "base_diff": base_diff,
             "skill_power": skill_power_val,
+            "skill_power_after": skill_factor * 100,
+            "skill_power_down_pct": _sp_down_pct,
             "skill_factor": skill_factor,
             "attr_factor": attr_factor,
             "crit_factor": crit_factor if hit_count == 1 else 1.0,

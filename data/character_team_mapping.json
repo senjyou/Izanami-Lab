@@ -259,6 +259,12 @@
       "name_ruby": "たりさまなんだる",
       "team_id": 803,
       "team_name": "The Manor's Favor"
+    },
+    "146": {
+      "name": "タチアナ・ドロズドヴァ",
+      "name_ruby": "たちあなどろずどゔぁ",
+      "team_id": 601,
+      "team_name": "クラスナ"
     }
   },
   "character_variants": {
@@ -557,6 +563,12 @@
     "149": [
       {
         "character_id": 149301,
+        "rarity": "N/A"
+      }
+    ],
+    "146": [
+      {
+        "character_id": 146301,
         "rarity": "N/A"
       }
     ]

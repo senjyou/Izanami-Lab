@@ -1848,7 +1848,13 @@ class BattleFlowController:
                     if primary_target is None:
                         primary_target = dname
                     all_target_names.append(dname)
-            elif applied.get("effect_type") in ("aura", "add_status"):
+            elif applied.get("effect_type") == "split_heal_by_damage":
+                for h in applied.get("heals", []):
+                    dname = self._get_display_name(h.get('target_id', h['target']))
+                    if primary_target is None:
+                        primary_target = dname
+                    all_target_names.append(dname)
+            elif applied.get("effect_type") in ("aura", "add_status", "block_buff_by_type", "stealth"):
                 for a in (applied.get("auras", []) or applied.get("statuses", [])):
                     dname = self._get_display_name(a.get('target_id', a['target']))
                     if primary_target is None:
@@ -2028,7 +2034,22 @@ class BattleFlowController:
                         is_crit=h.get('is_crit', False),
                         formula=h.get('heal_formula', ''),
                     )
-            elif applied.get("effect_type") == "aura":
+            elif applied.get("effect_type") == "split_heal_by_damage":
+                # 若雷 220360/220361: 与ダメ100%味方均等分配回復
+                for h in applied.get("heals", []):
+                    target_unit = self._find_unit(h)
+                    target_max = target_unit.max_hp if target_unit else 0
+                    self.narrative.heal(
+                        source_name=caster_dname,
+                        source_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                        target_name=self._get_display_name(h.get('target_id', h['target'])),
+                        hp_before=h.get('hp_before', h.get('hp_after', 0) - h.get('amount', 0)),
+                        amount=h.get('amount', 0),
+                        target_max_hp=target_max,
+                        is_crit=h.get('is_crit', False),
+                        formula=h.get('heal_formula', ''),
+                    )
+            elif applied.get("effect_type") in ("aura", "block_buff_by_type", "stealth"):
                 for a in applied.get("auras", []):
                     target_unit = self._find_unit(a)
                     detail = a.get('detail', '')
@@ -2124,7 +2145,7 @@ class BattleFlowController:
                 for rd in applied.get("removed_details", []):
                     target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
                     self.narrative.debuff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
-            elif applied.get("effect_type") == "remove_buff":
+            elif applied.get("effect_type") in ("remove_buff", "remove_buff_by_type"):
                 for rd in applied.get("removed_details", []):
                     target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
                     self.narrative.buff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
@@ -2144,6 +2165,10 @@ class BattleFlowController:
                         su.get('sub_unit_hp', 0), su.get('sub_unit_max_hp', 0),
                         su.get('atk_dmg_pct', 0), su.get('duration', 1),
                         su.get('dur_type', 'action'), caster_dname)
+            elif applied.get("effect_type") == "shield_from_damage":
+                shield_value = applied.get("shield_value", 0)
+                if shield_value > 0:
+                    self.narrative.shield_added(caster_dname, shield_value, caster.shield)
             elif applied.get("effect_type") in ("add_ap", "add_ep", "remove_ap"):
                 if not applied.get("skipped"):
                     rtype = applied["effect_type"]
@@ -2196,6 +2221,20 @@ class BattleFlowController:
                 for rm in applied.get("targets", []):
                     target_dname = self._get_display_name(rm.get('target_id', rm.get('target')))
                     self.narrative.mark_removed(target_dname, rm['mark_name'], rm['removed_count'], caster_dname)
+            elif applied.get("effect_type") == "modify_pp":
+                delta = applied.get("delta", 0)
+                if delta != 0:
+                    target_dname = self._get_display_name(caster)
+                    if delta > 0:
+                        self.narrative.pp_restored(
+                            target_dname, delta,
+                            applied.get("new_pp", caster.current_pp),
+                            caster.initial_passive_point)
+                    else:
+                        self.narrative.pp_removed(
+                            target_dname, -delta,
+                            applied.get("new_pp", caster.current_pp),
+                            caster.initial_passive_point, caster_dname)
 
         for ps_result in skill_result.get("inline_ps_results", []):
             trigger_timing = ps_result.get("trigger_timing", "")
@@ -3036,55 +3075,31 @@ class BattleFlowController:
         _log.info(message)
 
     def _get_buff_debuff_detail(self, unit: UnitState, effect: str) -> str:
-        # Check if this is a carried_debuff payload - show payload info instead of stat change
-        if effect in ("spd_up", "spd_down", "StatusSpeed", "speed"):
-            for b in unit.buffs + unit.debuffs:
-                if b.effect_type == SkillEffectType.STATUS_SPEED.value and getattr(b, 'hit_limited_flags', {}).get('carried_debuff'):
-                    payload_val = b.hit_limited_flags.get('carried_debuff_value', 0)
-                    return f"携带式减速载荷(SPD-{int(payload_val)})"
+        # Fallback：当 skill_service 未填充 detail 时使用。
+        # 注意：此时 aura 已添加到单位身上，只能显示"后"值，无法显示"前→后"。
+        # 正常情况下 skill_service 已在 add_aura 前后计算并填充"前→后"格式 detail。
+        _CARRIED_DEBUFF_DISPLAY = {
+            'atk_down': ('StatusAttack', 'ATK'),
+            'def_down': ('StatusDefense', 'DEF'),
+            'spd_down': ('StatusSpeed', 'SPD'),
+            'crit_rate_down': ('StatusCriticalChance', 'CRT'),
+        }
+        for b in unit.buffs + unit.debuffs:
+            hlf = getattr(b, 'hit_limited_flags', {}) or {}
+            if hlf.get('carried_debuff'):
+                payload_type = hlf.get('carried_debuff_type', 'spd_down')
+                payload_val = hlf.get('carried_debuff_value', 0)
+                payload_vt = hlf.get('carried_debuff_value_tag', 1)
+                stat_info = _CARRIED_DEBUFF_DISPLAY.get(payload_type)
+                if stat_info is None:
+                    continue
+                stat_label = stat_info[1]
+                val_display = f"-{payload_val:.0f}%" if payload_vt == 0 else f"-{int(payload_val)}"
+                return f"携带式{stat_label}载荷({stat_label}{val_display})"
 
-        atk_related = {"atk_up", "atk_down", "StatusAttack", "attack"}
-        def_related = {"def_up", "def_down", "StatusDefense", "defense"}
-        spd_related = {"spd_up", "spd_down", "StatusSpeed", "speed"}
-        dealt_related = {"dmg_dealt_up", "dmg_dealt_down", "DealtDamage"}
-        taken_related = {"dmg_taken_up", "dmg_taken_down", "ReceivedDamage"}
-
-        if effect in atk_related:
-            final_atk = self.damage_service._calculate_final_stat(unit, "attack")
-            return f"ATK→{final_atk}"
-        elif effect in def_related:
-            final_def = self.damage_service._calculate_final_stat(unit, "defense")
-            return f"DEF→{final_def}"
-        elif effect in spd_related:
-            final_spd = self.damage_service._calculate_final_stat(unit, "speed")
-            return f"SPD→{final_spd}"
-        elif effect in dealt_related:
-            total = 0.0
-            for b in unit.buffs:
-                if b.effect_type == SkillEffectType.DEALT_DAMAGE.value:
-                    total += self.damage_service._normalize_buff_value(b)
-            for b in unit.debuffs:
-                if b.effect_type == SkillEffectType.DEALT_DAMAGE.value:
-                    total -= self.damage_service._normalize_buff_value(b)
-            pct = int(total * 100)
-            sign = "+" if pct >= 0 else ""
-            return f"造成伤害{sign}{pct}%"
-        elif effect in taken_related:
-            total = 0.0
-            for b in unit.buffs:
-                if b.effect_type == SkillEffectType.RECEIVED_DAMAGE.value:
-                    total -= self.damage_service._normalize_buff_value(b)  # buffs (dmg_taken_down) REDUCE damage
-            for b in unit.debuffs:
-                if b.effect_type == SkillEffectType.RECEIVED_DAMAGE.value:
-                    total += self.damage_service._normalize_buff_value(b)  # debuffs (dmg_taken_up) INCREASE damage
-            pct = int(total * 100)
-            sign = "+" if pct >= 0 else ""
-            return f"受到伤害{sign}{pct}%"
-        elif effect == SkillEffectType.STATUS_CRITICAL_CHANCE.value:
-            # 使用与计算一致的_calculate_crit_rate，而非简单求和
-            total = self.damage_service._calculate_crit_rate(unit)
-            return f"暴击率→{total * 100:.1f}%"
-        elif effect == SkillEffectType.CRITICAL_BONUS_MODIFICATION.value:
-            total = 1.5 + self.damage_service._get_crit_damage_bonus(unit)
-            return f"暴击伤害→{total * 100:.2f}%"
+        # 复用 skill_service 的辅助方法，确保格式一致
+        if self.skill_service:
+            label, value = self.skill_service._compute_stat_display(unit, effect)
+            if label:
+                return f"{label}:{value}"
         return ""

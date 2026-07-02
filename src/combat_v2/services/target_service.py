@@ -389,7 +389,51 @@ class TargetService:
                       ally_a.name)
             return [ally_a]
 
+        # S6 若雷 220360: 防御力最低の敵1体を含む横一列
+        if target_type_name == 'enemy_row_of_lowest_def':
+            if not ordered:
+                return []
+            # 按防御力升序排序，应用ステルス重定向后取首位作为锚点
+            ordered.sort(key=lambda u: u.defense)
+            self.apply_stealth_redirection(ordered, consume=True)
+            lowest_def_unit = ordered[0]
+            # 返回与该单位同排的所有敌方单位
+            anchor_is_front = self._is_front_row(lowest_def_unit)
+            result = [u for u in candidates if self._is_front_row(u) == anchor_is_front]
+            _log.info("[TARGET]   enemy_row_of_lowest_def: lowest_def=%s (def=%d, %s row) -> %d units: %s",
+                      lowest_def_unit.name, lowest_def_unit.defense,
+                      "FRONT" if anchor_is_front else "BACK",
+                      len(result), [u.name for u in result])
+            return result
+
+        # S6 若雷 220361: 防御力最低の敵2体 (TWO_PAWNS custom)
+        if target_type_name == 'enemy_single_lowest_def_x2':
+            if not ordered:
+                return []
+            # 按防御力升序排序，应用ステルス重定向，取前2
+            sorted_by_def = sorted(ordered, key=lambda u: (u.defense, self._get_sort_key(caster, u)))
+            self.apply_stealth_redirection(sorted_by_def, consume=True)
+            result = sorted_by_def[:min(2, len(sorted_by_def))]
+            _log.info("[TARGET]   enemy_single_lowest_def_x2: -> %s",
+                      [(u.name, u.defense) for u in result])
+            return result
+
+        # S6 若雷 220361: HP最低の味方2体 (TWO_PAWNS custom)
+        if target_type_name == 'ally_single_lowest_hp_x2':
+            if not ordered:
+                return []
+            # 按当前HP升序排序，应用ステルス重定向，取前2
+            sorted_by_hp = sorted(ordered, key=lambda u: (u.current_hp, self._get_sort_key(caster, u)))
+            self.apply_stealth_redirection(sorted_by_hp, consume=True)
+            result = sorted_by_hp[:min(2, len(sorted_by_hp))]
+            _log.info("[TARGET]   ally_single_lowest_hp_x2: -> %s",
+                      [(u.name, u.current_hp) for u in result])
+            return result
+
         if r_type == DisplayTargetRange.ONE_PAWN:
+            # ステルス消費：第一優先対象がステルス所持時、末尾に移動してステルス消費
+            # (S6 土雷 220362: stealth 2 actions → 2回の単体攻撃対象選択を回避)
+            self.apply_stealth_redirection(ordered, consume=True)
             return [ordered[0]]
 
         elif r_type == DisplayTargetRange.LINE:
@@ -435,16 +479,24 @@ class TargetService:
                           len(result))
                 return result
             # 默认行为：按anchor所在排选择
+            # LINE 主目标 = 那一排中距离 caster 最近的单位（ordered[0]）
+            # 若主目标持ステルス → 触发，重定向到次选主目标（新 ordered[0]）
+            # 重定向后副目标范围仍包含 stealth 单位时，stealth 单位会被攻击到
+            self.apply_stealth_redirection(ordered, consume=True)
             anchor = ordered[0]
             anchor_is_front = self._is_front_row(anchor)
             return [u for u in candidates if self._is_front_row(u) == anchor_is_front]
 
         elif r_type == DisplayTargetRange.COLUMN:
+            # COLUMN 主目标 = 前列距离 caster 最近的单位（ordered[0]）
+            # 若主目标持ステルス → 触发，重定向到次选主目标
+            # mark_priority 优先于 stealth（mark 是强制标记选择，不走优先级排序）
             if mark_priority:
                 anchor = self._select_anchor_by_mark(candidates, mark_priority)
                 if anchor is None:
                     anchor = ordered[0]
             else:
+                self.apply_stealth_redirection(ordered, consume=True)
                 anchor = ordered[0]
             anchor_col = self._get_column_index(anchor)
             return [u for u in candidates if self._get_column_index(u) == anchor_col]
@@ -457,9 +509,14 @@ class TargetService:
                 DisplayTargetRange.FOUR_PAWNS: 4,
             }
             count = count_map[r_type]
+            # ステルス連鎖：第一優先対象がステルス所持時、末尾に移動してステルス消費
+            # 候选数不足（甚至只有1个）也触发并消耗
+            # 被重定向的 stealth 单位移到 ordered 末尾，但在副目标选择中仍处于最低優先級
+            redirected_ids = self.apply_stealth_redirection(ordered, consume=True)
             primary = ordered[0]
             remaining = [u for u in ordered[1:] if u != primary]
-            remaining.sort(key=lambda u: self._get_sort_key(primary, u))
+            # 副目标排序：被重定向的 stealth 单位排到最后（即使距离 primary 最近也不优先）
+            remaining.sort(key=lambda u: (id(u) in redirected_ids, self._get_sort_key(primary, u)))
             return [primary] + remaining[:min(count - 1, len(remaining))]
 
         return [ordered[0]]
@@ -500,6 +557,104 @@ class TargetService:
         filtered.sort(key=lambda u: self._get_sort_key(caster, u))
         remaining.sort(key=lambda u: self._get_sort_key(caster, u))
         return filtered + remaining
+
+    def _has_stealth(self, unit: UnitState) -> bool:
+        """检查单位是否持有未过期的ステルス buff"""
+        if not unit or not getattr(unit, 'is_alive', False):
+            return False
+        buffs = getattr(unit, 'buffs', None) or []
+        for b in buffs:
+            if b.effect_type == SkillEffectType.STEALTH.value and b.duration != 0:
+                return True
+        return False
+
+    def _consume_stealth(self, unit: UnitState) -> bool:
+        """消費单位的一个ステルス buff 触发。
+        根据 original_duration_type 决定消耗方式：
+        - "action"（土ノ浸食等）: 触发不消耗 duration，duration 仅在持有者行动结束时
+          由 AuraService 递减。一轮行动中无论触发多少次都不影响 duration。
+        - "skill"（未来扩展）: 某技能触发stealth效果，技能结束时 duration-1。
+          当前仅保留语义骨架，不实际修改 duration（由调用方/流程负责）。
+        返回 True 表示成功触发（不论是否实际修改 duration）。
+        """
+        buffs = getattr(unit, 'buffs', None) or []
+        for b in buffs:
+            if b.effect_type == SkillEffectType.STEALTH.value and b.duration != 0:
+                dur_type = getattr(b, 'original_duration_type', '') or ''
+                if dur_type == 'action':
+                    # 行动制：触发不消耗 duration（duration 由 AuraService 在持有者
+                    # 行动结束时递减）
+                    _log.info("[STEALTH_CONSUME] %s: action-based stealth triggered, duration unchanged (%d)",
+                              unit.name, b.duration)
+                    return True
+                elif dur_type == 'skill':
+                    # 技能制（未来）：技能结束时 duration-1，此处仅标记触发
+                    _log.info("[STEALTH_CONSUME] %s: skill-based stealth triggered, duration will decay on skill end (%d)",
+                              unit.name, b.duration)
+                    return True
+                else:
+                    # 兜底：未知 duration_type，按行动制处理（不消耗）
+                    _log.info("[STEALTH_CONSUME] %s: unknown dur_type=%s, treat as action-based (duration unchanged %d)",
+                              unit.name, dur_type, b.duration)
+                    return True
+        return False
+
+    def apply_stealth_redirection(self, candidates: List[UnitState],
+                                  consume: bool = True) -> set:
+        """ステルス redirection: 若候选列表的第一优先位（第一優先対象）持有ステルス，
+        将其移动到候选列表末尾（最低優先級）并（可选）消費ステルス。
+
+        机制（用户提供）：
+        - ステルス仅在自身被选为「第一優先対象」（候选列表首位）时触发。
+        - 触发后将自身移到末尾（append，不是移除）：自身仍留在候选列表中，
+          但处于最低優先級。即使距离新 primary 最近，也不优先选为副目标；
+          只有当场上没有其他非stealth单位可选时，才会轮到 stealth 单位。
+        - 连锁：若移到末尾后新的首位仍持ステルス，继续触发。用 triggered 集合
+          记录已触发单位，每个单位一次调用中只触发一次（防 duration>1 时死循环）。
+        - 候选数不足（甚至只有1个）也触发并消耗：只要自身是 primary 就触发，
+          不论最终是否被攻击到。
+        - consume=False 用于 prescan 等场景（仅模拟重定向，不实际消費）。
+
+        注意：调用方需先按优先级排序 candidates，再传入。本方法原地修改 candidates。
+        返回 (redirected_ids): 被重定向的单位 id 集合，供调用方在副目标排序时
+        将这些单位排到最后。
+        """
+        triggered = set()  # 记录本次调用已触发的 unit id（防同单位重复触发）
+        while candidates and self._has_stealth(candidates[0]):
+            unit = candidates[0]
+            uid = id(unit)
+            if uid in triggered:
+                break  # 同一单位本次调用中已触发过，停止连锁
+            triggered.add(uid)
+            candidates.pop(0)
+            candidates.append(unit)  # 移到末尾（最低優先級），不是移除
+            if consume:
+                self._consume_stealth(unit)
+            _log.info("[TARGET]   STEALTH: %s moved to end of candidates%s",
+                      unit.name, ", stealth consumed" if consume else " (prescan, not consumed)")
+        return triggered
+
+    def select_min_with_stealth(self, candidates: List[UnitState],
+                                key_func, consume: bool = True) -> Optional[UnitState]:
+        """按 key_func 升序排序后应用ステルス重定向，返回首位。
+        被重定向的 stealth 单位移到末尾（最低優先級），即使原本 key 最小也不优先。
+        """
+        if not candidates:
+            return None
+        ordered = sorted(candidates, key=key_func)
+        self.apply_stealth_redirection(ordered, consume=consume)
+        return ordered[0] if ordered else None
+
+    def select_max_with_stealth(self, candidates: List[UnitState],
+                                key_func, consume: bool = True) -> Optional[UnitState]:
+        """按 key_func 降序排序后应用ステルス重定向，返回首位。
+        被重定向的 stealth 单位移到末尾（最低優先級），即使原本 key 最大也不优先。
+        """
+        if not candidates:
+            return None
+        ordered = sorted(candidates, key=key_func, reverse=True)
+        self.apply_stealth_redirection(ordered, consume=consume)
+        return ordered[0] if ordered else None
 
     def _filter_by_priority(self, candidates: List[UnitState], priority) -> List[UnitState]:
         p_type = DisplayTargetPriority(priority)

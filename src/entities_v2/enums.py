@@ -218,6 +218,7 @@ class SkillEffectType(Enum):
     CONFUSION = "Confusion"                           # 混乱 (技能过滤+目标反转+伤害减免)
     MARK = "Mark"                                     # 41: 标记
     ACTION_DAMAGE = "ActionDamage"                    # 行動時ダメージ (行动时受到攻击力x%伤害)
+    GENWAKU = "Genwaku"                               # 幻惑 (攻击者持有時、ダメージを回復へ変換)
     
     # 属性/战斗修正
     CRITICAL_BONUS_MODIFICATION = "CriticalBonusModification" # 14: 暴击伤害倍率修正
@@ -249,6 +250,11 @@ class SkillEffectType(Enum):
     REMOVE_AURA = "RemoveAura"                        # 19: 移除Aura (驱散)
     BLOCK_AURAS = "BlockAuras"                        # 37: 免疫Aura
     BLOCK_SPECIFIC_AURA = "BlockSpecificAura"         # 39: 免疫特定Aura
+    REMOVE_BUFF_BY_TYPE = "RemoveBuffByType"          # 按类型移除buff (如 atk_up/crit_rate_up)
+    BLOCK_BUFF_BY_TYPE = "BlockBuffByType"            # 阻止特定类型buff的新付与
+    STEALTH = "Stealth"                               # ステルス (优先度降低)
+    SPLIT_HEAL_BY_DAMAGE = "SplitHealByDamage"        # 与ダメージ分配回復
+    SKILL_POWER_DOWN = "SkillPowerDown"              # 技能威力降低 (SkillPower乘区)
     
     # 脚本类
     SERVER_SCRIPT_INSTANT = "ServerScriptInstant"     # 28: 服务器瞬时脚本

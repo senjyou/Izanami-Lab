@@ -1899,7 +1899,7 @@
     "resource_cost": 6,
     "cooldown": null,
     "cooldown_update_timing": null,
-    "default_max_level": 10,
+    "default_max_level": 15,
     "descriptions": [
       {
         "min_level": 1,
@@ -71160,17 +71160,50 @@
       "makento_max": {
         "interpolation_mode": 2,
         "values": [
-          {"level": 1, "value": 4.0},
-          {"level": 3, "value": 5.0},
-          {"level": 5, "value": 6.0},
-          {"level": 7, "value": 7.0},
-          {"level": 9, "value": 8.0},
-          {"level": 10, "value": 9.0},
-          {"level": 11, "value": 10.0},
-          {"level": 12, "value": 11.0},
-          {"level": 13, "value": 12.0},
-          {"level": 14, "value": 13.0},
-          {"level": 15, "value": 14.0}
+          {
+            "level": 1,
+            "value": 4.0
+          },
+          {
+            "level": 3,
+            "value": 5.0
+          },
+          {
+            "level": 5,
+            "value": 6.0
+          },
+          {
+            "level": 7,
+            "value": 7.0
+          },
+          {
+            "level": 9,
+            "value": 8.0
+          },
+          {
+            "level": 10,
+            "value": 9.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 12,
+            "value": 11.0
+          },
+          {
+            "level": 13,
+            "value": 12.0
+          },
+          {
+            "level": 14,
+            "value": 13.0
+          },
+          {
+            "level": 15,
+            "value": 14.0
+          }
         ]
       }
     }
@@ -72251,5 +72284,1285 @@
         ]
       }
     }
+  },
+  "110068": {
+    "skill_id": 110068,
+    "name": "静かな時を",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}でEN攻撃する。\n攻撃時に対象が「凶兆」を2つ以上所持していた場合、さらに対象の次の攻撃での与ダメージを100%減少させるデバフを付与する。\n対象が「凶兆」を2つ以上所持していなかった場合、「凶兆」を1つ付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.9800033569336
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.87000274658203
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 15,
+            "value": 169.60000610351562
+          }
+        ]
+      }
+    }
+  },
+  "400207": {
+    "skill_id": 400207,
+    "name": "回復2T終了【ENアタッカー】",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "2ターンごとのターン終了時に発動。ENアタッカーの味方のHPを最大HPの2%回復する"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400208": {
+    "skill_id": 400208,
+    "name": "攻撃上昇【タチアナ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。タチアナ・ドロズドヴァの攻撃力を1000上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400209": {
+    "skill_id": 400209,
+    "name": "攻撃上昇【ENタイプ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。ENタイプの味方全員の攻撃力を175上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "120151": {
+    "skill_id": 120151,
+    "name": "遅効の毒計",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "攻撃力が最も高い敵単体に威力{威力}で攻撃し、1行動の幻惑を付与する。幻惑はダメージ効果を回復効果へと変換する。回復値は本来のダメージ値の{genwaku}%となる。\nさらに対象に「凶兆」を1つと、1行動の攻撃力×10%の継続ENダメージを付与する。\nこのスキルの発動により対象の所持する「凶兆」が4つ以上になった場合、さらに威力100で追加EN攻撃を行い、対象が所持している「凶兆」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      },
+      "genwaku": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 70.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0,
+            "type": "TagValue"
+          },
+          {
+            "level": 10,
+            "value": 10.0,
+            "type": "TagValue"
+          },
+          {
+            "level": 15,
+            "value": 10.0,
+            "type": "TagValue"
+          }
+        ]
+      }
+    }
+  },
+  "120152": {
+    "skill_id": 120152,
+    "name": "逆転の方策",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で3ヒットEN攻撃し、1行動の間対象の会心率を{crt}%、会心ダメージを{crtdmg}%低下させる。\nさらに対象に「凶兆」を1つと、1行動の攻撃力×10%の継続ENダメージを付与する。\nこのスキルの発動により対象の所持する「凶兆」が4つ以上になった場合、さらに威力100で追加EN攻撃を行い、対象が所持している「凶兆」を全て解除する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 31.8700008392334
+          },
+          {
+            "level": 4,
+            "value": 35.599998474121094
+          },
+          {
+            "level": 6,
+            "value": 37.470001220703125
+          },
+          {
+            "level": 7,
+            "value": 41.20000076293945
+          },
+          {
+            "level": 9,
+            "value": 43.06999969482422
+          },
+          {
+            "level": 10,
+            "value": 46.79999923706055
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 20.0
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0,
+            "type": "TagValue"
+          },
+          {
+            "level": 10,
+            "value": 10.0,
+            "type": "TagValue"
+          },
+          {
+            "level": 15,
+            "value": 10.0,
+            "type": "TagValue"
+          }
+        ]
+      }
+    }
+  },
+  "120153": {
+    "skill_id": 120153,
+    "name": "一点突破の戦術",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}でEN攻撃し、「凶兆」を1つ付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 95.5999984741211
+          },
+          {
+            "level": 4,
+            "value": 106.80000305175781
+          },
+          {
+            "level": 6,
+            "value": 112.4000015258789
+          },
+          {
+            "level": 7,
+            "value": 123.5999984741211
+          },
+          {
+            "level": 9,
+            "value": 129.1999969482422
+          },
+          {
+            "level": 10,
+            "value": 140.39999389648438
+          },
+          {
+            "level": 15,
+            "value": 190.8000030517578
+          }
+        ]
+      }
+    }
+  },
+  "130151": {
+    "skill_id": 130151,
+    "name": "起死回生の一手",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×20%のダメージを受けた際に発動。自身に対し、最大HP×{shield}%のシールドを付与する。シールドは1ヒット攻撃を受けると消滅する。\nさらに自身のHPが20%未満だった場合、致死ダメージを1度だけ耐えてHPを最大HP×25%回復するバフと、「深慮」（解除不可）を付与する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "累計で最大HP×20%のダメージを受けた際に発動。自身に対し、最大HP×{shield}%のシールドを付与する。シールドは1ヒット攻撃を受けると消滅する。\nさらに自身のHPが20%未満だった場合、自身のEXゲージを{ex}加算し、さらに致死ダメージを1度だけ耐えてHPを最大HP×25%回復するバフと、「深慮」（解除不可）を付与する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 8.039999961853027
+          },
+          {
+            "level": 4,
+            "value": 9.119999885559082
+          },
+          {
+            "level": 6,
+            "value": 9.65999984741211
+          },
+          {
+            "level": 7,
+            "value": 10.739999771118164
+          },
+          {
+            "level": 9,
+            "value": 11.279999732971191
+          },
+          {
+            "level": 10,
+            "value": 12.5
+          }
+        ]
+      },
+      "ex": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 1.0
+          },
+          {
+            "level": 15,
+            "value": 5.0
+          }
+        ]
+      }
+    }
+  },
+  "210098": {
+    "skill_id": 210098,
+    "name": "真・紫影の斬撃",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 10,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "220369": {
+    "skill_id": 220369,
+    "name": "紫影の斬撃",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}で攻撃する。この攻撃が会心攻撃になった場合、自身のPPを1回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 31.8700008392334
+          },
+          {
+            "level": 4,
+            "value": 35.599998474121094
+          },
+          {
+            "level": 6,
+            "value": 37.470001220703125
+          },
+          {
+            "level": 7,
+            "value": 41.20000076293945
+          },
+          {
+            "level": 9,
+            "value": 43.06999969482422
+          },
+          {
+            "level": 10,
+            "value": 46.79999923706055
+          }
+        ]
+      }
+    }
+  },
+  "220370": {
+    "skill_id": 220370,
+    "name": "ラピッドファイア",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も攻撃力が高い敵単体と最も行動速度が高い敵単体に威力{威力}で2ヒットずつ攻撃する。この攻撃が会心攻撃になった場合、自身のPPを1回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 26.559999465942383
+          },
+          {
+            "level": 4,
+            "value": 29.670000076293945
+          },
+          {
+            "level": 6,
+            "value": 31.219999313354492
+          },
+          {
+            "level": 7,
+            "value": 34.33000183105469
+          },
+          {
+            "level": 9,
+            "value": 35.88999938964844
+          },
+          {
+            "level": 10,
+            "value": 39.0
+          }
+        ]
+      }
+    }
+  },
+  "230391": {
+    "skill_id": 230391,
+    "name": "カウンターショット",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に威力{威力}で反撃する。この攻撃が会心攻撃になった場合、自身のPPを1回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          },
+          {
+            "level": 3,
+            "value": 74.36000061035156
+          },
+          {
+            "level": 4,
+            "value": 83.06999969482422
+          },
+          {
+            "level": 6,
+            "value": 87.41999816894531
+          },
+          {
+            "level": 7,
+            "value": 96.12999725341797
+          },
+          {
+            "level": 9,
+            "value": 100.48999786376953
+          },
+          {
+            "level": 10,
+            "value": 109.19999694824219
+          }
+        ]
+      }
+    }
+  },
+  "230393": {
+    "skill_id": 230393,
+    "name": "見切り構え・素",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵から攻撃される直前に発動。攻撃を{guard}%ガードする。さらに自身の会心率を1%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "guard": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 85.0
+          }
+        ]
+      }
+    }
+  },
+  "220367": {
+    "skill_id": 220367,
+    "name": "大ノ掃射",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}でEN攻撃する。対象のHPが多いほどこの攻撃によるダメージは増加する（+100%まで）。この攻撃が会心攻撃になった場合、自身にかけられている攻撃バフと会心率バフを全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "220368": {
+    "skill_id": 220368,
+    "name": "大ノ双弾",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵2体に威力{威力}でEN攻撃する。この攻撃が会心攻撃になった場合、自身にかけられている攻撃バフと会心率バフを全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "230389": {
+    "skill_id": 230389,
+    "name": "大ノ反撃",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に威力{威力}でEN反撃し、与えたダメージの80%分のシールドを自身に付与する。この攻撃が会心攻撃になった場合、自身にかけられている攻撃バフと会心率バフを全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.9800033569336
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.87000274658203
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230390": {
+    "skill_id": 230390,
+    "name": "大ノ増幅",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵にアクティブスキルで攻撃するたびに発動。自身の攻撃力を10%、会心率を10%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220365": {
+    "skill_id": 220365,
+    "name": "鳴ノ掃射",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}でEN攻撃し、対象の被ダメージが3.15%増加するデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "220366": {
+    "skill_id": 220366,
+    "name": "鳴ノ双弾",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵2体に威力{威力}でEN攻撃し、1行動の間、対象が与えるダメージが15%減少するデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "230386": {
+    "skill_id": 230386,
+    "name": "鳴ノ硬直",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 2,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に1行動分の気絶を付与する。\n対象が「神鳴り」を所持していた場合、気絶の代わりに1行動の混乱を付与する混乱はアクティブスキルで攻撃する際、本来の対象の逆陣営に攻撃を行う。この際のダメージは{dmg}%減少する。混乱中の攻撃者の攻撃力が被攻撃者の防御力以下だった場合、攻撃力と防御力の差分値の代わりに攻撃力×10%の値を使用し、その後のダメージ計算を行う"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "230387": {
+    "skill_id": 230387,
+    "name": "鳴ノ抑制",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。「神鳴り」を所持していない敵を優先して敵単体に「神鳴り」を1つ付与し、味方前衛に対して「神鳴り」を所持している相手からの攻撃のダメージを30%減少させるバフを付与する。このスキルは1ターン目には発動しない"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220362": {
+    "skill_id": 220362,
+    "name": "土ノ浸食",
+    "skill_type": 1,
+    "skill_kind": 3,
+    "resource_cost": 2,
+    "cooldown": 3,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に対し、自身が2回行動を終えるまでの間、新たに付与される最大HP・攻撃力・防御力・行動速度・会心率バフの効果を無効にするデバフを付与する。デバフは自身が倒れると同時に解除される。また、自身に対し2行動のステルスを付与する"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220363": {
+    "skill_id": 220363,
+    "name": "土ノ掃射",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}でEN攻撃し、2行動の間行動時に攻撃力×10%のENダメージを受けるデバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "220364": {
+    "skill_id": 220364,
+    "name": "土ノ双弾",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵2体に威力{威力}でEN攻撃し、1行動の間行動時に攻撃力×10%のENダメージを受けるデバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "230385": {
+    "skill_id": 230385,
+    "name": "土ノ付加",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "（同時発動制限）自身の目の前に編成されている味方がアクティブスキルで攻撃する前に発動。当該攻撃に対し1行動の間、攻撃力・防御力・行動速度・会心率を5%低下させるデバフ（重複可）を追加する"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220360": {
+    "skill_id": 220360,
+    "name": "若ノ掃射",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も防御力が低い敵が含まれる敵横一列に威力{威力}で攻撃し、与えたダメージの100％を味方全体に均等に分配して回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "220361": {
+    "skill_id": 220361,
+    "name": "若ノ双弾",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "防御力低い順に敵2体に威力{威力}で攻撃し、与えたダメージの100%を最もHPが低い順に味方2体に均等に分配して回復する。さらに自身に対し1行動の間与ダメージを25%増加させるバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "230383": {
+    "skill_id": 230383,
+    "name": "若ノ再生",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方が攻撃を受けた直後に発動。攻撃を受けた味方単体のHPを威力35で回復する"
+      }
+    ],
+    "template_tags": {}
+  },
+  "230384": {
+    "skill_id": 230384,
+    "name": "若ノ減衰",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "（同時発動制限）他の味方が後列の敵から攻撃される直前に発動。攻撃してくる敵単体のこの行動内での威力を50%減少させるデバフを付与する"
+      }
+    ],
+    "template_tags": {}
   }
 }

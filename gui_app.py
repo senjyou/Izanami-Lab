@@ -3348,6 +3348,9 @@ class TeamBattleTab(ttk.Frame):
     def _refresh_char_options(self):
         self._build_char_options()
         for slot in self.friend_slots + self.enemy_slots:
+            if slot.get("enemy_data") is not None:
+                self._update_slot_display(slot, None)
+                continue
             if slot["cid"] is not None:
                 char = self.app.data_loader.get_character_by_id(slot["cid"])
                 if char:
@@ -3481,7 +3484,7 @@ class TeamBattleTab(ttk.Frame):
             widget.bind("<B1-Motion>", lambda e, s=slot_idx, ie=is_enemy: self._on_drag_motion(e, s, ie))
             widget.bind("<ButtonRelease-1>", lambda e, s=slot_idx, ie=is_enemy: self._on_drag_release(e, s, ie))
 
-        return {"cid": None, "frame": slot_frame, "avatar_label": avatar_canvas,
+        return {"cid": None, "enemy_data": None, "frame": slot_frame, "avatar_label": avatar_canvas,
                 "name_label": name_label, "clear_btn": None,
                 "slot_idx": slot_idx, "is_enemy": is_enemy}
 
@@ -3489,13 +3492,14 @@ class TeamBattleTab(ttk.Frame):
         """开始拖拽"""
         slots = self.enemy_slots if is_enemy else self.friend_slots
         source_slot = slots[slot_idx]
+        has_content = source_slot["cid"] is not None or source_slot.get("enemy_data") is not None
         self._drag_source = {"slot_idx": slot_idx, "is_enemy": is_enemy,
-                              "has_char": source_slot["cid"] is not None}
+                              "has_char": has_content}
         self._drag_start_x = event.x_root
         self._drag_start_y = event.y_root
         self._drag_moved = False
 
-        if source_slot["cid"] is not None:
+        if has_content:
             # 创建拖拽预览窗口
             preview = tk.Toplevel(self)
             preview.overrideredirect(True)
@@ -3574,18 +3578,23 @@ class TeamBattleTab(ttk.Frame):
         src_slots = self.enemy_slots if src["is_enemy"] else self.friend_slots
         src_slot = src_slots[src["slot_idx"]]
         src_cid = src_slot["cid"]
+        src_ed = src_slot.get("enemy_data")
         dst_cid = target_slot["cid"]
+        dst_ed = target_slot.get("enemy_data")
 
         if src["slot_idx"] == found_idx:
             return
 
-        # 互换
-        if dst_cid is not None:
+        # 互换 (同时交换 cid 和 enemy_data, 二者互斥)
+        if src_ed is not None:
+            self._set_slot_circle_enemy(target_slot, src_ed)
+        else:
             self._set_slot_char(target_slot, src_cid)
+        if dst_ed is not None:
+            self._set_slot_circle_enemy(src_slot, dst_ed)
+        elif dst_cid is not None:
             self._set_slot_char(src_slot, dst_cid)
         else:
-            # 移动到空位
-            self._set_slot_char(target_slot, src_cid)
             self._clear_slot(src_slot)
 
     def _open_char_picker(self, slot_idx, is_enemy):
@@ -3605,12 +3614,76 @@ class TeamBattleTab(ttk.Frame):
     def _set_slot_char(self, slot, cid):
         """设置槽位角色"""
         slot["cid"] = cid
+        slot["enemy_data"] = None
         self._update_slot_display(slot, cid)
+
+    def _set_slot_circle_enemy(self, slot, enemy_data):
+        """设置槽位为对抗压制战敌方"""
+        slot["cid"] = None
+        slot["enemy_data"] = enemy_data
+        self._update_slot_display(slot, None)
 
     def _clear_slot(self, slot):
         """清除槽位"""
         slot["cid"] = None
+        slot["enemy_data"] = None
         self._update_slot_display(slot, None)
+
+    def _open_circle_enemy_loader(self):
+        """打开对抗压制战敌方加载对话框"""
+        s = self.app._get_scheme()
+        dlg = tk.Toplevel(self)
+        dlg.title("加载对抗压制战敌方")
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.configure(bg=s["bg"])
+        dlg.resizable(False, False)
+
+        var_season = tk.StringVar(value="6")
+        var_stage = tk.StringVar(value="1")
+
+        row = ttk.Frame(dlg)
+        row.pack(padx=15, pady=(15, 5))
+        ttk.Label(row, text="赛季:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Spinbox(row, from_=1, to=99, textvariable=var_season, width=6).pack(side=tk.LEFT)
+        ttk.Label(row, text="阶段:").pack(side=tk.LEFT, padx=(15, 5))
+        ttk.Spinbox(row, from_=1, to=100, textvariable=var_stage, width=6).pack(side=tk.LEFT)
+
+        btn_row = ttk.Frame(dlg)
+        btn_row.pack(padx=15, pady=(5, 15))
+        ttk.Button(btn_row, text="加载", command=lambda: self._on_circle_loader_confirm(dlg, var_season, var_stage)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_row, text="取消", command=dlg.destroy).pack(side=tk.LEFT, padx=5)
+
+        dlg.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dlg.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def _on_circle_loader_confirm(self, dlg, var_season, var_stage):
+        """对抗压制战敌方加载对话框确认"""
+        try:
+            season = int(var_season.get())
+            stage = int(var_stage.get())
+        except (ValueError, TypeError):
+            from tkinter import messagebox
+            messagebox.showwarning("输入错误", "赛季和阶段必须是整数", parent=dlg)
+            return
+        stage_data = self.app.data_loader.get_circle_battle_stage(season, stage)
+        if not stage_data:
+            from tkinter import messagebox
+            messagebox.showwarning("数据不存在", f"赛季{season} 阶段{stage} 的数据不存在", parent=dlg)
+            return
+        dlg.destroy()
+        self._load_circle_enemies(stage_data)
+
+    def _load_circle_enemies(self, stage_data):
+        """加载对抗压制战敌方到敌方slot"""
+        for slot in self.enemy_slots:
+            self._clear_slot(slot)
+        for enemy in stage_data.get("enemies", []):
+            s = enemy.get("slot", 0)
+            if 1 <= s <= 6:
+                self._set_slot_circle_enemy(self.enemy_slots[s - 1], enemy)
 
     def _update_slot_display(self, slot, cid):
         """更新槽位显示（avatar_label 现在是 Canvas，clear_btn 由外层管理）"""
@@ -3623,6 +3696,22 @@ class TeamBattleTab(ttk.Frame):
         canvas.delete("all")
         canvas.config(bg=s["bg"])
         canvas._banner_photo = None
+
+        # 对抗压制战敌方分支
+        enemy_data = slot.get("enemy_data")
+        if enemy_data is not None:
+            model_id = enemy_data.get("model_asset_id", "")
+            photo = self._load_circle_enemy_avatar(model_id)
+            if photo:
+                canvas._banner_photo = photo
+                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
+            else:
+                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="无头像",
+                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
+            name_label.config(text=enemy_data.get("name", "???"))
+            name_label.pack(pady=(1, 0))
+            self._set_clear_btn_visible(slot, True)
+            return
 
         if cid is None:
             canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="点击选择",
@@ -3664,6 +3753,28 @@ class TeamBattleTab(ttk.Frame):
                 clear_btn.grid_remove()
             except Exception:
                 pass
+
+    def _load_circle_enemy_avatar(self, model_asset_id):
+        """加载对抗压制战敌方头像（按ModelAssetId命名，300x144→154x76）"""
+        if not model_asset_id:
+            return None
+        from PIL import Image
+        import tempfile, os
+        BANNER_W, BANNER_H = 154, 76
+        avatar_path = ENEMY_IMAGE_DIR / f"{model_asset_id}.png"
+        if not avatar_path.exists():
+            return None
+        try:
+            pil_img = Image.open(avatar_path)
+            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            pil_img.save(tmp_path, "PNG")
+            photo = tk.PhotoImage(file=tmp_path)
+            os.unlink(tmp_path)
+            return photo
+        except Exception:
+            return None
 
     def _load_slot_avatar(self, cid):
         """加载槽位横版头像（优先从char_banners加载，回退到char_avatars裁剪）"""
@@ -3754,7 +3865,9 @@ class TeamBattleTab(ttk.Frame):
         self._enemy_main = enemy_main
 
         ttk.Label(enemy_main, text="=== 敌方编队 ===", font=("Microsoft YaHei UI", 11, "bold")).grid(
-            row=0, column=0, columnspan=3, sticky="w", pady=(5, 5))
+            row=0, column=0, columnspan=2, sticky="w", pady=(5, 5))
+        ttk.Button(enemy_main, text="对抗压制战敌方", command=self._open_circle_enemy_loader,
+                   width=12).grid(row=0, column=2, sticky="e", pady=(5, 5))
 
         enemy_form_frame = tk.Frame(enemy_main, bg=s["bg"])
         enemy_form_frame.grid(row=1, column=0, columnspan=3, sticky="nw")
@@ -3910,11 +4023,19 @@ class TeamBattleTab(ttk.Frame):
                 friends.append(cid)
         enemies = []
         enemy_positions = []
+        enemy_names = {}
         for slot in self.enemy_slots:
-            cid = slot["cid"]
-            enemy_positions.append(cid)
-            if cid:
-                enemies.append(cid)
+            ed = slot.get("enemy_data")
+            if ed is not None:
+                enemy_positions.append(ed)
+                eid = ed["enemy_id"]
+                enemies.append(eid)
+                enemy_names[eid] = ed.get("name", str(eid))
+            else:
+                cid = slot["cid"]
+                enemy_positions.append(cid)
+                if cid:
+                    enemies.append(cid)
         # 回忆卡：从可视化槽位获取 mid
         mem_friend_positions = []
         for slot in self.mem_friend_slots:
@@ -3937,6 +4058,7 @@ class TeamBattleTab(ttk.Frame):
             "friend_positions": friend_positions,
             "enemies": enemies,
             "enemy_positions": enemy_positions,
+            "enemy_names": enemy_names,
             "mems_friend": [e for e in mem_friend_positions if e],
             "mem_friend_positions": mem_friend_positions,
             "mems_enemy": [e for e in mem_enemy_positions if e],
@@ -4059,6 +4181,7 @@ class TeamBattleTab(ttk.Frame):
             "char_deaths": result.char_deaths,
             "friends_chars": result.friends_chars,
             "enemies_chars": result.enemies_chars,
+            "enemy_names": sel.get("enemy_names", {}),
             "rate": result.rate,
             "elapsed": result.elapsed,
             "all_ally_damage": result.all_ally_damage,
@@ -4171,9 +4294,10 @@ class TeamBattleTab(ttk.Frame):
 
         # 敌方角色
         enemy_rows = []
+        enemy_names = w.get("enemy_names", {})
         for cid in w["enemies_chars"]:
             char = self.app.data_loader.get_character_by_id(cid)
-            name = char.name if char else str(cid)
+            name = char.name if char else enemy_names.get(cid, str(cid))
             dmg_list = w["char_dmg"].get(cid, [0])
             surv = w["char_survivals"].get(cid, 0)
             death = w["char_deaths"].get(cid, 0)
@@ -4231,8 +4355,11 @@ class TeamBattleTab(ttk.Frame):
                         bf.add_unit(u)
             for i, cid in enumerate(enemy_positions):
                 if cid is not None:
-                    u = self.app._create_unit(panel_config, player_config, stat_calculator,
-                                              cid, Side.ENEMY, GRID_ENEMY_POSITIONS[i])
+                    if isinstance(cid, dict):
+                        u = self.app.circle_tab._create_circle_battle_enemy(cid)
+                    else:
+                        u = self.app._create_unit(panel_config, player_config, stat_calculator,
+                                                  cid, Side.ENEMY, GRID_ENEMY_POSITIONS[i])
                     if u:
                         bf.add_unit(u)
 
@@ -4365,7 +4492,9 @@ class TeamBattleTab(ttk.Frame):
         if enemy_positions is not None:
             for i, cid in enumerate(enemy_positions):
                 if i < len(self.enemy_slots):
-                    if cid is not None:
+                    if isinstance(cid, dict):
+                        self._set_slot_circle_enemy(self.enemy_slots[i], cid)
+                    elif cid is not None:
                         self._set_slot_char(self.enemy_slots[i], cid)
                     else:
                         self._clear_slot(self.enemy_slots[i])
@@ -6753,8 +6882,12 @@ class TacticalExerciseTab(ttk.Frame):
 
         # 加载敌方技能
         skill_ids = enemy_data.get("skill_ids", [])
-        # 敌方技能等级默认设为15（与玩家默认一致），确保高等级block（如level_min=11）激活
-        skill_levels = {sid: 15 for sid in skill_ids}
+        # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+        raw_skill_levels = enemy_data.get("skill_levels", {})
+        if raw_skill_levels:
+            skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
+        else:
+            skill_levels = {sid: 15 for sid in skill_ids}
 
         # 计算最大EP
         max_ep = 0
@@ -7760,7 +7893,7 @@ class CircleBattleTab(ttk.Frame):
         row1.pack(padx=5, pady=5, fill="x")
 
         ttk.Label(row1, text="赛季:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(0, 3))
-        self._var_season = tk.StringVar(value="5")
+        self._var_season = tk.StringVar(value="6")
         self._season_spinbox = ttk.Spinbox(
             row1, from_=1, to=99, textvariable=self._var_season, width=6,
             command=self._on_season_change,
@@ -8566,7 +8699,13 @@ class CircleBattleTab(ttk.Frame):
         enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_LEFT_FRONT)
 
         skill_ids = enemy_data.get("skill_ids", [])
-        skill_levels = {sid: 15 for sid in skill_ids}
+        # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+        raw_skill_levels = enemy_data.get("skill_levels", {})
+        if raw_skill_levels:
+            # JSON 的 key 是 str, 需转为 int
+            skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
+        else:
+            skill_levels = {sid: 15 for sid in skill_ids}
 
         max_ep = 0
         for sid in skill_ids:

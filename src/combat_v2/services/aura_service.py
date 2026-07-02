@@ -23,6 +23,21 @@ class AuraService:
                       unit.name, aura.effect_type, aura.value, aura.duration)
             return False
 
+        # 1.2 block_buff_by_type 检查: 目标持有 BLOCK_BUFF_BY_TYPE debuff 时，
+        # 阻止 blocked_buff_types 列表中的 buff 新付与 (S6 土雷 220362)
+        # 注意: BLOCK_BUFF_BY_TYPE 自身不应被自己阻止
+        # 关键: buff_block 只阻止 buff (增益, is_debuff=False)，不阻止 debuff (减益, is_debuff=True)
+        # 因为 atk_up/atk_down 共享同一 effect_type (StatusAttack)，若不区分 is_debuff
+        # 会导致 buff_block 错误阻止 atk_down 等减益效果
+        if aura.effect_type != SkillEffectType.BLOCK_BUFF_BY_TYPE.value and not aura.is_debuff:
+            for db in unit.debuffs:
+                if (db.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value
+                        and db.duration != 0
+                        and aura.effect_type in (db.block_status_list or [])):
+                    _log.info("[BLOCK_BUFF_BY_TYPE] %s: %s blocked by BlockBuffByType debuff (blocked_list=%s)",
+                              unit.name, aura.effect_type, db.block_status_list)
+                    return False
+
         # 标记：当次行动中由add_aura处理的buff，process_maneuver_end跳过递减
         aura.just_applied = True
 

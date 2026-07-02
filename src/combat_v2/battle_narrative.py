@@ -170,8 +170,11 @@ class BattleNarrativeWriter:
         if calc_detail and damage > 0 and "Miss" not in (modifiers or []):
             cd = calc_detail
             calc_info = (f" [ATK:{cd['atk']} DEF:{cd['def_orig']}→{cd['def_after_penetrate']}"
-                        f" base:{cd['base_diff']} power:{cd['skill_power']}"
-                        f" attr:{cd['attr_factor']:.4f} dealt:{cd['dealt_mult']:.4f}"
+                        f" base:{cd['base_diff']}"
+                        + (f" power:{cd['skill_power']}→{cd['skill_power_after']:.2f}"
+                           if (cd.get('skill_power_down_pct') or 0) > 0
+                           else f" power:{cd['skill_power']}")
+                        + f" attr:{cd['attr_factor']:.4f} dealt:{cd['dealt_mult']:.4f}"
                         f" rcvd:{cd['received_mult']:.4f} crit:{cd['crit_factor']:.2f}"
                         f" guard:{cd['guard_mult']:.4f}")
             hp_scaling = cd.get('hp_scaling')
@@ -409,6 +412,9 @@ class BattleNarrativeWriter:
 
     def resource_restore_ep(self, unit_name: str, amount: int, ep: int, ep_max: int):
         self._add(f"  [资源恢复] {unit_name} EP恢复+{amount} (EP:{ep}/{ep_max})")
+
+    def pp_restored(self, unit_name: str, amount: int, pp_after: int, pp_max: int):
+        self._add(f"  [资源恢复] {unit_name} PP恢复+{amount} (PP:{pp_after}/{pp_max})")
 
     def reset_cooldown(self, unit_name: str, skill_name: str):
         self._add(f"  [冷却重置] {unit_name} 的「{skill_name}」冷却时间已重置")

@@ -50,7 +50,7 @@ class ResourceService:
         unit.current_ep = 0
         _log.info("[RESOURCE] %s consume_ep_for_ex: %d -> 0 (EX skill)", unit.name, old)
         return True
-        
+
     def restore_ap(self, unit: UnitState, amount: int) -> None:
         if amount <= 0:
             return
@@ -59,6 +59,15 @@ class ResourceService:
         unit.current_ap = min(unit.current_ap + amount, cap)
         _log.info("[RESOURCE] %s restore_ap: %d -> %d (+%d, cap=%d)",
                   unit.name, old, unit.current_ap, unit.current_ap - old, cap)
+
+    def restore_pp(self, unit: UnitState, amount: int) -> None:
+        if amount <= 0:
+            return
+        old = unit.current_pp
+        cap = unit.initial_passive_point
+        unit.current_pp = min(unit.current_pp + amount, cap)
+        _log.info("[RESOURCE] %s restore_pp: %d -> %d (+%d, cap=%d)",
+                  unit.name, old, unit.current_pp, unit.current_pp - old, cap)
 
     def restore_ap_pp(self, unit: UnitState) -> None:
         old_ap, old_pp = unit.current_ap, unit.current_pp
