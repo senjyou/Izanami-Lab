@@ -307,6 +307,11 @@ class SkillService:
             saved_on_crit_effects = list(self._on_crit_effects)
             saved_deferred_on_crit_targets = list(self._deferred_on_crit_targets)
 
+            # 保存外层技能的mark快照，防止内层execute_skill覆盖
+            # （PS执行会重新生成_marks_at_start_by_unit，需恢复外层AS的快照）
+            saved_marks_at_start = getattr(self, '_marks_at_start', None)
+            saved_marks_at_start_by_unit = getattr(self, '_marks_at_start_by_unit', None)
+
             skill_result = self.execute_skill(
                 caster=owner,
                 skill_id=action.skill_id,
@@ -378,6 +383,10 @@ class SkillService:
             self._on_crit_immediate_applied = saved_on_crit_immediate_applied
             self._on_crit_effects = saved_on_crit_effects
             self._deferred_on_crit_targets = saved_deferred_on_crit_targets
+
+            # 恢复外层技能的mark快照
+            self._marks_at_start = saved_marks_at_start
+            self._marks_at_start_by_unit = saved_marks_at_start_by_unit
 
             if skill_result.get("success") and skill_result.get("effects_applied"):
                 self._inline_ps_results.append({
@@ -657,6 +666,10 @@ class SkillService:
             self._pre_scanned_cover_candidates = []  # 按block顺序排列的被攻击友方候选
             _seen_ids = set()
             _prescan_primary_target = None  # 用于adjacent_enemies等依赖主目标的目标类型
+            # 获取技能元数据中的目标范围（优先使用，而非从effect target_type推导）
+            # 修复「見切り構え・素」bug：技能配置了effect.target_type=enemy_single但display_target_range=3（三体）
+            # 预扫描必须使用display_target_range，否则trigger检查目标与实际damage目标不一致
+            _skill_display_range = getattr(resolved, 'display_target_range', None)
             for _pre_block in resolved.effect_blocks:
                 for _pre_effect in _pre_block.effects:
                     if getattr(_pre_effect, 'effect_type', None) == 'damage':
@@ -682,9 +695,10 @@ class SkillService:
                                         _prescan_primary_target, battlefield, caster
                                     )
                                 else:
+                                    _pre_range = _skill_display_range if _skill_display_range is not None else self._resolve_target_range(_pre_target_type)
                                     _pre_tso = type('obj', (object,), {
                                         'display_target_type': self._resolve_target_type(_pre_target_type),
-                                        'display_target_range': self._resolve_target_range(_pre_target_type),
+                                        'display_target_range': _pre_range,
                                         'display_target_priority': self._current_skill_priority,
                                     })()
                                     _pre_targets = self.target_service.select_targets(_pre_tso, caster, battlefield)
@@ -707,7 +721,9 @@ class SkillService:
                                 if _pre_target_type in _SPECIAL_POSTFILTER_TYPES:
                                     _pre_range = self._resolve_target_range("enemies")  # ALL_PAWNS
                                 else:
-                                    _pre_range = self._resolve_target_range(_pre_target_type)
+                                    # 优先使用技能元数据中的display_target_range，而非从effect target_type推导
+                                    # 修复「見切り構え・素」bug：effect.target_type=enemy_single但实际是三体技能
+                                    _pre_range = _skill_display_range if _skill_display_range is not None else self._resolve_target_range(_pre_target_type)
                                 _pre_tso = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(_pre_target_type),
                                     'display_target_range': _pre_range,
@@ -1102,7 +1118,7 @@ class SkillService:
                     mark_name = block_condition.get('mark_name', '')
                     # 检查已攻击的目标在技能执行前是否持有指定mark（当次攻击赋予的mark不算）
                     bdt = self._block_damage_targets if hasattr(self, '_block_damage_targets') and self._block_damage_targets else {}
-                    marks_snapshot = getattr(self, '_marks_at_start_by_unit', {})
+                    marks_snapshot = getattr(self, '_marks_at_start_by_unit', None)
                     check_targets = []
                     seen_ids = set()
                     for units in bdt.values():
@@ -1131,11 +1147,13 @@ class SkillService:
                     # target_has_mark: 至少一个目标持 mark; target_without_mark: 至少一个目标不持 mark
                     want_has = (cond_type == 'target_has_mark')
                     for check_unit in check_targets:
-                        # 优先使用快照（技能执行前的mark状态），回退到当前状态
-                        unit_marks_before = marks_snapshot.get(check_unit.unit_id, set())
-                        has_mark = mark_name in unit_marks_before
-                        if not has_mark:
-                            # 回退：检查当前mark状态（兼容非当次赋予的场景）
+                        # 使用快照（技能执行前的mark状态），不回退到当前状态
+                        # 避免当次技能赋予的mark被误判为"已有"（如システマ・ヴラシェーニヤΩ的メトカ标记）
+                        if marks_snapshot is not None:
+                            unit_marks_before = marks_snapshot.get(check_unit.unit_id, set())
+                            has_mark = mark_name in unit_marks_before
+                        else:
+                            # 无快照上下文时回退到当前状态
                             has_mark = any(
                                 d.effect_type == SkillEffectType.MARK.value and d.name == mark_name
                                 for d in check_unit.debuffs
@@ -3828,19 +3846,28 @@ class SkillService:
                 targets = [ta]
                 _log.info("[HEAL] %s: trigger_attacker(ally) -> %s", caster.name, ta.name)
             else:
+                # trigger_attacker 是敌方或已阵亡的友方 → 回退到受击友方 / primary_target
+                # 若受击友方已阵亡，不应回退到无关友方（select_targets 结果），返回 None
+                target_found = False
                 damaged = getattr(self, '_damaged_targets', None)
                 if damaged:
                     allies = [t for t in damaged if t.is_alive and t.side == caster.side]
                     if allies:
                         targets = [allies[0]]
+                        target_found = True
                         _log.info("[HEAL] %s: trigger_attacker(enemy) fallback to damaged_ally -> %s",
                                   caster.name, allies[0].name)
-                elif getattr(self, '_primary_target', None):
-                    pt = self._primary_target
+                if not target_found:
+                    pt = getattr(self, '_primary_target', None)
                     if pt and pt.is_alive and pt.side == caster.side:
                         targets = [pt]
+                        target_found = True
                         _log.info("[HEAL] %s: trigger_attacker(enemy) fallback to primary_target -> %s",
                                   caster.name, pt.name)
+                if not target_found:
+                    _log.info("[HEAL] %s: trigger_attacker fallback failed (attacked ally dead), skip heal",
+                              caster.name)
+                    return None
         elif target_identifier == "primary_target":
             # Find the nearest attacked ally (self has distance 0 → highest priority)
             damaged = getattr(self, '_damaged_targets', None)
@@ -6362,13 +6389,20 @@ class SkillService:
             return result
         if cond_type == 'target_has_mark':
             mark_name = effect_condition.get('mark_name', '')
-            has_mark = any(
-                d.effect_type == SkillEffectType.MARK.value and d.name == mark_name
-                for d in target.debuffs
-            ) or any(
-                b.effect_type == SkillEffectType.MARK.value and b.name == mark_name
-                for b in target.buffs
-            )
+            # 优先使用技能执行前的mark快照，避免当次技能赋予的mark被误判为"已有"
+            marks_snapshot = getattr(self, '_marks_at_start_by_unit', None)
+            if marks_snapshot is not None:
+                unit_marks_before = marks_snapshot.get(target.unit_id, set())
+                has_mark = mark_name in unit_marks_before
+            else:
+                # 无快照上下文时回退到当前状态
+                has_mark = any(
+                    d.effect_type == SkillEffectType.MARK.value and d.name == mark_name
+                    for d in target.debuffs
+                ) or any(
+                    b.effect_type == SkillEffectType.MARK.value and b.name == mark_name
+                    for b in target.buffs
+                )
             return has_mark
         if cond_type == 'target_is_front_row':
             # 检查目标是否为前排

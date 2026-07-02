@@ -178,6 +178,7 @@ class BattleFlowController:
         score_result = self._scoring_tracker.build_result(
             total_turns=self.battlefield.turn_number,
             battle_result=battle_result_str,
+            units=self.battlefield.get_all_units(),
         )
 
         return {

@@ -69268,7 +69268,9 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "after_ally_attacked",
-    "global_condition": null,
+    "global_condition": {
+      "type": "target_is_alive"
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -69299,7 +69301,7 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: 味方被攻撃後 受击者威力35回復"
+      "PS: 味方被攻撃後 受击者威力35回復; target_is_alive: 受击友方阵亡时不触发"
     ],
     "simultaneous_limit": null
   },

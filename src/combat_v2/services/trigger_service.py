@@ -1310,6 +1310,20 @@ class TriggerService:
                       owner.name, is_ally, bool(val), exclude_self, target.name, result)
             return result
 
+        if cond_type == "target_is_alive":
+            # 检查被攻击的主要目标是否存活（用于 after_ally_attacked 类PS，
+            # 如 若ノ再生 230383：受击友方阵亡时不应触发治疗）
+            primary = context.primary_target
+            if primary is None and context.targets:
+                primary = context.targets[0]
+            if primary is None:
+                _log.info("[TRIGGER_COND] %s: target_is_alive -> no target => False", owner.name)
+                return False
+            result = primary.is_alive
+            _log.info("[TRIGGER_COND] %s: target_is_alive %s alive=%s => %s",
+                      owner.name, primary.name, primary.is_alive, result)
+            return result
+
         if cond_type == "target_hp_not_cross_below":
             primary = context.primary_target
             if primary is None and context.targets:

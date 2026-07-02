@@ -8865,28 +8865,38 @@ class CircleBattleTab(ttk.Frame):
                             "damage_received": 0,
                             "hp_healed": 0,
                             "hp_received": 0,
+                            "survivals": 0,
+                            "deaths": 0,
                             "count": 0,
                         }
                     target[uid]["damage_dealt"] += stats.get("damage_dealt", 0)
                     target[uid]["damage_received"] += stats.get("damage_received", 0)
                     target[uid]["hp_healed"] += stats.get("hp_healed", 0)
                     target[uid]["hp_received"] += stats.get("hp_received", 0)
+                    if stats.get("alive"):
+                        target[uid]["survivals"] += 1
+                    else:
+                        target[uid]["deaths"] += 1
                     target[uid]["count"] += 1
 
             n = len(all_unit_stats)
 
-            cols = ["角色", "造成伤害", "受到伤害", "提供回复"]
-            widths = [135, 110, 110, 110]
-            aligns = ["w", "e", "e", "e"]
+            cols = ["角色", "造成伤害", "受到伤害", "提供回复", "存活率"]
+            widths = [135, 110, 110, 110, 70]
+            aligns = ["w", "e", "e", "e", "center"]
 
             if ally_agg:
                 rows = []
                 for uid, s in ally_agg.items():
+                    surv = s["survivals"]
+                    death = s["deaths"]
+                    sr = surv / (surv + death) * 100 if (surv + death) else 0
                     rows.append([
                         s["name"],
                         f"{s['damage_dealt'] / n:,.1f}",
                         f"{s['damage_received'] / n:,.1f}",
                         f"{s['hp_healed'] / n:,.1f}",
+                        f"{sr:.1f}%",
                     ])
                 tables.append({"title": "我方角色明细(场均)", "columns": cols,
                                "rows": rows, "col_widths": widths, "col_aligns": aligns})
@@ -8894,11 +8904,15 @@ class CircleBattleTab(ttk.Frame):
             if enemy_agg:
                 rows = []
                 for uid, s in enemy_agg.items():
+                    surv = s["survivals"]
+                    death = s["deaths"]
+                    sr = surv / (surv + death) * 100 if (surv + death) else 0
                     rows.append([
                         s["name"],
                         f"{s['damage_dealt'] / n:,.1f}",
                         f"{s['damage_received'] / n:,.1f}",
                         f"{s['hp_healed'] / n:,.1f}",
+                        f"{sr:.1f}%",
                     ])
                 tables.append({"title": "敌方角色明细(场均)", "columns": cols,
                                "rows": rows, "col_widths": widths, "col_aligns": aligns})
@@ -9036,18 +9050,20 @@ class CircleBattleTab(ttk.Frame):
             ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
             enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
 
-            cols = ["角色", "造成伤害", "受到伤害", "提供回复"]
-            widths = [135, 110, 110, 110]
-            aligns = ["w", "e", "e", "e"]
+            cols = ["角色", "造成伤害", "受到伤害", "提供回复", "状态"]
+            widths = [135, 110, 110, 110, 50]
+            aligns = ["w", "e", "e", "e", "center"]
 
             if ally_units:
                 rows = []
                 for uid, s in ally_units.items():
+                    status = "存活" if s.get("alive") else "阵亡"
                     rows.append([
                         s.get("name", uid),
                         f"{s['damage_dealt']:,}",
                         f"{s['damage_received']:,}",
                         f"{s['hp_healed']:,}",
+                        status,
                     ])
                 tables.append({"title": "我方角色明细", "columns": cols,
                                "rows": rows, "col_widths": widths, "col_aligns": aligns})
@@ -9055,11 +9071,13 @@ class CircleBattleTab(ttk.Frame):
             if enemy_units:
                 rows = []
                 for uid, s in enemy_units.items():
+                    status = "存活" if s.get("alive") else "阵亡"
                     rows.append([
                         s.get("name", uid),
                         f"{s['damage_dealt']:,}",
                         f"{s['damage_received']:,}",
                         f"{s['hp_healed']:,}",
+                        status,
                     ])
                 tables.append({"title": "敌方角色明细", "columns": cols,
                                "rows": rows, "col_widths": widths, "col_aligns": aligns})

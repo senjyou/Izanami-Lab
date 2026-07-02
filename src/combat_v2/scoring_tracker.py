@@ -25,6 +25,7 @@ class UnitScoreStats:
     damage_received: int = 0    # 受到的伤害
     hp_healed: int = 0          # 提供的回复HP（治疗他人）
     hp_received: int = 0        # 收到的回复HP（被他人治疗）
+    alive: bool = True          # 战斗结束时是否存活
 
 
 @dataclass
@@ -68,6 +69,7 @@ class BattleScoreResult:
                     "damage_received": s.damage_received,
                     "hp_healed": s.hp_healed,
                     "hp_received": s.hp_received,
+                    "alive": s.alive,
                 }
                 for uid, s in self.unit_stats.items()
             },
@@ -167,8 +169,16 @@ class ScoringTracker:
         return self._total_damage_to_enemies - self._enemy_healing_received
 
     def build_result(self, stages_cleared: int = 0, total_turns: int = 0,
-                     battle_result: str = "UNKNOWN") -> BattleScoreResult:
-        """构建最终得分结果"""
+                     battle_result: str = "UNKNOWN", units: Optional[list] = None) -> BattleScoreResult:
+        """构建最终得分结果
+
+        units: 战场单位列表，用于更新存活状态
+        """
+        if units:
+            for unit in units:
+                if unit.unit_id in self._unit_stats:
+                    self._unit_stats[unit.unit_id].alive = unit.is_alive
+
         ally_stats = [s for s in self._unit_stats.values() if s.side == "ally"]
         enemy_stats = [s for s in self._unit_stats.values() if s.side == "enemy"]
 
