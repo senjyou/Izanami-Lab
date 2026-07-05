@@ -12010,7 +12010,7 @@
           {
             "effect_type": "damage",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": null,
             "value_tag": "dmg",
             "value_source": null,
@@ -12029,7 +12029,7 @@
           {
             "effect_type": "add_status",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": null,
             "value_tag": "stun",
             "value_source": null,
@@ -12046,7 +12046,7 @@
           {
             "effect_type": "remove_pp",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": null,
             "value_tag": "PP",
             "value_source": null,
@@ -12073,7 +12073,7 @@
           {
             "effect_type": "remove_pp",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": null,
             "value_tag": null,
             "value_source": null,

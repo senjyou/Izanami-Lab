@@ -2095,13 +2095,13 @@ class SkillService:
                 _log.info("[DAMAGE_APPLY] %s: debuff_applied_target -> %s",
                           caster.name, primary_target.name)
             else:
-                _log.info("[DAMAGE_APPLY] %s: debuff_applied_target FALLBACK (primary_target=%s alive=%s), using select_targets",
+                # primary_target 已死亡（如AS击杀目标）或不存在时，debuff 无有效施加对象，跳过
+                # 不 fallback 到 select_targets，否则会错误施加给最近敌方（如技能「アーマー・ジャム」）
+                targets = []
+                _log.info("[DAMAGE_APPLY] %s: debuff_applied_target primary_target=%s alive=%s, skip (no fallback)",
                           caster.name,
                           primary_target.name if primary_target else None,
                           primary_target.is_alive if primary_target else None)
-                targets = self.target_service.select_targets(
-                    target_skill_obj, caster, battlefield
-                )
         else:
             # PS触发时通过_trigger_attacker定位攻击者（如掩撃反击攻击源）
             trigger_attacker = getattr(self, '_trigger_attacker', None)
@@ -4217,6 +4217,14 @@ class SkillService:
                 targets = [primary_target]
                 _log.info("[AURA_APPLY] %s: debuff_applied_target -> %s",
                           caster.name, primary_target.name)
+            else:
+                # primary_target 已死亡（如AS击杀目标）或不存在时，debuff 无有效施加对象，跳过
+                # 不 fallback 到 select_targets，否则会错误施加给最近敌方（如技能「アーマー・ジャム」）
+                targets = []
+                _log.info("[AURA_APPLY] %s: debuff_applied_target primary_target=%s alive=%s, skip (no fallback)",
+                          caster.name,
+                          primary_target.name if primary_target else None,
+                          primary_target.is_alive if primary_target else None)
 
         trigger_attacker = getattr(self, '_trigger_attacker', None)
         if trigger_attacker and is_debuff and effect.target_type in ("enemy_single", "enemy", "enemies", "last_target"):

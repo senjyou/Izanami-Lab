@@ -47,3 +47,33 @@ def battle_logger() -> logging.Logger:
     if _BATTLE_LOGGER is None:
         _BATTLE_LOGGER = setup_logger("MGGBattleSim", logging.INFO)
     return _BATTLE_LOGGER
+
+
+class MemoryLogHandler(logging.Handler):
+    """将日志记录缓存到内存，供逐步暴击页在暴击决策点中途导出命令台日志。
+
+    挂到 battle_logger() 单例上即可捕获所有战斗服务的命令台输出。
+    级别默认 NOTSET，仅捕获 logger 实际 emit 的记录（logger 为 INFO，故收 INFO+），
+    与 StreamHandler 输出一致。logging.Handler 自带锁，emit 线程安全。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._records = []
+        self._formatter = logging.Formatter(
+            "[%(levelname)-5s] %(asctime)s | %(message)s",
+            datefmt="%H:%M:%S",
+        )
+
+    def emit(self, record):
+        self._records.append(record)
+
+    def get_lines(self):
+        """返回格式化后的日志行列表（与 StreamHandler 格式一致）。"""
+        return [self._formatter.format(r) for r in self._records]
+
+    def clear(self):
+        self._records.clear()
+
+    def count(self):
+        return len(self._records)

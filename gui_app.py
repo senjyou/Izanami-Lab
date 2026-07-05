@@ -4658,6 +4658,8 @@ class StepCritTab(ttk.Frame):
         self._branch_candidate_block_ids = []  # 当前分支决策点的候选 block_id 列表
         # Canvas 引用（用于滚动）
         self._left_canvas = None
+        # 命令台日志内存捕获 handler（交互式模式中途导出用）
+        self._console_log_handler = None
         self._build()
 
     def _build(self):
@@ -4824,6 +4826,10 @@ class StepCritTab(ttk.Frame):
 
         self.delete_seq_btn = ttk.Button(seq_action_frame, text="删除序列", command=self._delete_sequence)
         self.delete_seq_btn.pack(side="left", padx=2)
+
+        self.export_console_btn = ttk.Button(seq_action_frame, text="导出命令台",
+                                             command=self._export_console_log, state="disabled")
+        self.export_console_btn.pack(side="left", padx=2)
 
         # 当前序列进度显示
         self.seq_progress_var = tk.StringVar(value="")
@@ -5187,6 +5193,9 @@ class StepCritTab(ttk.Frame):
         self._interactive_narrative = None
         self._interactive_controller = None
 
+        # 挂载命令台日志内存捕获（回退重启后从新战斗开头重新捕获）
+        self._attach_console_log_handler()
+
         # 清空输出
         self.output_text.config(state="normal")
         self.output_text.delete("1.0", tk.END)
@@ -5206,6 +5215,7 @@ class StepCritTab(ttk.Frame):
         self.stop_btn.config(state="normal")
         self.undo_btn.config(state="disabled")  # 预填阶段禁用回退
         self.save_seq_btn.config(state="disabled")
+        self.export_console_btn.config(state="disabled")  # 预填阶段禁用，到达决策点后启用
         self.start_btn.config(state="disabled")
         self.report_btn.config(state="disabled")
         self.current_decision_label.config(text=f"预填序列执行中... ({prefill_count} 步)")
@@ -5465,6 +5475,7 @@ class StepCritTab(ttk.Frame):
         self.stop_btn.config(state="disabled")
         self.undo_btn.config(state="disabled")
         self.save_seq_btn.config(state="normal")
+        self.export_console_btn.config(state="normal")  # 停止后仍可导出已捕获命令台日志
         self.start_btn.config(state="normal")
         self.report_btn.config(state="normal")
         self.current_decision_label.config(text="已停止")
@@ -5813,11 +5824,15 @@ class StepCritTab(ttk.Frame):
         self._interactive_narrative = None
         self._interactive_controller = None
 
+        # 挂载命令台日志内存捕获（战斗线程启动前，确保从开头捕获）
+        self._attach_console_log_handler()
+
         self.crit_btn.config(state="normal")
         self.no_crit_btn.config(state="normal")
         self.stop_btn.config(state="normal")
         self.undo_btn.config(state="disabled")  # 预填阶段禁用回退
         self.save_seq_btn.config(state="disabled")
+        self.export_console_btn.config(state="disabled")  # 预填阶段禁用，到达决策点后启用
         self.current_decision_label.config(text="等待第一个暴击决策点...")
         self._narrative_line_count = 0  # 叙事日志行数追踪
         self._clear_branch_candidates()
@@ -5981,6 +5996,7 @@ class StepCritTab(ttk.Frame):
                 # 预填序列用完，启用回退和保存按钮
                 self.undo_btn.config(state="normal")
                 self.save_seq_btn.config(state="normal")
+                self.export_console_btn.config(state="normal")
 
                 # 更新统计
                 dps = self._simulator.get_decision_points()
@@ -6043,6 +6059,7 @@ class StepCritTab(ttk.Frame):
                 self.stop_btn.config(state="disabled")
                 self.undo_btn.config(state="disabled")
                 self.save_seq_btn.config(state="normal")
+                self.export_console_btn.config(state="normal")  # 战斗结束后仍可导出完整命令台日志
                 self.start_btn.config(state="normal")
                 self.report_btn.config(state="normal")
                 self.current_decision_label.config(text="战斗结束")
@@ -6066,6 +6083,7 @@ class StepCritTab(ttk.Frame):
                 self.stop_btn.config(state="disabled")
                 self.undo_btn.config(state="disabled")
                 self.save_seq_btn.config(state="normal")
+                self.export_console_btn.config(state="disabled")
                 self.start_btn.config(state="normal")
                 self.current_decision_label.config(text="战斗出错")
                 self._clear_branch_candidates()
@@ -6153,6 +6171,66 @@ class StepCritTab(ttk.Frame):
 
         out.append("─" * 60)
         return out
+
+    def _attach_console_log_handler(self):
+        """挂载/重置命令台日志内存捕获 handler。
+
+        在每次交互式战斗（含回退重启）开始时调用，确保从战斗开始捕获命令台日志，
+        旧 handler 先移除以避免重复捕获与内存累积。
+        """
+        from src.combat_v2.battle_logger import battle_logger, MemoryLogHandler
+
+        logger = battle_logger()
+        if self._console_log_handler is not None:
+            try:
+                logger.removeHandler(self._console_log_handler)
+            except Exception:
+                pass
+            self._console_log_handler.clear()
+
+        handler = MemoryLogHandler()
+        logger.addHandler(handler)
+        self._console_log_handler = handler
+
+    def _export_console_log(self):
+        """导出从战斗开始到当前暴击点的命令台日志到文件。"""
+        if self._console_log_handler is None or self._console_log_handler.count() == 0:
+            messagebox.showinfo("导出命令台", "当前无可导出的命令台日志（请先开始交互式模拟）。")
+            return
+
+        lines = self._console_log_handler.get_lines()
+        preset_type = getattr(self, '_interactive_preset_type', 'team')
+        seed = getattr(self, '_interactive_seed', '')
+        decision_count = 0
+        if self._simulator:
+            decision_count = len(self._simulator.get_decision_points())
+
+        type_names = {"team": "编队与战斗", "tactical": "战术演习",
+                      "circle": "对抗压制战", "composite": "复合战术演习"}
+        preset_label = type_names.get(preset_type, preset_type)
+
+        log_dir = _BASE_PATH / "data" / "battle_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_path = log_dir / f"step_crit_console_{preset_type}_{ts}.txt"
+
+        header = [
+            f"# 逐步暴击 - 命令台日志导出",
+            f"# 战斗类型: {preset_label} ({preset_type})",
+            f"# 随机种子: {seed}",
+            f"# 暴击决策点数: {decision_count}",
+            f"# 日志行数: {len(lines)}",
+            f"# 导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "=" * 80,
+            "",
+        ]
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(header))
+            f.write("\n".join(lines))
+            if lines:
+                f.write("\n")
+
+        self._append_output(f"命令台日志: {log_path} (共 {len(lines)} 行)\n")
 
     def _append_output(self, text: str, scroll: bool = True):
         """向输出区域追加文本"""

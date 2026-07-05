@@ -750,6 +750,19 @@ class TriggerService:
                         _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (skill %d is not AS type=%d, allow_ex=%s)",
                                   owner.name, context.skill, skill_data.skill_type, allow_ex)
                         return False
+            # debuff_applied_target 类型的 PS（如「アーマー・ジャム」130027/230076/230315）
+            # 依赖 AS 主目标（primary_target）作为 debuff 施加对象。
+            # 技能描述「自身が攻撃した対象」明确要求目标是 AS 攻击对象，
+            # 若 AS 击杀目标（primary_target 死亡），则无有效施加对象，PS 不应触发
+            # （不消耗 PP、不进冷却、不执行），而非触发后跳过效果。
+            if parsed and context.primary_target is not None:
+                for block in parsed.get('effect_blocks', []):
+                    for eff in block.get('effects', []):
+                        if eff.get('target_type') == 'debuff_applied_target':
+                            if not context.primary_target.is_alive:
+                                _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (debuff_applied_target primary_target %s is dead)",
+                                          owner.name, context.primary_target.name)
+                                return False
             return True
 
         if timing == TriggerTiming.BEFORE_AS_ATTACKED:

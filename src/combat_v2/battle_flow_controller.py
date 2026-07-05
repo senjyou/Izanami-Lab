@@ -81,8 +81,9 @@ class BattleFlowController:
         self.action_axis.set_damage_service(self.damage_service)
         self._acted_this_round = set()  # 当前轮次已行动的unit_id
         self._round_eligible_ids: set = set()  # 当前轮次初始行动单位集合
-        self._unit_display_names: Dict[str, str] = {}
+        self._unit_display_names: Dict[str, UnitState] = {}
         self._unit_id_map: Dict[str, UnitState] = {}
+        self._deferred_crit_triggers: list = []
 
     def _pre_synergy_setup(self) -> None:
         """元素协同计算之前的钩子，供子类快照协同前属性（如基础max_hp）"""
@@ -1315,12 +1316,17 @@ class BattleFlowController:
         return aura_target_ids, new_knockout_target_ids, applied_debuff_types
 
     # 主动攻击型 PS trigger_type 集合：这些 PS 的伤害应触发被攻撃反応（after_self_attacked 等）。
-    # 反应型 PS（after_self_attacked/after_ally_attacked/after_as_attacked 等）不在集合中，
-    # 避免反应链递归。全局型 PS（on_turn_end/on_cumulative_damage/on_hp_below/on_unit_count_below）
+    # after_as_attacked 是反击型 PS（被 AS 攻击后主动反击），其攻击应触发被攻撃反応，
+    # 与 on_skill_use_count/on_critical/after_as_attack/after_ally_as_attack 等主动攻击型 PS 一致。
+    # 反应型 PS（after_self_attacked/after_ally_attacked 等）不在集合中，避免反应链递归：
+    # after_as_attacked 反击 → _trigger_being_attacked_reactions → after_self_attacked/after_ally_attacked
+    # → after_self_attacked/after_ally_attacked 不在集合中，不会再次触发 _trigger_being_attacked_reactions，链终止。
+    # 全局型 PS（on_turn_end/on_cumulative_damage/on_hp_below/on_unit_count_below）
     # 走 _execute_global_trigger_actions 路径，已自带被攻撃反応处理，也不在此集合中。
     _ACTIVE_ATTACK_TRIGGER_TYPES = {
         'on_skill_use_count', 'on_critical',
         'after_as_attack', 'after_own_action', 'after_ally_as_attack',
+        'after_as_attacked',
     }
 
     def _trigger_being_attacked_reactions(self, attacker: UnitState,
