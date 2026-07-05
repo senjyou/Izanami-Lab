@@ -657,7 +657,11 @@ class BattleFlowController:
                 for a in hp_below_normal:
                     owners_with_hp_below.add(a.instance.owner.unit_id)
 
-                primary_target = damaged_targets[0] if damaged_targets else None
+                # primary_target优先使用cover替换前的原始主目标
+                # 场景：敌方真AoE攻击左前（原始主目标），デコイプロトコル cover替换后
+                # damaged_targets[0] 变为coverer，导致左前的after_as_attacked型PS（如捲土重来）不触发
+                _original_primary = getattr(self.skill_service, '_original_primary_target', None)
+                primary_target = _original_primary if _original_primary else (damaged_targets[0] if damaged_targets else None)
 
                 if skill_type == 1:
                     # AS技能执行结束后，触发器分两阶段执行：

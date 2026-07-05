@@ -276,6 +276,9 @@ class SkillService:
             # 保存外层技能的_last_primary_target，防止内层execute_skill覆盖
             saved_last_primary_target = getattr(self, '_last_primary_target', None)
 
+            # 保存外层技能的_original_primary_target，防止内层execute_skill覆盖
+            saved_original_primary_target = getattr(self, '_original_primary_target', None)
+
             # 保存外层技能的_block_evaded_targets，防止内层execute_skill清空
             saved_evaded_targets = set(getattr(self, '_block_evaded_targets', set()))
 
@@ -347,6 +350,9 @@ class SkillService:
 
             # 恢复外层技能的_last_primary_target
             self._last_primary_target = saved_last_primary_target
+
+            # 恢复外层技能的_original_primary_target
+            self._original_primary_target = saved_original_primary_target
 
             # 恢复外层技能的_block_evaded_targets，合并内层新增的
             self._block_evaded_targets = saved_evaded_targets
@@ -569,6 +575,7 @@ class SkillService:
         self._debuff_immune_blocked_targets = set()  # 技能级别：被debuff_immune免疫的目标集合
         self._skill_all_attacked_targets = []  # 技能级别：所有block中已攻击的目标累积（用于跨block的attacked_targets）
         self._most_recent_damage = 0  # 技能级别：累计该技能所有damage block的伤害，供lifesteal等使用
+        self._original_primary_target = None  # 技能级别：第一个damage效果的原始主目标（cover替换前），供after_as_attacked等触发器使用
 
         # 快照技能执行前的mark状态（用于has_mark_at_start条件和target_has_mark条件）
         self._marks_at_start = {}
@@ -2285,6 +2292,15 @@ class SkillService:
                 self._execute_trigger_actions_inline(before_as_actions, battlefield, trigger_timing="before_as_attacked")
             finally:
                 self._recursion_guard = False
+
+        # 捕获原始主目标（cover替换前），供after_as_attacked等触发器使用
+        # 仅记录第一个damage效果的主目标，避免被后续block覆盖
+        # 场景：敌方真AoE攻击时，デコイプロトコル cover了左前（原始主目标），
+        # cover替换后 damaged_targets[0] 变为coverer，导致左前的after_as_attacked型PS（如捲土重来）不触发
+        if getattr(self, '_original_primary_target', None) is None and targets:
+            self._original_primary_target = targets[0]
+            _log.info("[ORIGINAL_PRIMARY] %s: captured original primary target = %s (before cover)",
+                      caster.name, targets[0].name)
 
         # 应用cover效果：检查是否有友方单位设置了cover_target，如果有则替换目标
         # 注意：此逻辑必须在每个damage效果中执行，因为不同damage效果有不同的目标列表
