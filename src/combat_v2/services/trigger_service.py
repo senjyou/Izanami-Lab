@@ -151,11 +151,13 @@ class TriggerService:
 
     def trigger_before_as_attacked(self, targets: List[UnitState],
                                      battlefield: BattlefieldState,
-                                     attacker: Optional[UnitState] = None) -> List[TriggerAction]:
+                                     attacker: Optional[UnitState] = None,
+                                     skill_id: Optional[int] = None) -> List[TriggerAction]:
         ctx = TriggerContext(
             TriggerTiming.BEFORE_AS_ATTACKED, battlefield,
             targets=targets,
             actor=attacker,
+            skill=skill_id,
         )
         return self.check_triggers(TriggerTiming.BEFORE_AS_ATTACKED, ctx)
 
@@ -1664,6 +1666,27 @@ class TriggerService:
                 normal_candidates.append(cand)
 
         if simultaneous_candidates:
+            # PP不足的simultaneous_limit PS不参与竞争（避免PP不足的PS因速度更快而胜出，
+            # 导致实际可触发的PS被淘汰，如代助一避PP不足时デコイプロトコル应能触发）
+            _pp_sufficient = []
+            _pp_insufficient = []
+            for cand in simultaneous_candidates:
+                _skill_meta = self.data_loader.get_skill_by_id(cand.skill_id) if self.data_loader else None
+                _cost = getattr(_skill_meta, 'resource_cost', 0) if _skill_meta else 0
+                if _cost and _cost > 0 and cand.owner.current_pp < _cost:
+                    _log.info("[SIMULTANEOUS_LIMIT_PP] %s PS[%s](id=%d) insufficient PP: %d < %d, excluded from simultaneous_limit competition",
+                              cand.owner.name, _skill_meta.name if _skill_meta else "?",
+                              cand.skill_id, cand.owner.current_pp, _cost)
+                    _pp_insufficient.append(cand)
+                else:
+                    _pp_sufficient.append(cand)
+            if _pp_sufficient:
+                simultaneous_candidates = _pp_sufficient
+            else:
+                # 所有simultaneous_limit PS都PP不足，保留全部（执行时会因PP不足而失败，
+                # 但不主动剔除以保留原有行为日志）
+                _log.info("[SIMULTANEOUS_LIMIT_PP] all %d simultaneous_limit PS have insufficient PP",
+                          len(simultaneous_candidates))
             # 按优先级排序后只取第1个（优先级已按速度降序+位置先后排列）
             best_simultaneous = simultaneous_candidates[0]
             _log.info("[SIMULTANEOUS_LIMIT] %d simultaneous_limit PS matched, selecting fastest: %s PS[%d]",

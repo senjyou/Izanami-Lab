@@ -49,6 +49,9 @@ The simulator currently supports a limited set of characters. More will be added
 | 天真爛漫トラブルメーカー   | タリサ・マナンダル    |
 | 歴戦の鉄母          | オルガ・ヴォルコワ    |
 | 忠義の狂犬メイド       | リュシー・ムーアクロフト |
+| 憎まれ口の大賢者       | ハリエット・ミルズ    |
+| 元気印の大魔導士       | ミリアム・ヘイワード   |
+| 恥じらうカジノラビット    | 劉翠蘭          |
 
 ## Tactical Exercise Enemies
 

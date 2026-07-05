@@ -310,9 +310,11 @@ class AuraService:
 
     def check_expiration(self, unit: UnitState, all_units: Optional[List[UnitState]] = None):
         """清理过期 Aura (Duration == 0 表示已过期, Duration < 0 表示永久)"""
-        # 先收集过期的buff，用于联动检查（排除unremovable）
-        expired_buffs = [b for b in unit.buffs if b.duration == 0 and not getattr(b, 'unremovable', False)]
-        expired_debuffs = [b for b in unit.debuffs if b.duration == 0 and not getattr(b, 'unremovable', False)]
+        # 先收集过期的buff，用于联动检查
+        # unremovable 仅阻止主动驱散（remove_aura/remove_aura_by_type），不阻止 duration 自然过期
+        # （如劉翠蘭 damage_link「解除不可」仍会在2行动后自然消失）
+        expired_buffs = [b for b in unit.buffs if b.duration == 0]
+        expired_debuffs = [b for b in unit.debuffs if b.duration == 0]
 
         # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 子機Ⅱ跨目标联动失效
         # 当本目标的linked sub_unit过期时，级联移除其他目标上同link_group的子機Ⅱ
@@ -353,8 +355,8 @@ class AuraService:
                             unit.shield = 0
                             _log.info("[SHIELD_EXPIRED] %s: last shield buff expired, clearing all shield", unit.name)
 
-        unit.buffs = [b for b in unit.buffs if b.duration != 0 or getattr(b, 'unremovable', False)]
-        unit.debuffs = [b for b in unit.debuffs if b.duration != 0 or getattr(b, 'unremovable', False)]
+        unit.buffs = [b for b in unit.buffs if b.duration != 0]
+        unit.debuffs = [b for b in unit.debuffs if b.duration != 0]
         self._sync_stun_freeze_flags(unit)
 
         # 检查联动buff消失
@@ -426,7 +428,7 @@ class AuraService:
                           unit.name, lb.name, expired_buff.name, source_unit.name, link_group)
                 removed.append((unit.name, lb.name))
             if linked_buffs:
-                unit.buffs = [b for b in unit.buffs if b.duration != 0 or getattr(b, 'unremovable', False)]
+                unit.buffs = [b for b in unit.buffs if b.duration != 0]
         return removed
 
     def get_aura_value(self, unit: UnitState, effect_type: str) -> float:

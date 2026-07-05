@@ -714,6 +714,7 @@ class SkillService:
                                     "enemy_single_highest_ep",
                                     "enemy_single_highest_hp_ratio",
                                     "enemy_single_highest_current_hp",
+                                    "enemy_single_highest_max_hp",
                                     "enemy_single_highest_hp_ratio_back_priority",
                                     "enemy_single_lowest_hp_ratio",
                                     "enemy_column_furthest", "enemy_column_mark_priority",
@@ -1601,6 +1602,16 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         _log.info("[SKILL_EXEC] %s: highest_current_hp filter -> %s (hp=%d)",
                                   caster.name, best.name, best.current_hp)
+                    elif effect.target_type == "enemy_single_highest_max_hp" and dmg_targets:
+                        best = self.target_service.select_max_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: u.max_hp,
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: highest_max_hp filter -> %s (max_hp=%d)",
+                                  caster.name, best.name, best.max_hp)
                     elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
                         # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
                         pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
@@ -2208,12 +2219,69 @@ class SkillService:
                                     all_block_targets.append(u)
                         if not all_block_targets:
                             all_block_targets = targets
+                # 同時発動制限（跨timing）：敌方AoE攻击时，before_enemy_as_attack /
+                # before_any_attacked / before_as_attacked 三个时机在游戏逻辑上是同一时机，
+                # simultaneous_limit PS 应跨timing比较所属单位速度，仅速度最快者触发。
+                # 原有 _process_candidates 仅在单个timing内过滤，导致代助一避和デコイプロトコル
+                # 分属不同timing时可同时发动。此处先收集三个timing的所有actions，找出最快的
+                # simultaneous_limit PS（priority最低=速度最快），过滤掉较慢的，再按原顺序执行。
                 before_enemy_actions = self.trigger_service.trigger_before_enemy_as_attack(caster, self._current_skill_id, all_block_targets, battlefield)
-                self._execute_trigger_actions_inline(before_enemy_actions, battlefield, trigger_timing="before_enemy_as_attack")
                 self._current_attack_targets = list(all_block_targets)  # 保存当前攻击目标列表，供PS cover效果使用
                 before_any_actions = self.trigger_service.trigger_before_any_attacked(all_block_targets, battlefield, attacker=caster)
+                before_as_actions = self.trigger_service.trigger_before_as_attacked(all_block_targets, battlefield, attacker=caster, skill_id=self._current_skill_id)
+
+                # 收集所有 simultaneous_limit PS，找出最快的（priority最低=速度最快）
+                # PP不足的simultaneous_limit PS不参与竞争（避免PP不足的PS因速度更快而胜出，
+                # 导致实际可触发的PS被淘汰，如代助一避PP不足时デコイプロトコル应能触发）
+                _best_sl_key = None
+                _best_sl_priority = None
+                for _timing_actions in (before_enemy_actions, before_any_actions, before_as_actions):
+                    for _act in _timing_actions:
+                        _parsed_sl = self.data_loader.get_parsed_skill_data(_act.skill_id) if self.data_loader else None
+                        if _parsed_sl and _parsed_sl.get('simultaneous_limit'):
+                            # PP不足的simultaneous_limit PS跳过（不参与速度竞争）
+                            _sl_meta = self.data_loader.get_skill_by_id(_act.skill_id) if self.data_loader else None
+                            _sl_cost = getattr(_sl_meta, 'resource_cost', 0) if _sl_meta else 0
+                            _sl_owner = _act.instance.owner if hasattr(_act, 'instance') and _act.instance else None
+                            if _sl_cost and _sl_cost > 0 and _sl_owner is not None and _sl_owner.current_pp < _sl_cost:
+                                _log.info("[SIMULTANEOUS_LIMIT_CROSS_PP] %s PS[%s](id=%d) insufficient PP: %d < %d, excluded from cross-timing competition",
+                                          _sl_owner.name, _sl_meta.name if _sl_meta else "?",
+                                          _act.skill_id, _sl_owner.current_pp, _sl_cost)
+                                continue
+                            _prio = _act.instance.priority if hasattr(_act, 'instance') and _act.instance else 0
+                            if _best_sl_priority is None or _prio < _best_sl_priority:
+                                _best_sl_priority = _prio
+                                _best_sl_key = (_act.skill_id, _act.owner_id)
+
+                # 过滤掉较慢的 simultaneous_limit PS（仅保留最快的那一个）
+                if _best_sl_key is not None:
+                    _best_name = "?"
+                    for _timing_actions in (before_enemy_actions, before_any_actions, before_as_actions):
+                        for _act in _timing_actions:
+                            if (_act.skill_id, _act.owner_id) == _best_sl_key:
+                                _best_name = _act.instance.owner.name if hasattr(_act, 'instance') and _act.instance else "?"
+                                break
+                    _log.info("[SIMULTANEOUS_LIMIT_CROSS] fastest: %s PS[%d] (priority=%s), dropping slower simultaneous_limit PS",
+                              _best_name, _best_sl_key[0], _best_sl_priority)
+                    def _drop_slower(actions, timing_name):
+                        _filtered = []
+                        for _act in actions:
+                            _parsed_sl = self.data_loader.get_parsed_skill_data(_act.skill_id) if self.data_loader else None
+                            if _parsed_sl and _parsed_sl.get('simultaneous_limit'):
+                                if (_act.skill_id, _act.owner_id) != _best_sl_key:
+                                    _owner_name = _act.instance.owner.name if hasattr(_act, 'instance') and _act.instance else "?"
+                                    _prio = _act.instance.priority if hasattr(_act, 'instance') and _act.instance else 0
+                                    _log.info("[SIMULTANEOUS_LIMIT_CROSS] dropped: %s PS[%d] at %s (priority=%s, slower than best=%s)",
+                                              _owner_name, _act.skill_id, timing_name, _prio, _best_sl_priority)
+                                    continue
+                            _filtered.append(_act)
+                        return _filtered
+                    before_enemy_actions = _drop_slower(before_enemy_actions, "before_enemy_as_attack")
+                    before_any_actions = _drop_slower(before_any_actions, "before_any_attacked")
+                    before_as_actions = _drop_slower(before_as_actions, "before_as_attacked")
+
+                self._execute_trigger_actions_inline(before_enemy_actions, battlefield, trigger_timing="before_enemy_as_attack")
                 self._execute_trigger_actions_inline(before_any_actions, battlefield, trigger_timing="before_any_attacked")
-                before_as_actions = self.trigger_service.trigger_before_as_attacked(all_block_targets, battlefield, attacker=caster)
                 self._execute_trigger_actions_inline(before_as_actions, battlefield, trigger_timing="before_as_attacked")
             finally:
                 self._recursion_guard = False
@@ -4041,6 +4109,7 @@ class SkillService:
             "enemy_single_highest_ep",
             "enemy_single_highest_hp_ratio",
             "enemy_single_highest_current_hp",
+            "enemy_single_highest_max_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_column_furthest", "enemy_column_mark_priority",
@@ -4258,6 +4327,17 @@ class SkillService:
                 targets = [best] if best else []
                 _log.info("[AURA_APPLY] %s: highest_current_hp filter -> %s (hp=%d)",
                           caster.name, best.name, best.current_hp)
+
+        if effect.target_type == "enemy_single_highest_max_hp":
+            if targets:
+                best = self.target_service.select_max_with_stealth(
+                    targets,
+                    key_func=lambda u: u.max_hp,
+                    consume=True
+                )
+                targets = [best] if best else []
+                _log.info("[AURA_APPLY] %s: highest_max_hp filter -> %s (max_hp=%d)",
+                          caster.name, best.name, best.max_hp)
 
         if effect.target_type == "enemy_single_lowest_hp_ratio":
             if targets:
@@ -5073,6 +5153,7 @@ class SkillService:
             "enemy_single_highest_ep",
             "enemy_single_highest_hp_ratio",
             "enemy_single_highest_current_hp",
+            "enemy_single_highest_max_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_column_furthest", "enemy_column_mark_priority",
@@ -5920,7 +6001,19 @@ class SkillService:
             # add_ap should respect target_type (e.g. ally_highest_atk for パワーアプライ)
             ap_targets_info = []
             ap_target_type = getattr(effect, 'target_type', None)
-            if ap_target_type and ap_target_type not in ("self", None):
+            # target_identifier resolution (e.g. 130139 スピードブースト: add_ap to charger)
+            ap_target_identifier = getattr(effect, 'target_identifier', None)
+            ap_targets = []
+            if ap_target_identifier == "trigger_attacker":
+                ta = getattr(self, '_trigger_attacker', None)
+                if ta and ta.is_alive and ta.side == caster.side:
+                    ap_targets = [ta]
+                    _log.info("[RESOURCE_EFFECT] %s: add_ap trigger_attacker -> %s",
+                              caster.name, ta.name)
+                else:
+                    _log.info("[RESOURCE_EFFECT] %s: add_ap trigger_attacker unavailable, no targets",
+                              caster.name)
+            elif ap_target_type and ap_target_type not in ("self", None):
                 target_skill_obj = type('obj', (object,), {
                     'display_target_type': self._resolve_target_type(ap_target_type),
                     'display_target_range': self._resolve_target_range(ap_target_type),
@@ -5934,31 +6027,23 @@ class SkillService:
                     ap_targets = [max(ap_targets, key=lambda u: self.damage_service._calculate_final_stat(u, "attack") if self.damage_service else u.attack)]
                     _log.info("[RESOURCE_EFFECT] %s: add_ap highest_atk filter -> %s",
                               caster.name, ap_targets[0].name)
-                if ap_targets:
-                    for t in ap_targets:
-                        old_ap = t.current_ap
-                        self.resource_service.restore_ap(t, value)
-                        ap_targets_info.append({
-                            "target": t.name,
-                            "target_id": t.unit_id,
-                            "amount": t.current_ap - old_ap,
-                            "ap_after": t.current_ap,
-                            "ap_max": t.initial_active_point,
-                        })
-                        _log.info("[RESOURCE_EFFECT] %s: add_ap -> %s: value=%d", caster.name, t.name, value)
-                else:
-                    _log.info("[RESOURCE_EFFECT] %s: add_ap no valid targets for %s, fallback to caster",
-                              caster.name, ap_target_type)
-                    old_ap = caster.current_ap
-                    self.resource_service.restore_ap(caster, value)
+            if ap_targets:
+                for t in ap_targets:
+                    old_ap = t.current_ap
+                    self.resource_service.restore_ap(t, value)
                     ap_targets_info.append({
-                        "target": caster.name,
-                        "target_id": caster.unit_id,
-                        "amount": caster.current_ap - old_ap,
-                        "ap_after": caster.current_ap,
-                        "ap_max": caster.initial_active_point,
+                        "target": t.name,
+                        "target_id": t.unit_id,
+                        "amount": t.current_ap - old_ap,
+                        "ap_after": t.current_ap,
+                        "ap_max": t.initial_active_point,
                     })
-            else:
+                    _log.info("[RESOURCE_EFFECT] %s: add_ap -> %s: value=%d", caster.name, t.name, value)
+            elif ap_target_identifier != "trigger_attacker":
+                # fallback to caster only when not using trigger_attacker identifier
+                # (trigger_attacker with no valid target should be no-op, not fallback to caster)
+                _log.info("[RESOURCE_EFFECT] %s: add_ap no valid targets for %s, fallback to caster",
+                          caster.name, ap_target_type)
                 old_ap = caster.current_ap
                 self.resource_service.restore_ap(caster, value)
                 ap_targets_info.append({
@@ -6463,6 +6548,7 @@ class SkillService:
                  "enemy_back_row",
                  "enemy_single_highest_hp_ratio",
                  "enemy_single_highest_current_hp",
+                 "enemy_single_highest_max_hp",
                  "enemy_row_of_lowest_def",
                  "enemy_single_lowest_def_x2",
                  "attacked_targets"):
@@ -6495,6 +6581,7 @@ class SkillService:
                  "enemy_single_highest_ep",
                  "enemy_single_highest_hp_ratio",
                  "enemy_single_highest_current_hp",
+                 "enemy_single_highest_max_hp",
                  "enemy_single_highest_hp_ratio_back_priority",
                  "enemy_single_lowest_hp_ratio"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
@@ -6586,6 +6673,13 @@ class SkillService:
             best = self.target_service.select_max_with_stealth(
                 dmg_targets,
                 key_func=lambda u: u.current_hp,
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_highest_max_hp":
+            best = self.target_service.select_max_with_stealth(
+                dmg_targets,
+                key_func=lambda u: u.max_hp,
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
@@ -7476,12 +7570,13 @@ class SkillService:
 
     def _apply_cover(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         """
-        援护效果：从预扫描的攻击目标中选择距离最近的友方进行援护
+        援护效果：从预扫描的攻击目标中选择友方进行援护
         - 优先使用预扫描的cover候选（按block顺序排列的被攻击友方）
         - 如果没有预扫描结果，回退到_current_attack_targets
         - cover_target指向被保护的友方（即攻击目标之一）
         - 当该友方被攻击时，援护者替代承受伤害
-        - 多目标时选择距离最近的被攻击友方，同距离优先前列/左列
+        - 真AoE（攻击覆盖所有存活友方）时按位置编号优先：左前>中前>右前>左后>中后>右后
+        - 非真AoE时选择距离最近的被攻击友方，同距离优先前列/左列
         """
         effect_flags = getattr(effect, 'flags', None) or {}
 
@@ -7498,35 +7593,59 @@ class SkillService:
             _log.info("[COVER] %s: no ally in attack targets to cover, skip", caster.name)
             return None
 
-        # 选择距离最近的被攻击友方
-        def get_distance(target: UnitState) -> tuple:
-            from src.entities_v2.enums import Position
-            caster_pos = caster.position
-            target_pos = target.position
-            pos_scores = {
-                Position.ALLY_LEFT_FRONT: (0, 0), Position.ALLY_CENTER_FRONT: (0, 1), Position.ALLY_RIGHT_FRONT: (0, 2),
-                Position.ALLY_LEFT_BACK: (1, 0), Position.ALLY_CENTER_BACK: (1, 1), Position.ALLY_RIGHT_BACK: (1, 2),
-                Position.ENEMY_LEFT_FRONT: (0, 0), Position.ENEMY_CENTER_FRONT: (0, 1), Position.ENEMY_RIGHT_FRONT: (0, 2),
-                Position.ENEMY_LEFT_BACK: (1, 0), Position.ENEMY_CENTER_BACK: (1, 1), Position.ENEMY_RIGHT_BACK: (1, 2),
-            }
-            caster_info = pos_scores.get(caster_pos, (2, 2))
-            target_info = pos_scores.get(target_pos, (2, 2))
-            distance = (caster_info[0] - target_info[0]) ** 2 + (caster_info[1] - target_info[1]) ** 2
-            # 同距离时优先前排、左列
-            is_front = 0 if 'FRONT' in target_pos.name else 1
-            pos_order = target_info[1]
-            return (distance, is_front, pos_order)
+        # 检测真AoE：攻击目标覆盖了所有存活友方（除caster外）
+        from src.entities_v2.enums import Side as _SideCover
+        ally_team = battlefield.friend_team if caster.side == _SideCover.ALLY else battlefield.enemy_team
+        all_alive_allies_excl_caster = [u for u in ally_team
+                                         if u.unit_id != caster.unit_id and u.is_alive]
+        covered_ids = {t.unit_id for t in covered_candidates}
+        is_true_aoe = len(covered_candidates) >= len(all_alive_allies_excl_caster) and \
+            all(u.unit_id in covered_ids for u in all_alive_allies_excl_caster)
 
-        covered_candidates.sort(key=get_distance)
-        selected_target = covered_candidates[0]
+        from src.entities_v2.enums import Position as _Pos
+        # 位置编号优先级（左前=1 > 中前=2 > 右前=3 > 左后=4 > 中后=5 > 右后=6）
+        _POSITION_NUMBER = {
+            _Pos.ALLY_LEFT_FRONT: 1, _Pos.ALLY_CENTER_FRONT: 2, _Pos.ALLY_RIGHT_FRONT: 3,
+            _Pos.ALLY_LEFT_BACK: 4, _Pos.ALLY_CENTER_BACK: 5, _Pos.ALLY_RIGHT_BACK: 6,
+            _Pos.ENEMY_LEFT_FRONT: 1, _Pos.ENEMY_CENTER_FRONT: 2, _Pos.ENEMY_RIGHT_FRONT: 3,
+            _Pos.ENEMY_LEFT_BACK: 4, _Pos.ENEMY_CENTER_BACK: 5, _Pos.ENEMY_RIGHT_BACK: 6,
+        }
+
+        if is_true_aoe:
+            # 真 AoE: 按位置编号选择（左前>中前>右前>左后>中后>右后）
+            covered_candidates.sort(key=lambda t: _POSITION_NUMBER.get(t.position, 99))
+            selected_target = covered_candidates[0]
+            _log.info("[COVER] %s: true AoE detected, covering %s by position priority (position=%s, num=%d)",
+                      caster.name, selected_target.name, selected_target.position.name,
+                      _POSITION_NUMBER.get(selected_target.position, 99))
+        else:
+            # 非真 AoE: 选择距离最近的被攻击友方
+            def get_distance(target: UnitState) -> tuple:
+                caster_pos = caster.position
+                target_pos = target.position
+                pos_scores = {
+                    _Pos.ALLY_LEFT_FRONT: (0, 0), _Pos.ALLY_CENTER_FRONT: (0, 1), _Pos.ALLY_RIGHT_FRONT: (0, 2),
+                    _Pos.ALLY_LEFT_BACK: (1, 0), _Pos.ALLY_CENTER_BACK: (1, 1), _Pos.ALLY_RIGHT_BACK: (1, 2),
+                    _Pos.ENEMY_LEFT_FRONT: (0, 0), _Pos.ENEMY_CENTER_FRONT: (0, 1), _Pos.ENEMY_RIGHT_FRONT: (0, 2),
+                    _Pos.ENEMY_LEFT_BACK: (1, 0), _Pos.ENEMY_CENTER_BACK: (1, 1), _Pos.ENEMY_RIGHT_BACK: (1, 2),
+                }
+                caster_info = pos_scores.get(caster_pos, (2, 2))
+                target_info = pos_scores.get(target_pos, (2, 2))
+                distance = (caster_info[0] - target_info[0]) ** 2 + (caster_info[1] - target_info[1]) ** 2
+                # 同距离时优先前排、左列
+                is_front = 0 if 'FRONT' in target_pos.name else 1
+                pos_order = target_info[1]
+                return (distance, is_front, pos_order)
+
+            covered_candidates.sort(key=get_distance)
+            selected_target = covered_candidates[0]
+            _log.info("[COVER] %s: covering %s (distance=%d, position=%s)",
+                      caster.name, selected_target.name,
+                      get_distance(selected_target)[0], selected_target.position)
 
         # 设置cover_target为被保护的友方unit_id
         caster.cover_target = selected_target.unit_id
         caster.cover_skill_id = self._current_skill_id
-
-        _log.info("[COVER] %s: covering %s (distance=%d, position=%s)",
-                  caster.name, selected_target.name,
-                  get_distance(selected_target)[0], selected_target.position)
 
         return {
             "effect_type": "cover",

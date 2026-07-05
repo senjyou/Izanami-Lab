@@ -9818,7 +9818,7 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "before_enemy_as_attack",
+    "trigger_type": "before_as_attacked",
     "global_condition": {
       "type": "target_is_front_ally"
     },
@@ -11750,7 +11750,7 @@
         "effects": [
           {
             "effect_type": "spd_up",
-            "target_type": "ally_all",
+            "target_type": "friends",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "spd",
@@ -11799,10 +11799,10 @@
     ],
     "display_target_priority": null,
     "display_target_range": 5,
-    "display_target_type": 2,
+    "display_target_type": 4,
     "parse_status": "manual",
     "parse_notes": [
-      "PS2: on_turn_start, spd_up ally_all 1 action, Lv11+ add_ep 1 to nearest ally, once per battle"
+      "PS2: on_turn_start, spd_up friends 1 action, Lv11+ add_ep 1 to nearest ally, once per battle"
     ]
   },
   "130044": {
@@ -30995,7 +30995,7 @@
         "effects": [
           {
             "effect_type": "spd_up",
-            "target_type": "ally_all",
+            "target_type": "friends",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "spd",
@@ -31018,7 +31018,7 @@
     ],
     "display_target_priority": null,
     "display_target_range": 1,
-    "display_target_type": 2,
+    "display_target_type": 4,
     "parse_status": "success",
     "parse_notes": []
   },
@@ -36993,7 +36993,7 @@
         "effects": [
           {
             "effect_type": "damage",
-            "target_type": "enemy_single",
+            "target_type": "enemy_single_highest_max_hp",
             "value_tag": "威力",
             "hit_count": 1,
             "flags": {
@@ -37008,9 +37008,6 @@
             "value_tag": "shield",
             "duration": 2,
             "duration_type": "action",
-            "condition": {
-              "type": "target_killed"
-            },
             "flags": {},
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -37021,10 +37018,9 @@
             "value": 50,
             "duration": 2,
             "duration_type": "action",
-            "condition": {
-              "type": "target_killed"
+            "flags": {
+              "unremovable": true
             },
-            "flags": {},
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -37035,7 +37031,7 @@
     "display_target_range": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: shield(maxHP10%) self, dmg enemy(highest HP, expand by card_buff), shield_from_dmg(kill deferred), dmg_link(self+friends, kill deferred). card_buff expands targets: 1→2 one_pair, 1→3 three_card"
+      "AS: shield(maxHP10%) self, dmg enemy(highest maxHP, expand by card_buff), shield_from_dmg(builtin _most_recent_damage>0 check), dmg_link(self+friends, builtin _most_recent_damage>0 check, unremovable). card_buff expands targets: 1→2 one_pair, 1→3 three_card"
     ]
   },
   "120124": {
@@ -37181,19 +37177,23 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "after_as_attacked",
+    "trigger_type": "after_self_attacked",
     "global_condition": null,
     "effect_blocks": [
       {
         "block_id": 1,
-        "condition": null,
+        "condition": {
+          "type": "active_level_max",
+          "value": 14
+        },
         "effects": [
           {
             "effect_type": "dmg_taken_up",
             "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
             "value_tag": "dmg",
             "duration": 1,
-            "duration_type": "turn",
+            "duration_type": "hit",
             "flags": {
               "value_type": "percent",
               "hit_limited": 1
@@ -37215,11 +37215,11 @@
             "effect_type": "shield",
             "target_type": "ally_all",
             "value_tag": "shield",
-            "duration": 1,
-            "duration_type": "turn",
+            "duration": -1,
+            "duration_type": null,
             "flags": {
               "shield_base": "max_hp",
-              "hit_limited": 1
+              "attack_limited": 1
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -37236,9 +37236,10 @@
           {
             "effect_type": "dmg_taken_up",
             "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
             "value_tag": "dmg",
             "duration": 1,
-            "duration_type": "turn",
+            "duration_type": "hit",
             "flags": {
               "value_type": "percent",
               "hit_limited": 2
@@ -37253,7 +37254,7 @@
     "display_target_range": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: after attacked, dmg_taken_up on attacker (L1-10:1hit, L15+:2hit). L11+: if HP<30% shield ally_all(maxHP*shield%). All shields one-hit"
+      "PS: after_self_attacked (any attack), dmg_taken_up on trigger_attacker (L1-14:1hit, L15+:2hit, Block1 level_max=14 to avoid double-apply). L11+: if HP<30% shield ally_all(maxHP*shield%, attack_limited=1 consumed by 1 attack)"
     ]
   },
   "110048": {
@@ -50648,7 +50649,8 @@
             "flags": {
               "is_en_attack": true,
               "target_count": 3,
-              "skip_attack_limited_shield": true
+              "skip_attack_limited_shield": true,
+              "level_min": 5
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -50661,7 +50663,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: EN damage 3 enemies + dmg_dealt_down 10% (1 action, stackable) + additional 1hit attack (same block, shared shield consume)"
+      "AS: EN damage 3 enemies + dmg_dealt_down 10% (1 action, stackable) + additional 1hit attack (same block, shared shield consume, Lv5+ only)"
     ]
   },
   "220345": {
@@ -57712,7 +57714,7 @@
         "effects": [
           {
             "effect_type": "spd_up",
-            "target_type": "ally_all",
+            "target_type": "friends",
             "target_identifier": null,
             "value": 0.0,
             "value_tag": "spd",
@@ -57735,7 +57737,7 @@
     ],
     "display_target_priority": null,
     "display_target_range": 5,
-    "display_target_type": 2,
+    "display_target_type": 4,
     "parse_status": "success",
     "parse_notes": []
   },
@@ -61056,7 +61058,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "value_type": "percent"
+              "value_type": "percent",
+              "heal_base": "lost_hp"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -61069,7 +61072,8 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "EX: heal all allies + HOT (30% missing HP, 2 actions)"
+      "EX: heal all allies + HOT (30% missing HP, 2 actions)",
+      "2026-07-03: HOT flags添加heal_base=lost_hp（修复bug：原配置value_source=missing_hp未被HOT代码识别，实际用atk*30%而非missing_hp*30%）"
     ]
   },
   "120132": {
@@ -61335,11 +61339,11 @@
         "effects": [
           {
             "effect_type": "dmg_invulnerable",
-            "target_type": "self_and_friends",
+            "target_type": "ally_single",
             "target_identifier": null,
-            "value": 35.0,
+            "value": null,
             "value_tag": null,
-            "value_source": "current_hp",
+            "value_source": null,
             "duration": 2,
             "duration_type": "action",
             "duration_tag": null,
@@ -61348,6 +61352,7 @@
             "condition": null,
             "flags": {
               "lowest_hp_priority": true,
+              "threshold_pct": 35.0,
               "hit_limited": 2
             },
             "ignore_defense": 0,
@@ -61355,7 +61360,7 @@
           },
           {
             "effect_type": "heal_over_time",
-            "target_type": "self_and_friends",
+            "target_type": "ally_single",
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
@@ -61381,7 +61386,8 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "AS2: dmg_invulnerable (attacks <= 35% current HP nullified, max 2 hits) + HOT (linked to dmg_invulnerable, expires together)"
+      "AS2: dmg_invulnerable (attacks <= 35% current HP nullified, max 2 hits) + HOT (linked to dmg_invulnerable, expires together)",
+      "2026-07-03: target_type从self_and_friends改为ally_single（描述为「味方単体」）；dmg_invulnerable从value+value_source方式改为flags.threshold_pct=35.0方式（与敌方220348风格统一）"
     ]
   },
   "130138": {
@@ -61477,7 +61483,7 @@
           {
             "effect_type": "add_ap",
             "target_type": "ally_single",
-            "target_identifier": "trigger_actor",
+            "target_identifier": "trigger_attacker",
             "value": 1,
             "value_tag": null,
             "value_source": null,
@@ -61494,7 +61500,7 @@
           {
             "effect_type": "spd_up",
             "target_type": "ally_single",
-            "target_identifier": "trigger_actor",
+            "target_identifier": "trigger_attacker",
             "value": null,
             "value_tag": "spd",
             "value_source": null,
@@ -61519,7 +61525,8 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "PS2: triggered when ally uses Charge AS, add 1 AP + spd_up to that ally"
+      "PS2: triggered when ally uses Charge AS, add 1 AP + spd_up to that ally",
+      "2026-07-03: target_identifier从trigger_actor改为trigger_attacker（修复拼写错误，charger通过ctx.actor->params['trigger_attacker']->_trigger_attacker链路传递）"
     ]
   },
   "110061": {
@@ -61690,7 +61697,8 @@
             "flags": {
               "is_en_attack": true,
               "target_count": 3,
-              "skip_attack_limited_shield": true
+              "skip_attack_limited_shield": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -61703,7 +61711,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: EN damage 3 enemies + dmg_dealt_down 10% (1 action, stackable) + additional 1hit attack (same block, shared shield consume)"
+      "AS: EN damage 3 enemies + dmg_dealt_down 10% (1 action, stackable) + additional 1hit attack (same block, shared shield consume, Lv11+ only)"
     ]
   },
   "120135": {
