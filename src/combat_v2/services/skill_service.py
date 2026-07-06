@@ -2582,13 +2582,14 @@ class SkillService:
             if effect_flags.get('hp_scaling_def_penetrate') and target:
                 hp_ratio = target.current_hp / target.max_hp if target.max_hp > 0 else 0
                 penetrate_pct = min(50.0, 50.0 * hp_ratio)
-                # 添加临时def_down debuff（持续到攻击者行动结束）
+                # 添加临时def_down debuff（仅当次行动生效，施法者行动结束时由
+                # process_source_maneuver_end递减为0并清理。duration=-1会被视为永续，故用1）
                 temp_def_down = BuffState(
                     buff_id=f"hp_scaling_def_penetrate_{caster.unit_id}_{target.unit_id}",
                     name="HP比例穿甲",
                     effect_type=SkillEffectType.STATUS_DEFENSE.value,
                     value=penetrate_pct,
-                    duration=-1,
+                    duration=1,
                     timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
                     stack_count=1,
                     value_tag=0,  # percent (0=百分比, 1=固定值)
