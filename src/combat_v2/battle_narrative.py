@@ -234,6 +234,41 @@ class BattleNarrativeWriter:
                         f" attr:{cd.get('attr_factor',1.0):.4f}]")
         self._add(f"  [附魔伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{mods}{calc_info}")
 
+    def add_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
+                   hp_before: int, hp_after: int, damage: int, damage_type: str,
+                   crit: bool = False, calc_detail: dict = None, max_hp: int = 0):
+        crit_tag = "【Critical】" if crit else ""
+        calc_info = ""
+        if calc_detail and damage > 0:
+            cd = calc_detail
+            calc_info = (f" [holder_atk:{cd.get('holder_atk',0)}"
+                        f" c_def:{cd.get('c_def',0)} base:{cd.get('base_diff',0)}"
+                        f" power:{cd.get('power_pct',0):.1f}%"
+                        f" crit:{cd.get('crit_factor',1.0):.1f}"
+                        f" dealt:{cd.get('a_dealt_mult',1.0):.4f}"
+                        f" rcvd:{cd.get('b_received_mult',1.0):.4f}"
+                        f" attr:{cd.get('attr_factor',1.0):.4f}]")
+        self._add(f"  [追加伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{crit_tag}{calc_info}")
+
+    def hp_ratio_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
+                        hp_before: int, hp_after: int, damage: int, damage_type: str,
+                        calc_detail: dict = None, max_hp: int = 0):
+        calc_info = ""
+        if calc_detail and damage > 0:
+            cd = calc_detail
+            vs = cd.get('value_source', 'unknown')
+            base_val = cd.get('base_value', 0)
+            dmg_pct = cd.get('dmg_pct', 0)
+            raw_power = cd.get('raw_power', 0)
+            cap = cd.get('cap')
+            if cap is not None:
+                calc_info = (f" [src:{vs} base:{int(base_val)} pct:{dmg_pct:.0f}%"
+                             f" raw:{int(raw_power)} cap:{int(cap)}(ATK*{cd.get('cap_atk_pct',0):.0f}%)]")
+            else:
+                calc_info = (f" [src:{vs} base:{int(base_val)} pct:{dmg_pct:.0f}%"
+                             f" raw:{int(raw_power)}]")
+        self._add(f"  [伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{calc_info}")
+
     def freeze_break(self, target_name: str, damage_bonus: float):
         self._add(f"  [冻结解除] {target_name} 冻结被伤害解除，被伤害+{damage_bonus:.0f}%")
 

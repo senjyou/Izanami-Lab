@@ -5577,5 +5577,85 @@
         ]
       }
     ]
+  },
+  "400210": {
+    "skill_id": 400210,
+    "name": "HP上昇【エレーナ】",
+    "description": "戦闘開始時に発動。エレーナ・パステルコワのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400211": {
+    "skill_id": 400211,
+    "name": "ENダメージ上昇【ENアタッカー】",
+    "description": "戦闘開始時に発動。ENアタッカーの味方全員に対し、EN攻撃で与えるダメージを3.5%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
+  },
+  "400212": {
+    "skill_id": 400212,
+    "name": "攻撃1行動上昇【左列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の味方の攻撃力を1行動の間2500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 8,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 2500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }

@@ -329798,5 +329798,57 @@
       230107,
       230108
     ]
+  },
+  "201405": {
+    "enemy_id": 201405,
+    "name": "惨禍：夕凪舞亜",
+    "asset_id": "109302",
+    "hp": 420374,
+    "attack": 9815,
+    "defense": 8528,
+    "speed": 512,
+    "hp_grade": 5,
+    "attack_grade": 3,
+    "defense_grade": 5,
+    "speed_grade": 2,
+    "critical_rate": 0.12999999523162842,
+    "critical_rate_grade": 2,
+    "attribute": 1,
+    "type": 1,
+    "role_type": 3,
+    "rarity": 9,
+    "skill_ids": [
+      210100,
+      220373,
+      220374,
+      230396,
+      230397
+    ]
+  },
+  "163205": {
+    "enemy_id": 163205,
+    "name": "惨禍：生駒葵",
+    "asset_id": "105302",
+    "hp": 422195,
+    "attack": 12894,
+    "defense": 6912,
+    "speed": 620,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 4,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 2,
+    "type": 3,
+    "role_type": 5,
+    "rarity": 9,
+    "skill_ids": [
+      210099,
+      220371,
+      220372,
+      230394,
+      230395
+    ]
   }
 }

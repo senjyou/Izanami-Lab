@@ -23282,5 +23282,426 @@
         }
       ]
     }
+  },
+  "110069": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 7.5
+        },
+        {
+          "level": 3,
+          "value": 8.319999694824219
+        },
+        {
+          "level": 4,
+          "value": 9.960000038146973
+        },
+        {
+          "level": 6,
+          "value": 10.779999732971191
+        },
+        {
+          "level": 7,
+          "value": 12.420000076293945
+        },
+        {
+          "level": 9,
+          "value": 13.239999771118164
+        },
+        {
+          "level": 10,
+          "value": 15.0
+        }
+      ]
+    },
+    "dmg2": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 7.5
+        },
+        {
+          "level": 15,
+          "value": 15.0
+        }
+      ]
+    }
+  },
+  "120154": {
+    "cure": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 235.0
+        },
+        {
+          "level": 3,
+          "value": 243.0
+        },
+        {
+          "level": 4,
+          "value": 260.0
+        },
+        {
+          "level": 6,
+          "value": 268.0
+        },
+        {
+          "level": 7,
+          "value": 285.0
+        },
+        {
+          "level": 9,
+          "value": 293.0
+        },
+        {
+          "level": 10,
+          "value": 310.0
+        },
+        {
+          "level": 15,
+          "value": 385.0
+        }
+      ]
+    }
+  },
+  "120155": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 7.5
+        },
+        {
+          "level": 3,
+          "value": 8.039999961853027
+        },
+        {
+          "level": 4,
+          "value": 9.119999885559082
+        },
+        {
+          "level": 6,
+          "value": 9.65999984741211
+        },
+        {
+          "level": 7,
+          "value": 10.739999771118164
+        },
+        {
+          "level": 9,
+          "value": 11.279999732971191
+        },
+        {
+          "level": 10,
+          "value": 12.5
+        }
+      ]
+    },
+    "max": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 30.0
+        },
+        {
+          "level": 10,
+          "value": 30.0
+        },
+        {
+          "level": 15,
+          "value": 50.0
+        }
+      ]
+    }
+  },
+  "130152": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 25.0
+        },
+        {
+          "level": 3,
+          "value": 27.0
+        },
+        {
+          "level": 4,
+          "value": 31.0
+        },
+        {
+          "level": 6,
+          "value": 33.0
+        },
+        {
+          "level": 7,
+          "value": 37.0
+        },
+        {
+          "level": 9,
+          "value": 39.0
+        },
+        {
+          "level": 10,
+          "value": 45.0
+        },
+        {
+          "level": 15,
+          "value": 65.0
+        }
+      ]
+    }
+  },
+  "130153": {
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 30.0
+        },
+        {
+          "level": 10,
+          "value": 30.0
+        },
+        {
+          "level": 15,
+          "value": 60.0
+        }
+      ]
+    },
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 30.0
+        },
+        {
+          "level": 3,
+          "value": 31.8700008392334
+        },
+        {
+          "level": 4,
+          "value": 35.599998474121094
+        },
+        {
+          "level": 6,
+          "value": 37.470001220703125
+        },
+        {
+          "level": 7,
+          "value": 41.20000076293945
+        },
+        {
+          "level": 9,
+          "value": 43.06999969482422
+        },
+        {
+          "level": 10,
+          "value": 46.79999923706055
+        }
+      ]
+    }
+  },
+  "210099": {
+    "skill_id": 210099,
+    "tag_values": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          },
+          {
+            "level": 5,
+            "value": 132.60000610351562
+          },
+          {
+            "level": 10,
+            "value": 180.1999969482422
+          }
+        ]
+      }
+    }
+  },
+  "220371": {
+    "skill_id": 220371,
+    "tag_values": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 140.39999389648438
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 3,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 37.5
+          }
+        ]
+      }
+    }
+  },
+  "220372": {
+    "skill_id": 220372,
+    "tag_values": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 10,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230394": {
+    "skill_id": 230394,
+    "tag_values": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 115.0
+          },
+          {
+            "level": 5,
+            "value": 179.39999389648438
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 5,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "230395": {
+    "skill_id": 230395,
+    "tag_values": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          },
+          {
+            "level": 3,
+            "value": 7.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 40.0
+          }
+        ]
+      }
+    }
   }
 }

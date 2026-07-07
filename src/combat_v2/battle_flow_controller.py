@@ -666,15 +666,13 @@ class BattleFlowController:
 
                 if skill_type == 1:
                     # AS技能执行结束后，触发器分两阶段执行：
-                    # Phase 1（被攻撃反応）: after_ally_attacked, after_self_attacked,
-                    #   after_as_attacked, after_as_attacked_ally
-                    #   这些是对"被攻击"的反应，必须先于追撃型PS执行
-                    #   （如 外殻強化 的 def_up 必须在 チェイスブレイダー 追撃前生效）
-                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack, after_self_as,
-                    #   on_critical, skill_use_count
+                    # Phase 1（被攻撃反応+自身AS後発動）: after_ally_attacked, after_self_attacked,
+                    #   after_as_attacked, after_as_attacked_ally, after_self_as
+                    #   被攻撃反応と自身AS後発動（夜会のプレリュード等）は同リストで速度順に実行
+                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack, on_critical, skill_use_count
                     # 每阶段内部按速度→位置排序
 
-                    # ===== 收集 Phase 1: 被攻撃反応 =====
+                    # ===== 收集 Phase 1: 被攻撃反応 + 自身AS後発動 =====
                     phase1_actions = []
 
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
@@ -703,6 +701,15 @@ class BattleFlowController:
                     )
                     phase1_actions.extend(after_as_ally)
 
+                    # 自身AS攻撃後発動（如夜会のプレリュード、諸元修正、ファイティングブースト）
+                    # 被攻撃反応と同リストで速度順に実行（ゲーム内挙動：フレンジーキャノン等の反撃と同タイミングで速度競合）
+                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
+                    after_self_as = self.trigger_service.trigger_after_skill_use(
+                        unit, selected_skill, skill_result, self.battlefield,
+                        primary_target=_as_primary_target
+                    )
+                    phase1_actions.extend(after_self_as)
+
                     # ===== 收集 Phase 2: AS攻撃後追撃 =====
                     phase2_actions = []
 
@@ -715,7 +722,7 @@ class BattleFlowController:
                     phase2_actions.extend(after_ally_as)
 
                     # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
-                    # 暴击事件在AS执行中发生，应先于after_self_as(AS结束后触发)执行
+                    # 暴击事件在AS执行中发生，应先于追撃型PS执行
                     # （如 アンデッドリベンジ on_critical 需先于 ハロウィン・オブ・ザ・デッド after_as_attack）
                     if self._deferred_crit_triggers:
                         for entry in list(self._deferred_crit_triggers):
@@ -724,15 +731,6 @@ class BattleFlowController:
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
                             phase2_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
-
-                    # 自身AS攻击后触发（如諸元修正、ファイティングブースト）也属于同时机
-                    # 传递primary_target给after_self_as触发器，使PS技能（如アーマー・ジャム）能获取AS攻击目标
-                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-                    after_self_as = self.trigger_service.trigger_after_skill_use(
-                        unit, selected_skill, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-                    phase2_actions.extend(after_self_as)
 
                     # 技能使用次数触发PS（おまけで、えいっ！等）也属于同时机
                     # skill_use_count已在上方统一更新（含非伤害型AS技能）
@@ -1831,8 +1829,9 @@ class BattleFlowController:
         damaged_targets = []
 
         # 始终从skill_result中提取damaged_targets（触发器逻辑依赖此返回值）
+        # 包含damage/hp_ratio_damage/damage_special三种伤害类型，确保被攻击反应触发器能正确响应
         for applied in skill_result.get("effects_applied", []):
-            if applied.get("effect_type") == "damage":
+            if applied.get("effect_type") in ("damage", "hp_ratio_damage", "damage_special"):
                 for t in applied.get("targets", []):
                     target_unit = self._find_unit(t)
                     if target_unit:
@@ -1847,7 +1846,7 @@ class BattleFlowController:
         primary_target = None
         all_target_names = []
         for applied in skill_result.get("effects_applied", []):
-            if applied.get("effect_type") == "damage":
+            if applied.get("effect_type") in ("damage", "hp_ratio_damage", "damage_special"):
                 for t in applied.get("targets", []):
                     dname = self._get_display_name(t.get('target_id', t['target']))
                     if primary_target is None:
@@ -1933,6 +1932,26 @@ class BattleFlowController:
                             damage=t.get('actual_damage', t['damage']),
                             damage_type=dmg_type,
                             modifiers=modifiers,
+                            calc_detail=t.get('calc_detail'),
+                            max_hp=max_hp,
+                        )
+                        continue
+
+                    # 追加伤害(ADD_DAMAGE)使用专门的叙事方法
+                    is_add_damage = "追加" in (t.get("modifiers") or [])
+                    if is_add_damage:
+                        target_unit = self._find_unit(t)
+                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                        target_dname = self._get_display_name(t.get('target_id', t['target']))
+                        self.narrative.add_damage(
+                            attacker_name=caster_dname,
+                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                            target_name=target_dname,
+                            hp_before=t['hp_before'],
+                            hp_after=t['hp_after'],
+                            damage=t.get('actual_damage', t['damage']),
+                            damage_type=dmg_type,
+                            crit=t.get('crit', False),
                             calc_detail=t.get('calc_detail'),
                             max_hp=max_hp,
                         )
@@ -2085,7 +2104,7 @@ class BattleFlowController:
                     target_unit = self._find_unit(t)
                     max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
                     target_dname = self._get_display_name(t.get('target_id', t['target']))
-                    self.narrative.damage(
+                    self.narrative.hp_ratio_damage(
                         attacker_name=caster_dname,
                         attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
                         target_name=target_dname,
@@ -2093,8 +2112,7 @@ class BattleFlowController:
                         hp_after=t['hp_after'],
                         damage=t.get('actual_damage', t['damage']),
                         damage_type=dmg_type,
-                        modifiers=["追加"],
-                        shield_absorbed=t.get('shield_absorbed', 0),
+                        calc_detail=t.get('calc_detail'),
                         max_hp=max_hp,
                     )
             elif applied.get("effect_type") == "damage_special":

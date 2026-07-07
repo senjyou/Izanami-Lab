@@ -3655,5 +3655,65 @@
         "skill_master_id": 400209
       }
     ]
+  },
+  "20076": {
+    "memory_id": 20076,
+    "name": "私を見てくれるキミ",
+    "description": "ふぅ……いやあ、お客さん凝ってますねえ♪ もうガッチガチ！　腕の振るいがいがあるよ！",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 145,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400210
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 56,
+        "skill_master_id": 400151
+      }
+    ]
+  },
+  "30033": {
+    "memory_id": 30033,
+    "name": "安心する香り",
+    "description": "やっぱり……クラスナの皆さんといる時のお母様は、 厳しいようだけど、どこか安心してる感じがします……",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 2,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400211
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 8,
+        "skill_master_id": 400212
+      }
+    ]
   }
 }

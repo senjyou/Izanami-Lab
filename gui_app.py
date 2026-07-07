@@ -151,7 +151,7 @@ ENEMY_SLOT_POSITION_MAP = {
 }
 
 # 战术演习：用户模式下可选的敌方ID（经过debug验证可正常模拟的单位）
-ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405}
+ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205}
 
 # 战术演习：敌方ID → 同名角色ID（用于获取头像）
 ENEMY_AVATAR_MAP = {
@@ -159,6 +159,8 @@ ENEMY_AVATAR_MAP = {
     672105: 122301,   # ミリアム・ヘイワード
     682205: 123301,   # ハリエット・ミルズ
     703405: 144301,   # ナージャ・ヴォルコワ
+    201405: 109302,   # 夕凪舞亜
+    163205: 105302,   # 生駒葵
     222211: 112301,   # 紫雲沙耶
     243406: 114301,   # アニス・ベネット
     251105: 128301,   # ノエル・アルエ
@@ -315,6 +317,7 @@ PRESET_DIR = _USER_DATA / "presets"
 TACTICAL_PRESET_DIR = _USER_DATA / "tactical_presets"
 GLOBAL_CONFIG_PATH = _USER_DATA / "global_config.json"
 CHAR_CONFIG_PATH = _USER_DATA / "char_config.json"
+CRIT_SEQUENCE_DIR = _USER_DATA / "crit_sequences"
 # 图片资源目录（统一存放在 data/images/ 下，从 base path 读取）
 _IMAGE_BASE = _BASE_PATH / "data" / "images"
 AVATAR_DIR = _IMAGE_BASE / "avatars"          # 角色竖版头像
@@ -5317,7 +5320,7 @@ class StepCritTab(ttk.Frame):
             return
 
         # 保存到文件
-        seq_dir = _BASE_PATH / "data" / "crit_sequences"
+        seq_dir = CRIT_SEQUENCE_DIR
         seq_dir.mkdir(parents=True, exist_ok=True)
         seq_path = seq_dir / f"{name}.txt"
 
@@ -5355,7 +5358,7 @@ class StepCritTab(ttk.Frame):
 
     def _load_sequence(self):
         """从文件加载暴击序列"""
-        seq_dir = _BASE_PATH / "data" / "crit_sequences"
+        seq_dir = CRIT_SEQUENCE_DIR
         seq_dir.mkdir(parents=True, exist_ok=True)
 
         # 列出可用序列
@@ -5408,7 +5411,7 @@ class StepCritTab(ttk.Frame):
 
     def _delete_sequence(self):
         """删除已保存的暴击序列"""
-        seq_dir = _BASE_PATH / "data" / "crit_sequences"
+        seq_dir = CRIT_SEQUENCE_DIR
         seq_dir.mkdir(parents=True, exist_ok=True)
 
         seq_files = sorted(seq_dir.glob("*.txt"))

@@ -219,7 +219,8 @@ class SkillEffectType(Enum):
     MARK = "Mark"                                     # 41: 标记
     ACTION_DAMAGE = "ActionDamage"                    # 行動時ダメージ (行动时受到攻击力x%伤害)
     GENWAKU = "Genwaku"                               # 幻惑 (攻击者持有時、ダメージを回復へ変換)
-    
+    HEAL_LINK = "HealLink"                            # 回復リンク (対象が受けた回復効果を指定単位に転送)
+
     # 属性/战斗修正
     CRITICAL_BONUS_MODIFICATION = "CriticalBonusModification" # 14: 暴击伤害倍率修正
     ATTRIBUTE_ATTACK = "AttributeAttack"              # 15: 属性攻击力修正 (例如：对火属性伤害增加)
@@ -230,6 +231,7 @@ class SkillEffectType(Enum):
     RECEIVED_HEALING = "ReceivedHealing"              # 26: 受到的治疗量修正
     DAMAGE_SPECIAL = "DamageSpecial"                  # 27: 特殊伤害 (如HP依存等)
     ENCHANT_DAMAGE = "EnchantDamage"                  # 34: 附魔伤害 (额外伤害?)
+    ADD_DAMAGE = "AddDamage"                          # 追加伤害 (套用buff持有者ATK，类似子单位伤害但无代替盾)
     ENCHANT_ATTACK = "EnchantAttack"                  # 35: 附魔攻击 (攻击属性变化?)
     PENETRATE_DEFENSE = "PenetrateDefense"            # 36: 防御穿透/破防
     MODIFY_SKILL_POWER = "ModifySkillPower"           # 40: 技能威力修正

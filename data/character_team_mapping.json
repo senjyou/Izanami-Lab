@@ -265,6 +265,12 @@
       "name_ruby": "たちあなどろずどゔぁ",
       "team_id": 601,
       "team_name": "クラスナ"
+    },
+    "145": {
+      "name": "エレーナ・パステルコワ",
+      "name_ruby": "えれーなぱすてるこわ",
+      "team_id": 601,
+      "team_name": "クラスナ"
     }
   },
   "character_variants": {
@@ -569,6 +575,12 @@
     "146": [
       {
         "character_id": 146301,
+        "rarity": "N/A"
+      }
+    ],
+    "145": [
+      {
+        "character_id": 145301,
         "rarity": "N/A"
       }
     ]

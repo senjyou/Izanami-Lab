@@ -73564,5 +73564,992 @@
       }
     ],
     "template_tags": {}
+  },
+  "400210": {
+    "skill_id": 400210,
+    "name": "HP上昇【エレーナ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。エレーナ・パステルコワのHPを1500上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400211": {
+    "skill_id": 400211,
+    "name": "ENダメージ上昇【ENアタッカー】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。ENアタッカーの味方全員に対し、EN攻撃で与えるダメージを3.5%"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400212": {
+    "skill_id": 400212,
+    "name": "攻撃1行動上昇【左列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。左列後衛の味方の攻撃力を1行動の間2500上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "110069": {
+    "skill_id": 110069,
+    "name": "あったかいの、どうぞ♪",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も攻撃力が高い味方単体の攻撃力を35%、与ダメージを10%増加させ、攻撃時に攻撃力×{dmg}%のダメージを追加するバフを付与する"
+      },
+      {
+        "min_level": 11,
+        "template": "最も攻撃力が高い味方単体の攻撃力を35%、与ダメージを10%増加させ、攻撃時に攻撃力×{dmg}%のダメージを追加するバフを付与する。\nさらに最も攻撃力が低い味方単体に対しても、攻撃力を35%、与ダメージを10%増加させ、攻撃時に攻撃力×{dmg2}%のダメージを追加するバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 8.319999694824219
+          },
+          {
+            "level": 4,
+            "value": 9.960000038146973
+          },
+          {
+            "level": 6,
+            "value": 10.779999732971191
+          },
+          {
+            "level": 7,
+            "value": 12.420000076293945
+          },
+          {
+            "level": 9,
+            "value": 13.239999771118164
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "120154": {
+    "skill_id": 120154,
+    "name": "私に任せて！",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の現在HPの10%を消費し、最もHPの低い味方単体のHPを消費分×{cure}%分回復する。\nさらに最もHP割合の低い敵単体と自身に対して自身が1回行動を終えるまでの間回復リンクを付与し、対象が得られる回復効果を100%自身に転送する状態にする。\nこのスキルは、以下のいずれかの場合には発動しない\n・HPが70%未満の味方がいない場合\n・自身以外の味方が生存していない場合\n・自身のHPが40%未満の場合"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 235.0
+          },
+          {
+            "level": 3,
+            "value": 243.0
+          },
+          {
+            "level": 4,
+            "value": 260.0
+          },
+          {
+            "level": 6,
+            "value": 268.0
+          },
+          {
+            "level": 7,
+            "value": 285.0
+          },
+          {
+            "level": 9,
+            "value": 293.0
+          },
+          {
+            "level": 10,
+            "value": 310.0
+          },
+          {
+            "level": 15,
+            "value": 385.0
+          }
+        ]
+      }
+    }
+  },
+  "120155": {
+    "skill_id": 120155,
+    "name": "苦手なのはそこだね！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に、対象の現在HP×{dmg}%分のダメージを与える攻撃を行う。この攻撃によるダメージは自身の攻撃力×{max}%を上限とする"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 8.039999961853027
+          },
+          {
+            "level": 4,
+            "value": 9.119999885559082
+          },
+          {
+            "level": 6,
+            "value": 9.65999984741211
+          },
+          {
+            "level": 7,
+            "value": 10.739999771118164
+          },
+          {
+            "level": 9,
+            "value": 11.279999732971191
+          },
+          {
+            "level": 10,
+            "value": 12.5
+          }
+        ]
+      },
+      "max": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "130152": {
+    "skill_id": 130152,
+    "name": "リラックスだよ～♪",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルを4回使用するたびに発動。自身のHPを威力{威力}で回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 27.0
+          },
+          {
+            "level": 4,
+            "value": 31.0
+          },
+          {
+            "level": 6,
+            "value": 33.0
+          },
+          {
+            "level": 7,
+            "value": 37.0
+          },
+          {
+            "level": 9,
+            "value": 39.0
+          },
+          {
+            "level": 10,
+            "value": 45.0
+          },
+          {
+            "level": 15,
+            "value": 65.0
+          }
+        ]
+      }
+    }
+  },
+  "130153": {
+    "skill_id": 130153,
+    "name": "それはやりすぎ！",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が敵に倒された際に発動。一時的に自身の攻撃力を{atk}%上昇させ（重複可）、敵全体に威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          },
+          {
+            "level": 15,
+            "value": 60.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 31.8700008392334
+          },
+          {
+            "level": 4,
+            "value": 35.599998474121094
+          },
+          {
+            "level": 6,
+            "value": 37.470001220703125
+          },
+          {
+            "level": 7,
+            "value": 41.20000076293945
+          },
+          {
+            "level": 9,
+            "value": 43.06999969482422
+          },
+          {
+            "level": 10,
+            "value": 46.79999923706055
+          }
+        ]
+      }
+    }
+  },
+  "210100": {
+    "skill_id": 210100,
+    "name": "シャル・ウィ・ダンス？",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 21,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      },
+      {
+        "level": 5,
+        "value": 7
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合が低い敵単体に威力{威力}で攻撃する。さらに敵全体の行動速度を1行動の間20%低下させる（重複可）"
+      },
+      {
+        "min_level": 5,
+        "template": "最もHP割合が低い敵単体に威力{威力}で攻撃する。さらに敵全体の行動速度を1行動の間20%低下させ（重複可）、味方全体の行動速度を1行動の間{spd}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 156.0
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 8.5
+          },
+          {
+            "level": 10,
+            "value": 12.5
+          }
+        ]
+      }
+    }
+  },
+  "220373": {
+    "skill_id": 220373,
+    "name": "絢爛なるワルツ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵2体に対して自身が2回行動を終えるまでの間「乱調」を付与し、威力{威力}で攻撃する。既に対象が「乱調」を所持している場合は新たに付与しない"
+      },
+      {
+        "min_level": 10,
+        "template": "敵2体に対して自身が2回行動を終えるまでの間「乱調」を付与し、威力{威力}で攻撃する。既に対象が「乱調」を所持している場合は新たに付与しない。\nさらに1行動の間、対象の与ダメージを{dmg}%減少させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 5,
+            "value": 54.599998474121094
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 9,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      }
+    }
+  },
+  "220374": {
+    "skill_id": 220374,
+    "name": "優雅なるロンド",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で攻撃し、1行動の間対象の行動速度を{spd}低下させる（重複可）"
+      },
+      {
+        "min_level": 5,
+        "template": "敵単体に威力{威力}で攻撃し、1行動の間対象の行動速度を{spd}低下させる（重複可）。さらに1行動の間得られるEXゲージを50%減少させるデバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          },
+          {
+            "level": 3,
+            "value": 109.19999694824219
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 4,
+            "value": 40.0
+          },
+          {
+            "level": 10,
+            "value": 80.0
+          }
+        ]
+      }
+    }
+  },
+  "230396": {
+    "skill_id": 230396,
+    "name": "夜会のプレリュード",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 10
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルを使用するたびに発動。\n自身が「華舞」を所持していた場合最大HP×{cure}%分自身のHPを回復し、「華舞」を所持していなかった場合「華舞」を1つ付与する。\nさらに自身の最大HPを{hp}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 10,
+        "template": "自身がアクティブスキルを使用するたびに発動。\n自身が「華舞」を所持していた場合最大HP×{cure}%分自身のHPを回復し、「華舞」を所持していなかった場合「華舞」を1つ付与する。\nさらに自身の最大HPを{hp}%上昇させ（重複可）、1行動の間向けられる状態異常を無効化するバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.3499999940395355
+          },
+          {
+            "level": 4,
+            "value": 0.3499999940395355
+          },
+          {
+            "level": 5,
+            "value": 0.44999998807907104
+          }
+        ]
+      },
+      "hp": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          },
+          {
+            "level": 3,
+            "value": 3.1500000953674316
+          }
+        ]
+      }
+    }
+  },
+  "230397": {
+    "skill_id": 230397,
+    "name": "ポストリュード",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「乱調」を所持している敵のHPが60%以下になった際に発動。敵全体に威力{威力}で攻撃する。\n攻撃後、敵全体から「乱調」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 156.0
+          },
+          {
+            "level": 10,
+            "value": 212.0
+          }
+        ]
+      }
+    }
+  },
+  "210099": {
+    "skill_id": 210099,
+    "name": "衣擦れの調べ",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 22,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 7
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "所持している「浮足」の数が最も多い敵を優先し、敵前後列に威力{威力}で攻撃する。対象が「浮足」を所持している場合、2行動の間攻撃力を15%低下させる（重複可）。\nさらにスキル「優雅な足取り」のクールタイムをリセットして再び使用できるようにする"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          },
+          {
+            "level": 5,
+            "value": 132.60000610351562
+          },
+          {
+            "level": 10,
+            "value": 180.1999969482422
+          }
+        ]
+      }
+    }
+  },
+  "220371": {
+    "skill_id": 220371,
+    "name": "百花繚乱",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も残りHPが多い敵単体に威力{威力}で攻撃し、「浮足」を1つ付与する。\nこの攻撃によって付与された「浮足」が3つ以上になった場合、「浮足」を全て解除して「高揚」を1つ付与する。「高揚」は1つにつき対象の会心率を{crt}%低下させ（重複可）、行動時に攻撃力×{dmg}%のダメージを受けるデバフを付与する。会心率デバフと継続ダメージデバフは解除不可だが、「高揚」が解除されると同時に解除される。\n「高揚」は付与者が倒れると同時に解除される"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 140.39999389648438
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 3,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 37.5
+          }
+        ]
+      }
+    }
+  },
+  "220372": {
+    "skill_id": 220372,
+    "name": "清廉なる一撃",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身から最も遠い位置にいる敵単体、および対象に隣接する2体に対し威力{威力}で攻撃し、自身が2回行動を終えるまでの間「浮足」を1つ付与する。\n対象が「浮足」を所持している場合、追加で対象の現在HP×20%のダメージを与える。このダメージは自身の攻撃力×50%を上限とする"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 10,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230394": {
+    "skill_id": 230394,
+    "name": "優雅な足取り",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に威力{威力}で反撃し、2行動の間対象の攻撃力を{atk}%低下させる。このスキルは戦闘中に1度しか発動できないが、条件を満たした場合再び使用できる"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 115.0
+          },
+          {
+            "level": 5,
+            "value": 179.39999389648438
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 5,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "230395": {
+    "skill_id": 230395,
+    "name": "高貴な一礼",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 1,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      },
+      {
+        "level": 5,
+        "value": 6
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。敵単体の会心率を{crt}%、会心ダメージを{crtdmg}%低下させる。\nまた「高揚」を2つ以上所持している敵がいた場合、対象から「高揚」を全て解除する"
+      },
+      {
+        "min_level": 5,
+        "template": "ターン開始時に発動。敵単体の会心率を{crt}%、会心ダメージを{crtdmg}%低下させ、「浮足」を1つ付与する。\nさらに自身に対し、「浮足」を所持している敵から受ける攻撃の被ダメージを{dmg}%減少させる効果を付与する。\nまた「高揚」を2つ以上所持している敵がいた場合、対象から「高揚」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          },
+          {
+            "level": 3,
+            "value": 7.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 40.0
+          }
+        ]
+      }
+    }
   }
 }

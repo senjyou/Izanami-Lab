@@ -52,6 +52,8 @@ The simulator currently supports a limited set of characters. More will be added
 | 憎まれ口の大賢者       | ハリエット・ミルズ    |
 | 元気印の大魔導士       | ミリアム・ヘイワード   |
 | 恥じらうカジノラビット    | 劉翠蘭          |
+| 理解深き老成の智者      | タチアナ・ドロズドヴァ  |
+| 心色見つめるムードメーカー  | エレーナ・パステルコワ  |
 
 ## Tactical Exercise Enemies
 
@@ -61,4 +63,6 @@ The simulator currently supports a limited set of characters. More will be added
 | ミリアム・ヘイワード |
 | ハリエット・ミルズ  |
 | ナージャ・ヴォルコワ |
+| 夕凪舞亜       |
+| 生駒葵        |
 

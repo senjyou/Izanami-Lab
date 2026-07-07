@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from ...entities_v2.unit_state import UnitState
 from ...entities_v2.battlefield_state import BattlefieldState
-from ...entities_v2.enums import TriggerTiming, SkillType, Position, SkillEffectType
+from ...entities_v2.enums import TriggerTiming, SkillType, Position, SkillEffectType, Side
 from ..battle_logger import battle_logger
 
 _log = battle_logger()
@@ -1191,7 +1191,10 @@ class TriggerService:
             return result
 
         if cond_type == "enemy_alive_count":
-            enemies = [u for u in context.battlefield.enemy_team if u.is_alive]
+            opposing = (context.battlefield.friend_team
+                        if owner.side == Side.ENEMY
+                        else context.battlefield.enemy_team)
+            enemies = [u for u in opposing if u.is_alive]
             count = len(enemies)
             result = _eval_condition(count, op, val)
             _log.info("[TRIGGER_COND] %s: enemy_alive_count %d %s %d => %s",
@@ -1271,9 +1274,13 @@ class TriggerService:
         if cond_type == "enemy_hp_percent":
             # 优先检查触发源单位（on_hp_below上下文中的triggered_by）
             # 如指定mark_name，则只检查持有该mark的单位（ポストリュード：乱調）
+            # 注意：敌方PS持有者的"敌"应为对立阵营（friend_team），而非固定enemy_team
+            opposing_team = (context.battlefield.friend_team
+                             if owner.side == Side.ENEMY
+                             else context.battlefield.enemy_team)
             mark_name = condition.get('mark_name') if isinstance(condition, dict) else None
             if mark_name:
-                enemies = [u for u in context.battlefield.enemy_team
+                enemies = [u for u in opposing_team
                           if u.is_alive and any(getattr(d, 'name', '') == mark_name for d in (u.debuffs or []))]
                 if enemies:
                     crossed = [e for e in enemies
@@ -1290,7 +1297,7 @@ class TriggerService:
                 _log.info("[TRIGGER_COND] %s: enemy_hp_percent triggered_by=%s hp=%.1f%% %s %.0f%% => %s",
                           owner.name, e.name, pct, op, val, result)
             else:
-                enemies = [u for u in context.battlefield.enemy_team if u.is_alive]
+                enemies = [u for u in opposing_team if u.is_alive]
                 max_hp_pct = 0
                 for e in enemies:
                     pct = e.current_hp / e.max_hp * 100 if e.max_hp > 0 else 0
@@ -1590,9 +1597,9 @@ class TriggerService:
 
         if cond_type == "is_status_ailment":
             # Status ailment is a subset of debuff: only Knockout, Conflagration, Poison,
-            # Freeze, Darkness, Confusion
+            # Freeze, Darkness, Confusion, Genwaku
             STATUS_AILMENT_TYPES = {"knockout", "conflagration", "poison", "freeze",
-                                    "darkness", "confusion"}
+                                    "darkness", "confusion", "genwaku"}
             # 如果本次有施加debuff，只检查本次施加的类型是否为状态异常
             # 不回退到检查目标当前debuff（避免因为之前的状态异常而误触发）
             if context.applied_debuff_types:
