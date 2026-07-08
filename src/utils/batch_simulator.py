@@ -43,7 +43,8 @@ def _worker_init(data_dir: str,
                  max_turns: int,
                  positions_ally: List[Any],
                  positions_enemy: List[Any],
-                 mem_cards_data: list = None):
+                 mem_cards_data: list = None,
+                 enable_rdps: bool = True):
     """Worker进程初始化——每个worker调用一次"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
@@ -69,6 +70,7 @@ def _worker_init(data_dir: str,
         'max_turns': max_turns,
         'positions_ally': list(positions_ally),
         'positions_enemy': list(positions_enemy),
+        'enable_rdps': enable_rdps,
     }
     _worker_mem_cards = list(mem_cards_data) if mem_cards_data else []
 
@@ -129,6 +131,7 @@ def _worker_run_batch(seeds: List[int]) -> List[Dict[str, Any]]:
         # 战斗配置
         bc = BattleConfig()
         bc.max_turns = cfg['max_turns']
+        bc.enable_rdps = cfg.get('enable_rdps', True)
 
         controller = BattleFlowController(bf, data_loader=dl, config=bc)
         result = controller.execute_battle()
@@ -170,6 +173,7 @@ def _worker_run_batch(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_total_damage_received': score_data.get("enemy_total_damage_received", 0) if score_data else 0,
             'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0) if score_data else 0,
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
+            'rdps': result.get("rdps"),
         })
 
     return results
@@ -280,7 +284,8 @@ def _worker_init_tactical(data_dir: str,
                           enemy_data: Dict[str, Any],
                           enemy_pos: Any,
                           positions_ally: List[Any],
-                          mem_cards_data: list = None):
+                          mem_cards_data: list = None,
+                          enable_rdps: bool = True):
     """战术演习 worker 初始化——每个 worker 调用一次"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
@@ -302,6 +307,7 @@ def _worker_init_tactical(data_dir: str,
         'friends_chars': list(friends_chars),
         'friend_positions': list(friend_positions),
         'positions_ally': list(positions_ally),
+        'enable_rdps': enable_rdps,
     }
     _worker_tactical_cfg = {
         'enemy_data': enemy_data,
@@ -358,6 +364,7 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
 
         bc = BattleConfig()
         bc.max_turns = 5
+        bc.enable_rdps = cfg.get('enable_rdps', True)
 
         controller = TacticalExerciseController(bf, data_loader=dl, config=bc)
         result = controller.execute_battle()
@@ -383,6 +390,7 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0) if score_data else 0,
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
             'unit_stats': score_data.get("unit_stats", {}) if score_data else {},
+            'rdps': result.get("rdps"),
         })
 
     return results
@@ -522,7 +530,8 @@ def _worker_init_circle(data_dir: str,
                         season: int,
                         stage: int,
                         mem_cards_data: list = None,
-                        enemy_state_overrides: dict = None):
+                        enemy_state_overrides: dict = None,
+                        enable_rdps: bool = True):
     """对抗压制战 worker 初始化"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
@@ -552,6 +561,7 @@ def _worker_init_circle(data_dir: str,
         'season': season,
         'stage': stage,
         'enemy_state_overrides': enemy_state_overrides or {},
+        'enable_rdps': enable_rdps,
     }
     _worker_mem_cards = list(mem_cards_data) if mem_cards_data else []
 
@@ -607,6 +617,7 @@ def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
 
         bc = BattleConfig()
         bc.max_turns = max_turns
+        bc.enable_rdps = cc.get('enable_rdps', True)
 
         controller = CircleBattleController(bf, data_loader=dl, config=bc,
                                             season=season, stage=stage,
@@ -648,6 +659,7 @@ def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
             'unit_stats': unit_stats,
             'alive_enemy_count': alive_enemy_count,
             'enemy_damage_received': enemy_damage_received,
+            'rdps': result.get("rdps"),
         })
 
     return results
@@ -679,6 +691,7 @@ class BatchResult:
     all_enemy_received: list = field(default_factory=list)
     all_enemy_healed: list = field(default_factory=list)
     all_enemy_healing_received: list = field(default_factory=list)
+    rdps_avg: dict = field(default_factory=dict)  # 场均 RDPS 统计
 
     @property
     def win_rate(self) -> float:
@@ -721,6 +734,97 @@ class BatchSimulator:
             self.max_workers = max(1, (os.cpu_count() or 4))
         self._data_dir = str(data_loader._data_dir)
 
+    @staticmethod
+    def _aggregate_rdps(per_battle_results: list) -> dict:
+        """聚合多场战斗的 RDPS 数据，返回场均统计
+
+        Args:
+            per_battle_results: 每场战斗的结果列表（含 'rdps' 字段）
+
+        Returns:
+            场均 RDPS 字典（结构与 RDPSResult.to_dict() 兼容），无数据时返回空 dict
+        """
+        rdps_battles = [r.get('rdps') for r in per_battle_results if r.get('rdps')]
+        if not rdps_battles:
+            return {}
+
+        n = len(rdps_battles)
+        unit_accum: Dict[str, dict] = {}
+        card_accum: Dict[int, dict] = {}
+        total_dmg_sum = 0.0
+
+        for rdps in rdps_battles:
+            total_dmg_sum += rdps.get('total_damage_to_enemies', 0)
+            for uid, s in rdps.get('unit_stats', {}).items():
+                if uid not in unit_accum:
+                    unit_accum[uid] = {
+                        'name': s.get('name', uid), 'side': s.get('side', ''),
+                        'direct_damage': 0.0, 'buff_contribution': 0.0,
+                        'debuff_contribution': 0.0, 'enchant_contribution': 0.0,
+                        'total_rdps': 0.0,
+                        'detail': {'atk_buff': 0.0, 'def_debuff': 0.0,
+                                   'dealt_dmg': 0.0, 'received_dmg': 0.0,
+                                   'crit': 0.0, 'penetrate': 0.0},
+                    }
+                u = unit_accum[uid]
+                for f in ('direct_damage', 'buff_contribution', 'debuff_contribution',
+                          'enchant_contribution', 'total_rdps'):
+                    u[f] += s.get(f, 0)
+                detail = s.get('detail', {})
+                if detail:
+                    for f in ('atk_buff', 'def_debuff', 'dealt_dmg',
+                              'received_dmg', 'crit', 'penetrate'):
+                        u['detail'][f] += detail.get(f, 0)
+
+            for cid, s in rdps.get('memory_card_stats', {}).items():
+                cid_int = int(cid)
+                if cid_int not in card_accum:
+                    card_accum[cid_int] = {
+                        'card_name': s.get('card_name', str(cid_int)),
+                        'buff_contribution': 0.0, 'debuff_contribution': 0.0,
+                        'direct_damage': 0.0, 'total_rdps': 0.0,
+                    }
+                c = card_accum[cid_int]
+                for f in ('buff_contribution', 'debuff_contribution',
+                          'direct_damage', 'total_rdps'):
+                    c[f] += s.get(f, 0)
+
+        # 求场均
+        unit_stats_avg = {}
+        for uid, s in unit_accum.items():
+            unit_stats_avg[uid] = {
+                'unit_id': uid, 'name': s['name'], 'side': s['side'],
+                'direct_damage': s['direct_damage'] / n,
+                'buff_contribution': s['buff_contribution'] / n,
+                'debuff_contribution': s['debuff_contribution'] / n,
+                'enchant_contribution': s['enchant_contribution'] / n,
+                'total_rdps': s['total_rdps'] / n,
+                'detail': {k: v / n for k, v in s['detail'].items()},
+            }
+        card_stats_avg = {}
+        for cid, s in card_accum.items():
+            card_stats_avg[cid] = {
+                'card_name': s['card_name'],
+                'buff_contribution': s['buff_contribution'] / n,
+                'debuff_contribution': s['debuff_contribution'] / n,
+                'direct_damage': s['direct_damage'] / n,
+                'total_rdps': s['total_rdps'] / n,
+            }
+
+        sum_unit = sum(s['total_rdps'] for s in unit_stats_avg.values())
+        sum_card = sum(s['total_rdps'] for s in card_stats_avg.values())
+        total_avg = total_dmg_sum / n
+
+        return {
+            'total_damage_to_enemies': total_avg,
+            'unit_stats': unit_stats_avg,
+            'memory_card_stats': card_stats_avg,
+            'sum_unit_rdps': sum_unit,
+            'sum_memory_rdps': sum_card,
+            'discrepancy': total_avg - sum_unit - sum_card,
+            'battle_count': n,
+        }
+
     def run_batch(
         self,
         panel_config,
@@ -735,6 +839,7 @@ class BatchSimulator:
         progress_callback: Callable[[int, int], None] = None,
         batch_size: int = None,
         memory_cards: list = None,
+        enable_rdps: bool = True,
     ) -> BatchResult:
         """执行多进程批量模拟
 
@@ -788,6 +893,7 @@ class BatchSimulator:
                 positions_ally, positions_enemy,
                 seed_batches, progress_callback,
                 memory_cards=memory_cards,
+                enable_rdps=enable_rdps,
             )
         except Exception as e:
             print(f"  [WARN] 多进程模拟失败，回退到单进程模式: {e}")
@@ -798,6 +904,7 @@ class BatchSimulator:
                 positions_ally, positions_enemy,
                 seed_batches, progress_callback,
                 memory_cards=memory_cards,
+                enable_rdps=enable_rdps,
             )
 
     def _run_multiprocess(
@@ -806,6 +913,7 @@ class BatchSimulator:
         positions_ally, positions_enemy,
         seed_batches, progress_callback,
         memory_cards=None,
+        enable_rdps: bool = True,
     ) -> BatchResult:
         """多进程模式执行"""
         n_workers = min(self.max_workers, len(seed_batches))
@@ -821,6 +929,7 @@ class BatchSimulator:
             positions_ally,
             positions_enemy,
             memory_cards if memory_cards else [],
+            enable_rdps,
         )
 
         # 使用spawn上下文（Windows兼容）
@@ -849,6 +958,8 @@ class BatchSimulator:
         all_enemy_healing_received = []
         completed = 0
         t0 = time.time()
+        all_rdps = []
+        all_rdps = []
 
         try:
             # imap_unordered: 流式处理，哪个worker先完成就返回哪个结果
@@ -883,6 +994,7 @@ class BatchSimulator:
                     all_enemy_received.append(stats.get('enemy_total_damage_received', 0))
                     all_enemy_healed.append(stats.get('enemy_total_hp_healed', 0))
                     all_enemy_healing_received.append(stats.get('enemy_healing_received', 0))
+                    all_rdps.append(stats)
 
                 # 进度回调
                 if progress_callback:
@@ -915,6 +1027,7 @@ class BatchSimulator:
             all_enemy_received=all_enemy_received,
             all_enemy_healed=all_enemy_healed,
             all_enemy_healing_received=all_enemy_healing_received,
+            rdps_avg=self._aggregate_rdps(all_rdps),
         )
 
     def _run_single_process(
@@ -923,6 +1036,7 @@ class BatchSimulator:
         positions_ally, positions_enemy,
         seed_batches, progress_callback,
         memory_cards=None,
+        enable_rdps: bool = True,
     ) -> BatchResult:
         """单进程回退模式"""
         from src.entities_v2.unit_state import UnitState
@@ -955,6 +1069,7 @@ class BatchSimulator:
         all_enemy_healing_received = []
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -989,6 +1104,7 @@ class BatchSimulator:
 
                 bc = BattleConfig()
                 bc.max_turns = max_turns
+                bc.enable_rdps = enable_rdps
                 controller = BattleFlowController(bf, data_loader=dl, config=bc)
                 result = controller.execute_battle()
 
@@ -1023,6 +1139,7 @@ class BatchSimulator:
                 all_enemy_received.append(score_data.get("enemy_total_damage_received", 0))
                 all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
+                all_rdps.append({'rdps': result.get("rdps")})
 
             if progress_callback:
                 progress_callback(completed, total_runs)
@@ -1050,6 +1167,7 @@ class BatchSimulator:
             all_enemy_received=all_enemy_received,
             all_enemy_healed=all_enemy_healed,
             all_enemy_healing_received=all_enemy_healing_received,
+            rdps_avg=self._aggregate_rdps(all_rdps),
         )
 
     # ============ 战术演习批量模拟 ============
@@ -1066,6 +1184,7 @@ class BatchSimulator:
         progress_callback: Callable[[int, int], None] = None,
         batch_size: int = None,
         memory_cards: list = None,
+        enable_rdps: bool = True,
     ) -> Dict[str, Any]:
         """执行战术演习多进程批量模拟"""
         if positions_ally is None:
@@ -1092,6 +1211,7 @@ class BatchSimulator:
                 enemy_data, enemy_pos, total_runs,
                 positions_ally, seed_batches, progress_callback,
                 memory_cards=memory_cards,
+                enable_rdps=enable_rdps,
             )
         except Exception as e:
             print(f"  [WARN] 多进程战术演习失败，回退到单进程模式: {e}")
@@ -1101,6 +1221,7 @@ class BatchSimulator:
                 enemy_data, enemy_pos, total_runs,
                 positions_ally, seed_batches, progress_callback,
                 memory_cards=memory_cards,
+                enable_rdps=enable_rdps,
             )
 
     def _run_multiprocess_tactical(
@@ -1108,6 +1229,7 @@ class BatchSimulator:
         enemy_data, enemy_pos, total_runs,
         positions_ally, seed_batches, progress_callback,
         memory_cards=None,
+        enable_rdps: bool = True,
     ):
         n_workers = min(self.max_workers, len(seed_batches))
 
@@ -1120,6 +1242,7 @@ class BatchSimulator:
             enemy_pos,
             positions_ally,
             memory_cards if memory_cards else [],
+            enable_rdps,
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1148,6 +1271,7 @@ class BatchSimulator:
         score_records = []
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1177,6 +1301,7 @@ class BatchSimulator:
                     all_enemy_healed.append(stats['enemy_total_hp_healed'])
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
+                    all_rdps.append(stats)
 
                     score_records.append((stats['score'], completed - 1, stats['seed'], stats))
 
@@ -1207,6 +1332,7 @@ class BatchSimulator:
             "all_unit_stats": all_unit_stats,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
+            "rdps_avg": self._aggregate_rdps(all_rdps),
         }
 
     def _run_single_process_tactical(
@@ -1214,6 +1340,7 @@ class BatchSimulator:
         enemy_data, enemy_pos, total_runs,
         positions_ally, seed_batches, progress_callback,
         memory_cards=None,
+        enable_rdps: bool = True,
     ):
         from src.entities_v2.battlefield_state import BattlefieldState
         from src.entities_v2.enums import Side, Position
@@ -1247,6 +1374,7 @@ class BatchSimulator:
         score_records = []
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1271,6 +1399,7 @@ class BatchSimulator:
 
                 bc = BattleConfig()
                 bc.max_turns = 5
+                bc.enable_rdps = enable_rdps
                 controller = TacticalExerciseController(bf, data_loader=dl, config=bc)
                 result = controller.execute_battle()
 
@@ -1298,6 +1427,7 @@ class BatchSimulator:
                     all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                     all_unit_stats.append(score_data.get("unit_stats", {}))
                     score_records.append((score_data.get("total_score", 0), completed - 1, seed, result))
+                all_rdps.append({'rdps': result.get("rdps")})
 
             if progress_callback:
                 progress_callback(completed, total_runs)
@@ -1322,6 +1452,7 @@ class BatchSimulator:
             "all_unit_stats": all_unit_stats,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
+            "rdps_avg": self._aggregate_rdps(all_rdps),
         }
 
     # ============ 对抗压制战批量模拟 ============
@@ -1341,6 +1472,7 @@ class BatchSimulator:
         batch_size: int = None,
         memory_cards: list = None,
         enemy_state_overrides: dict = None,
+        enable_rdps: bool = True,
     ) -> Dict[str, Any]:
         """执行对抗压制战多进程批量模拟"""
         if positions_ally is None:
@@ -1368,6 +1500,7 @@ class BatchSimulator:
                 positions_ally, seed_batches, progress_callback,
                 season=season, stage=stage, memory_cards=memory_cards,
                 enemy_state_overrides=enemy_state_overrides,
+                enable_rdps=enable_rdps,
             )
         except Exception as e:
             print(f"  [WARN] 多进程对抗压制战失败，回退到单进程模式: {e}")
@@ -1378,6 +1511,7 @@ class BatchSimulator:
                 positions_ally, seed_batches, progress_callback,
                 season=season, stage=stage, memory_cards=memory_cards,
                 enemy_state_overrides=enemy_state_overrides,
+                enable_rdps=enable_rdps,
             )
 
     def _run_multiprocess_circle(
@@ -1385,6 +1519,7 @@ class BatchSimulator:
         enemies_data, max_turns, total_runs,
         positions_ally, seed_batches, progress_callback,
         season=5, stage=100, memory_cards=None, enemy_state_overrides=None,
+        enable_rdps: bool = True,
     ):
         n_workers = min(self.max_workers, len(seed_batches))
 
@@ -1400,6 +1535,7 @@ class BatchSimulator:
             stage,
             memory_cards if memory_cards else [],
             enemy_state_overrides if enemy_state_overrides else {},
+            enable_rdps,
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1426,6 +1562,7 @@ class BatchSimulator:
 
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1454,6 +1591,7 @@ class BatchSimulator:
                     all_enemy_healed.append(stats['enemy_total_hp_healed'])
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
+                    all_rdps.append(stats)
 
                     score_records.append((ally_dmg, run_idx, stats['seed'], stats))
 
@@ -1484,6 +1622,7 @@ class BatchSimulator:
             "score_records": score_records,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
+            "rdps_avg": self._aggregate_rdps(all_rdps),
         }
 
     def _run_single_process_circle(
@@ -1491,6 +1630,7 @@ class BatchSimulator:
         enemies_data, max_turns, total_runs,
         positions_ally, seed_batches, progress_callback,
         season=5, stage=100, memory_cards=None, enemy_state_overrides=None,
+        enable_rdps: bool = True,
     ):
         from src.entities_v2.battlefield_state import BattlefieldState
         from src.entities_v2.enums import Side, Position
@@ -1522,6 +1662,7 @@ class BatchSimulator:
 
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1547,6 +1688,7 @@ class BatchSimulator:
 
                 bc = BattleConfig()
                 bc.max_turns = max_turns
+                bc.enable_rdps = enable_rdps
 
                 controller = CircleBattleController(bf, data_loader=dl, config=bc,
                                                     season=season, stage=stage,
@@ -1581,6 +1723,7 @@ class BatchSimulator:
                 all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                 all_unit_stats.append(unit_stats)
+                all_rdps.append({'rdps': result.get("rdps")})
 
                 stats = {
                     'seed': seed,
@@ -1621,6 +1764,7 @@ class BatchSimulator:
             "score_records": score_records,
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
+            "rdps_avg": self._aggregate_rdps(all_rdps),
         }
 
     # ============ 联合战术演习 ============
@@ -1636,6 +1780,7 @@ class BatchSimulator:
         progress_callback: Callable[[int, int], None] = None,
         batch_size: int = None,
         teams_mem_cards: List[List[Any]] = None,
+        enable_rdps: bool = True,
     ) -> Dict[str, Any]:
         """执行联合战术演习多进程批量模拟
 
@@ -1666,6 +1811,7 @@ class BatchSimulator:
                 panel_config, teams_positions, enemies_data, max_turns,
                 total_runs, positions_ally, seed_batches, progress_callback,
                 teams_mem_cards=teams_mem_cards,
+                enable_rdps=enable_rdps,
             )
         except Exception as e:
             print(f"  [WARN] 多进程联合战术演习失败，回退到单进程模式: {e}")
@@ -1674,12 +1820,14 @@ class BatchSimulator:
                 panel_config, teams_positions, enemies_data, max_turns,
                 total_runs, positions_ally, seed_batches, progress_callback,
                 teams_mem_cards=teams_mem_cards,
+                enable_rdps=enable_rdps,
             )
 
     def _run_multiprocess_composite(
         self, panel_config, teams_positions, enemies_data, max_turns,
         total_runs, positions_ally, seed_batches, progress_callback,
         teams_mem_cards=None,
+        enable_rdps: bool = True,
     ):
         n_workers = min(self.max_workers, len(seed_batches))
 
@@ -1691,6 +1839,7 @@ class BatchSimulator:
             max_turns,
             positions_ally,
             teams_mem_cards if teams_mem_cards else [[], [], []],
+            enable_rdps,
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1709,6 +1858,7 @@ class BatchSimulator:
 
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1722,6 +1872,7 @@ class BatchSimulator:
                     all_team_damages.append(stats['team_damages'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
                     total_turns_sum += stats['total_turns']
+                    all_rdps.append(stats)
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
@@ -1731,16 +1882,19 @@ class BatchSimulator:
 
         elapsed = time.time() - t0
 
-        return self._aggregate_composite_results(
+        result = self._aggregate_composite_results(
             all_scores, all_boss_stages, all_boss_kills,
             all_team_damages, all_unit_stats, total_turns_sum,
             total_runs, elapsed,
         )
+        result["rdps_avg"] = self._aggregate_rdps(all_rdps)
+        return result
 
     def _run_single_process_composite(
         self, panel_config, teams_positions, enemies_data, max_turns,
         total_runs, positions_ally, seed_batches, progress_callback,
         teams_mem_cards=None,
+        enable_rdps: bool = True,
     ):
         from src.entities_v2.battlefield_state import BattlefieldState
         from src.entities_v2.enums import Side, Position
@@ -1765,6 +1919,7 @@ class BatchSimulator:
 
         completed = 0
         t0 = time.time()
+        all_rdps = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1837,6 +1992,7 @@ class BatchSimulator:
 
                 bc = BattleConfig()
                 bc.max_turns = max_turns
+                bc.enable_rdps = enable_rdps
 
                 controller = CompositeTacticController(
                     bf, data_loader=dl, config=bc, narrative=None,
@@ -1882,17 +2038,20 @@ class BatchSimulator:
                         "hp_received": 0,
                     }
                 all_unit_stats.append(unit_stats)
+                all_rdps.append({'rdps': result.get("rdps")})
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
 
         elapsed = time.time() - t0
 
-        return self._aggregate_composite_results(
+        result = self._aggregate_composite_results(
             all_scores, all_boss_stages, all_boss_kills,
             all_team_damages, all_unit_stats, total_turns_sum,
             total_runs, elapsed,
         )
+        result["rdps_avg"] = self._aggregate_rdps(all_rdps)
+        return result
 
     @staticmethod
     def _aggregate_composite_results(
@@ -2043,7 +2202,8 @@ def _worker_init_composite(data_dir: str,
                             enemies_data: List[Dict[str, Any]],
                             max_turns: int,
                             positions_ally: List[Any],
-                            mem_cards_data: List[List[Any]] = None):
+                            mem_cards_data: List[List[Any]] = None,
+                            enable_rdps: bool = True):
     """联合战术演习 worker 初始化
 
     Args:
@@ -2074,6 +2234,7 @@ def _worker_init_composite(data_dir: str,
     _worker_composite_cfg = {
         'enemies_data': enemies_data,
         'max_turns': max_turns,
+        'enable_rdps': enable_rdps,
     }
     # 3支队伍的回忆卡
     if mem_cards_data:
@@ -2183,6 +2344,7 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
 
         bc = BattleConfig()
         bc.max_turns = max_turns
+        bc.enable_rdps = cc.get('enable_rdps', True)
 
         controller = CompositeTacticController(
             bf, data_loader=dl, config=bc, narrative=None,
@@ -2241,6 +2403,7 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
             'total_turns': total_turns,
             'team_damages': team_damages,
             'unit_stats': unit_stats,
+            'rdps': result.get("rdps"),
         })
 
     return results

@@ -548,6 +548,119 @@ class ResultTablePanel(ttk.Frame):
             tree.tag_configure("oddrow", background=s["input_bg"])
 
 
+# ─────────────────── RDPS 表格构建辅助函数 ───────────────────
+
+def _fmt_rdps_val(v) -> str:
+    """格式化 RDPS 数值：浮点保留1位小数，整数无小数"""
+    if isinstance(v, float) and v != int(v):
+        return f"{v:,.1f}"
+    return f"{int(v):,}"
+
+
+def _build_rdps_tables(rdps_data: dict) -> list:
+    """从 RDPS 结果数据构建表格列表
+
+    返回:
+        [角色RDPS汇总表, 回忆卡RDPS表(可选), RDPS乘区细分表]
+    """
+    if not rdps_data:
+        return []
+
+    battle_count = rdps_data.get("battle_count", 0)
+    suffix = "(场均)" if battle_count and battle_count > 1 else ""
+
+    tables = []
+    unit_stats = rdps_data.get("unit_stats", {})
+    ally_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "ally"}
+
+    # 1. 角色 RDPS 汇总表
+    if ally_units:
+        cols = ["角色", "直接伤害", "增益贡献", "减益贡献", "附魔贡献", "总RDPS"]
+        widths = [130, 100, 100, 100, 100, 110]
+        aligns = ["w", "e", "e", "e", "e", "e"]
+        rows = []
+        sorted_units = sorted(ally_units.items(),
+                              key=lambda x: x[1].get("total_rdps", 0), reverse=True)
+        for uid, s in sorted_units:
+            rows.append([
+                s.get("name", uid)[:18],
+                _fmt_rdps_val(s.get('direct_damage', 0)),
+                _fmt_rdps_val(s.get('buff_contribution', 0)),
+                _fmt_rdps_val(s.get('debuff_contribution', 0)),
+                _fmt_rdps_val(s.get('enchant_contribution', 0)),
+                _fmt_rdps_val(s.get('total_rdps', 0)),
+            ])
+        # 合计行
+        rows.append([
+            "合计",
+            _fmt_rdps_val(sum(s.get('direct_damage', 0) for s in ally_units.values())),
+            _fmt_rdps_val(sum(s.get('buff_contribution', 0) for s in ally_units.values())),
+            _fmt_rdps_val(sum(s.get('debuff_contribution', 0) for s in ally_units.values())),
+            _fmt_rdps_val(sum(s.get('enchant_contribution', 0) for s in ally_units.values())),
+            _fmt_rdps_val(sum(s.get('total_rdps', 0) for s in ally_units.values())),
+        ])
+        tables.append({"title": f"角色RDPS{suffix}", "columns": cols, "rows": rows,
+                       "col_widths": widths, "col_aligns": aligns})
+
+    # 2. 回忆卡 RDPS 表
+    card_stats = rdps_data.get("memory_card_stats", {})
+    if card_stats:
+        cols = ["回忆卡", "增益贡献", "减益贡献", "总RDPS"]
+        widths = [150, 100, 100, 110]
+        aligns = ["w", "e", "e", "e"]
+        rows = []
+        sorted_cards = sorted(card_stats.items(),
+                              key=lambda x: x[1].get("total_rdps", 0), reverse=True)
+        for cid, s in sorted_cards:
+            rows.append([
+                s.get("card_name", str(cid))[:20],
+                _fmt_rdps_val(s.get('buff_contribution', 0)),
+                _fmt_rdps_val(s.get('debuff_contribution', 0)),
+                _fmt_rdps_val(s.get('total_rdps', 0)),
+            ])
+        tables.append({"title": f"回忆卡RDPS{suffix}", "columns": cols, "rows": rows,
+                       "col_widths": widths, "col_aligns": aligns})
+
+    # 3. RDPS 乘区细分表
+    if ally_units:
+        cols = ["角色", "ATK增益", "DEF减益", "给予伤害", "受击伤害", "暴击", "穿透"]
+        widths = [130, 90, 90, 90, 90, 90, 90]
+        aligns = ["w", "e", "e", "e", "e", "e", "e"]
+        rows = []
+        for uid, s in sorted_units:
+            detail = s.get("detail", {})
+            rows.append([
+                s.get("name", uid)[:18],
+                _fmt_rdps_val(detail.get('atk_buff', 0)),
+                _fmt_rdps_val(detail.get('def_debuff', 0)),
+                _fmt_rdps_val(detail.get('dealt_dmg', 0)),
+                _fmt_rdps_val(detail.get('received_dmg', 0)),
+                _fmt_rdps_val(detail.get('crit', 0)),
+                _fmt_rdps_val(detail.get('penetrate', 0)),
+            ])
+        tables.append({"title": f"RDPS乘区细分{suffix}", "columns": cols, "rows": rows,
+                       "col_widths": widths, "col_aligns": aligns})
+
+    return tables
+
+
+def _build_rdps_summary(rdps_data: dict) -> str:
+    """构建 RDPS 守恒验证摘要文本"""
+    if not rdps_data:
+        return ""
+    total = rdps_data.get("total_damage_to_enemies", 0)
+    sum_unit = rdps_data.get("sum_unit_rdps", 0)
+    sum_card = rdps_data.get("sum_memory_rdps", 0)
+    discrepancy = rdps_data.get("discrepancy", 0)
+    battle_count = rdps_data.get("battle_count", 0)
+    label = f"(场均, {battle_count}场)" if battle_count and battle_count > 1 else ""
+    return (f"\n  【RDPS验证{label}】\n"
+            f"    对敌方总伤害: {_fmt_rdps_val(total)}\n"
+            f"    角色RDPS合计: {_fmt_rdps_val(sum_unit)}\n"
+            f"    记忆卡RDPS合计: {_fmt_rdps_val(sum_card)}\n"
+            f"    差异: {_fmt_rdps_val(discrepancy)}\n")
+
+
 # ────────────────────────────── 全局参数 Tab ──────────────────────────────
 
 class GlobalParamsTab(ttk.Frame):
@@ -653,6 +766,15 @@ class GlobalParamsTab(ttk.Frame):
         ttk.Label(lf, text="最大回合数:").grid(row=0, column=2, padx=5, pady=5, sticky="e")
         self.var_max_turns = tk.IntVar(value=30)
         ttk.Spinbox(lf, from_=5, to=999, textvariable=self.var_max_turns, width=8).grid(row=0, column=3, padx=5, sticky="w")
+
+        self.var_enable_rdps = tk.BooleanVar(value=True)
+        rdps_frame = ttk.Frame(lf)
+        rdps_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+        ttk.Label(rdps_frame, text="RDPS统计:").pack(side="left")
+        ttk.Radiobutton(rdps_frame, text="开启", variable=self.var_enable_rdps,
+                        value=True).pack(side="left", padx=5)
+        ttk.Radiobutton(rdps_frame, text="关闭", variable=self.var_enable_rdps,
+                        value=False).pack(side="left")
 
         btn_frame = ttk.Frame(right_col)
         btn_frame.pack(pady=10)
@@ -772,6 +894,7 @@ class GlobalParamsTab(ttk.Frame):
                 gv["val"].set(sg.get("value", 0.0))
             self.var_runs.set(values.get("runs", 1))
             self.var_max_turns.set(values.get("max_turns", 30))
+            self.var_enable_rdps.set(values.get("enable_rdps", True))
         except Exception as e:
             messagebox.showerror("加载配置失败", str(e))
 
@@ -795,6 +918,7 @@ class GlobalParamsTab(ttk.Frame):
             gv["val"].set(0.0)
         self.var_runs.set(1)
         self.var_max_turns.set(30)
+        self.var_enable_rdps.set(True)
         messagebox.showinfo("重置", "全局参数已重置为默认值")
         self._save_global_config()
         # 重置后同样传播等级（355）到所有 override 且非 1 级的角色
@@ -829,6 +953,7 @@ class GlobalParamsTab(ttk.Frame):
                              for gv in self.gear_vars if gv["et"].get() != "无效果"],
             "runs": self.var_runs.get(),
             "max_turns": self.var_max_turns.get(),
+            "enable_rdps": self.var_enable_rdps.get(),
         }
 
 
@@ -4248,6 +4373,7 @@ class TeamBattleTab(ttk.Frame):
             positions_enemy=GRID_ENEMY_POSITIONS,
             progress_callback=progress_cb,
             memory_cards=self._build_memory_cards(sel.get("mems_friend", [])),
+            enable_rdps=global_vals.get("enable_rdps", True),
         )
 
         return {
@@ -4271,12 +4397,14 @@ class TeamBattleTab(ttk.Frame):
             "all_enemy_received": result.all_enemy_received,
             "all_enemy_healed": result.all_enemy_healed,
             "all_enemy_healing_received": result.all_enemy_healing_received,
+            "rdps_avg": result.rdps_avg,
         }
 
     @staticmethod
-    def _make_battle_config(max_turns):
+    def _make_battle_config(max_turns, enable_rdps=True):
         cfg = BattleConfig()
         cfg.max_turns = max_turns
+        cfg.enable_rdps = enable_rdps
         return cfg
 
     def _display_results(self, results):
@@ -4350,6 +4478,10 @@ class TeamBattleTab(ttk.Frame):
                 out.append(f"    提供回复: {_mean(all_enemy_healed):,.1f}")
                 out.append("─" * 60)
 
+        rdps_avg = w.get("rdps_avg")
+        if rdps_avg:
+            out.append(_build_rdps_summary(rdps_avg))
+
         self._result_panel.set_summary("\n".join(out))
 
         # 角色明细表（Treeview）
@@ -4387,6 +4519,9 @@ class TeamBattleTab(ttk.Frame):
             tables.append({"title": "敌方角色", "columns": ["角色", "平均伤害", "最大伤害", "存活率"],
                            "rows": enemy_rows, "col_widths": [135, 110, 110, 80],
                            "col_aligns": ["w", "e", "e", "e"]})
+
+        if rdps_avg:
+            tables.extend(_build_rdps_tables(rdps_avg))
 
         if tables:
             self._result_panel.set_tables(tables)
@@ -4449,7 +4584,7 @@ class TeamBattleTab(ttk.Frame):
             random.seed(seed)
 
             controller = BattleFlowController(bf, data_loader=self.app.data_loader,
-                                      config=self._make_battle_config(max_turns),
+                                      config=self._make_battle_config(max_turns, global_vals.get("enable_rdps", True)),
                                       narrative=narrative)
             result = controller.execute_battle()
 
@@ -4518,6 +4653,11 @@ class TeamBattleTab(ttk.Frame):
                     rows.append([name, f"{s['damage_dealt']:,}", f"{s['damage_received']:,}", f"{s['hp_healed']:,}"])
                 tables.append({"title": "敌方角色明细", "columns": cols, "rows": rows,
                                "col_widths": widths, "col_aligns": aligns})
+
+        rdps_data = result.get("rdps")
+        if rdps_data:
+            out.append(_build_rdps_summary(rdps_data))
+            tables.extend(_build_rdps_tables(rdps_data))
 
         self._result_panel.set_summary("\n".join(out))
         if tables:
@@ -6990,6 +7130,7 @@ class TacticalExerciseTab(ttk.Frame):
                 positions_ally=GRID_ALLY_POSITIONS,
                 progress_callback=progress_cb,
                 memory_cards=self.app.team_tab._build_memory_cards(sel.get("mems_friend", [])),
+                enable_rdps=global_vals.get("enable_rdps", True),
             )
 
             total_stages = result["total_stages"]
@@ -7025,6 +7166,7 @@ class TacticalExerciseTab(ttk.Frame):
                 score_stats["rate"] = result.get("rate", 0)
                 score_stats["elapsed"] = result.get("elapsed", 0)
                 score_stats["all_unit_stats"] = result.get("all_unit_stats", [])
+                score_stats["rdps_avg"] = result.get("rdps_avg")
 
             self.app.root.after(0, lambda: self._display_results(
                 sim_count, total_stages, total_turns, max_stages, losses, timeouts, score_stats))
@@ -7128,6 +7270,11 @@ class TacticalExerciseTab(ttk.Frame):
                 # 多场模拟：显示统计值
                 self._append_multi_score_display(out, score_stats, n, tables)
 
+        rdps_avg = score_stats.get("rdps_avg") if score_stats else None
+        if rdps_avg:
+            out.append(_build_rdps_summary(rdps_avg))
+            tables.extend(_build_rdps_tables(rdps_avg))
+
         self._result_panel.set_summary("\n".join(out))
         if tables:
             self._result_panel.set_tables(tables)
@@ -7186,6 +7333,7 @@ class TacticalExerciseTab(ttk.Frame):
 
             config = BattleConfig()
             config.max_turns = 5
+            config.enable_rdps = global_vals.get("enable_rdps", True)
 
             controller = TacticalExerciseController(bf, data_loader=self.app.data_loader,
                                                     config=config, narrative=narrative)
@@ -7200,15 +7348,16 @@ class TacticalExerciseTab(ttk.Frame):
             stages = result.get("stages_cleared", 0)
             turns = result["total_turns"]
             score_data = result.get("score")
+            rdps_data = result.get("rdps")
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, stages, turns, str(log_path), score_data))
+                winner_text, stages, turns, str(log_path), score_data, rdps_data))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None):
+    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None, rdps_data=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
@@ -7224,6 +7373,10 @@ class TacticalExerciseTab(ttk.Frame):
         tables = []
         if score_data:
             self._append_score_display(out, score_data, tables)
+
+        if rdps_data:
+            out.append(_build_rdps_summary(rdps_data))
+            tables.extend(_build_rdps_tables(rdps_data))
 
         self._result_panel.set_summary("\n".join(out))
         if tables:
@@ -8971,6 +9124,7 @@ class CircleBattleTab(ttk.Frame):
                 stage=sel["stage"],
                 positions_ally=GRID_ALLY_POSITIONS,
                 progress_callback=progress_cb,
+                enable_rdps=global_vals.get("enable_rdps", True),
                 memory_cards=self._build_memory_cards(sel.get("mems_friend", [])),
                 enemy_state_overrides=sel.get("enemy_state_overrides"),
             )
@@ -9050,6 +9204,10 @@ class CircleBattleTab(ttk.Frame):
                 "sel": sel,
                 "stage_data": stage_data,
             }
+
+        rdps_avg = result.get("rdps_avg")
+        if rdps_avg:
+            out.append(_build_rdps_summary(rdps_avg))
 
         self._result_panel.set_summary("\n".join(out))
 
@@ -9139,6 +9297,9 @@ class CircleBattleTab(ttk.Frame):
             tables.append({"title": "合计(场均)", "columns": sum_cols,
                            "rows": sum_rows, "col_widths": sum_widths, "col_aligns": sum_aligns})
 
+        if rdps_avg:
+            tables.extend(_build_rdps_tables(rdps_avg))
+
         if tables:
             self._result_panel.set_tables(tables)
 
@@ -9204,6 +9365,7 @@ class CircleBattleTab(ttk.Frame):
 
             config = BattleConfig()
             config.max_turns = stage_data["max_turn"]
+            config.enable_rdps = global_vals.get("enable_rdps", True)
 
             from src.combat_v2.circle_battle_controller import CircleBattleController
             controller = CircleBattleController(bf, data_loader=self.app.data_loader,
@@ -9227,15 +9389,16 @@ class CircleBattleTab(ttk.Frame):
 
             turns = result["total_turns"]
             score_data = result.get("score")
+            rdps_data = result.get("rdps")
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, turns, str(log_path), score_data, sel, stage_data))
+                winner_text, turns, str(log_path), score_data, sel, stage_data, rdps_data))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data):
+    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data, rdps_data=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         self._progress_var.set("完成!")
@@ -9303,6 +9466,10 @@ class CircleBattleTab(ttk.Frame):
             ]
             tables.append({"title": "合计", "columns": sum_cols,
                            "rows": sum_rows, "col_widths": sum_widths, "col_aligns": sum_aligns})
+
+        if rdps_data:
+            out.append(_build_rdps_summary(rdps_data))
+            tables.extend(_build_rdps_tables(rdps_data))
 
         self._result_panel.set_summary("\n".join(out))
         if tables:
@@ -10476,6 +10643,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
                 positions_ally=GRID_ALLY_POSITIONS,
                 progress_callback=progress_cb,
                 teams_mem_cards=sel["teams_mem_ids"],
+                enable_rdps=global_vals.get("enable_rdps", True),
             )
 
             self.app.root.after(0, lambda: self._display_results(sim_count, result))
@@ -10515,6 +10683,10 @@ class CompositeTacticExerciseTab(ttk.Frame):
         for i, dmg in enumerate(team_damages):
             out.append(f"    队伍{i + 1}: {dmg:,.1f}")
         out.append("─" * 60)
+
+        rdps_avg = result.get("rdps_avg")
+        if rdps_avg:
+            out.append(_build_rdps_summary(rdps_avg))
 
         self._result_panel.set_summary("\n".join(out))
 
@@ -10565,6 +10737,9 @@ class CompositeTacticExerciseTab(ttk.Frame):
                 "col_widths": col_widths,
                 "col_aligns": col_aligns,
             })
+
+        if rdps_avg:
+            tables.extend(_build_rdps_tables(rdps_avg))
 
         if tables:
             self._result_panel.set_tables(tables)
@@ -10647,6 +10822,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
 
             config = BattleConfig()
             config.max_turns = max_turns
+            config.enable_rdps = global_vals.get("enable_rdps", True)
 
             from src.combat_v2.composite_tactic_controller import CompositeTacticController
             controller = CompositeTacticController(
@@ -10762,6 +10938,11 @@ class CompositeTacticExerciseTab(ttk.Frame):
                 "col_widths": enemy_widths,
                 "col_aligns": enemy_aligns,
             })
+
+        rdps_data = result.get("rdps")
+        if rdps_data:
+            out.append(_build_rdps_summary(rdps_data))
+            tables.extend(_build_rdps_tables(rdps_data))
 
         self._result_panel.set_summary("\n".join(out))
         if tables:

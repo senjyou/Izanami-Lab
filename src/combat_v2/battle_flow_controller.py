@@ -34,8 +34,9 @@ _log = battle_logger()
 
 
 class BattleConfig:
-    def __init__(self, max_turns: int = 15):
+    def __init__(self, max_turns: int = 15, enable_rdps: bool = True):
         self.max_turns = max_turns
+        self.enable_rdps = enable_rdps
 
 
 class BattleFlowController:
@@ -50,6 +51,15 @@ class BattleFlowController:
         from .scoring_tracker import ScoringTracker
         self._scoring_tracker = ScoringTracker()
         self.battlefield.scoring_tracker = self._scoring_tracker
+
+        # 初始化 RDPS 追踪器（可配置开关，默认开启）
+        if getattr(self.config, 'enable_rdps', True):
+            from .rdps_tracker import RDPSTracker
+            self._rdps_tracker = RDPSTracker()
+            self.battlefield.rdps_tracker = self._rdps_tracker
+        else:
+            self._rdps_tracker = None
+            self.battlefield.rdps_tracker = None
 
         if data_loader:
             self.data_loader = data_loader
@@ -84,6 +94,11 @@ class BattleFlowController:
         self._unit_display_names: Dict[str, UnitState] = {}
         self._unit_id_map: Dict[str, UnitState] = {}
         self._deferred_crit_triggers: list = []
+
+        # 为 RDPS 追踪器注入 damage_service 和 battlefield 引用
+        if self._rdps_tracker is not None:
+            self._rdps_tracker.set_damage_service(self.damage_service)
+            self._rdps_tracker.set_battlefield(self.battlefield)
 
     def _pre_synergy_setup(self) -> None:
         """元素协同计算之前的钩子，供子类快照协同前属性（如基础max_hp）"""
@@ -182,12 +197,22 @@ class BattleFlowController:
             units=self.battlefield.get_all_units(),
         )
 
-        return {
+        result_dict = {
             "result": battle_result,
             "total_turns": self.battlefield.turn_number,
             "winner": winner,
             "score": score_result.to_dict(),
         }
+
+        # 构建 RDPS 结果（若启用）
+        if self._rdps_tracker is not None:
+            rdps_result = self._rdps_tracker.build_result(
+                units=self.battlefield.get_all_units(),
+                memory_cards=self.battlefield.memory_cards,
+            )
+            result_dict["rdps"] = rdps_result.to_dict()
+
+        return result_dict
 
     def _execute_turn(self, turn_number: int) -> bool:
         _log.info("[TURN] ==================================================")
@@ -2339,8 +2364,16 @@ class BattleFlowController:
 
         for card in self.battlefield.memory_cards:
             card_name = getattr(card, 'name', f"回忆卡#{getattr(card, 'card_id', '?')}")
-            _log.info("[MEMORY] 处理回忆卡: %s (ID=%d)", card_name,
-                      getattr(card, 'card_id', 0))
+            card_id = getattr(card, 'card_id', 0)
+            _log.info("[MEMORY] 处理回忆卡: %s (ID=%d)", card_name, card_id)
+
+            # 注册记忆卡的 skill_id -> card_id 映射（供 RDPS 归因使用）
+            if self._rdps_tracker is not None and card_id:
+                self._rdps_tracker.ensure_memory_card(card_id, card_name)
+                for highlight in card.highlights:
+                    sid = highlight.skill_master_id
+                    if sid:
+                        self._rdps_tracker.register_card_skill(card_id, sid)
 
             for highlight in card.highlights:
                 skill_id = highlight.skill_master_id
@@ -2777,6 +2810,7 @@ class BattleFlowController:
                 timing_type=3,
                 stack_count=1,
                 source_unit_id=target_unit.unit_id,
+                source_skill_id=skill_id,
                 is_debuff=False,
                 is_memory_buff=True,
             )
@@ -2817,6 +2851,7 @@ class BattleFlowController:
             stack_count=1,
             value_tag=value_tag,
             source_unit_id=target_unit.unit_id,
+            source_skill_id=skill_id,
             is_debuff=is_debuff,
             is_memory_buff=True,
             damage_element=damage_element,
@@ -2901,6 +2936,7 @@ class BattleFlowController:
             stack_count=1,
             value_tag=value_tag,
             source_unit_id=target_unit.unit_id,
+            source_skill_id=skill_id,
             is_debuff=is_debuff,
             is_memory_buff=True,
             damage_element=damage_element,

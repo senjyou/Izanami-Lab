@@ -12,6 +12,7 @@ from .unit_state import UnitState
 
 if TYPE_CHECKING:
     from ..combat_v2.scoring_tracker import ScoringTracker
+    from ..combat_v2.rdps_tracker import RDPSTracker
 
 @dataclass
 class BattlefieldState:
@@ -19,26 +20,29 @@ class BattlefieldState:
     战场状态
     包含战斗中所有的全局数据
     """
-    
+
     # ========== 队伍信息 ==========
     friend_team: List[UnitState] = field(default_factory=list)
     enemy_team: List[UnitState] = field(default_factory=list)
-    
+
     # ========== 全局资源 ==========
     memory_cards: List[Any] = field(default_factory=list) # 存储回忆卡完整数据
-    
+
     # ========== 战斗进度 ==========
     turn_number: int = 1
     wave_number: int = 1
     round_number: int = 0
     total_actions: int = 0
-    
+
     # ========== 元数据 ==========
     battle_id: str = ""
     max_turns: int = 15
 
     # ========== 计分系统 (战术演习用) ==========
     scoring_tracker: Optional['ScoringTracker'] = None
+
+    # ========== RDPS 统计系统 ==========
+    rdps_tracker: Optional['RDPSTracker'] = None
     
     def add_unit(self, unit: UnitState):
         """添加单位到战场（自动确保 unit_id 唯一）"""

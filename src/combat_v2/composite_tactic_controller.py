@@ -208,7 +208,26 @@ class CompositeTacticController(BattleFlowController):
             "team_results": self._team_results,
             "total_turns": sum(r["rounds_survived"] for r in self._team_results),
             "is_composite_tactic": True,
+            "rdps": self._build_composite_rdps_result(),
         }
+
+    def _build_composite_rdps_result(self) -> Optional[dict]:
+        """构建复合战术演习的 RDPS 结果（汇总所有队伍）"""
+        if self._rdps_tracker is None:
+            return None
+        # 收集所有队伍的单位 + 敌方单位
+        all_units = list(self.battlefield.enemy_team)
+        for team in self._teams:
+            all_units.extend(team)
+        # 收集所有队伍的回忆卡
+        all_cards = []
+        for cards in self._team_memories:
+            all_cards.extend(cards)
+        rdps_result = self._rdps_tracker.build_result(
+            units=all_units,
+            memory_cards=all_cards,
+        )
+        return rdps_result.to_dict()
 
     def _setup_team_for_battle(self, team_index: int):
         """设置当前队伍并重置敌方状态"""

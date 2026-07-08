@@ -3100,6 +3100,15 @@ class SkillService:
                     overflow=overflow if target_side == "enemy" else 0,
                 )
 
+            # RDPS 归因：主伤害
+            rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+            if rdps_tracker is not None and actual_damage > 0:
+                rdps_tracker.record_damage_with_attribution(
+                    caster=caster, target=target, actual_damage=actual_damage,
+                    dmg_result=dmg_result, damage_type="main",
+                    battlefield=battlefield, damage_service=self.damage_service,
+                )
+
             if dmg_result.is_critical and self.trigger_service and not self._recursion_guard:
                 # 按暴击hit数累加，而非每个目标只算1次
                 crit_hit_count = sum(1 for c in dmg_result.hit_crits if c) if dmg_result.hit_crits else 1
@@ -3465,6 +3474,17 @@ class SkillService:
                         actual_damage=extra_dmg, shield_absorbed=shield_absorbed,
                     )
 
+                # RDPS 归因：子单位伤害（100% 归因于 buff 提供者）
+                rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+                if rdps_tracker is not None and extra_dmg > 0:
+                    rdps_tracker.record_damage_with_attribution(
+                        caster=caster, target=target, actual_damage=extra_dmg,
+                        damage_type="sub_unit",
+                        enchant_source_id=sub_buff.source_unit_id,
+                        battlefield=battlefield, damage_service=self.damage_service,
+                        enchant_buff=sub_buff,
+                    )
+
                 enchant_targets.append({
                     "target_id": target.unit_id,
                     "target": target.unit_id,
@@ -3630,6 +3650,17 @@ class SkillService:
                         actual_damage=extra_dmg, shield_absorbed=0,
                     )
 
+                # RDPS 归因：附魔伤害（100% 归因于 buff 提供者）
+                rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+                if rdps_tracker is not None and extra_dmg > 0:
+                    rdps_tracker.record_damage_with_attribution(
+                        caster=caster, target=target, actual_damage=extra_dmg,
+                        damage_type="enchant",
+                        enchant_source_id=eb.source_unit_id,
+                        battlefield=battlefield, damage_service=self.damage_service,
+                        enchant_buff=eb,
+                    )
+
                 enchant_targets.append({
                     "target_id": target.unit_id,
                     "target": target.unit_id,
@@ -3773,6 +3804,17 @@ class SkillService:
                         source_id=caster.unit_id, source_name=caster.name, source_side=source_side,
                         target_id=target.unit_id, target_name=target.name, target_side=target_side,
                         actual_damage=extra_dmg, shield_absorbed=0,
+                    )
+
+                # RDPS 归因：追加伤害（100% 归因于 buff 提供者）
+                rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+                if rdps_tracker is not None and extra_dmg > 0:
+                    rdps_tracker.record_damage_with_attribution(
+                        caster=caster, target=target, actual_damage=extra_dmg,
+                        damage_type="add_dmg",
+                        enchant_source_id=ab.source_unit_id,
+                        battlefield=battlefield, damage_service=self.damage_service,
+                        enchant_buff=ab,
                     )
 
                 enchant_targets.append({
@@ -4116,6 +4158,15 @@ class SkillService:
                                 target_id=dt.unit_id, target_name=dt.name, target_side=target_side,
                                 actual_damage=actual, shield_absorbed=shield_absorbed,
                                 overflow=overflow if target_side == "enemy" else 0,
+                            )
+
+                        # RDPS 归因：on_crit 追加伤害（无独立 calc_detail，记为 direct_damage）
+                        rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+                        if rdps_tracker is not None and actual > 0:
+                            rdps_tracker.record_damage_with_attribution(
+                                caster=caster, target=dt, actual_damage=actual,
+                                dmg_result=None, damage_type="main",
+                                battlefield=battlefield, damage_service=self.damage_service,
                             )
                         # 生成叙事日志条目
                         on_crit_targets_hit.append({
@@ -7452,6 +7503,15 @@ class SkillService:
             caster.damage_dealt_total += actual_damage
             target.damage_taken_total += actual_damage
 
+            # RDPS 归因：HP比例伤害
+            rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+            if rdps_tracker is not None and actual_damage > 0:
+                rdps_tracker.record_damage_with_attribution(
+                    caster=caster, target=target, actual_damage=actual_damage,
+                    damage_type="hp_ratio", calc_detail=calc_detail,
+                    battlefield=battlefield, damage_service=self.damage_service,
+                )
+
             targets_hit.append({
                 "target": target.name,
                 "target_id": target.unit_id,
@@ -7499,11 +7559,14 @@ class SkillService:
         if value_source == "self_max_hp":
             effective_max_hp = self.damage_service._calculate_final_stat(caster, "max_hp")
             raw_damage = int(float(effective_max_hp) * dmg_pct / 100.0)
+            effective_value = effective_max_hp
         elif value_source == "self_current_hp":
             raw_damage = int(float(caster.current_hp) * dmg_pct / 100.0)
+            effective_value = caster.current_hp
         else:
             effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
             raw_damage = int(float(effective_atk) * dmg_pct / 100.0)
+            effective_value = effective_atk
 
         _log.info("[DAMAGE_SPECIAL] %s: value_source=%s dmg_pct=%.0f raw_damage=%d flags=%s",
                   caster.name, value_source, dmg_pct, raw_damage, flags)
@@ -7639,6 +7702,24 @@ class SkillService:
             overflow = max(0, actual_dmg - hp_before)
             target.current_hp = max(0, target.current_hp - actual_dmg)
             total_damage += actual_dmg
+            caster.damage_dealt_total += actual_dmg
+            target.damage_taken_total += actual_dmg
+
+            # RDPS 归因：特殊伤害
+            rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
+            if rdps_tracker is not None and actual_dmg > 0:
+                special_calc_detail = {
+                    "value_source": value_source or "",
+                    "dmg_pct": dmg_pct,
+                    "effective_value": effective_value,
+                    "base_value": effective_value,
+                }
+                rdps_tracker.record_damage_with_attribution(
+                    caster=caster, target=target, actual_damage=actual_dmg,
+                    damage_type="special", calc_detail=special_calc_detail,
+                    battlefield=battlefield, damage_service=self.damage_service,
+                )
+
             targets_hit.append({
                 "target": target.name,
                 "target_id": target.unit_id,
