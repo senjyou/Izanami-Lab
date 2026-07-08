@@ -70,7 +70,13 @@ class MemoryLogHandler(logging.Handler):
 
     def get_lines(self):
         """返回格式化后的日志行列表（与 StreamHandler 格式一致）。"""
-        return [self._formatter.format(r) for r in self._records]
+        lines = []
+        for r in self._records:
+            try:
+                lines.append(self._formatter.format(r))
+            except Exception as e:
+                lines.append(f"[FORMAT_ERROR] {e} | msg={r.msg!r} args={r.args!r}")
+        return lines
 
     def clear(self):
         self._records.clear()

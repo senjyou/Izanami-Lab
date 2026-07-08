@@ -74551,5 +74551,594 @@
         ]
       }
     }
+  },
+  "210102": {
+    "skill_id": 210102,
+    "name": "あったかいの、どうぞ♪+",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 24,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の攻撃力を35%、与ダメージを10%増加させ、攻撃時に攻撃力×{dmg}%のダメージを追加するバフを付与する"
+      },
+      {
+        "min_level": 10,
+        "template": "自身の攻撃力を35%、与ダメージを10%増加させる。さらに攻撃時に攻撃力×{dmg}%のダメージを追加するバフを2つ付与する。"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 5,
+            "value": 15.0
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "220378": {
+    "skill_id": 220378,
+    "name": "私に任せて！+",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 14
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の現在HPの10%を消費し、自身のHPを消費分×{cure}%分回復する。\nさらに最もHP割合の低い敵単体と自身に対して自身が1回行動を終えるまでの間回復リンクを付与し、対象が得られる回復効果を100%自身に転送する状態にする。\nこのスキルは、以下のいずれかの場合には発動しない\n・自身のHPが80%以上の場合\n・自身のHPが40%未満の場合"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 235.0
+          },
+          {
+            "level": 3,
+            "value": 310.0
+          },
+          {
+            "level": 10,
+            "value": 385.0
+          }
+        ]
+      }
+    }
+  },
+  "220379": {
+    "skill_id": 220379,
+    "name": "苦手なのはそこだね！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に、対象の現在HP×{dmg}%分のダメージを与える攻撃を行う。この攻撃によるダメージは自身の攻撃力×{max}%を上限とする"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 5,
+            "value": 12.5
+          }
+        ]
+      },
+      "max": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 9,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "230399": {
+    "skill_id": 230399,
+    "name": "リラックスだよ～♪+",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルを2回使用するたびに発動。自身のHPを威力{威力}で回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 45.0
+          },
+          {
+            "level": 10,
+            "value": 65.0
+          }
+        ]
+      }
+    }
+  },
+  "230400": {
+    "skill_id": 230400,
+    "name": "それはやりすぎ！+",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×75%のダメージを受けた際に発動。一時的に自身の攻撃力を{atk}%上昇させ（重複可）、敵全体に威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 9,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 60.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 5,
+            "value": 46.79999923706055
+          }
+        ]
+      }
+    }
+  },
+  "210101": {
+    "skill_id": 210101,
+    "name": "静かな時を",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "skill_level_pattern_id": 23,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}でEN攻撃する。\n攻撃時に対象が「凶兆」を2つ以上所持していた場合、さらに対象の次の攻撃での与ダメージを100%減少させるデバフを付与する。\n対象が「凶兆」を2つ以上所持していなかった場合、「凶兆」を1つ付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 10,
+            "value": 169.60000610351562
+          }
+        ]
+      }
+    },
+    "display_info": {
+      "display_attacks_count_tag_name": "1",
+      "display_skill_power_tag_name": "威力",
+      "display_target_priority": null,
+      "display_target_range": 5,
+      "display_target_type": 3
+    }
+  },
+  "220375": {
+    "skill_id": 220375,
+    "name": "遅効の毒計",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "skill_level_pattern_id": 13,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "攻撃力が最も高い敵単体に威力{威力}で攻撃し、1行動の幻惑を付与する。幻惑はダメージ効果を回復効果へと変換する。回復値は本来のダメージ値の{genwaku}%となる。\nさらに対象に「凶兆」を1つと、1行動の攻撃力×10%の継続ENダメージを付与する。\nこのスキルの発動により対象の所持する「凶兆」が4つ以上になった場合、さらに威力100で追加EN攻撃を行い、対象が所持している「凶兆」を全て解除する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 5,
+            "value": 93.5999984741211
+          }
+        ]
+      },
+      "genwaku": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 9,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 70.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    },
+    "display_info": {
+      "display_attacks_count_tag_name": "1",
+      "display_skill_power_tag_name": "威力",
+      "display_target_priority": null,
+      "display_target_range": 1,
+      "display_target_type": 3
+    }
+  },
+  "220376": {
+    "skill_id": 220376,
+    "name": "逆転の方策",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "skill_level_pattern_id": 13,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で3ヒットEN攻撃し、1行動の間対象の会心率を{crt}%、会心ダメージを{crtdmg}%低下させる。\nさらに対象に「凶兆」を1つと、1行動の攻撃力×10%の継続ENダメージを付与する。\nこのスキルの発動により対象の所持する「凶兆」が4つ以上になった場合、さらに威力100で追加EN攻撃を行い、対象が所持している「凶兆」を全て解除する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 46.79999923706055
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 4,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 4,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    },
+    "display_info": {
+      "display_attacks_count_tag_name": "3",
+      "display_skill_power_tag_name": "威力",
+      "display_target_priority": null,
+      "display_target_range": 1,
+      "display_target_type": 3
+    }
+  },
+  "220377": {
+    "skill_id": 220377,
+    "name": "一点突破の戦術",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "skill_level_pattern_id": 13,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}でEN攻撃し、「凶兆」を1つ付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 140.39999389648438
+          },
+          {
+            "level": 10,
+            "value": 190.8000030517578
+          }
+        ]
+      }
+    },
+    "display_info": {
+      "display_attacks_count_tag_name": "1",
+      "display_skill_power_tag_name": "威力",
+      "display_target_priority": null,
+      "display_target_range": 1,
+      "display_target_type": 3
+    }
+  },
+  "230398": {
+    "skill_id": 230398,
+    "name": "起死回生の一手",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "skill_level_pattern_id": 13,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×20%のダメージを受けた際に発動。自身に対し、最大HP×{shield}%のシールドを付与する。シールドは1ヒット攻撃を受けると消滅する。\nさらに自身のHPが20%未満だった場合、致死ダメージを1度だけ耐えてHPを最大HP×1.25%回復するバフと、「深慮」（解除不可）を付与する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 5,
+        "template": "累計で最大HP×20%のダメージを受けた際に発動。自身に対し、最大HP×{shield}%のシールドを付与する。シールドは1ヒット攻撃を受けると消滅する。\nさらに自身のHPが20%未満だった場合、自身のEXゲージを{ex}加算し、さらに致死ダメージを1度だけ耐えてHPを最大HP×1.25%回復するバフと、「深慮」（解除不可）を付与する。\n自身が「深慮」を所持していた場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.3799999952316284
+          },
+          {
+            "level": 3,
+            "value": 0.6299999952316284
+          }
+        ]
+      },
+      "ex": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 1.0
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          }
+        ]
+      }
+    },
+    "display_info": {
+      "display_attacks_count_tag_name": null,
+      "display_skill_power_tag_name": null,
+      "display_target_priority": null,
+      "display_target_range": null,
+      "display_target_type": 1
+    }
   }
 }

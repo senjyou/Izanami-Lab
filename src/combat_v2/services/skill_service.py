@@ -504,6 +504,14 @@ class SkillService:
                 _log.info("[SKILL_GC] %s: [%s] self_hp_above pct=%.0f: self hp_pct=%.1f below threshold, blocked",
                           caster.name, skill_name, pct, self_hp_pct)
                 return False
+        elif gc_type == 'self_hp_below':
+            # 自身HP% < pct时条件满足（如220378「自身のHPが80%以上の場合は発動しない」→需HP<80%）
+            pct = gc.get('pct', 0)
+            self_hp_pct = (caster.current_hp / caster.max_hp * 100.0) if caster.max_hp > 0 else 0
+            if self_hp_pct >= pct:
+                _log.info("[SKILL_GC] %s: [%s] self_hp_below pct=%.0f: self hp_pct=%.1f above threshold, blocked",
+                          caster.name, skill_name, pct, self_hp_pct)
+                return False
         return True
 
     def _check_skill_global_condition(self, resolved, caster: UnitState,
@@ -833,8 +841,16 @@ class SkillService:
                                     # 只添加与caster不同阵营的单位（即被攻击的友方）
                                     if _pt.side != caster.side:
                                         self._pre_scanned_cover_candidates.append(_pt)
-                                    # 记录第一个enemy_single目标作为主目标
-                                    if _prescan_primary_target is None and _pre_target_type in ("enemy_single", "enemies"):
+                                    # 记录第一个主目标（供adjacent_enemies等依赖主目标的目标类型使用）
+                                    # 必须包含所有enemy_single*类型（如enemy_single_furthest），
+                                    # 否则adjacent_enemies预扫描无法获取主目标，导致before_any_attacked
+                                    # 触发器的target_is_self条件误判（如ブレイジングハート未触发bug）
+                                    _is_primary_target_type = (
+                                        _pre_target_type in ("enemy_single", "enemies")
+                                        or _pre_target_type.startswith("enemy_single_")
+                                        or _pre_target_type in ("enemy_column_furthest", "enemy_column_mark_priority")
+                                    )
+                                    if _prescan_primary_target is None and _is_primary_target_type:
                                         _prescan_primary_target = _pt
             if self._pre_scanned_cover_candidates:
                 _log.info("[COVER_PRESCAN] %s: pre-scanned cover candidates: %s",
@@ -5210,8 +5226,9 @@ class SkillService:
             if _add_status_flag:
                 _hlf['add_status'] = _add_status_flag
                 _hlf['add_status_duration'] = duration
+            _eff_value_tag = getattr(effect, 'value_tag', None)
             aura = BuffState(
-                buff_id=f"{_aura_source_unit_id}_{self._current_skill_id}_{mapped_effect_type}_{target.unit_id}",
+                buff_id=f"{_aura_source_unit_id}_{self._current_skill_id}_{mapped_effect_type}_{target.unit_id}" + (f"_{_eff_value_tag}" if _eff_value_tag else ""),
                 name=aura_name,
                 effect_type=mapped_effect_type,
                 value=final_value,
@@ -5370,18 +5387,19 @@ class SkillService:
                     })
                     continue
 
-            # max_hp_up: 直接修改unit.max_hp和unit.current_hp，不添加buff（避免_calculate_final_stat重复计算）
+            # max_hp_up: 直接修改unit.max_hp（基于原始base max_hp计算增量），不增加current_hp，不添加buff
+            # 原始base max_hp = _base_max_hp_for_calc（战斗开始时的max_hp，synergy同步缩放，stage up不修改）
             if effect.effect_type == "max_hp_up":
+                base_max_hp = target._base_max_hp_for_calc
                 if resolved_value_tag == 0:  # percent
-                    hp_increase = int(target.max_hp * value / 100)
+                    hp_increase = int(base_max_hp * value / 100)
                 else:  # fixed
                     hp_increase = int(value)
                 old_max_hp = target.max_hp
                 target.max_hp += hp_increase
-                target.current_hp += hp_increase
-                _log.info("[MAX_HP_UP] %s -> %s: max_hp %d -> %d (+%d), current_hp %d -> %d",
+                _log.info("[MAX_HP_UP] %s -> %s: max_hp %d -> %d (+%d), current_hp %d (unchanged), base_max_hp_for_calc=%d",
                           caster.name, target.name, old_max_hp, target.max_hp, hp_increase,
-                          target.current_hp - hp_increase, target.current_hp)
+                          target.current_hp, base_max_hp)
                 aura_detail_dict = {
                     "target": target.name,
                     "target_id": target.unit_id,
@@ -5679,6 +5697,20 @@ class SkillService:
                 caster_attack=self.damage_service._calculate_final_stat(caster, "attack"),
                 is_debuff=is_debuff,
             )
+            # propagate flags (same as _apply_aura): unremovable / linked_mark / stackable
+            # 这些flag必须复制到BuffState上，否则_remove_marks_from_dead_caster等逻辑无法识别
+            if add_status_flags.get('unremovable'):
+                aura.unremovable = True
+                _log.info("[ADD_STATUS] %s: unremovable flag set on %s", caster.name, normalized)
+            linked_mark_name = add_status_flags.get('linked_mark')
+            if linked_mark_name:
+                aura.linked_buff_id = linked_mark_name
+                _log.info("[ADD_STATUS] %s: linked_mark set to '%s' on %s", caster.name, linked_mark_name, normalized)
+            if add_status_flags.get('stackable'):
+                import uuid
+                aura.buff_id = f"{caster.unit_id}_{normalized}_{target.unit_id}_{uuid.uuid4().hex[:8]}"
+                aura.is_stackable = True
+                _log.info("[ADD_STATUS] %s: stackable buff -> unique id=%s", caster.name, aura.buff_id)
             # 混乱专用参数：从flags读取并写入BuffState
             if normalized == SkillEffectType.CONFUSION.value:
                 aura.confusion_dmg_reduction = float(add_status_flags.get('confusion_dmg_reduction', 0.0))
@@ -7114,12 +7146,12 @@ class SkillService:
                   unit.current_ap, unit.current_pp, unit.current_ep, unit.max_extra_point)
         if skill_data.skill_type == 1:  # AS
             if self.resource_service.consume_ap(unit, cost):
-                self.resource_service.generate_ep(unit, cost)
+                self.resource_service.generate_ep(unit, cost, apply_ep_gain_down=True)
                 return True
             return False
         elif skill_data.skill_type == 2:  # PS
             if self.resource_service.consume_pp(unit, cost):
-                self.resource_service.generate_ep(unit, cost)
+                self.resource_service.generate_ep(unit, cost, apply_ep_gain_down=True)
                 return True
             return False
         elif skill_data.skill_type == 3:  # EX

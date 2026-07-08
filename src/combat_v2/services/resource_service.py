@@ -1,4 +1,5 @@
 from ...entities_v2.unit_state import UnitState
+from ...entities_v2.enums import SkillEffectType
 from ..battle_logger import battle_logger
 
 _log = battle_logger()
@@ -76,11 +77,23 @@ class ResourceService:
         _log.info("[RESOURCE] %s restore_ap_pp: AP %d->%d PP %d->%d",
                   unit.name, old_ap, unit.current_ap, old_pp, unit.current_pp)
         
-    def generate_ep(self, unit: UnitState, amount: int) -> None:
+    def generate_ep(self, unit: UnitState, amount: int, apply_ep_gain_down: bool = False) -> None:
         if amount <= 0:
             return
         old = unit.current_ep
         cap = unit.max_extra_point
-        unit.current_ep = min(unit.current_ep + amount, cap)
-        _log.info("[RESOURCE] %s generate_ep: %d -> %d (+%d, cap=%d)",
-                  unit.name, old, unit.current_ep, unit.current_ep - old, cap)
+        # EpGainDown debuff仅影响自然回EP（AS/PS技能释放自动回EP、每行动+1），
+        # 不影响技能效果中的直接EP增减（如add_ep效果的EP+1）
+        reduction_pct = 0.0
+        if apply_ep_gain_down:
+            for d in unit.debuffs:
+                if d.effect_type == SkillEffectType.EP_GAIN_DOWN.value:
+                    reduction_pct = max(reduction_pct, d.value)
+        effective_amount = amount * (1.0 - reduction_pct / 100.0)
+        unit.current_ep = min(unit.current_ep + effective_amount, cap)
+        if reduction_pct > 0:
+            _log.info("[RESOURCE] %s generate_ep: %g -> %g (+%g base=%d ep_gain_down=-%.0f%%, cap=%d)",
+                      unit.name, old, unit.current_ep, unit.current_ep - old, amount, reduction_pct, cap)
+        else:
+            _log.info("[RESOURCE] %s generate_ep: %d -> %d (+%d, cap=%d)",
+                      unit.name, old, unit.current_ep, unit.current_ep - old, cap)

@@ -329850,5 +329850,57 @@
       230394,
       230395
     ]
+  },
+  "713405": {
+    "enemy_id": 713405,
+    "name": "惨禍：エレーナ・パステルコワ",
+    "asset_id": "145301",
+    "hp": 505594,
+    "attack": 10101,
+    "defense": 7841,
+    "speed": 528,
+    "hp_grade": 5,
+    "attack_grade": 2,
+    "defense_grade": 4,
+    "speed_grade": 2,
+    "critical_rate": 0.12999999523162842,
+    "critical_rate_grade": 2,
+    "attribute": 4,
+    "type": 3,
+    "role_type": 4,
+    "rarity": 9,
+    "skill_ids": [
+      210102,
+      220378,
+      220379,
+      230399,
+      230400
+    ]
+  },
+  "722305": {
+    "enemy_id": 722305,
+    "name": "惨禍：タチアナ・ドロズドヴァ",
+    "asset_id": "146301",
+    "hp": 530766,
+    "attack": 12740,
+    "defense": 7162,
+    "speed": 521,
+    "hp_grade": 5,
+    "attack_grade": 3,
+    "defense_grade": 3,
+    "speed_grade": 2,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 3,
+    "type": 2,
+    "role_type": 2,
+    "rarity": 9,
+    "skill_ids": [
+      210101,
+      220375,
+      220376,
+      220377,
+      230398
+    ]
   }
 }

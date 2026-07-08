@@ -1090,10 +1090,10 @@ class BattleFlowController:
                 ]
                 for ld in linked_debuffs:
                     alive_unit.debuffs.remove(ld)
-                    _log.info("[MARK_DEATH] %s: linked debuff '%s' removed (caster %d died)",
+                    _log.info("[MARK_DEATH] %s: linked debuff '%s' removed (caster %s died)",
                               alive_unit.name, ld.name, mark.source_unit_id)
                 alive_unit.debuffs.remove(mark)
-                _log.info("[MARK_DEATH] %s: mark '高揚' removed (caster %d died)",
+                _log.info("[MARK_DEATH] %s: mark '高揚' removed (caster %s died)",
                           alive_unit.name, mark.source_unit_id)
 
     def _remove_damage_link_from_dead(self, newly_dead: list) -> None:
@@ -3030,7 +3030,7 @@ class BattleFlowController:
             if not unit.is_alive:
                 continue
             if unit.max_extra_point > 0:
-                self.resource_service.generate_ep(unit, 1)
+                self.resource_service.generate_ep(unit, 1, apply_ep_gain_down=True)
                 _log.info("[EP] %s generate_ep: %d/%d", unit.name, unit.current_ep, unit.max_extra_point)
 
     def _process_aura_expiry(self, unit: UnitState):

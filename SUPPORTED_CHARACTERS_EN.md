@@ -57,12 +57,14 @@ The simulator currently supports a limited set of characters. More will be added
 
 ## Tactical Exercise Enemies
 
-| Character  |
-| ---------- |
-| フィー・ドレーゼ   |
-| ミリアム・ヘイワード |
-| ハリエット・ミルズ  |
-| ナージャ・ヴォルコワ |
-| 夕凪舞亜       |
-| 生駒葵        |
+| Character   |
+| ----------- |
+| フィー・ドレーゼ    |
+| ミリアム・ヘイワード  |
+| ハリエット・ミルズ   |
+| ナージャ・ヴォルコワ  |
+| 夕凪舞亜        |
+| 生駒葵         |
+| エレーナ・パステルコワ |
+| タチアナ・ドロズドヴァ |
 

@@ -161,6 +161,16 @@ class UnitState:
     # ========== 最近受到的伤害（用于反撃系PS，如ストイックリコイル）==========
     last_received_damage: int = 0  # 最近一次受到的伤害（包括被盾吸收的部分，不含溢出）
 
+    # ========== max_hp_up计算基准（原始base max_hp，不受stage up影响）==========
+    # max_hp_up增量基于此字段计算，而非当前max_hp
+    # 战斗开始时由__post_init__初始化为max_hp；synergy等比例修改max_hp时同步缩放
+    # stage up重置max_hp时不修改此字段（保持原始base，避免max_hp_up增量随stage膨胀）
+    _base_max_hp_for_calc: int = 0
+
+    def __post_init__(self):
+        if self._base_max_hp_for_calc == 0:
+            self._base_max_hp_for_calc = self.max_hp
+
     def validate(self) -> tuple[bool, str]:
         """
         验证状态一致性

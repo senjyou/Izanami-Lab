@@ -117,6 +117,7 @@ def _apply_side_synergy(side_units: List[UnitState], narrative) -> None:
 
         unit.attack = int(unit.attack * total_mult_atk)
         unit.max_hp = int(unit.max_hp * total_mult_hp)
+        unit._base_max_hp_for_calc = int(unit._base_max_hp_for_calc * total_mult_hp)
         unit.current_hp = unit.max_hp
         unit.defense = int(unit.defense * total_mult_def)
 

@@ -7,7 +7,7 @@ src/combat_v2/tactical_exercise_controller.py
 职责：
 - 管理战术演习模式的特殊战斗逻辑
 - 敌方单位被击败后自动复活至满血，阶段+1，属性增长
-- 复活时清除所有buff/debuff，保持AP/PP/EP不变
+- 复活时清除非回忆卡buff/debuff，保留回忆卡buff/debuff(is_memory_buff=True)，保持AP/PP/EP不变
 """
 
 import math
@@ -186,15 +186,18 @@ class TacticalExerciseController(BattleFlowController):
         saved_pp = enemy.current_pp
         saved_ep = enemy.current_ep
 
-        # 清除所有buff和debuff
-        buffs_cleared = len(enemy.buffs)
-        debuffs_cleared = len(enemy.debuffs)
-        enemy.buffs.clear()
-        enemy.debuffs.clear()
+        # 清除非回忆卡buff/debuff，保留回忆卡buff/debuff(is_memory_buff=True)
+        # 旧stage_ buff必须清除，否则跨阶段累积叠加（is_memory_buff=True会无条件求和）
+        kept_buffs = [b for b in enemy.buffs if b.is_memory_buff and not b.buff_id.startswith("stage_")]
+        buffs_cleared = len(enemy.buffs) - len(kept_buffs)
+        debuffs_cleared = len([d for d in enemy.debuffs if not d.is_memory_buff])
+        enemy.buffs = kept_buffs
+        enemy.debuffs = [d for d in enemy.debuffs if d.is_memory_buff]
 
-        # 重置异常状态标志位（眩晕/冻结等由debuff驱动，debuff已清除，标志位也需同步）
-        enemy.is_stunned = False
-        enemy.is_frozen = False
+        # 重置异常状态标志位（从过滤后的debuffs列表重新派生，保持与debuffs一致）
+        # 非回忆卡施加的眩晕/冻结已随debuff清除，回忆卡施加的则保留
+        enemy.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in enemy.debuffs)
+        enemy.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in enemy.debuffs)
 
         # 恢复ATK/DEF/SPD为阶段0基础值（max_hp/crit_rate直接修改）
         enemy.attack = int(base["attack"])

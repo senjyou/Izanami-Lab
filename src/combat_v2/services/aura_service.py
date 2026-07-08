@@ -194,9 +194,8 @@ class AuraService:
         修复duration_owner="caster"机制：原本只在buff持有者行动结束时递减，
         现在正确地在施法者行动结束时递减。
 
-        注意：这里不检查just_applied。just_applied只保护"自身施法自身"的buff
-        （在process_maneuver_end的DURABLE_SOURCE_MANEUVER_END循环中处理）。
-        施加给其他单位的buff应在施法者当次行动结束时正常递减。
+        just_applied保护：当次行动中由add_aura施加的buff跳过递减（skip_restore除外），
+        与process_maneuver_end中自身施法buff的处理一致。
         """
         source_timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
         affected_units = []
@@ -210,6 +209,8 @@ class AuraService:
                 if (b.timing_type == source_timing
                         and getattr(b, 'source_unit_id', None) == source_unit.unit_id
                         and b.duration > 0):
+                    if getattr(b, 'just_applied', False) and not getattr(b, 'skip_restore', False):
+                        continue
                     b.duration -= 1
                     modified = True
                     _log.info("[AURA_SOURCE_END] %s: %s duration %d->%d (source %s action ended)",

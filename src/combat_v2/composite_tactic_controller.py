@@ -632,6 +632,7 @@ class CompositeTacticController(BattleFlowController):
                 # 重复1次：HP/ATK/DEF × 50%
                 penalty_rate = 0.5
                 unit.max_hp = max(1, int(unit.max_hp * penalty_rate))
+                unit._base_max_hp_for_calc = int(unit._base_max_hp_for_calc * penalty_rate)
                 unit.current_hp = unit.max_hp
                 unit.attack = max(1, int(unit.attack * penalty_rate))
                 unit.defense = max(1, int(unit.defense * penalty_rate))
@@ -645,6 +646,7 @@ class CompositeTacticController(BattleFlowController):
             elif prior_count >= 2:
                 # 重复2次：HP/ATK/DEF = 1
                 unit.max_hp = 1
+                unit._base_max_hp_for_calc = 1
                 unit.current_hp = 1
                 unit.attack = 1
                 unit.defense = 1
