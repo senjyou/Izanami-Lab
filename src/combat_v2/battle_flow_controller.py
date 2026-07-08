@@ -2802,8 +2802,10 @@ class BattleFlowController:
             return
 
         # buff/debuff 类型：创建 BuffState 施加
+        # value保持正值：符号由buff/debuff池分离处理(_aggregate_buff_value_signed做buff_val-debuff_val)
+        # 对debuff取负值会导致双重取反，使debuff效果反向(如atk_down变atk_up, 易伤变减伤)
         is_debuff = not is_buff
-        final_value = -abs(value) if is_debuff else abs(value)
+        final_value = abs(value)
 
         buff = BuffState(
             buff_id=f"memory_{skill_id}_{target_unit.unit_id}",
