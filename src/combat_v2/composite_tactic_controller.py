@@ -209,6 +209,8 @@ class CompositeTacticController(BattleFlowController):
             "total_turns": sum(r["rounds_survived"] for r in self._team_results),
             "is_composite_tactic": True,
             "rdps": self._build_composite_rdps_result(),
+            "rdps_tracking_log": (self._rdps_tracker.get_tracking_log()
+                                  if self._rdps_tracker and self._rdps_tracker.is_tracking_enabled() else []),
         }
 
     def _build_composite_rdps_result(self) -> Optional[dict]:

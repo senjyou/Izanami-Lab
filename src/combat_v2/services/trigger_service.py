@@ -149,6 +149,37 @@ class TriggerService:
         )
         return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx)
 
+    def trigger_after_own_action(self, actor: UnitState, skill_id: int,
+                                  result: Dict, battlefield: BattlefieldState,
+                                  primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
+        """自身行動後発動（after_own_action）：自身使用主动技能时触发（不依赖攻击行为）。
+        与被攻撃反応同属 Phase1 按速度排序（如 夜会のプレリュード vs フレンジーキャノン）。
+        """
+        total_damage = result.get("total_damage", 0) if result else 0
+        ctx = TriggerContext(
+            TriggerTiming.AFTER_SKILL_USE, battlefield,
+            actor=actor, skill=skill_id, primary_target=primary_target,
+            total_damage=total_damage,
+        )
+        return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx,
+                                    trigger_type_filter={'after_own_action'})
+
+    def trigger_after_as_attack(self, actor: UnitState, skill_id: int,
+                                 result: Dict, battlefield: BattlefieldState,
+                                 primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
+        """AS攻撃後発動（after_as_attack）：自身用主动技能攻击后触发（依赖攻击行为）。
+        属于 Phase3（主动技能结束后），在所有伤害相关触发器（on_critical/on_cumulative_damage/
+        after_self_attacked 等）结算完之后执行（如 ハロウィン・オブ・ザ・デッド）。
+        """
+        total_damage = result.get("total_damage", 0) if result else 0
+        ctx = TriggerContext(
+            TriggerTiming.AFTER_SKILL_USE, battlefield,
+            actor=actor, skill=skill_id, primary_target=primary_target,
+            total_damage=total_damage,
+        )
+        return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx,
+                                    trigger_type_filter={'after_as_attack'})
+
     def trigger_before_as_attacked(self, targets: List[UnitState],
                                      battlefield: BattlefieldState,
                                      attacker: Optional[UnitState] = None,
@@ -623,7 +654,8 @@ class TriggerService:
         return self.check_triggers(TriggerTiming.PAWN_RECEIVED_AURA, ctx)
 
     def check_triggers(self, timing: TriggerTiming, context: TriggerContext,
-                        preemptive_filter: Optional[bool] = None) -> List[TriggerAction]:
+                        preemptive_filter: Optional[bool] = None,
+                        trigger_type_filter: Optional[Set[str]] = None) -> List[TriggerAction]:
         if not self.data_loader:
             return []
 
@@ -658,6 +690,12 @@ class TriggerService:
                 parsed = self.data_loader.get_parsed_skill_data(skill.skill_id)
                 if not parsed:
                     continue
+
+                # trigger_type_filter: 仅匹配指定的 trigger_type（用于区分 after_as_attack/after_own_action）
+                if trigger_type_filter is not None:
+                    tt = parsed.get('trigger_type')
+                    if tt not in trigger_type_filter:
+                        continue
 
                 if unit.skill_cooldowns.get(skill.skill_id, 0) > 0:
                     _log.info("[TRIGGER_CD] %s PS[%s](id=%d) on cooldown: %s",
@@ -915,10 +953,13 @@ class TriggerService:
             # Attacker must be an enemy
             if context.actor.side == owner.side:
                 return False
-            # The primary target must be the PS owner itself
+            # 被攻撃後発動：被任何技能攻击都算（不限AS、不限主目标）
+            # 与 AFTER_AS_ATTACKED（被AS技能攻撃後発動，仅AS主目标）不同，
+            # AFTER_SELF_ATTACKED 只要PS持有者是被攻击目标之一即触发
+            if context.targets:
+                return any(t.unit_id == owner.unit_id for t in context.targets)
+            # Fallback: 若未提供targets，回退到primary_target检查
             primary = context.primary_target
-            if primary is None and context.targets:
-                primary = context.targets[0]
             if primary is None:
                 return False
             return primary.unit_id == owner.unit_id

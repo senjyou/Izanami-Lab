@@ -204,7 +204,7 @@ echo 正在更新 Izanami Lab...
 :: 强制结束 exe
 taskkill /im "{ColdUpdater.EXE_NAME}" /f 2>nul
 
-:: 等待 exe 完全退出
+:: 等待 exe 进程退出
 :wait_exit
 tasklist /fi "imagename eq {ColdUpdater.EXE_NAME}" 2>nul | find /i "{ColdUpdater.EXE_NAME}" >nul
 if %errorlevel% equ 0 (
@@ -212,8 +212,28 @@ if %errorlevel% equ 0 (
     goto wait_exit
 )
 
-:: 替换文件（从解压目录复制到应用目录）
-xcopy /E /Y /I "{extracted_app}" "{app_dir}"
+:: 额外等待文件句柄释放（进程退出后 exe 文件句柄可能仍被系统占用几秒）
+timeout /t 3 /nobreak >nul
+
+:: 替换文件（带重试，避免文件句柄未释放导致 xcopy 失败）
+set RETRY=0
+:copy_retry
+xcopy /E /Y /I "{extracted_app}" "{app_dir}" >nul
+if %errorlevel% equ 0 goto copy_done
+set /a RETRY+=1
+if %RETRY% geq 5 goto copy_failed
+timeout /t 2 /nobreak >nul
+goto copy_retry
+
+:copy_failed
+echo.
+echo 更新失败：无法替换文件（可能文件被占用或权限不足）
+echo 请手动关闭所有 Izanami Lab 相关程序后重新检查更新
+echo.
+pause
+exit /b 1
+
+:copy_done
 
 :: 重启应用
 start "" "{exe_path}"

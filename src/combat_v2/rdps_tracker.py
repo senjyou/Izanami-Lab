@@ -141,12 +141,42 @@ class RDPSTracker:
         self._total_damage_to_enemies: int = 0
         self._damage_service: Optional['DamageService'] = damage_service
         self._battlefield: Optional['BattlefieldState'] = None
+        self._tracking_enabled: bool = False
+        self._tracking_log: List[str] = []
+        self._track_event_count: int = 0
 
     def set_damage_service(self, damage_service: 'DamageService'):
         self._damage_service = damage_service
 
     def set_battlefield(self, battlefield: 'BattlefieldState'):
         self._battlefield = battlefield
+
+    # ========== 追踪日志 ==========
+
+    def enable_tracking(self):
+        """启用追踪日志（单次模拟用，记录每次伤害归因细节）"""
+        self._tracking_enabled = True
+        self._tracking_log = []
+        self._track_event_count = 0
+
+    def disable_tracking(self):
+        self._tracking_enabled = False
+
+    def is_tracking_enabled(self) -> bool:
+        return self._tracking_enabled
+
+    def get_tracking_log(self) -> List[str]:
+        return list(self._tracking_log)
+
+    def _track(self, msg: str):
+        if self._tracking_enabled:
+            self._tracking_log.append(msg)
+
+    def _track_event_header(self, damage_type: str, caster, target, actual_damage):
+        self._track_event_count += 1
+        self._track(f"--- RDPS Track #{self._track_event_count:03d} [{damage_type}] ---")
+        self._track(f"  {caster.name} ({caster.unit_id}) -> {target.name} ({target.unit_id})")
+        self._track(f"  Damage: {actual_damage}")
 
     # ========== 注册方法 ==========
 
@@ -202,6 +232,8 @@ class RDPSTracker:
         self._total_damage_to_enemies += actual_damage
         self.ensure_unit(caster.unit_id, caster.name, caster.side.value)
 
+        self._track_event_header(damage_type, caster, target, actual_damage)
+
         if damage_type in ("enchant", "add_dmg", "sub_unit"):
             self._record_enchant_damage(caster, target, actual_damage, enchant_source_id, bf,
                                         enchant_buff)
@@ -237,67 +269,107 @@ class RDPSTracker:
         is_crit = effective_crit_factor > 1.0
         baseline_crit_factor = baseline["baseline_crit_factor"]
 
+        p_base = caster.crit_rate
+        p_final = damage_service._calculate_crit_rate(caster)
+
         if is_crit:
             non_crit_damage = actual_damage / effective_crit_factor
-            crit_payoff = actual_damage - non_crit_damage
-
-            # crit_damage_up 份额
-            if effective_crit_factor > baseline_crit_factor and effective_crit_factor > 1.0:
-                crit_dmg_up_share = crit_payoff * (effective_crit_factor - baseline_crit_factor) \
-                                    / (effective_crit_factor - 1.0)
-            else:
-                crit_dmg_up_share = 0.0
-
-            # crit_rate_up 份额
-            p_base = caster.crit_rate
-            p_final = damage_service._calculate_crit_rate(caster)
-            if p_final > p_base and p_final > 0 and effective_crit_factor > 1.0:
-                crit_rate_up_share = crit_payoff * (baseline_crit_factor - 1.0) \
-                                     / (effective_crit_factor - 1.0) \
-                                     * (p_final - p_base) / p_final
-            else:
-                crit_rate_up_share = 0.0
-
-            inherent_crit_share = crit_payoff - crit_dmg_up_share - crit_rate_up_share
         else:
             non_crit_damage = float(actual_damage)
-            crit_dmg_up_share = 0.0
-            crit_rate_up_share = 0.0
-            inherent_crit_share = 0.0
 
-        # Step 3: baseline_ally_non_crit
+        # Step 3: baseline_ally_non_crit (提前计算，暴击收益分解需要)
         if is_crit and baseline_crit_factor > 0:
             baseline_ally_non_crit = baseline["baseline_ally"] / baseline_crit_factor
         else:
             baseline_ally_non_crit = baseline["baseline_ally"]
 
-        # Step 4: log-ratio 归因 non_crit_damage
         bonus_ally_non_crit = non_crit_damage - baseline_ally_non_crit
 
-        # 直接伤害基数
-        self._add_contribution(caster.unit_id, "direct_damage",
-                               baseline_ally_non_crit + inherent_crit_share)
+        # Step 4: 暴击收益分解 — 统一修复方案
+        # crit_payoff = (baseline_ally_nc + bonus_nc) × (eff_crit - 1)
+        #             = baseline_crit_payoff + bonus_crit_payoff
+        # baseline部分分配到 direct(inherent) / crit_dmg_up / crit_rate_up
+        # bonus部分加入 bonus_for_attribution 做 log-ratio（归因到 non-crit buff 施加者）
+        if is_crit:
+            baseline_crit_payoff = baseline_ally_non_crit * (effective_crit_factor - 1.0)
+            bonus_crit_payoff = bonus_ally_non_crit * (effective_crit_factor - 1.0)
 
-        if abs(bonus_ally_non_crit) > 0.5 or crit_dmg_up_share > 0.5 or crit_rate_up_share > 0.5:
+            # crit_dmg_up_share (仅基于baseline，不含bonus_nc泄漏)
+            if effective_crit_factor > baseline_crit_factor and effective_crit_factor > 1.0:
+                crit_dmg_up_share = baseline_crit_payoff * (effective_crit_factor - baseline_crit_factor) \
+                                    / (effective_crit_factor - 1.0)
+            else:
+                crit_dmg_up_share = 0.0
+
+            # crit_rate_up_share (仅基于baseline，不含bonus_nc泄漏)
+            if p_final > p_base and p_final > 0 and effective_crit_factor > 1.0:
+                crit_rate_up_share = baseline_crit_payoff * (baseline_crit_factor - 1.0) \
+                                     / (effective_crit_factor - 1.0) \
+                                     * (p_final - p_base) / p_final
+            else:
+                crit_rate_up_share = 0.0
+
+            # true_inherent (仅基于baseline的固有暴击收益)
+            if baseline_crit_factor > 1.0 and p_final > 0:
+                true_inherent = baseline_ally_non_crit * (baseline_crit_factor - 1.0) * p_base / p_final
+            elif baseline_crit_factor > 1.0:
+                # p_final=0 但仍暴击（强制暴击/技能bonus），整个 baseline 暴击收益归 direct
+                true_inherent = baseline_crit_payoff
+            else:
+                true_inherent = 0.0
+
+            # bonus部分 = bonus_nc + bonus_crit_payoff (non-crit buff 的直接收益 + 暴击放大收益)
+            bonus_for_attribution = bonus_ally_non_crit + bonus_crit_payoff
+        else:
+            crit_dmg_up_share = 0.0
+            crit_rate_up_share = 0.0
+            true_inherent = 0.0
+            bonus_crit_payoff = 0.0
+            bonus_for_attribution = bonus_ally_non_crit
+
+        self._track(f"  [baseline] atk={baseline['baseline_atk']} def={baseline['baseline_def_orig']} "
+                    f"base_diff={baseline['baseline_base_diff']} crit_f={baseline_crit_factor:.3f} "
+                    f"dealt={baseline['baseline_dealt_mult']:.3f} recv={baseline['baseline_received_mult']:.3f}")
+        self._track(f"  [baseline_ally] {baseline['baseline_ally']:.1f} -> non_crit {baseline_ally_non_crit:.1f}")
+        self._track(f"  [actual] {actual_damage} | crit={is_crit} eff_crit_f={effective_crit_factor:.3f} "
+                    f"p_base={p_base:.4f} p_final={p_final:.4f}")
+        self._track(f"  [bonus] non_crit={non_crit_damage:.1f} bonus_nc={bonus_ally_non_crit:.1f} "
+                    f"crit_dmg_up={crit_dmg_up_share:.1f} crit_rate_up={crit_rate_up_share:.1f} "
+                    f"true_inherent={true_inherent:.1f} bonus_crit_payoff={bonus_crit_payoff:.1f} "
+                    f"bonus_for_attr={bonus_for_attribution:.1f}")
+        self._track(f"  [direct] {caster.unit_id} += {baseline_ally_non_crit + true_inherent:.1f}")
+
+        # 直接伤害基数 = baseline_ally_non_crit + true_inherent（仅baseline的暴击收益）
+        self._add_contribution(caster.unit_id, "direct_damage",
+                               baseline_ally_non_crit + true_inherent)
+
+        if abs(bonus_for_attribution) > 0.5 or crit_dmg_up_share > 0.5 or crit_rate_up_share > 0.5:
             m_base_diff, m_dealt, m_received, m_crit_dmg = self._compute_zone_multipliers(
                 calc, baseline, effective_crit_factor)
 
-            # non_crit 部分 log-ratio
+            self._track(f"  [zones] m_base_diff={m_base_diff:.4f} m_dealt={m_dealt:.4f} "
+                        f"m_received={m_received:.4f} m_crit_dmg={m_crit_dmg:.4f}")
+
+            # non_crit 部分 log-ratio（含 leaked_crit）
             non_crit_zones = {"base_diff": m_base_diff, "dealt": m_dealt, "received": m_received}
             log_sum_nc = sum(math.log(v) for v in non_crit_zones.values() if v > 0 and v != 1.0)
 
             if log_sum_nc != 0:
                 for zone_name, m_val in non_crit_zones.items():
                     if m_val > 0 and m_val != 1.0:
-                        share = bonus_ally_non_crit * math.log(m_val) / log_sum_nc
+                        share = bonus_for_attribution * math.log(m_val) / log_sum_nc
+                        self._track(f"  [zone:{zone_name}] m={m_val:.4f} share={share:.1f}")
                         self._attribute_zone(zone_name, caster, target, share,
                                              baseline, calc, battlefield, damage_service)
-            elif abs(bonus_ally_non_crit) > 0.5:
-                # 无乘区变化但 bonus != 0（浮点误差或边界情况），归攻击者
-                self._add_contribution(caster.unit_id, "direct_damage", bonus_ally_non_crit)
+            elif abs(bonus_for_attribution) > 0.5:
+                # 无乘区变化但 bonus != 0（leaked_crit 或浮点误差），归攻击者
+                self._track(f"  [zone:fallback] bonus_for_attr={bonus_for_attribution:.1f} -> direct")
+                self._track(f"  [direct] {caster.unit_id} += {bonus_for_attribution:.1f}")
+                self._add_contribution(caster.unit_id, "direct_damage", bonus_for_attribution)
 
             # crit_damage_up 归因
             if crit_dmg_up_share > 0.5:
+                self._track(f"  [crit_dmg_up] share={crit_dmg_up_share:.1f}")
                 self._attribute_buffs_by_value(
                     caster, caster.buffs, caster.debuffs,
                     "CriticalBonusModification",
@@ -306,6 +378,7 @@ class RDPSTracker:
 
             # crit_rate_up 归因
             if crit_rate_up_share > 0.5:
+                self._track(f"  [crit_rate_up] share={crit_rate_up_share:.1f}")
                 self._attribute_buffs_by_value(
                     caster, caster.buffs, caster.debuffs,
                     "StatusCriticalChance",
@@ -426,15 +499,16 @@ class RDPSTracker:
             self._attribute_atk_def_penetrate(caster, target, share, baseline, calc,
                                               battlefield, damage_service)
         elif zone_name == "dealt":
+            # dealt 乘区仅由 DEALT_DAMAGE buff/debuff 决定（_get_damage_dealt_multiplier
+            # 仅聚合 DEALT_DAMAGE）。SKILL_POWER_DOWN 影响 skill_factor（独立乘区），
+            # 不属于 dealt 乘区，不应在此归因。
+            # 原实现错误地额外调用 SKILL_POWER_DOWN 归因（使用相同 share），
+            # 导致 share 双重计入：第一次归因到 DealtDamage buff，第二次因无 buff
+            # 触发 fallback 将同一 share 再计入 direct_damage。
             self._attribute_buffs_by_value(
                 caster, caster.buffs, caster.debuffs,
                 SET.DEALT_DAMAGE.value,
                 share, "buff_contribution", "dealt_dmg_contribution",
-                battlefield, damage_service)
-            self._attribute_buffs_by_value(
-                caster, caster.buffs, caster.debuffs,
-                SET.SKILL_POWER_DOWN.value,
-                share, "debuff_contribution", "dealt_dmg_contribution",
                 battlefield, damage_service)
         elif zone_name == "received":
             self._attribute_buffs_by_value(
@@ -470,13 +544,19 @@ class RDPSTracker:
         sub_zones = {"atk_def": m_atk_def, "penetrate": m_penetrate}
         log_sum = sum(math.log(v) for v in sub_zones.values() if v > 0 and v != 1.0)
 
+        self._track(f"  [base_diff] share={share:.1f} m_atk_def={m_atk_def:.4f} "
+                    f"m_penetrate={m_penetrate:.4f} log_sum={log_sum:.4f}")
+
         if log_sum == 0:
             if abs(share) > 0.5:
+                self._track(f"  [base_diff] no sub-zone change -> direct({caster.unit_id}) += {share:.1f}")
                 self._add_contribution(caster.unit_id, "direct_damage", share)
             return
 
         atk_def_share = share * math.log(m_atk_def) / log_sum if m_atk_def > 0 and m_atk_def != 1.0 else 0.0
         penetrate_share = share * math.log(m_penetrate) / log_sum if m_penetrate > 0 and m_penetrate != 1.0 else 0.0
+
+        self._track(f"  [base_diff] atk_def_share={atk_def_share:.1f} penetrate_share={penetrate_share:.1f}")
 
         # ATK/DEF 子乘区
         if abs(atk_def_share) > 0.5:
@@ -494,12 +574,14 @@ class RDPSTracker:
                 caster, caster.buffs, caster.debuffs,
                 SET.STATUS_ATTACK.value,
                 atk_share, "buff_contribution", "atk_buff_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                base_stat_unit=caster)
             self._attribute_buffs_by_value(
                 caster, target.buffs, target.debuffs,
                 SET.STATUS_DEFENSE.value,
                 def_share, "debuff_contribution", "def_debuff_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                base_stat_unit=target)
 
         # 穿透子乘区
         if abs(penetrate_share) > 0.5:
@@ -509,34 +591,90 @@ class RDPSTracker:
                 penetrate_share, "buff_contribution", "penetrate_contribution",
                 battlefield, damage_service)
 
+    def _compute_buff_weight(self, buff: 'BuffState', effect_type: str,
+                             base_stat_unit: Optional['UnitState'],
+                             damage_service: 'DamageService') -> float:
+        """计算buff的有效贡献权重，使百分比buff和固值buff在同一尺度上可比
+
+        固值buff(value_tag=1): 权重=value（绝对值）
+        百分比buff(value_tag=0): 权重=value/100 * base_stat（转换为等效固值）
+
+        对于ATK/DEF等存在混合类型的乘区，此方法确保比例分配公平。
+        例如：+1000固值ATK 和 +50%ATK(base_atk=2000) 实际各贡献1000 ATK，
+        修复前权重为 1000 vs 0.5（极度不均衡），修复后权重为 1000 vs 1000（公平分配）。
+        """
+        val = abs(damage_service._normalize_buff_value(buff))
+        if val == 0:
+            return 0
+        if getattr(buff, 'value_tag', 0) == 1:
+            return val
+        from ..entities_v2.enums import SkillEffectType as SET
+        if effect_type == SET.STATUS_ATTACK.value and base_stat_unit is not None:
+            return val * base_stat_unit.attack
+        elif effect_type == SET.STATUS_DEFENSE.value and base_stat_unit is not None:
+            return val * base_stat_unit.defense
+        return val
+
     def _attribute_buffs_by_value(self, caster: 'UnitState',
                                   buffs: List['BuffState'], debuffs: List['BuffState'],
                                   effect_type: str, share: float,
                                   contribution_field: str, detail_field: str,
                                   battlefield: 'BattlefieldState',
-                                  damage_service: 'DamageService'):
-        """按 buff 值比例归因到具体施加者"""
+                                  damage_service: 'DamageService',
+                                  base_stat_unit: Optional['UnitState'] = None,
+                                  debuff_effect_type: Optional[str] = None,
+                                  debuff_contribution_field: Optional[str] = None):
+        """按 buff 值比例归因到具体施加者
+
+        Args:
+            effect_type: buff 的效果类型
+            debuff_effect_type: debuff 的效果类型（默认与 effect_type 相同）。
+                当 buff 和 debuff 使用不同 effect_type 时（如 dealt 乘区的
+                DealtDamage buff 与 SKILL_POWER_DOWN debuff），必须通过此参数
+                在单次调用中合并归因，避免多次调用导致 share 双重计入。
+            debuff_contribution_field: debuff 的角色归因字段（默认与 contribution_field 相同）
+        """
         if abs(share) < 0.5:
             return
 
-        ally_buffs = [b for b in buffs if b.effect_type == effect_type
+        buff_eff = effect_type
+        debuff_eff = debuff_effect_type or effect_type
+
+        ally_buffs = [b for b in buffs if b.effect_type == buff_eff
                       and self._is_ally_source(b, caster)]
-        ally_debuffs = [d for d in debuffs if d.effect_type == effect_type
+        ally_debuffs = [d for d in debuffs if d.effect_type == debuff_eff
                         and self._is_ally_source(d, caster)]
 
         all_sources = []
         for b in ally_buffs:
-            val = abs(damage_service._normalize_buff_value(b))
+            val = self._compute_buff_weight(b, buff_eff, base_stat_unit, damage_service)
             if val > 0:
                 all_sources.append((b, val, "buff"))
         for d in ally_debuffs:
-            val = abs(damage_service._normalize_buff_value(d))
+            val = self._compute_buff_weight(d, debuff_eff, base_stat_unit, damage_service)
             if val > 0:
                 all_sources.append((d, val, "debuff"))
 
         total_val = sum(v for _, v, _ in all_sources)
+
+        # 追踪日志：buff 权重明细（诊断回忆卡/混合buff归因问题的关键点）
+        if self._tracking_enabled and all_sources:
+            base_desc = (f"base={base_stat_unit.name}(atk={base_stat_unit.attack})"
+                         if base_stat_unit else "base=None")
+            eff_desc = (f"buff_eff={buff_eff} debuff_eff={debuff_eff}"
+                        if debuff_eff != buff_eff else f"effect_type={buff_eff}")
+            self._track(f"  [buff_attr] {eff_desc} share={share:.1f} "
+                        f"field={contribution_field} {base_desc}")
+            for buff, val, kind in all_sources:
+                src = buff.source_unit_id or "(self)"
+                card_mark = f" card_skill={buff.source_skill_id}" if buff.is_memory_buff else ""
+                self._track(f"    - {kind} '{buff.name}' val_tag={getattr(buff,'value_tag',0)} "
+                            f"raw_val={buff.value} weight={val:.2f} src={src}{card_mark}")
+            self._track(f"    total_weight={total_val:.2f}")
+
         if total_val == 0:
             if abs(share) > 0.5:
+                self._track(f"    [direct] {caster.unit_id} += {share:.1f} (no ally buffs)")
                 self._add_contribution(caster.unit_id, "direct_damage", share)
             return
 
@@ -550,13 +688,17 @@ class RDPSTracker:
                 card_id = self._skill_to_card.get(buff.source_skill_id)
                 if card_id is not None:
                     card_field = "buff_contribution" if kind == "buff" else "debuff_contribution"
+                    self._track(f"    -> card {card_id} += {contribution:.1f} ({card_field})")
                     self._add_memory_card_contribution(card_id, card_field, contribution)
                     continue
 
             source_id = buff.source_unit_id or caster.unit_id
             self.ensure_unit(source_id, self._get_unit_name(source_id, battlefield),
                              caster.side.value)
-            self._add_contribution(source_id, contribution_field, contribution,
+            unit_field = contribution_field if kind == "buff" \
+                else (debuff_contribution_field or contribution_field)
+            self._track(f"    -> unit {source_id} += {contribution:.1f} ({unit_field})")
+            self._add_contribution(source_id, unit_field, contribution,
                                    detail_field, contribution)
 
     # ========== 附魔/追加/子单位伤害 ==========
@@ -573,6 +715,7 @@ class RDPSTracker:
         if enchant_buff is not None and enchant_buff.is_memory_buff and enchant_buff.source_skill_id:
             card_id = self._skill_to_card.get(enchant_buff.source_skill_id)
             if card_id is not None:
+                self._track(f"  [enchant] memory_card {card_id} += {actual_damage} (direct_damage)")
                 self._add_memory_card_contribution(card_id, "direct_damage", float(actual_damage))
                 return
 
@@ -581,6 +724,7 @@ class RDPSTracker:
 
         source_name = self._get_unit_name(enchant_source_id, battlefield)
         self.ensure_unit(enchant_source_id, source_name, caster.side.value)
+        self._track(f"  [enchant] unit {enchant_source_id} += {actual_damage} (enchant_contribution)")
         self._add_contribution(enchant_source_id, "enchant_contribution", float(actual_damage))
 
     # ========== HP比例/特殊伤害 ==========
@@ -611,7 +755,6 @@ class RDPSTracker:
                                 battlefield: 'BattlefieldState',
                                 damage_service: 'DamageService'):
         """HP比例伤害归因
-
         calc_detail: {value_source, dmg_pct, base_value, raw_power, cap, effective_atk, cap_atk_pct}
         - raw_power = base_value × dmg_pct / 100
         - cap = effective_atk × cap_atk_pct / 100
@@ -625,8 +768,12 @@ class RDPSTracker:
         effective_atk = calc_detail.get("effective_atk", 0)
         cap_atk_pct = calc_detail.get("cap_atk_pct", 0)
 
+        self._track(f"  [hp_ratio] raw_power={raw_power} cap={cap} eff_atk={effective_atk} "
+                    f"cap_atk_pct={cap_atk_pct} raw_atk={caster.attack}")
+
         if cap <= 0 or raw_power <= cap:
             # 未触及上限：全归 direct_damage
+            self._track(f"  [hp_ratio] uncapped -> direct({caster.unit_id}) += {actual_damage}")
             self._add_contribution(caster.unit_id, "direct_damage", float(actual_damage))
             return
 
@@ -637,6 +784,8 @@ class RDPSTracker:
         bonus = float(actual_damage) - baseline_cap
 
         # 直接伤害 = baseline_cap
+        self._track(f"  [hp_ratio] capped: baseline_cap={baseline_cap:.1f} bonus={bonus:.1f}")
+        self._track(f"  [direct] {caster.unit_id} += {baseline_cap:.1f}")
         self._add_contribution(caster.unit_id, "direct_damage", baseline_cap)
 
         if bonus > 0.5:
@@ -645,9 +794,11 @@ class RDPSTracker:
                 caster, caster.buffs, caster.debuffs,
                 SET.STATUS_ATTACK.value,
                 bonus, "buff_contribution", "atk_buff_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                base_stat_unit=caster)
         elif bonus < -0.5:
             # 负向偏差（如guard/shield扣减）归 direct_damage 以保持守恒
+            self._track(f"  [direct] {caster.unit_id} += {bonus:.1f} (negative bonus)")
             self._add_contribution(caster.unit_id, "direct_damage", bonus)
 
     def _record_damage_special(self, caster: 'UnitState', target: 'UnitState',
@@ -655,7 +806,6 @@ class RDPSTracker:
                                battlefield: 'BattlefieldState',
                                damage_service: 'DamageService'):
         """特殊伤害归因
-
         calc_detail: {value_source, dmg_pct, base_value, effective_value}
         - value_source="self_max_hp": effective_value = max_hp × pct，受 max_hp_up 影响
         - value_source="self_current_hp": effective_value = current_hp × pct，不受 buff 影响
@@ -668,8 +818,12 @@ class RDPSTracker:
         effective_value = calc_detail.get("effective_value", 0)
         base_value = calc_detail.get("base_value", 0)
 
+        self._track(f"  [special] value_source={value_source} dmg_pct={dmg_pct} "
+                    f"base_value={base_value} eff_value={effective_value}")
+
         if value_source == "self_current_hp":
             # 不受 buff 影响，全归 direct
+            self._track(f"  [special] self_current_hp -> direct({caster.unit_id}) += {actual_damage}")
             self._add_contribution(caster.unit_id, "direct_damage", float(actual_damage))
             return
 
@@ -677,6 +831,8 @@ class RDPSTracker:
             raw_max_hp = caster.max_hp
             baseline_value = raw_max_hp * dmg_pct / 100.0
             bonus = float(actual_damage) - baseline_value
+            self._track(f"  [special] self_max_hp: baseline={baseline_value:.1f} bonus={bonus:.1f}")
+            self._track(f"  [direct] {caster.unit_id} += {baseline_value:.1f}")
             self._add_contribution(caster.unit_id, "direct_damage", baseline_value)
             if bonus > 0.5:
                 self._attribute_buffs_by_value(
@@ -685,6 +841,7 @@ class RDPSTracker:
                     bonus, "buff_contribution", "atk_buff_contribution",
                     battlefield, damage_service)
             elif bonus < -0.5:
+                self._track(f"  [direct] {caster.unit_id} += {bonus:.1f} (negative bonus)")
                 self._add_contribution(caster.unit_id, "direct_damage", bonus)
             return
 
@@ -692,27 +849,35 @@ class RDPSTracker:
         raw_atk = caster.attack
         baseline_value = raw_atk * dmg_pct / 100.0
         bonus = float(actual_damage) - baseline_value
+        self._track(f"  [special] atk_mode: baseline={baseline_value:.1f} bonus={bonus:.1f}")
+        self._track(f"  [direct] {caster.unit_id} += {baseline_value:.1f}")
         self._add_contribution(caster.unit_id, "direct_damage", baseline_value)
         if bonus > 0.5:
             self._attribute_buffs_by_value(
                 caster, caster.buffs, caster.debuffs,
                 SET.STATUS_ATTACK.value,
                 bonus, "buff_contribution", "atk_buff_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                base_stat_unit=caster)
         elif bonus < -0.5:
+            self._track(f"  [direct] {caster.unit_id} += {bonus:.1f} (negative bonus)")
             self._add_contribution(caster.unit_id, "direct_damage", bonus)
 
     # ========== 辅助方法 ==========
 
     def _is_ally_source(self, buff: 'BuffState', caster: 'UnitState') -> bool:
-        """判断 buff 施加者是否与 caster 同阵营（我方）"""
+        """判断 buff 施加者是否与 caster 同阵营（我方）
+
+        注意：is_memory_buff 不能用于判断阵营。敌方舞台增量buff也设置
+        is_memory_buff=True（用于阶段清理），但其 source_unit_id 指向敌方单位。
+        必须优先通过 source_unit_id 查找来源单位的阵营来判断。
+        """
         if not buff.source_unit_id:
-            return True
-        if buff.is_memory_buff:
             return True
         source_unit = self._find_unit_by_id(buff.source_unit_id)
         if source_unit is None:
-            return True
+            # 来源无法定位时，回忆卡保守视为我方，其他视为非我方
+            return bool(buff.is_memory_buff)
         return source_unit.side == caster.side
 
     def _find_unit_by_id(self, unit_id: str) -> Optional['UnitState']:
@@ -828,3 +993,109 @@ class RDPSTracker:
             sum_memory_rdps=sum_memory_int,
             discrepancy=discrepancy,
         )
+
+    # ========== 守恒性验证 ==========
+
+    def verify_tracking_log_conservation(self) -> list:
+        """验证追踪日志的逐次攻击守恒性
+
+        解析 _tracking_log，对每个 track 检查:
+            direct + buff_contribution + debuff_contribution + enchant_contribution == actual_damage
+
+        Returns:
+            violations: list of dict，每个包含 track/actual/direct/buff/debuff/enchant/total/diff。
+            空列表表示所有 track 守恒（差异在容差内）。
+        """
+        import re
+
+        if not self._tracking_log:
+            return []
+
+        violations = []
+        current_track_lines: List[str] = []
+        track_num = 0
+
+        def _check_track(num, lines):
+            actual = 0
+            for line in lines:
+                m = re.match(r'\s*Damage: (\d+)', line)
+                if m:
+                    actual = int(m.group(1))
+                    break
+
+            direct = 0.0
+            buff = 0.0
+            debuff = 0.0
+            enchant = 0.0
+
+            for line in lines:
+                line = line.strip()
+                m = re.search(r'\[direct\] \S+ \+= (-?[\d.]+)', line)
+                if m:
+                    direct += float(m.group(1))
+                    continue
+                m = re.search(r'uncapped -> direct\(\S+\) \+= (-?[\d.]+)', line)
+                if m:
+                    direct += float(m.group(1))
+                    continue
+                m = re.search(r'(?:-> |\[enchant\] )unit \S+ \+= (-?[\d.]+) \((\w+)\)', line)
+                if m:
+                    val = float(m.group(1))
+                    field = m.group(2)
+                    if field == 'buff_contribution':
+                        buff += val
+                    elif field == 'debuff_contribution':
+                        debuff += val
+                    elif field == 'enchant_contribution':
+                        enchant += val
+                    elif field == 'direct_damage':
+                        direct += val
+                    continue
+                m = re.search(r'(?:-> card |\[enchant\] memory_card )\d+ \+= (-?[\d.]+) \((\w+)\)', line)
+                if m:
+                    val = float(m.group(1))
+                    field = m.group(2)
+                    if field == 'buff_contribution':
+                        buff += val
+                    elif field == 'debuff_contribution':
+                        debuff += val
+                    elif field == 'direct_damage':
+                        enchant += val
+                    continue
+
+            total = direct + buff + debuff + enchant
+            if abs(total - actual) > 1.0:
+                violations.append({
+                    'track': str(num),
+                    'actual': actual,
+                    'direct': direct,
+                    'buff': buff,
+                    'debuff': debuff,
+                    'enchant': enchant,
+                    'total': total,
+                    'diff': total - actual,
+                })
+
+        for line in self._tracking_log:
+            if line.startswith('--- RDPS Track #'):
+                if current_track_lines:
+                    _check_track(track_num, current_track_lines)
+                track_num += 1
+                current_track_lines = []
+            else:
+                current_track_lines.append(line)
+        if current_track_lines:
+            _check_track(track_num, current_track_lines)
+
+        return violations
+
+    def verify_total_conservation(self) -> int:
+        """验证总量守恒性: sum(unit.total_rdps) + sum(memory_card.total_rdps) == total_damage
+
+        Returns:
+            discrepancy: 总伤害 - 总归因（应为0，允许浮点误差±1）
+        """
+        sum_unit = sum(s.total_rdps for s in self._unit_stats.values())
+        sum_memory = sum(s.total_rdps for s in self._memory_card_stats.values())
+        return int(round(self._total_damage_to_enemies - sum_unit - sum_memory))
+

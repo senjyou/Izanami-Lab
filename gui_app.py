@@ -661,6 +661,66 @@ def _build_rdps_summary(rdps_data: dict) -> str:
             f"    差异: {_fmt_rdps_val(discrepancy)}\n")
 
 
+def _export_rdps_tracking_log(parent, log_lines):
+    """导出 RDPS 追踪日志到文件
+
+    Args:
+        parent: tk 父窗口（用于 messagebox/alert）
+        log_lines: List[str] 追踪日志行
+    """
+    if not log_lines:
+        from tkinter import messagebox
+        messagebox.showinfo("提示", "当前无 RDPS 追踪日志。请先运行单次模拟（需启用RDPS统计）。",
+                            parent=parent)
+        return
+
+    from tkinter import filedialog, messagebox
+    from datetime import datetime
+    default_name = f"rdps_tracking_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    path = filedialog.asksaveasfilename(
+        parent=parent,
+        title="导出 RDPS 追踪日志",
+        defaultextension=".txt",
+        initialfile=default_name,
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+    )
+    if not path:
+        return
+    try:
+        from src.combat_v2.rdps_tracker import RDPSTracker
+        verifier = RDPSTracker()
+        verifier._tracking_log = list(log_lines)
+        violations = verifier.verify_tracking_log_conservation()
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(log_lines))
+            f.write("\n\n")
+            f.write("=" * 60 + "\n")
+            f.write("守恒性验证结果\n")
+            f.write("=" * 60 + "\n")
+            if not violations:
+                f.write("PASS: 所有 track 守恒性检查通过\n")
+                f.write("(direct + buff + debuff + enchant == actual_damage for each track)\n")
+            else:
+                f.write(f"FAIL: {len(violations)} 个 track 违反守恒性\n")
+                for v in violations[:20]:
+                    f.write(f"  Track #{v['track']}: actual={v['actual']} "
+                            f"direct={v['direct']:.1f} buff={v['buff']:.1f} "
+                            f"debuff={v['debuff']:.1f} enchant={v['enchant']:.1f} "
+                            f"total={v['total']:.1f} diff={v['diff']:.1f}\n")
+                if len(violations) > 20:
+                    f.write(f"  ... 还有 {len(violations) - 20} 个违反\n")
+
+        msg = f"RDPS 追踪日志已导出：\n{path}\n共 {len(log_lines)} 行。"
+        if violations:
+            msg += f"\n\n警告：{len(violations)} 个 track 违反守恒性！"
+        else:
+            msg += "\n\n守恒性验证通过。"
+        messagebox.showinfo("完成", msg, parent=parent)
+    except Exception as e:
+        messagebox.showerror("错误", f"导出失败：{e}", parent=parent)
+
+
 # ────────────────────────────── 全局参数 Tab ──────────────────────────────
 
 class GlobalParamsTab(ttk.Frame):
@@ -3537,6 +3597,7 @@ class TeamBattleTab(ttk.Frame):
         self.friend_slots: List[Dict[str, Any]] = []  # {cid, frame, avatar_label, name_label, clear_btn}
         self.enemy_slots: List[Dict[str, Any]] = []
         self.mem_options = ["(空)"] + self._build_memory_options()
+        self._rdps_tracking_log: List[str] = []
         self._build_char_options()
         self._build()
 
@@ -4193,6 +4254,10 @@ class TeamBattleTab(ttk.Frame):
         self.start_btn.pack(side=tk.LEFT, padx=5)
         self.log_btn = ttk.Button(ctrl_frame, text="📋 单次模拟+日志", command=self._start_single_battle_with_log, width=20)
         self.log_btn.pack(side=tk.LEFT, padx=5)
+        self.rdps_log_btn = ttk.Button(ctrl_frame, text="📤 导出RDPS日志",
+                                       command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
+                                       width=18)
+        self.rdps_log_btn.pack(side=tk.LEFT, padx=5)
         self.progress_var = tk.StringVar(value="")
         ttk.Label(ctrl_frame, textvariable=self.progress_var).pack(side=tk.LEFT, padx=10)
 
@@ -4401,10 +4466,11 @@ class TeamBattleTab(ttk.Frame):
         }
 
     @staticmethod
-    def _make_battle_config(max_turns, enable_rdps=True):
+    def _make_battle_config(max_turns, enable_rdps=True, enable_rdps_tracking=False):
         cfg = BattleConfig()
         cfg.max_turns = max_turns
         cfg.enable_rdps = enable_rdps
+        cfg.enable_rdps_tracking = enable_rdps_tracking
         return cfg
 
     def _display_results(self, results):
@@ -4584,7 +4650,8 @@ class TeamBattleTab(ttk.Frame):
             random.seed(seed)
 
             controller = BattleFlowController(bf, data_loader=self.app.data_loader,
-                                      config=self._make_battle_config(max_turns, global_vals.get("enable_rdps", True)),
+                                      config=self._make_battle_config(max_turns, global_vals.get("enable_rdps", True),
+                                                                      enable_rdps_tracking=True),
                                       narrative=narrative)
             result = controller.execute_battle()
 
@@ -4594,15 +4661,18 @@ class TeamBattleTab(ttk.Frame):
             narrative.write(str(log_path))
 
             winner_text = "胜利" if result['winner'] == 'FRIEND' else ("败北" if result['winner'] == 'ENEMY' else "超时")
-            self.app.root.after(0, lambda: self._display_single_result(result, winner_text, str(log_path)))
+            tracking_log = result.get("rdps_tracking_log") or []
+            self.app.root.after(0, lambda: self._display_single_result(result, winner_text, str(log_path), tracking_log))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, result, winner_text, log_path):
+    def _display_single_result(self, result, winner_text, log_path, tracking_log=None):
         self.start_btn.config(state="normal")
         self.log_btn.config(state="normal")
+        if tracking_log is not None:
+            self._rdps_tracking_log = tracking_log
         self.progress_var.set("完成!")
         self._result_panel.clear()
         out = []
@@ -4610,6 +4680,8 @@ class TeamBattleTab(ttk.Frame):
         out.append(f"  单次模拟结果: {winner_text}")
         out.append(f"  回合数: {result['total_turns']}")
         out.append(f"  日志文件: {log_path}")
+        if tracking_log:
+            out.append(f"  RDPS追踪日志: {len(tracking_log)} 行（可点击\"导出RDPS日志\"按钮导出）")
         out.append("=" * 60)
 
         score_data = result.get("score")
@@ -6400,6 +6472,7 @@ class TacticalExerciseTab(ttk.Frame):
         self.mem_friend_slots: List[Dict[str, Any]] = []
         self._drag_source = None
         self._drag_preview = None
+        self._rdps_tracking_log: List[str] = []
         self._build()
 
     def _build(self):
@@ -6585,6 +6658,10 @@ class TacticalExerciseTab(ttk.Frame):
         self._log_btn.grid(row=0, column=3, padx=5, pady=5)
         self._progress_var = tk.StringVar(value="")
         ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
+        self._rdps_log_btn = ttk.Button(battle_frame, text="📤 导出RDPS日志",
+                                        command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
+                                        width=16)
+        self._rdps_log_btn.grid(row=0, column=5, padx=5, pady=5)
 
         # ── 特殊值日志导出按钮 ──
         export_frame = ttk.LabelFrame(f, text="特殊值日志导出（多场模拟后可用）")
@@ -7334,6 +7411,7 @@ class TacticalExerciseTab(ttk.Frame):
             config = BattleConfig()
             config.max_turns = 5
             config.enable_rdps = global_vals.get("enable_rdps", True)
+            config.enable_rdps_tracking = True
 
             controller = TacticalExerciseController(bf, data_loader=self.app.data_loader,
                                                     config=config, narrative=narrative)
@@ -7349,17 +7427,20 @@ class TacticalExerciseTab(ttk.Frame):
             turns = result["total_turns"]
             score_data = result.get("score")
             rdps_data = result.get("rdps")
+            tracking_log = result.get("rdps_tracking_log") or []
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, stages, turns, str(log_path), score_data, rdps_data))
+                winner_text, stages, turns, str(log_path), score_data, rdps_data, tracking_log))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None, rdps_data=None):
+    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None, rdps_data=None, tracking_log=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
+        if tracking_log is not None:
+            self._rdps_tracking_log = tracking_log
         self._progress_var.set("完成!")
         self._result_panel.clear()
         out = []
@@ -7368,6 +7449,8 @@ class TacticalExerciseTab(ttk.Frame):
         out.append(f"  清除阶段数: {stages}")
         out.append(f"  总回合数: {turns}")
         out.append(f"  日志文件: {log_path}")
+        if tracking_log:
+            out.append(f"  RDPS追踪日志: {len(tracking_log)} 行（可点击\"导出RDPS日志\"按钮导出）")
         out.append("=" * 60)
 
         tables = []
@@ -8153,6 +8236,7 @@ class CircleBattleTab(ttk.Frame):
         self.mem_friend_slots: List[Dict[str, Any]] = []
         self._drag_source = None
         self._drag_preview = None
+        self._rdps_tracking_log: List[str] = []
         self._build()
 
     # ── UI 构建 ──
@@ -8346,6 +8430,10 @@ class CircleBattleTab(ttk.Frame):
         self._log_btn.grid(row=0, column=3, padx=5, pady=5)
         self._progress_var = tk.StringVar(value="")
         ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
+        self._rdps_log_btn = ttk.Button(battle_frame, text="📤 导出RDPS日志",
+                                        command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
+                                        width=16)
+        self._rdps_log_btn.grid(row=0, column=5, padx=5, pady=5)
 
         # ── 特殊值日志导出按钮 ──
         export_frame = ttk.LabelFrame(f, text="特殊值日志导出（批量模拟后可用，以我方伤害为标准）")
@@ -9366,6 +9454,7 @@ class CircleBattleTab(ttk.Frame):
             config = BattleConfig()
             config.max_turns = stage_data["max_turn"]
             config.enable_rdps = global_vals.get("enable_rdps", True)
+            config.enable_rdps_tracking = True
 
             from src.combat_v2.circle_battle_controller import CircleBattleController
             controller = CircleBattleController(bf, data_loader=self.app.data_loader,
@@ -9390,17 +9479,20 @@ class CircleBattleTab(ttk.Frame):
             turns = result["total_turns"]
             score_data = result.get("score")
             rdps_data = result.get("rdps")
+            tracking_log = result.get("rdps_tracking_log") or []
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, turns, str(log_path), score_data, sel, stage_data, rdps_data))
+                winner_text, turns, str(log_path), score_data, sel, stage_data, rdps_data, tracking_log))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data, rdps_data=None):
+    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data, rdps_data=None, tracking_log=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
+        if tracking_log is not None:
+            self._rdps_tracking_log = tracking_log
         self._progress_var.set("完成!")
         self._result_panel.clear()
         out = []
@@ -9408,6 +9500,8 @@ class CircleBattleTab(ttk.Frame):
         out.append(f"  对抗压制战 第{sel['season']}赛季 阶段{sel['stage']}: {winner_text}")
         out.append(f"  总回合数: {turns}")
         out.append(f"  日志文件: {log_path}")
+        if tracking_log:
+            out.append(f"  RDPS追踪日志: {len(tracking_log)} 行（可点击\"导出RDPS日志\"按钮导出）")
         out.append("=" * 60)
 
         tables = []
@@ -9737,6 +9831,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
         # 敌方预览槽位
         self._enemy_slots: List[Optional[Dict[str, Any]]] = [None] * 6
         self._enemy_grid_widgets: List[Dict[str, Any]] = []
+        self._rdps_tracking_log: List[str] = []
 
         self._build()
 
@@ -9895,6 +9990,10 @@ class CompositeTacticExerciseTab(ttk.Frame):
         self._log_btn.grid(row=0, column=3, padx=5, pady=5)
         self._progress_var = tk.StringVar(value="")
         ttk.Label(battle_frame, textvariable=self._progress_var).grid(row=0, column=4, padx=5)
+        self._rdps_log_btn = ttk.Button(battle_frame, text="📤 导出RDPS日志",
+                                        command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
+                                        width=16)
+        self._rdps_log_btn.grid(row=0, column=5, padx=5, pady=5)
 
         # ── 结果输出 ──
         right_frame = ttk.Frame(paned)
@@ -10823,6 +10922,7 @@ class CompositeTacticExerciseTab(ttk.Frame):
             config = BattleConfig()
             config.max_turns = max_turns
             config.enable_rdps = global_vals.get("enable_rdps", True)
+            config.enable_rdps_tracking = True
 
             from src.combat_v2.composite_tactic_controller import CompositeTacticController
             controller = CompositeTacticController(
@@ -10837,15 +10937,18 @@ class CompositeTacticExerciseTab(ttk.Frame):
             log_path = log_dir / f"composite_tactic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             narrative.write(str(log_path))
 
-            self.app.root.after(0, lambda: self._display_single_result(result, str(log_path)))
+            tracking_log = result.get("rdps_tracking_log") or []
+            self.app.root.after(0, lambda: self._display_single_result(result, str(log_path), tracking_log))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, result, log_path):
+    def _display_single_result(self, result, log_path, tracking_log=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
+        if tracking_log is not None:
+            self._rdps_tracking_log = tracking_log
         self._progress_var.set("完成!")
         self._result_panel.clear()
 
@@ -10858,6 +10961,8 @@ class CompositeTacticExerciseTab(ttk.Frame):
         out.append(f"  BOSS最终阶段: {result.get('boss_stage', 0)}")
         out.append(f"  总回合数: {result.get('total_turns', 0)}")
         out.append(f"  日志文件: {log_path}")
+        if tracking_log:
+            out.append(f"  RDPS追踪日志: {len(tracking_log)} 行（可点击\"导出RDPS日志\"按钮导出）")
         out.append("=" * 60)
 
         # 各队结果（含单位详情）

@@ -34,9 +34,12 @@ _log = battle_logger()
 
 
 class BattleConfig:
-    def __init__(self, max_turns: int = 15, enable_rdps: bool = True):
+    def __init__(self, max_turns: int = 15, enable_rdps: bool = True,
+                 enable_rdps_tracking: bool = False):
         self.max_turns = max_turns
         self.enable_rdps = enable_rdps
+        # RDPS 追踪日志：单次模拟用，记录每次伤害归因的中间值，便于排查归因 bug
+        self.enable_rdps_tracking = enable_rdps_tracking
 
 
 class BattleFlowController:
@@ -57,6 +60,8 @@ class BattleFlowController:
             from .rdps_tracker import RDPSTracker
             self._rdps_tracker = RDPSTracker()
             self.battlefield.rdps_tracker = self._rdps_tracker
+            if getattr(self.config, 'enable_rdps_tracking', False):
+                self._rdps_tracker.enable_tracking()
         else:
             self._rdps_tracker = None
             self.battlefield.rdps_tracker = None
@@ -211,6 +216,8 @@ class BattleFlowController:
                 memory_cards=self.battlefield.memory_cards,
             )
             result_dict["rdps"] = rdps_result.to_dict()
+            if self._rdps_tracker.is_tracking_enabled():
+                result_dict["rdps_tracking_log"] = self._rdps_tracker.get_tracking_log()
 
         return result_dict
 
@@ -690,14 +697,18 @@ class BattleFlowController:
                 primary_target = _original_primary if _original_primary else (damaged_targets[0] if damaged_targets else None)
 
                 if skill_type == 1:
-                    # AS技能执行结束后，触发器分两阶段执行：
-                    # Phase 1（被攻撃反応+自身AS後発動）: after_ally_attacked, after_self_attacked,
-                    #   after_as_attacked, after_as_attacked_ally, after_self_as
-                    #   被攻撃反応と自身AS後発動（夜会のプレリュード等）は同リストで速度順に実行
-                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack, on_critical, skill_use_count
+                    # AS技能执行结束后，触发器分三阶段执行：
+                    # Phase 1（被攻撃反応+自身行動後発動）: after_ally_attacked, after_self_attacked,
+                    #   after_as_attacked, after_as_attacked_ally, after_own_action
+                    #   被攻撃反応と自身行動後発動（夜会のプレリュード等）は同リストで速度順に実行
+                    # Phase 2（AS攻撃後追撃+傷害関連トリガー）: after_ally_as_attack, on_critical,
+                    #   skill_use_count, on_cumulative_damage
+                    #   on_critical と on_cumulative_damage は同リストで速度順に実行
+                    # Phase 3（主动技能结束后）: after_as_attack
+                    #   全ての傷害関連トリガー終了後に実行（如 ハロウィン・オブ・ザ・デッド）
                     # 每阶段内部按速度→位置排序
 
-                    # ===== 收集 Phase 1: 被攻撃反応 + 自身AS後発動 =====
+                    # ===== 收集 Phase 1: 被攻撃反応 + 自身行動後発動 =====
                     phase1_actions = []
 
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
@@ -726,16 +737,16 @@ class BattleFlowController:
                     )
                     phase1_actions.extend(after_as_ally)
 
-                    # 自身AS攻撃後発動（如夜会のプレリュード、諸元修正、ファイティングブースト）
+                    # 自身行動後発動（after_own_action，如夜会のプレリュード、諸元修正、ファイティングブースト）
                     # 被攻撃反応と同リストで速度順に実行（ゲーム内挙動：フレンジーキャノン等の反撃と同タイミングで速度競合）
                     _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-                    after_self_as = self.trigger_service.trigger_after_skill_use(
+                    after_own_action = self.trigger_service.trigger_after_own_action(
                         unit, selected_skill, skill_result, self.battlefield,
                         primary_target=_as_primary_target
                     )
-                    phase1_actions.extend(after_self_as)
+                    phase1_actions.extend(after_own_action)
 
-                    # ===== 收集 Phase 2: AS攻撃後追撃 =====
+                    # ===== 收集 Phase 2: AS攻撃後追撃 + 傷害関連トリガー =====
                     phase2_actions = []
 
                     # 其他友方AS攻击后触发（如ポイズンチェイス、チェイスブレイダー）
@@ -747,8 +758,7 @@ class BattleFlowController:
                     phase2_actions.extend(after_ally_as)
 
                     # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
-                    # 暴击事件在AS执行中发生，应先于追撃型PS执行
-                    # （如 アンデッドリベンジ on_critical 需先于 ハロウィン・オブ・ザ・デッド after_as_attack）
+                    # on_critical と on_cumulative_damage は同リストで速度順に実行
                     if self._deferred_crit_triggers:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
@@ -763,33 +773,59 @@ class BattleFlowController:
                     if skill_count_actions:
                         phase2_actions.extend(skill_count_actions)
 
-                    # 记录PP快照（两阶段合并），用于后续判断PS是否实际执行
-                    all_for_snapshot = phase1_actions + phase2_actions
+                    # 累计伤害触发PS（それはやりすぎ！+等）
+                    # on_critical と同リストで速度順に実行（ゲーム内挙動：暴撃と累計傷害は同時機に速度競合）
+                    cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
+                        self.battlefield, unique_damaged)
+                    if cumulative_dmg_actions:
+                        phase2_actions.extend(cumulative_dmg_actions)
+
+                    # ===== 收集 Phase 3: 主动技能结束后 =====
+                    # after_as_attack（如 ハロウィン・オブ・ザ・デッド「アクティブスキルで攻撃した直後」）
+                    # 全ての傷害関連トリガー（Phase1/Phase2）終了後に実行
+                    phase3_actions = self.trigger_service.trigger_after_as_attack(
+                        unit, selected_skill, skill_result, self.battlefield,
+                        primary_target=_as_primary_target
+                    )
+
+                    # 记录PP快照（三阶段合并），用于后续判断PS是否实际执行
+                    all_for_snapshot = phase1_actions + phase2_actions + phase3_actions
                     self._pp_snapshot_before_as_triggers = {}
                     for a in all_for_snapshot:
                         o = a.instance.owner
                         self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
 
-                    # ===== 执行 Phase 1: 被攻撃反応 =====
+                    # ===== 执行 Phase 1: 被攻撃反応 + 自身行動後発動 =====
                     if phase1_actions:
                         phase1_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] Phase1 (被攻撃反応): %d actions sorted by speed→position",
+                        _log.info("[POST_AS_TRIGGERS] Phase1 (被攻撃反応+自身行動後発動): %d actions sorted by speed→position",
                                   len(phase1_actions))
                     self._execute_trigger_actions(phase1_actions, unit)
                     # Phase 1 可能产生新的暴击触发器
                     self._flush_deferred_crit_triggers(unit)
 
-                    # ===== 执行 Phase 2: AS攻撃後追撃 =====
+                    # ===== 执行 Phase 2: AS攻撃後追撃 + 傷害関連トリガー =====
                     if phase2_actions:
                         phase2_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃): %d actions sorted by speed→position",
+                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃+傷害関連): %d actions sorted by speed→position",
                                   len(phase2_actions))
                     self._execute_trigger_actions(phase2_actions, unit)
                     # PS技能可能产生新的暴击触发器，继续处理
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # ===== 执行 Phase 3: 主动技能结束后 =====
+                    if phase3_actions:
+                        phase3_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] Phase3 (主动技能结束后): %d actions sorted by speed→position",
+                                  len(phase3_actions))
+                    self._execute_trigger_actions(phase3_actions, unit)
+                    # Phase 3 的 after_as_attack 攻击也可能产生新的暴击触发器
                     self._flush_deferred_crit_triggers(unit)
                 else:
                     # 非AS技能：先执行暴击触发器，再执行其他触发器
@@ -806,55 +842,79 @@ class BattleFlowController:
                     )
                     self._execute_trigger_actions(after_self, unit)
 
-                # 累计伤害触发器检查
-                cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield, unique_damaged)
-                if cumulative_dmg_actions:
-                    self._execute_global_trigger_actions(cumulative_dmg_actions)
+                    # 非AS技能的累计伤害触发器检查（保持原路径）
+                    cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
+                        self.battlefield, unique_damaged)
+                    if cumulative_dmg_actions:
+                        self._execute_global_trigger_actions(cumulative_dmg_actions)
             else:
                 # 非伤害型AS技能（如支援型AS 120111/120112）：damaged_targets为空，跳过伤害相关触发器
-                # 但仍需处理 after_self_as、暴击触发器、skill_count_actions
+                # 但仍需处理 after_own_action、暴击触发器、skill_count_actions、after_as_attack
+                # 与伤害型AS路径保持一致的 Phase1/Phase2/Phase3 划分
                 if skill_type == 1:
-                    all_post_as_actions = []
-
-                    # 自身AS攻击后触发（如諸元修正）
                     _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-                    after_self_as = self.trigger_service.trigger_after_skill_use(
+
+                    # Phase 1: 自身行動後発動（after_own_action）
+                    phase1_actions = self.trigger_service.trigger_after_own_action(
                         unit, selected_skill, skill_result, self.battlefield,
                         primary_target=_as_primary_target
                     )
-                    all_post_as_actions.extend(after_self_as)
 
-                    # 暴击触发PS（ラッキー4！、ジャックポット等）也属于同时机
+                    # Phase 2: 暴击触发器 + skill_use_count（非伤害型AS无 on_cumulative_damage）
+                    phase2_actions = []
                     if self._deferred_crit_triggers:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
-                            all_post_as_actions.extend(crit_actions)
+                            phase2_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
 
-                    # 技能使用次数触发PS（skill_use_count已在上方统一更新）
                     skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
                     if skill_count_actions:
-                        all_post_as_actions.extend(skill_count_actions)
+                        phase2_actions.extend(skill_count_actions)
 
-                    # 按速度降序→位置升序排序
-                    if all_post_as_actions:
-                        all_post_as_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS: %d same-timing PS actions collected",
-                                  len(all_post_as_actions))
+                    # Phase 3: 主动技能结束后（after_as_attack）
+                    phase3_actions = self.trigger_service.trigger_after_as_attack(
+                        unit, selected_skill, skill_result, self.battlefield,
+                        primary_target=_as_primary_target
+                    )
 
-                    # 记录PP快照，用于后续判断PS是否实际执行
+                    # 记录PP快照（三阶段合并）
+                    all_for_snapshot = phase1_actions + phase2_actions + phase3_actions
                     self._pp_snapshot_before_as_triggers = {}
-                    for a in all_post_as_actions:
+                    for a in all_for_snapshot:
                         o = a.instance.owner
                         self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
 
-                    self._execute_trigger_actions(all_post_as_actions, unit)
+                    # 执行 Phase 1
+                    if phase1_actions:
+                        phase1_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1 (自身行動後発動): %d actions",
+                                  len(phase1_actions))
+                    self._execute_trigger_actions(phase1_actions, unit)
+                    self._flush_deferred_crit_triggers(unit)
 
-                    # PS技能可能产生新的暴击触发器，继续处理
+                    # 执行 Phase 2
+                    if phase2_actions:
+                        phase2_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase2 (暴撃+skill_count): %d actions",
+                                  len(phase2_actions))
+                    self._execute_trigger_actions(phase2_actions, unit)
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # 执行 Phase 3
+                    if phase3_actions:
+                        phase3_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase3 (主动技能结束后): %d actions",
+                                  len(phase3_actions))
+                    self._execute_trigger_actions(phase3_actions, unit)
                     self._flush_deferred_crit_triggers(unit)
 
             if had_aura:
@@ -874,7 +934,7 @@ class BattleFlowController:
 
         self.skill_service.update_cooldown_after_skill_use(unit, selected_skill)
 
-        # AS技能的skill_use_count更新和skill_count_actions已在all_post_as_actions中合并处理
+        # AS技能的skill_use_count更新和skill_count_actions已在phase2_actions中合并处理
         # 非AS技能仍在此处独立处理
         if skill_type != 1:
             unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
@@ -883,10 +943,10 @@ class BattleFlowController:
 
         skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
 
-        # AS技能的skill_count_actions已在all_post_as_actions中合并执行，此处仅处理清理逻辑
+        # AS技能的skill_count_actions已在phase2_actions中合并执行，此处仅处理清理逻辑
         # 非AS技能在此处独立执行
         if skill_type == 1:
-            # AS技能：skill_count_actions已在all_post_as_actions中执行
+            # AS技能：skill_count_actions已在phase2_actions中执行
             # 此处仅处理skill_use_count清理
             # 需要检查PS是否实际执行了（PP是否足够），避免PP不足时错误清除计数器
             if skill_count_actions:
@@ -1000,10 +1060,20 @@ class BattleFlowController:
 
         unit.action_phase = UnitActionPhase.AFTER_SKILL
 
-        # AS技能的after_skill_use触发器已在all_post_as_actions中合并处理，此处仅对非AS技能调用
+        # AS技能的after_own_action/after_as_attack触发器已在phase1/phase3中合并处理
+        # 此处仅对非AS技能调用，保持 after_own_action 先于 after_as_attack 的顺序
         if skill_type != 1:
-            trigger_actions = self.trigger_service.trigger_after_skill_use(unit, selected_skill, skill_result, self.battlefield)
-            self._execute_trigger_actions(trigger_actions, unit)
+            _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
+            after_own = self.trigger_service.trigger_after_own_action(
+                unit, selected_skill, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+            self._execute_trigger_actions(after_own, unit)
+            after_as_atk = self.trigger_service.trigger_after_as_attack(
+                unit, selected_skill, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+            self._execute_trigger_actions(after_as_atk, unit)
 
         # 处理后续触发器（after_ally_attacked等）产生的crit triggers
         # 这些触发器在复活后执行，其crit triggers可以立即执行
@@ -1344,12 +1414,14 @@ class BattleFlowController:
     # 反应型 PS（after_self_attacked/after_ally_attacked 等）不在集合中，避免反应链递归：
     # after_as_attacked 反击 → _trigger_being_attacked_reactions → after_self_attacked/after_ally_attacked
     # → after_self_attacked/after_ally_attacked 不在集合中，不会再次触发 _trigger_being_attacked_reactions，链终止。
-    # 全局型 PS（on_turn_end/on_cumulative_damage/on_hp_below/on_unit_count_below）
-    # 走 _execute_global_trigger_actions 路径，已自带被攻撃反応处理，也不在此集合中。
+    # on_cumulative_damage 已从全局路径移到 Phase2 的 _execute_trigger_actions 路径，
+    # 需加入此集合以确保其攻击触发被攻撃反応（如 それはやりすぎ！+ 攻击触发 ブレイブリフト）。
+    # 其他全局型 PS（on_turn_end/on_hp_below/on_unit_count_below）
+    # 仍走 _execute_global_trigger_actions 路径，已自带被攻撃反応处理，不在此集合中。
     _ACTIVE_ATTACK_TRIGGER_TYPES = {
         'on_skill_use_count', 'on_critical',
         'after_as_attack', 'after_own_action', 'after_ally_as_attack',
-        'after_as_attacked',
+        'after_as_attacked', 'on_cumulative_damage',
     }
 
     def _trigger_being_attacked_reactions(self, attacker: UnitState,
