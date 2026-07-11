@@ -5230,20 +5230,35 @@ class SkillService:
                     continue
 
             # Skip debuff on targets that fully evaded the preceding damage
+            # 例外（游戏bug仿真）：清廉なる一撃(120148/220372)对主目标的mark不绑定前置伤害，
+            # 独立消耗1层闪避。仅限该技能的主目标（_original_primary_target），
+            # 邻接副目标和其他技能的mark/debuff仍被正常跳过。
+            _SEIKEI_SKILL_IDS = {120148, 220372}
+            _is_seikei_primary_mark = (
+                mapped_effect_type == SkillEffectType.MARK.value
+                and self._current_skill_id in _SEIKEI_SKILL_IDS
+                and getattr(self, '_original_primary_target', None) is not None
+                and target.unit_id == self._original_primary_target.unit_id
+            )
             if actual_is_debuff and target.unit_id in getattr(self, '_skill_evaded_targets', set()):
-                _log.info("[AURA_APPLY] %s -> %s: DEBUFF SKIPPED (target fully evaded damage)",
-                          caster.name, target.name)
-                # 记录被闪避的目标，供linked_mark检查使用
-                self._debuff_immune_blocked_targets.add(target.unit_id)
-                blocked_details.append({
-                    "target": target.name,
-                    "target_id": target.unit_id,
-                    "effect": f"标记「{effect_flags_aura.get('mark_name', '')}」" if mapped_effect_type == SkillEffectType.MARK.value and effect_flags_aura and effect_flags_aura.get('mark_name') else mapped_effect_type,
-                    "source": caster.name,
-                    "source_id": caster.unit_id,
-                    "reason": "evade",
-                })
-                continue
+                if _is_seikei_primary_mark:
+                    _log.info("[AURA_APPLY] %s -> %s: 清廉なる一撃 primary target mark not skipped, will trigger separate evasion check (game bug simulation)",
+                              caster.name, target.name)
+                    # 不跳过，fall through到下方正常闪避检查，独立消耗1层闪避
+                else:
+                    _log.info("[AURA_APPLY] %s -> %s: DEBUFF SKIPPED (target fully evaded damage)",
+                              caster.name, target.name)
+                    # 记录被闪避的目标，供linked_mark检查使用
+                    self._debuff_immune_blocked_targets.add(target.unit_id)
+                    blocked_details.append({
+                        "target": target.name,
+                        "target_id": target.unit_id,
+                        "effect": f"标记「{effect_flags_aura.get('mark_name', '')}」" if mapped_effect_type == SkillEffectType.MARK.value and effect_flags_aura and effect_flags_aura.get('mark_name') else mapped_effect_type,
+                        "source": caster.name,
+                        "source_id": caster.unit_id,
+                        "reason": "evade",
+                    })
+                    continue
 
             if actual_is_debuff and caster.side != target.side:
                 evade_buffs = [b for b in target.buffs if b.effect_type == SkillEffectType.EVADE.value and b.hit_limited > 0]

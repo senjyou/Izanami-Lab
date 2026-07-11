@@ -1646,6 +1646,25 @@ class BattleFlowController:
                     self._deferred_crit_triggers.extend(ps_pending_crit)
                     _log.info("[CRIT_COLLECT] PS %s: collected %d crit triggers (total=%d)",
                               skill_name, len(ps_pending_crit), len(self._deferred_crit_triggers))
+
+                # 累计伤害再检查：PS技能造成伤害后，被攻击单位的累计伤害可能超过阈值
+                # 需要立即重新检查并触发on_cumulative_damage PS
+                # （如 アンデッドリベンジ on_critical 造成伤害→それはやりすぎ！+ on_cumulative_damage 触发）
+                # cumulative_hp_damage在PS成功执行后重置为0，避免无限递归
+                if damaged_targets_reaction:
+                    _seen_ids = set()
+                    _unique_damaged = []
+                    for _u in damaged_targets_reaction:
+                        if _u.unit_id not in _seen_ids and _u.is_alive:
+                            _seen_ids.add(_u.unit_id)
+                            _unique_damaged.append(_u)
+                    if _unique_damaged:
+                        cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
+                            self.battlefield, _unique_damaged)
+                        if cumulative_dmg_actions:
+                            _log.info("[CUMULATIVE_DMG_RECHECK] PS[%s] dealt damage, re-checking cumulative damage: %d triggers",
+                                      skill_name, len(cumulative_dmg_actions))
+                            self._execute_trigger_actions(cumulative_dmg_actions, owner)
             else:
                 _log.info("[PS_EXEC] PS[%s] execution failed: %s", skill_name, skill_result.get("error", "unknown"))
 
@@ -1940,6 +1959,24 @@ class BattleFlowController:
                     self._deferred_crit_triggers.extend(global_pending_crit)
                     _log.info("[CRIT_COLLECT] Global PS %s: collected %d crit triggers (total=%d)",
                               skill_name, len(global_pending_crit), len(self._deferred_crit_triggers))
+
+                # 累计伤害再检查：全局PS技能造成伤害后，被攻击单位的累计伤害可能超过阈值
+                # 需要立即重新检查并触发on_cumulative_damage PS
+                # cumulative_hp_damage在PS成功执行后重置为0，避免无限递归
+                if damaged_targets_reaction:
+                    _seen_ids = set()
+                    _unique_damaged = []
+                    for _u in damaged_targets_reaction:
+                        if _u.unit_id not in _seen_ids and _u.is_alive:
+                            _seen_ids.add(_u.unit_id)
+                            _unique_damaged.append(_u)
+                    if _unique_damaged:
+                        cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
+                            self.battlefield, _unique_damaged)
+                        if cumulative_dmg_actions:
+                            _log.info("[CUMULATIVE_DMG_RECHECK] Global PS[%s] dealt damage, re-checking cumulative damage: %d triggers",
+                                      skill_name, len(cumulative_dmg_actions))
+                            self._execute_trigger_actions(cumulative_dmg_actions, owner)
             else:
                 _log.info("[PS_EXEC] PS[%s] execution failed: %s", skill_name, skill_result.get("error", "unknown"))
 
