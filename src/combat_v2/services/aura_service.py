@@ -54,6 +54,8 @@ class AuraService:
             unit.is_frozen = True
         elif aura.effect_type == SkillEffectType.CONFUSION.value:
             unit.is_confused = True
+        elif aura.effect_type == SkillEffectType.GENWAKU.value:
+            unit.is_genwaku = True
 
         # 2. 区分 Buff 和 Debuff 列表
         target_list = self._get_target_list(unit, aura)
@@ -446,10 +448,11 @@ class AuraService:
     # ========== 内部逻辑 ==========
 
     def _sync_stun_freeze_flags(self, unit: UnitState):
-        """根据当前debuffs同步眩晕/冻结/混乱标志位"""
+        """根据当前debuffs同步眩晕/冻结/混乱/幻惑标志位"""
         unit.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in unit.debuffs)
         unit.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in unit.debuffs)
         unit.is_confused = any(b.effect_type == SkillEffectType.CONFUSION.value for b in unit.debuffs)
+        unit.is_genwaku = any(b.effect_type == SkillEffectType.GENWAKU.value for b in unit.debuffs)
 
     def _get_target_list(self, unit: UnitState, aura: BuffState) -> List[BuffState]:
         if aura.is_debuff:

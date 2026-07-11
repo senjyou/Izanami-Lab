@@ -137,7 +137,7 @@ class RDPSTracker:
     def __init__(self, damage_service: 'DamageService' = None):
         self._unit_stats: Dict[str, UnitRDPSStats] = {}
         self._memory_card_stats: Dict[int, MemoryCardRDPSStats] = {}
-        self._skill_to_card: Dict[int, int] = {}  # source_skill_id -> card_id
+        self._skill_to_card: Dict[int, List[int]] = {}  # source_skill_id -> [card_id, ...]
         self._total_damage_to_enemies: int = 0
         self._damage_service: Optional['DamageService'] = damage_service
         self._battlefield: Optional['BattlefieldState'] = None
@@ -189,7 +189,10 @@ class RDPSTracker:
             self._memory_card_stats[card_id] = MemoryCardRDPSStats(card_id=card_id, card_name=card_name)
 
     def register_card_skill(self, card_id: int, skill_id: int):
-        self._skill_to_card[skill_id] = card_id
+        if skill_id not in self._skill_to_card:
+            self._skill_to_card[skill_id] = []
+        if card_id not in self._skill_to_card[skill_id]:
+            self._skill_to_card[skill_id].append(card_id)
 
     # ========== 主入口 ==========
 
@@ -265,7 +268,8 @@ class RDPSTracker:
                                                damage_service, battlefield)
 
         # Step 2: 暴击特殊处理
-        effective_crit_factor = self._get_effective_crit_factor(dmg_result, calc)
+        effective_crit_factor = self._get_effective_crit_factor(dmg_result, calc,
+                                                                  caster, damage_service)
         is_crit = effective_crit_factor > 1.0
         baseline_crit_factor = baseline["baseline_crit_factor"]
 
@@ -685,11 +689,13 @@ class RDPSTracker:
 
             # 记忆卡独立统计：只归因到回忆卡，不归因到角色（避免双重计算）
             if buff.is_memory_buff and buff.source_skill_id:
-                card_id = self._skill_to_card.get(buff.source_skill_id)
-                if card_id is not None:
+                card_ids = self._skill_to_card.get(buff.source_skill_id)
+                if card_ids:
                     card_field = "buff_contribution" if kind == "buff" else "debuff_contribution"
-                    self._track(f"    -> card {card_id} += {contribution:.1f} ({card_field})")
-                    self._add_memory_card_contribution(card_id, card_field, contribution)
+                    per_card = contribution / len(card_ids)
+                    for cid in card_ids:
+                        self._track(f"    -> card {cid} += {per_card:.1f} ({card_field})")
+                        self._add_memory_card_contribution(cid, card_field, per_card)
                     continue
 
             source_id = buff.source_unit_id or caster.unit_id
@@ -713,10 +719,12 @@ class RDPSTracker:
         """
         # 回忆卡附魔/追加/子单位伤害 → 归因到回忆卡
         if enchant_buff is not None and enchant_buff.is_memory_buff and enchant_buff.source_skill_id:
-            card_id = self._skill_to_card.get(enchant_buff.source_skill_id)
-            if card_id is not None:
-                self._track(f"  [enchant] memory_card {card_id} += {actual_damage} (direct_damage)")
-                self._add_memory_card_contribution(card_id, "direct_damage", float(actual_damage))
+            card_ids = self._skill_to_card.get(enchant_buff.source_skill_id)
+            if card_ids:
+                per_card = float(actual_damage) / len(card_ids)
+                for cid in card_ids:
+                    self._track(f"  [enchant] memory_card {cid} += {per_card:.1f} (direct_damage)")
+                    self._add_memory_card_contribution(cid, "direct_damage", per_card)
                 return
 
         if not enchant_source_id:
@@ -871,12 +879,18 @@ class RDPSTracker:
         注意：is_memory_buff 不能用于判断阵营。敌方舞台增量buff也设置
         is_memory_buff=True（用于阶段清理），但其 source_unit_id 指向敌方单位。
         必须优先通过 source_unit_id 查找来源单位的阵营来判断。
+
+        例外：玩家回忆卡对敌方施加的debuff（如ReceivedDamage），其source_unit_id
+        被设为敌方unit_id（_apply_structured_effect_to_unit中target_unit.unit_id），
+        但实际来源是我方回忆卡。通过_skill_to_card映射可准确识别玩家回忆卡buff。
         """
+        if buff.is_memory_buff and buff.source_skill_id:
+            if buff.source_skill_id in self._skill_to_card:
+                return True
         if not buff.source_unit_id:
             return True
         source_unit = self._find_unit_by_id(buff.source_unit_id)
         if source_unit is None:
-            # 来源无法定位时，回忆卡保守视为我方，其他视为非我方
             return bool(buff.is_memory_buff)
         return source_unit.side == caster.side
 
@@ -889,7 +903,9 @@ class RDPSTracker:
         unit = battlefield.get_unit_by_id(unit_id) if battlefield else None
         return unit.name if unit else unit_id
 
-    def _get_effective_crit_factor(self, dmg_result: 'DamageResult', calc: dict) -> float:
+    def _get_effective_crit_factor(self, dmg_result: 'DamageResult', calc: dict,
+                                    caster: Optional['UnitState'] = None,
+                                    damage_service: Optional['DamageService'] = None) -> float:
         """获取有效暴击乘率"""
         if calc.get("crit_factor", 1.0) > 1.0:
             return calc["crit_factor"]
@@ -906,6 +922,10 @@ class RDPSTracker:
         if not crit_hits:
             return 1.0
         if not non_crit_hits:
+            # 全部hit暴击时，无法从伤害比推算crit_factor
+            # 使用实际暴击伤害加成计算，而非默认1.5
+            if caster is not None and damage_service is not None:
+                return 1.5 + damage_service._get_crit_damage_bonus(caster)
             return 1.5
 
         avg_non_crit = sum(non_crit_hits) / len(non_crit_hits)

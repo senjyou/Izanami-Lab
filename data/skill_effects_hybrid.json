@@ -4257,24 +4257,7 @@
             "duration": null,
             "duration_type": null,
             "duration_tag": null,
-            "hit_count": 2,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": 2,
+            "hit_count": 4,
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
@@ -7984,58 +7967,7 @@
             "duration": null,
             "duration_type": null,
             "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
+            "hit_count": 4,
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
@@ -23255,24 +23187,7 @@
             "duration": null,
             "duration_type": null,
             "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "damage",
-            "target_type": "enemy_single",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
+            "hit_count": 4,
             "hit_count_tag": null,
             "condition": null,
             "flags": {},
@@ -36173,7 +36088,8 @@
             "condition": null,
             "flags": {
               "value_type": "percent",
-              "attack_limited": 1
+              "attack_limited": 1,
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -67588,8 +67504,12 @@
     "ignore_shield": 0,
     "trigger_type": "on_cumulative_damage",
     "global_condition": {
-      "type": "self_lacks_mark",
-      "mark_name": "深慮"
+      "type": "condition_list",
+      "mode": "all",
+      "conditions": [
+        {"type": "self_lacks_mark", "mark_name": "深慮"},
+        {"type": "cumulative_damage_percent", "operator": ">=", "value": 20}
+      ]
     },
     "effect_blocks": [
       {
@@ -69470,7 +69390,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -69532,7 +69454,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -70946,7 +70870,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -70970,7 +70896,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -71779,8 +71707,12 @@
     "ignore_shield": 0,
     "trigger_type": "on_cumulative_damage",
     "global_condition": {
-      "type": "self_lacks_mark",
-      "mark_name": "深慮"
+      "type": "condition_list",
+      "mode": "all",
+      "conditions": [
+        {"type": "self_lacks_mark", "mark_name": "深慮"},
+        {"type": "cumulative_damage_percent", "operator": ">=", "value": 20}
+      ]
     },
     "effect_blocks": [
       {

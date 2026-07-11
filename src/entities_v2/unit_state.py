@@ -136,6 +136,7 @@ class UnitState:
     is_stunned: bool = False
     is_frozen: bool = False
     is_confused: bool = False
+    is_genwaku: bool = False
     is_death_notified: bool = False
     skill_use_count_pending: bool = False
     role_type: int = 0  # RoleType: 1=物理アタッカー, 2=ENアタッカー, 3=タンク, 4=サポート, 5=コントロール

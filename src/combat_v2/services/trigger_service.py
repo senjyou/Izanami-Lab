@@ -563,7 +563,9 @@ class TriggerService:
 
         检查指定单位（或所有单位）的累计HP伤害是否达到阈值。
         阈值从PS技能配置的global_condition.value读取（百分比形式，如10表示10%最大HP）。
-        触发后计数器不在此时清除，而是在_execute_trigger_actions中PS成功执行后清除。
+        计数器清除时机：
+        - PS成功执行后：在_execute_trigger_actions/_execute_global_trigger_actions中清除
+        - PP不足无法执行时：同样在上述方法中check_skill_cost失败分支清除（避免计数器持续累积）
         """
         actions = []
         units_to_check = damaged_units if damaged_units else battlefield.get_all_units()
@@ -616,9 +618,19 @@ class TriggerService:
             if trigger_type == 'on_cumulative_damage':
                 condition = parsed.get('global_condition')
                 if isinstance(condition, dict):
-                    val = condition.get('value', 10)
-                    _log.info("[CUMULATIVE_DMG_THRESHOLD] %s: skill %d threshold=%s%%", unit.name, skill.skill_id, val)
-                    return float(val)
+                    cond_type = condition.get('type')
+                    # 直接型: cumulative_damage_percent
+                    if cond_type == 'cumulative_damage_percent':
+                        val = condition.get('value', 10)
+                        _log.info("[CUMULATIVE_DMG_THRESHOLD] %s: skill %d threshold=%s%%", unit.name, skill.skill_id, val)
+                        return float(val)
+                    # 复合型: condition_list 中查找 cumulative_damage_percent 子条件
+                    if cond_type == 'condition_list':
+                        for sub in condition.get('conditions', []):
+                            if isinstance(sub, dict) and sub.get('type') == 'cumulative_damage_percent':
+                                val = sub.get('value', 10)
+                                _log.info("[CUMULATIVE_DMG_THRESHOLD] %s: skill %d threshold=%s%% (from condition_list)", unit.name, skill.skill_id, val)
+                                return float(val)
         _log.info("[CUMULATIVE_DMG_THRESHOLD] %s: no on_cumulative_damage PS found among %d skills", unit.name, len(char_skills))
         return None
 
@@ -666,8 +678,8 @@ class TriggerService:
                 continue
             if unit.is_stunned or unit.is_frozen or unit.is_charging:
                 continue
-            # 混乱中：PS触发器完全不评估（技能被过滤不能使用）
-            if getattr(unit, 'is_confused', False):
+            # 混乱/幻惑中：PS触发器完全不评估（技能被过滤不能使用）
+            if getattr(unit, 'is_confused', False) or getattr(unit, 'is_genwaku', False):
                 continue
 
             char_skills = self.data_loader.get_character_skills(unit.character_id)
@@ -1199,6 +1211,24 @@ class TriggerService:
                     return False
             _log.info("[TRIGGER_COND] %s: and组合所有条件满足 => True", owner.name)
             return True
+
+        # condition_list: 按mode聚合子条件（与skill_service._evaluate_global_condition一致）
+        if cond_type == 'condition_list':
+            mode = condition.get('mode', 'all')
+            sub_conditions = condition.get('conditions', [])
+            if not sub_conditions:
+                return True
+            results = []
+            for sub_cond in sub_conditions:
+                sub_parsed = {'global_condition': sub_cond}
+                results.append(self._check_condition(sub_parsed, owner, timing, context))
+            if mode == 'all':
+                ok = all(results)
+            else:
+                ok = any(results)
+            _log.info("[TRIGGER_COND] %s: condition_list mode=%s results=%s => %s",
+                      owner.name, mode, results, ok)
+            return ok
 
         op = condition.get('operator', '==')
         val = condition.get('value', 0)

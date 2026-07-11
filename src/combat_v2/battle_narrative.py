@@ -188,6 +188,25 @@ class BattleNarrativeWriter:
         else:
             self._add(f"  [伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp}): {damage} 点{damage_type}伤害{mods}{shield_info}{calc_info}")
 
+    def genwaku_heal(self, attacker_name: str, attacker_hp: str, target_name: str,
+                     hp_before: int, hp_after: int, heal_amount: int, damage_type: str,
+                     modifiers: List[str] = None, max_hp: int = 0,
+                     calc_detail: dict = None):
+        """幻惑(伤害转回复)の叙事ログ出力"""
+        mods = "".join(f"【{m}】" for m in (modifiers or []))
+        calc_info = ""
+        if calc_detail and heal_amount > 0:
+            cd = calc_detail
+            calc_info = (f" [ATK:{cd['atk']} DEF:{cd['def_orig']}→{cd['def_after_penetrate']}"
+                        f" base:{cd['base_diff']}"
+                        + (f" power:{cd['skill_power']}→{cd['skill_power_after']:.2f}"
+                           if (cd.get('skill_power_down_pct') or 0) > 0
+                           else f" power:{cd['skill_power']}")
+                        + f" attr:{cd['attr_factor']:.4f} dealt:{cd['dealt_mult']:.4f}"
+                        f" rcvd:{cd['received_mult']:.4f} crit:{cd['crit_factor']:.2f}"
+                        f" guard:{cd['guard_mult']:.4f}]")
+        self._add(f"  [幻惑回复] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp}): +{heal_amount} HP (幻惑:伤害转回复){mods}{calc_info}")
+
     def burn_damage(self, target_name: str, damage: int, hp_after: int, max_hp: int, stacks: int,
                     calc_detail: dict = None):
         stack_info = f" (炎上{stacks}层)" if stacks >= 2 else ""
@@ -241,7 +260,7 @@ class BattleNarrativeWriter:
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
-            calc_info = (f" [holder_atk:{cd.get('holder_atk',0)}"
+            calc_info = (f" [source_atk:{cd.get('source_atk',0)}"
                         f" c_def:{cd.get('c_def',0)} base:{cd.get('base_diff',0)}"
                         f" power:{cd.get('power_pct',0):.1f}%"
                         f" crit:{cd.get('crit_factor',1.0):.1f}"
@@ -252,7 +271,8 @@ class BattleNarrativeWriter:
 
     def hp_ratio_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                         hp_before: int, hp_after: int, damage: int, damage_type: str,
-                        calc_detail: dict = None, max_hp: int = 0):
+                        calc_detail: dict = None, max_hp: int = 0,
+                        shield_absorbed: int = 0):
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
@@ -267,7 +287,8 @@ class BattleNarrativeWriter:
             else:
                 calc_info = (f" [src:{vs} base:{int(base_val)} pct:{dmg_pct:.0f}%"
                              f" raw:{int(raw_power)}]")
-        self._add(f"  [伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{calc_info}")
+        shield_info = f" [盾吸収:{shield_absorbed}]" if shield_absorbed > 0 else ""
+        self._add(f"  [伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{calc_info}{shield_info}")
 
     def freeze_break(self, target_name: str, damage_bonus: float):
         self._add(f"  [冻结解除] {target_name} 冻结被伤害解除，被伤害+{damage_bonus:.0f}%")

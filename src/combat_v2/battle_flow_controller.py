@@ -746,6 +746,13 @@ class BattleFlowController:
                     )
                     phase1_actions.extend(after_own_action)
 
+                    # 技能使用次数触发PS（おまけで、えいっ！等）属于Phase1
+                    # 幻惑/混乱中はcheck_triggersでスキップされ、行動終了時のbuff移除前に評価される
+                    # skill_use_count已在上方统一更新（含非伤害型AS技能）
+                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+                    if skill_count_actions:
+                        phase1_actions.extend(skill_count_actions)
+
                     # ===== 收集 Phase 2: AS攻撃後追撃 + 傷害関連トリガー =====
                     phase2_actions = []
 
@@ -766,12 +773,6 @@ class BattleFlowController:
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
                             phase2_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
-
-                    # 技能使用次数触发PS（おまけで、えいっ！等）也属于同时机
-                    # skill_use_count已在上方统一更新（含非伤害型AS技能）
-                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-                    if skill_count_actions:
-                        phase2_actions.extend(skill_count_actions)
 
                     # 累计伤害触发PS（それはやりすぎ！+等）
                     # on_critical と同リストで速度順に実行（ゲーム内挙動：暴撃と累計傷害は同時機に速度競合）
@@ -854,13 +855,17 @@ class BattleFlowController:
                 if skill_type == 1:
                     _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
 
-                    # Phase 1: 自身行動後発動（after_own_action）
+                    # Phase 1: 自身行動後発動（after_own_action）+ skill_use_count
                     phase1_actions = self.trigger_service.trigger_after_own_action(
                         unit, selected_skill, skill_result, self.battlefield,
                         primary_target=_as_primary_target
                     )
+                    # 技能使用次数触发PS属于Phase1（幻惑/混乱中はcheck_triggersでスキップ）
+                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+                    if skill_count_actions:
+                        phase1_actions.extend(skill_count_actions)
 
-                    # Phase 2: 暴击触发器 + skill_use_count（非伤害型AS无 on_cumulative_damage）
+                    # Phase 2: 暴击触发器（非伤害型AS无 on_cumulative_damage）
                     phase2_actions = []
                     if self._deferred_crit_triggers:
                         for entry in list(self._deferred_crit_triggers):
@@ -869,10 +874,6 @@ class BattleFlowController:
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
                             phase2_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
-
-                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-                    if skill_count_actions:
-                        phase2_actions.extend(skill_count_actions)
 
                     # Phase 3: 主动技能结束后（after_as_attack）
                     phase3_actions = self.trigger_service.trigger_after_as_attack(
@@ -943,10 +944,10 @@ class BattleFlowController:
 
         skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
 
-        # AS技能的skill_count_actions已在phase2_actions中合并执行，此处仅处理清理逻辑
+        # AS技能的skill_count_actions已在phase1_actions中合并执行，此处仅处理清理逻辑
         # 非AS技能在此处独立执行
         if skill_type == 1:
-            # AS技能：skill_count_actions已在phase2_actions中执行
+            # AS技能：skill_count_actions已在phase1_actions中执行
             # 此处仅处理skill_use_count清理
             # 需要检查PS是否实际执行了（PP是否足够），避免PP不足时错误清除计数器
             if skill_count_actions:
@@ -1491,9 +1492,20 @@ class BattleFlowController:
                 _log.info("[PS_EXEC] %s: SKIPPED PS[%s] (stunned=%s frozen=%s charging=%s)",
                           owner.name, skill_name, owner.is_stunned, owner.is_frozen, owner.is_charging)
                 continue
+            if getattr(owner, 'is_confused', False) or getattr(owner, 'is_genwaku', False):
+                _log.info("[PS_EXEC] %s: SKIPPED PS[%s] (confused=%s genwaku=%s)",
+                          owner.name, skill_name, owner.is_confused, owner.is_genwaku)
+                continue
 
             if not self.skill_service.check_skill_cost(owner, action.skill_id):
                 _log.info("[PS_EXEC] PS[%s] insufficient resources for %s", skill_name, owner.name)
+                # on_cumulative_damage触发器：PP不足无法执行时，清空累计伤害计数器
+                # 避免计数器持续累积，PP恢复后立即触发（起死回生の一手等）
+                _parsed_fail = self.data_loader.get_parsed_skill_data(action.skill_id) if self.data_loader else None
+                if _parsed_fail and _parsed_fail.get('trigger_type') == 'on_cumulative_damage':
+                    owner.cumulative_hp_damage = 0
+                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 (PP insufficient, PS[%s] cannot execute)",
+                              owner.name, skill_name)
                 continue
 
             if self.narrative:
@@ -1561,7 +1573,6 @@ class BattleFlowController:
                                   owner.name, skill_name)
 
                     # on_cumulative_damage触发器：PS技能执行成功后清空累计伤害计数器
-                    # PP不足时PS未执行，计数器保持不变
                     trigger_type = parsed.get('trigger_type')
                     if trigger_type == 'on_cumulative_damage':
                         owner.cumulative_hp_damage = 0
@@ -1788,9 +1799,20 @@ class BattleFlowController:
                 _log.info("[PS_EXEC] %s: SKIPPED global PS[%s] (stunned=%s frozen=%s charging=%s)",
                           owner.name, skill_name, owner.is_stunned, owner.is_frozen, owner.is_charging)
                 continue
+            if getattr(owner, 'is_confused', False) or getattr(owner, 'is_genwaku', False):
+                _log.info("[PS_EXEC] %s: SKIPPED global PS[%s] (confused=%s genwaku=%s)",
+                          owner.name, skill_name, owner.is_confused, owner.is_genwaku)
+                continue
 
             if not self.skill_service.check_skill_cost(owner, action.skill_id):
                 _log.info("[PS_EXEC] Global PS[%s] insufficient resources for %s", skill_name, owner.name)
+                # on_cumulative_damage触发器：PP不足无法执行时，清空累计伤害计数器
+                # 避免计数器持续累积，PP恢复后立即触发（起死回生の一手等）
+                _parsed_fail = self.data_loader.get_parsed_skill_data(action.skill_id) if self.data_loader else None
+                if _parsed_fail and _parsed_fail.get('trigger_type') == 'on_cumulative_damage':
+                    owner.cumulative_hp_damage = 0
+                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 (PP insufficient, global PS[%s] cannot execute)",
+                              owner.name, skill_name)
                 continue
 
             if self.narrative:
@@ -2054,6 +2076,68 @@ class BattleFlowController:
                         )
                         continue
 
+                    # 幻惑(伤害转回复)叙事ログ
+                    if t.get('genwaku_heal') is not None:
+                        target_unit = self._find_unit(t)
+                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                        target_dname = self._get_display_name(t.get('target_id', t['target']))
+                        hit_details = t.get("hits", [])
+                        hit_crits = t.get("hit_crits", [])
+                        hit_count = len(hit_details)
+                        total_heal = t['genwaku_heal']
+                        if hit_count > 1 and len(hit_crits) == hit_count and total_heal > 0:
+                            running_hp = t['hp_before']
+                            total_original = sum(hit_details) or 1
+                            remaining_heal = total_heal
+                            for i, hit_dmg in enumerate(hit_details):
+                                hp_before_hit = running_hp
+                                if i == hit_count - 1:
+                                    hit_heal = remaining_heal
+                                else:
+                                    hit_heal = int(total_heal * hit_dmg / total_original)
+                                    remaining_heal -= hit_heal
+                                running_hp = running_hp + hit_heal
+                                modifiers = []
+                                if hit_crits[i]:
+                                    modifiers.append("Critical")
+                                if target_unit:
+                                    target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                                    if self._is_element_advantage(caster.element, target_elem):
+                                        modifiers.append("Effective")
+                                self.narrative.genwaku_heal(
+                                    attacker_name=caster_dname,
+                                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                                    target_name=target_dname,
+                                    hp_before=hp_before_hit,
+                                    hp_after=running_hp,
+                                    heal_amount=hit_heal,
+                                    damage_type=dmg_type,
+                                    modifiers=modifiers,
+                                    max_hp=max_hp,
+                                    calc_detail=t.get('calc_detail') if i == 0 else None,
+                                )
+                        else:
+                            modifiers = list(t.get("modifiers", []))
+                            if t.get("crit"):
+                                modifiers.append("Critical")
+                            if target_unit:
+                                target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                                if self._is_element_advantage(caster.element, target_elem):
+                                    modifiers.append("Effective")
+                            self.narrative.genwaku_heal(
+                                attacker_name=caster_dname,
+                                attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                                target_name=target_dname,
+                                hp_before=t['hp_before'],
+                                hp_after=t['hp_after'],
+                                heal_amount=total_heal,
+                                damage_type=dmg_type,
+                                modifiers=modifiers,
+                                max_hp=max_hp,
+                                calc_detail=t.get('calc_detail'),
+                            )
+                        continue
+
                     target_unit = self._find_unit(t)
                     max_hp = target_unit.max_hp if target_unit else t['hp_before']
                     hit_details = t.get("hits", [t.get('actual_damage', t['damage'])])
@@ -2211,6 +2295,7 @@ class BattleFlowController:
                         damage_type=dmg_type,
                         calc_detail=t.get('calc_detail'),
                         max_hp=max_hp,
+                        shield_absorbed=t.get('shield_absorbed', 0),
                     )
             elif applied.get("effect_type") == "damage_special":
                 for t in applied.get("targets", []):
