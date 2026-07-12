@@ -652,6 +652,10 @@ class BattleFlowController:
             # トリガー検査の後に実行され、self_damage_link_active条件は死亡者のbuff残存を考慮済み
             self._remove_damage_link_from_dead(newly_dead)
 
+            # 4.7 清除死亡单位相关的回復リンクbuff
+            # 死亡者自身のheal_link buffと、死亡者をsource(転送先)とするheal_link buffを全て削除
+            self._remove_heal_link_from_dead(newly_dead)
+
             # 5. 钩子：击杀触发器处理完毕后，允许子类（如战术演习）在此执行复活等逻辑
             self._on_deaths_resolved(newly_dead)
 
@@ -697,18 +701,32 @@ class BattleFlowController:
                 primary_target = _original_primary if _original_primary else (damaged_targets[0] if damaged_targets else None)
 
                 if skill_type == 1:
-                    # AS技能执行结束后，触发器分三阶段执行：
-                    # Phase 1（被攻撃反応+自身行動後発動）: after_ally_attacked, after_self_attacked,
-                    #   after_as_attacked, after_as_attacked_ally, after_own_action
-                    #   被攻撃反応と自身行動後発動（夜会のプレリュード等）は同リストで速度順に実行
-                    # Phase 2（AS攻撃後追撃+傷害関連トリガー）: after_ally_as_attack, on_critical,
-                    #   skill_use_count, on_cumulative_damage
-                    #   on_critical と on_cumulative_damage は同リストで速度順に実行
+                    # AS技能执行结束后，触发器分五阶段执行：
+                    # Phase 1a-pre（累計傷害）: on_cumulative_damage
+                    #   on_critical より先に実行（ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ、速度無関係）
+                    # Phase 1a（被攻撃反応+自身行動後発動+暴撃）:
+                    #   after_ally_attacked, after_self_attacked, after_as_attacked,
+                    #   after_as_attacked_ally, after_own_action, on_critical
+                    #   被攻撃反応と自身行動後発動は同リストで速度順に実行
+                    # Phase 1b（技能使用次数）: skill_use_count
+                    #   Phase1aの後に実行（ゲーム内挙動：累計傷害 → 技能使用次数）
+                    #   （ゲーム内挙動：それはやりすぎ！+ → ぜ～～ったい負けないから！）
+                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack
                     # Phase 3（主动技能结束后）: after_as_attack
                     #   全ての傷害関連トリガー終了後に実行（如 ハロウィン・オブ・ザ・デッド）
                     # 每阶段内部按速度→位置排序
 
-                    # ===== 收集 Phase 1: 被攻撃反応 + 自身行動後発動 =====
+                    # ===== 收集 Phase 1a-pre: 累計傷害 =====
+                    # on_cumulative_damage は on_critical より先に実行（速度無関係）
+                    # consume_hpによる自傷も累計傷害に含まれる（如 私に任せて！+ の自傷で それはやりすぎ！+ が触发）
+                    cumulative_check_units = list(unique_damaged)
+                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
+                    if hp_consumed and unit.unit_id not in {u.unit_id for u in cumulative_check_units}:
+                        cumulative_check_units.append(unit)
+                    phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
+                        self.battlefield, cumulative_check_units) if cumulative_check_units else []
+
+                    # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
                     phase1_actions = []
 
                     after_ally = self.trigger_service.trigger_after_ally_attacked(
@@ -746,14 +764,25 @@ class BattleFlowController:
                     )
                     phase1_actions.extend(after_own_action)
 
-                    # 技能使用次数触发PS（おまけで、えいっ！等）属于Phase1
+                    # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
+                    # on_cumulative_damage (Phase1a-pre) の後に実行
+                    # （ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ、速度無関係）
+                    if self._deferred_crit_triggers:
+                        for entry in list(self._deferred_crit_triggers):
+                            c, bf = entry[0], entry[1]
+                            crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            phase1_actions.extend(crit_actions)
+                        self._deferred_crit_triggers = []
+
+                    # 技能使用次数触发PS（おまけで、えいっ！等）属于Phase1b
                     # 幻惑/混乱中はcheck_triggersでスキップされ、行動終了時のbuff移除前に評価される
                     # skill_use_count已在上方统一更新（含非伤害型AS技能）
-                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-                    if skill_count_actions:
-                        phase1_actions.extend(skill_count_actions)
+                    # Phase1bに分離：Phase1a(on_critical)の後に実行
+                    # （ゲーム内挙動：累計傷害 → 技能使用次数、速度排序ではなく段階的に分離）
+                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
 
-                    # ===== 收集 Phase 2: AS攻撃後追撃 + 傷害関連トリガー =====
+                    # ===== 收集 Phase 2: AS攻撃後追撃 =====
                     phase2_actions = []
 
                     # 其他友方AS攻击后触发（如ポイズンチェイス、チェイスブレイダー）
@@ -764,23 +793,6 @@ class BattleFlowController:
                     )
                     phase2_actions.extend(after_ally_as)
 
-                    # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
-                    # on_critical と on_cumulative_damage は同リストで速度順に実行
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
-                            phase2_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
-
-                    # 累计伤害触发PS（それはやりすぎ！+等）
-                    # on_critical と同リストで速度順に実行（ゲーム内挙動：暴撃と累計傷害は同時機に速度競合）
-                    cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
-                        self.battlefield, unique_damaged)
-                    if cumulative_dmg_actions:
-                        phase2_actions.extend(cumulative_dmg_actions)
-
                     # ===== 收集 Phase 3: 主动技能结束后 =====
                     # after_as_attack（如 ハロウィン・オブ・ザ・デッド「アクティブスキルで攻撃した直後」）
                     # 全ての傷害関連トリガー（Phase1/Phase2）終了後に実行
@@ -789,30 +801,58 @@ class BattleFlowController:
                         primary_target=_as_primary_target
                     )
 
-                    # 记录PP快照（三阶段合并），用于后续判断PS是否实际执行
-                    all_for_snapshot = phase1_actions + phase2_actions + phase3_actions
+                    # 记录PP快照（所有阶段合并），用于后续判断PS是否实际执行
+                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions + phase1b_actions
+                                        + phase2_actions + phase3_actions)
                     self._pp_snapshot_before_as_triggers = {}
                     for a in all_for_snapshot:
                         o = a.instance.owner
                         self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
 
-                    # ===== 执行 Phase 1: 被攻撃反応 + 自身行動後発動 =====
+                    # ===== 执行 Phase 1a-pre: 累計傷害 =====
+                    # on_cumulative_damage は on_critical より先に実行（速度無関係）
+                    # （ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ）
+                    if phase1_cumulative_actions:
+                        phase1_cumulative_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] Phase1a-pre (累計傷害): %d actions sorted by speed→position",
+                                  len(phase1_cumulative_actions))
+                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
+                    # Phase 1a-pre 可能产生新的暴击触发器
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
+                    # on_critical含む、速度順で実行
                     if phase1_actions:
                         phase1_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] Phase1 (被攻撃反応+自身行動後発動): %d actions sorted by speed→position",
+                        _log.info("[POST_AS_TRIGGERS] Phase1a (被攻撃反応+自身行動後発動+暴撃): %d actions sorted by speed→position",
                                   len(phase1_actions))
                     self._execute_trigger_actions(phase1_actions, unit)
-                    # Phase 1 可能产生新的暴击触发器
+                    # Phase 1a 可能产生新的暴击触发器
                     self._flush_deferred_crit_triggers(unit)
 
-                    # ===== 执行 Phase 2: AS攻撃後追撃 + 傷害関連トリガー =====
+                    # ===== 执行 Phase 1b: 技能使用次数 =====
+                    # Phase1a(on_critical)の後に実行
+                    # （ゲーム内挙動：それはやりすぎ！+ → ぜ～～ったい負けないから！）
+                    if phase1b_actions:
+                        phase1b_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] Phase1b (技能使用次数): %d actions sorted by speed→position",
+                                  len(phase1b_actions))
+                    self._execute_trigger_actions(phase1b_actions, unit)
+                    # Phase 1b 可能产生新的暴击触发器
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # ===== 执行 Phase 2: AS攻撃後追撃 =====
                     if phase2_actions:
                         phase2_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃+傷害関連): %d actions sorted by speed→position",
+                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃): %d actions sorted by speed→position",
                                   len(phase2_actions))
                     self._execute_trigger_actions(phase2_actions, unit)
                     # PS技能可能产生新的暴击触发器，继续处理
@@ -855,25 +895,35 @@ class BattleFlowController:
                 if skill_type == 1:
                     _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
 
-                    # Phase 1: 自身行動後発動（after_own_action）+ skill_use_count
+                    # Phase 1a-pre: 累計傷害（on_cumulative_damage）
+                    # on_critical より先に実行（速度無関係）
+                    # consume_hpによる自傷の累計傷害チェック（如 私に任せて！+ の自傷で それはやりすぎ！+ が触发）
+                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
+                    phase1_cumulative_actions = []
+                    if hp_consumed:
+                        phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
+                            self.battlefield, [unit])
+
+                    # Phase 1a: 自身行動後発動（after_own_action）+ 暴击
                     phase1_actions = self.trigger_service.trigger_after_own_action(
                         unit, selected_skill, skill_result, self.battlefield,
                         primary_target=_as_primary_target
                     )
-                    # 技能使用次数触发PS属于Phase1（幻惑/混乱中はcheck_triggersでスキップ）
-                    skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-                    if skill_count_actions:
-                        phase1_actions.extend(skill_count_actions)
-
-                    # Phase 2: 暴击触发器（非伤害型AS无 on_cumulative_damage）
-                    phase2_actions = []
+                    # 暴击触发PS
+                    # on_cumulative_damage (Phase1a-pre) の後に実行
                     if self._deferred_crit_triggers:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
-                            phase2_actions.extend(crit_actions)
+                            phase1_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
+                    # 技能使用次数触发PS属于Phase1b（幻惑/混乱中はcheck_triggersでスキップ）
+                    # Phase1a(on_critical)の後に実行（伤害型ASと同順序）
+                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+
+                    # Phase 2: （空 - 暴击触发器はPhase1aに移動）
+                    phase2_actions = []
 
                     # Phase 3: 主动技能结束后（after_as_attack）
                     phase3_actions = self.trigger_service.trigger_after_as_attack(
@@ -881,21 +931,42 @@ class BattleFlowController:
                         primary_target=_as_primary_target
                     )
 
-                    # 记录PP快照（三阶段合并）
-                    all_for_snapshot = phase1_actions + phase2_actions + phase3_actions
+                    # 记录PP快照（所有阶段合并）
+                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions + phase1b_actions
+                                        + phase2_actions + phase3_actions)
                     self._pp_snapshot_before_as_triggers = {}
                     for a in all_for_snapshot:
                         o = a.instance.owner
                         self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
 
-                    # 执行 Phase 1
+                    # 执行 Phase 1a-pre: 累計傷害
+                    if phase1_cumulative_actions:
+                        phase1_cumulative_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1a-pre (累計傷害): %d actions",
+                                  len(phase1_cumulative_actions))
+                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # 执行 Phase 1a
                     if phase1_actions:
                         phase1_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1 (自身行動後発動): %d actions",
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1a (自身行動後発動+暴撃): %d actions",
                                   len(phase1_actions))
                     self._execute_trigger_actions(phase1_actions, unit)
+                    self._flush_deferred_crit_triggers(unit)
+
+                    # 执行 Phase 1b: 技能使用次数
+                    if phase1b_actions:
+                        phase1b_actions.sort(
+                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                        )
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1b (技能使用次数): %d actions",
+                                  len(phase1b_actions))
+                    self._execute_trigger_actions(phase1b_actions, unit)
                     self._flush_deferred_crit_triggers(unit)
 
                     # 执行 Phase 2
@@ -903,7 +974,7 @@ class BattleFlowController:
                         phase2_actions.sort(
                             key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                         )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase2 (暴撃+skill_count): %d actions",
+                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase2 (空): %d actions",
                                   len(phase2_actions))
                     self._execute_trigger_actions(phase2_actions, unit)
                     self._flush_deferred_crit_triggers(unit)
@@ -944,10 +1015,10 @@ class BattleFlowController:
 
         skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
 
-        # AS技能的skill_count_actions已在phase1_actions中合并执行，此处仅处理清理逻辑
+        # AS技能的skill_count_actions已在phase1b_actions中合并执行，此处仅处理清理逻辑
         # 非AS技能在此处独立执行
         if skill_type == 1:
-            # AS技能：skill_count_actions已在phase1_actions中执行
+            # AS技能：skill_count_actions已在phase1b_actions中执行
             # 此处仅处理skill_use_count清理
             # 需要检查PS是否实际执行了（PP是否足够），避免PP不足时错误清除计数器
             if skill_count_actions:
@@ -1106,9 +1177,11 @@ class BattleFlowController:
                     _log.info("[GUARD_CLEANUP] %s: guard buff removed (attacker %s action ended)",
                               unit.name, attacker.name)
             # attacker_action duration_type cleanup: 攻击者行动结束时清除由攻击者施加的临时debuff/buff
+            # just_applied保护：当次行动中付与的duration>0的attacker_action buff跳过清除（如heal_link）
             for buff in unit.buffs + unit.debuffs:
                 if (buff.source_unit_id == attacker.unit_id
-                        and getattr(buff, 'original_duration_type', '') == 'attacker_action'):
+                        and getattr(buff, 'original_duration_type', '') == 'attacker_action'
+                        and not (getattr(buff, 'just_applied', False) and buff.duration > 0)):
                     to_remove.append(buff.buff_id)
                     _log.info("[ATTACKER_ACTION_CLEANUP] %s: %s %s removed (attacker %s action ended)",
                               unit.name, 'debuff' if buff.is_debuff else 'buff',
@@ -1209,6 +1282,28 @@ class BattleFlowController:
                 if unit.unit_id in dead_ids or buff.source_unit_id in dead_ids:
                     to_remove.append(buff.buff_id)
                     _log.info("[DAMAGE_LINK_DEATH] %s: damage_link buff removed (buff_id=%s, source=%s, unit_dead=%s)",
+                              unit.name, buff.buff_id, buff.source_unit_id,
+                              unit.unit_id in dead_ids)
+            if to_remove:
+                unit.buffs = [b for b in unit.buffs if b.buff_id not in to_remove]
+                unit.debuffs = [b for b in unit.debuffs if b.buff_id not in to_remove]
+
+    def _remove_heal_link_from_dead(self, newly_dead: list) -> None:
+        """清除死亡单位相关的回復リンクbuff。
+        - 死亡者自身のheal_link buffを削除
+        - 死亡者をsource_unit_id(転送先)とするheal_link buffを全ユニットから削除
+        """
+        dead_ids = {u.unit_id for u in newly_dead}
+        all_units = self.battlefield.get_all_units()
+        for unit in all_units:
+            to_remove = []
+            for buff in unit.buffs + unit.debuffs:
+                if buff.effect_type != SkillEffectType.HEAL_LINK.value:
+                    continue
+                # 死亡者自身のbuff、または死亡者をsource(転送先)とするbuffを削除
+                if unit.unit_id in dead_ids or buff.source_unit_id in dead_ids:
+                    to_remove.append(buff.buff_id)
+                    _log.info("[HEAL_LINK_DEATH] %s: heal_link buff removed (buff_id=%s, source=%s, unit_dead=%s)",
                               unit.name, buff.buff_id, buff.source_unit_id,
                               unit.unit_id in dead_ids)
             if to_remove:
@@ -1380,6 +1475,34 @@ class BattleFlowController:
                                        source_hp=f"HP:{unit.current_hp}/{unit.max_hp}",
                                        hp_before=unit.current_hp - regen_amount if len(regen_details) == 1 else unit.current_hp - rd['amount'],
                                        target_max_hp=unit.max_hp)
+                    # 回復リンク転送叙事ログ (HOT経由)
+                    for lt in rd.get('heal_link_transfers', []):
+                        self.narrative.heal_link_transfer(
+                            source_name=self._get_display_name(lt["source_id"]),
+                            linker_name=self._get_display_name(lt["linker_id"]),
+                            transfer_heal=lt["transfer_heal"],
+                            hp_before=lt["hp_before"],
+                            hp_after=lt["hp_after"],
+                            max_hp=lt["max_hp"],
+                            link_value=lt["link_value"],
+                            source_theoretical_heal=lt["source_theoretical_heal"],
+                        )
+        else:
+            # regen_amount=0（満血等）でもheal_link転送は発生する（理論回復量で転送）
+            # HOT回復の叙事ログは出力しないが、heal_link転送の叙事ログのみ出力
+            if self.narrative:
+                for rd in regen_details:
+                    for lt in rd.get('heal_link_transfers', []):
+                        self.narrative.heal_link_transfer(
+                            source_name=self._get_display_name(lt["source_id"]),
+                            linker_name=self._get_display_name(lt["linker_id"]),
+                            transfer_heal=lt["transfer_heal"],
+                            hp_before=lt["hp_before"],
+                            hp_after=lt["hp_after"],
+                            max_hp=lt["max_hp"],
+                            link_value=lt["link_value"],
+                            source_theoretical_heal=lt["source_theoretical_heal"],
+                        )
 
     def _collect_debuff_trigger_data(self, skill_result: Dict) -> Tuple[List[str], Set[str], Set[str]]:
         """从技能结果中收集debuff触发器数据（同时处理aura和add_status两种类型）"""
@@ -2026,6 +2149,17 @@ class BattleFlowController:
                     if primary_target is None:
                         primary_target = dname
                     all_target_names.append(dname)
+            elif applied.get("effect_type") == "heal_link":
+                for a in applied.get("auras", []):
+                    dname = self._get_display_name(a.get('target_id', a['target']))
+                    if primary_target is None:
+                        primary_target = dname
+                    all_target_names.append(dname)
+            elif applied.get("effect_type") == "consume_hp":
+                dname = self._get_display_name(applied.get('target_id', caster.unit_id))
+                if primary_target is None:
+                    primary_target = dname
+                all_target_names.append(dname)
 
         if not primary_target:
             primary_target = self._get_display_name(caster)
@@ -2282,6 +2416,18 @@ class BattleFlowController:
                         is_crit=h.get('is_crit', False),
                         formula=h.get('heal_formula', ''),
                     )
+                # 回復リンク転送叙事ログ
+                for lt in applied.get("heal_link_transfers", []):
+                    self.narrative.heal_link_transfer(
+                        source_name=self._get_display_name(lt["source_id"]),
+                        linker_name=self._get_display_name(lt["linker_id"]),
+                        transfer_heal=lt["transfer_heal"],
+                        hp_before=lt["hp_before"],
+                        hp_after=lt["hp_after"],
+                        max_hp=lt["max_hp"],
+                        link_value=lt["link_value"],
+                        source_theoretical_heal=lt["source_theoretical_heal"],
+                    )
             elif applied.get("effect_type") == "split_heal_by_damage":
                 # 若雷 220360/220361: 与ダメ100%味方均等分配回復
                 for h in applied.get("heals", []):
@@ -2297,6 +2443,39 @@ class BattleFlowController:
                         is_crit=h.get('is_crit', False),
                         formula=h.get('heal_formula', ''),
                     )
+                # 回復リンク転送叙事ログ
+                for lt in applied.get("heal_link_transfers", []):
+                    self.narrative.heal_link_transfer(
+                        source_name=self._get_display_name(lt["source_id"]),
+                        linker_name=self._get_display_name(lt["linker_id"]),
+                        transfer_heal=lt["transfer_heal"],
+                        hp_before=lt["hp_before"],
+                        hp_after=lt["hp_after"],
+                        max_hp=lt["max_hp"],
+                        link_value=lt["link_value"],
+                        source_theoretical_heal=lt["source_theoretical_heal"],
+                    )
+            elif applied.get("effect_type") == "heal_link":
+                # 回復リンク付与叙事ログ
+                for a in applied.get("auras", []):
+                    self.narrative.heal_link_applied(
+                        target_name=self._get_display_name(a.get('target_id', a['target'])),
+                        source_name=self._get_display_name(a.get('source_id', a['source'])),
+                        transfer_pct=a.get('transfer_pct', 100.0),
+                        duration=a.get('duration', 1),
+                        dur_type=a.get('dur_type', 'action'),
+                    )
+            elif applied.get("effect_type") == "consume_hp":
+                # HP消耗（自傷）叙事ログ
+                self.narrative.consume_hp(
+                    source_name=caster_dname,
+                    amount=applied.get('consumed', 0),
+                    hp_before=applied.get('hp_before', 0),
+                    hp_after=applied.get('hp_after', 0),
+                    max_hp=applied.get('max_hp', 0),
+                    pct=applied.get('pct', 0),
+                    hp_base=applied.get('hp_base', 'current_hp'),
+                )
             elif applied.get("effect_type") in ("aura", "block_buff_by_type", "stealth"):
                 for a in applied.get("auras", []):
                     target_unit = self._find_unit(a)
@@ -2968,7 +3147,7 @@ class BattleFlowController:
         if target_type == "enemy_single_highest_spd":
             return [max(enemies, key=lambda u: u.speed)]
         if target_type == "enemy_single_lowest_hp_ratio":
-            return [min(enemies, key=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0)]
+            return [min(enemies, key=lambda u: int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0)]
         if target_type == "enemy_single_highest_ep":
             return [max(enemies, key=lambda u: u.current_ep)]
 

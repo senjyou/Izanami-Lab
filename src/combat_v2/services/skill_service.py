@@ -690,6 +690,7 @@ class SkillService:
         self._skill_all_attacked_targets = []  # 技能级别：所有block中已攻击的目标累积（用于跨block的attacked_targets）
         self._most_recent_damage = 0  # 技能级别：累计该技能所有damage block的伤害，供lifesteal等使用
         self._original_primary_target = None  # 技能级别：第一个damage效果的原始主目标（cover替换前），供after_as_attacked等触发器使用
+        self._hp_consumed = 0  # 技能级别：consume_hp消费的HP量，供heal_base=consume_hp和累計傷害チェック使用
 
         # 快照技能执行前的mark状态（用于has_mark_at_start条件和target_has_mark条件）
         self._marks_at_start = {}
@@ -1770,7 +1771,7 @@ class SkillService:
                         search_pool = back_targets if back_targets else dmg_targets
                         best = self.target_service.select_max_with_stealth(
                             search_pool,
-                            key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                            key_func=lambda u: int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
                             consume=True
                         )
                         dmg_targets = [best] if best else []
@@ -1780,7 +1781,8 @@ class SkillService:
                     elif effect.target_type == "enemy_single_highest_hp_ratio" and dmg_targets:
                         best = self.target_service.select_max_with_stealth(
                             dmg_targets,
-                            key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                            key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                                -self.target_service._get_sort_key(caster, u)),
                             consume=True
                         )
                         dmg_targets = [best] if best else []
@@ -1812,7 +1814,8 @@ class SkillService:
                         pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
                         best = self.target_service.select_min_with_stealth(
                             dmg_targets,
-                            key_func=lambda u: (pre_hp_snapshot.get(u.unit_id, u.current_hp) / u.max_hp) if u.max_hp > 0 else 0,
+                            key_func=lambda u: (int((pre_hp_snapshot.get(u.unit_id, u.current_hp) / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                                self.target_service._get_sort_key(caster, u)),
                             consume=True
                         )
                         dmg_targets = [best] if best else []
@@ -3534,6 +3537,9 @@ class SkillService:
 
                 # Apply remaining damage to HP
                 target.current_hp = max(0, target.current_hp - remaining)
+                hp_loss = hp_before - target.current_hp
+                if hp_loss > 0:
+                    target.cumulative_hp_damage += hp_loss
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -3696,6 +3702,9 @@ class SkillService:
                                   orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
                 hp_before = target.current_hp
                 target.current_hp = max(0, target.current_hp - extra_dmg)
+                hp_loss = hp_before - target.current_hp
+                if hp_loss > 0:
+                    target.cumulative_hp_damage += hp_loss
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -3845,6 +3854,9 @@ class SkillService:
                                   orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
                 hp_before = target.current_hp
                 target.current_hp = max(0, target.current_hp - extra_dmg)
+                hp_loss = hp_before - target.current_hp
+                if hp_loss > 0:
+                    target.cumulative_hp_damage += hp_loss
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -4217,6 +4229,9 @@ class SkillService:
                         if actual <= 0 and dmg_result.total_damage > 0:
                             actual = 1
                         dt.current_hp = max(0, dt.current_hp - actual)
+                        hp_loss = hp_before - dt.current_hp
+                        if hp_loss > 0:
+                            dt.cumulative_hp_damage += hp_loss
                         _log.info("[ON_CRIT] %s -> %s: extra damage %d (hp now %d)",
                                   caster.name, dt.name, actual, dt.current_hp)
                         # === 伤害统计累加（与主流程 _apply_damage 保持一致） ===
@@ -4420,6 +4435,7 @@ class SkillService:
 
         total_heal = 0
         heal_details = []
+        heal_link_transfers = []
         skill_name = self._get_skill_name(self._current_skill_id)
         for target in targets:
             if not target.is_alive:
@@ -4490,7 +4506,8 @@ class SkillService:
             _log.info("[HEAL] %s -> %s: hp %d→%d (+%d, raw=%d) %s",
                       caster.name, target.name, hp_before, target.current_hp, actual_heal, heal_amount, crit_tag)
 
-            # heal_link 転送: 対象持有回復リンク時、回復量転送给リンク先
+            # heal_link 転送: 対象持有回復リンク時、理論回復量転送给リンク先
+            # 実回復量が0（満血等）でも理論値で転送する
             heal_link_buffs = [b for b in getattr(target, 'buffs', []) + getattr(target, 'debuffs', [])
                                if b.effect_type == SkillEffectType.HEAL_LINK.value]
             for hlb in heal_link_buffs:
@@ -4498,7 +4515,7 @@ class SkillService:
                     link_target = next((u for u in battlefield.get_all_units()
                                        if u.unit_id == hlb.source_unit_id and u.is_alive), None)
                     if link_target:
-                        transfer_amount = int(actual_heal * hlb.value / 100)
+                        transfer_amount = int(heal_amount * hlb.value / 100)
                         if transfer_amount > 0:
                             link_hp_before = link_target.current_hp
                             link_max_hp = self.damage_service._calculate_final_stat(link_target, "max_hp")
@@ -4506,9 +4523,21 @@ class SkillService:
                             link_actual = min(transfer_amount, link_missing)
                             link_target.current_hp = min(link_max_hp, link_target.current_hp + transfer_amount)
                             total_heal += link_actual
-                            _log.info("[HEAL_LINK] %s -> %s: transferred %d (%.0f%% of %d) via heal_link, hp %d→%d",
-                                      target.name, link_target.name, link_actual, hlb.value, actual_heal,
+                            _log.info("[HEAL_LINK] %s -> %s: transferred %d (%.0f%% of theoretical %d) via heal_link, hp %d→%d",
+                                      target.name, link_target.name, link_actual, hlb.value, heal_amount,
                                       link_hp_before, link_target.current_hp)
+                            heal_link_transfers.append({
+                                "source_id": target.unit_id,
+                                "source_name": target.name,
+                                "linker_id": link_target.unit_id,
+                                "linker_name": link_target.name,
+                                "transfer_heal": link_actual,
+                                "hp_before": link_hp_before,
+                                "hp_after": link_target.current_hp,
+                                "max_hp": link_max_hp,
+                                "link_value": hlb.value,
+                                "source_theoretical_heal": heal_amount,
+                            })
 
             # 计分追踪：记录实际治疗量（不含溢出）
             tracker = getattr(battlefield, 'scoring_tracker', None)
@@ -4521,7 +4550,8 @@ class SkillService:
                     heal_amount=actual_heal,
                 )
 
-        return {"effect_type": "heal", "total_heal": total_heal, "heals": heal_details}
+        return {"effect_type": "heal", "total_heal": total_heal, "heals": heal_details,
+                "heal_link_transfers": heal_link_transfers}
 
     def _apply_aura(self, caster: UnitState, effect, battlefield: BattlefieldState, is_debuff: bool) -> Optional[Dict]:
         if not self.aura_service or not self.target_service:
@@ -4787,7 +4817,7 @@ class SkillService:
                 search_pool = back_targets if back_targets else targets
                 best = self.target_service.select_max_with_stealth(
                     search_pool,
-                    key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                    key_func=lambda u: int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
                     consume=True
                 )
                 targets = [best] if best else []
@@ -4798,7 +4828,8 @@ class SkillService:
             if targets:
                 best = self.target_service.select_max_with_stealth(
                     targets,
-                    key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                    key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                        -self.target_service._get_sort_key(caster, u)),
                     consume=True
                 )
                 targets = [best] if best else []
@@ -4831,7 +4862,8 @@ class SkillService:
             if targets:
                 best = self.target_service.select_min_with_stealth(
                     targets,
-                    key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                    key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                        self.target_service._get_sort_key(caster, u)),
                     consume=True
                 )
                 targets = [best] if best else []
@@ -4851,7 +4883,8 @@ class SkillService:
             ally_team = battlefield.friend_team if caster.side == _Side2.ALLY else battlefield.enemy_team
             all_allies = [u for u in ally_team if u.is_alive]
             if all_allies:
-                all_allies.sort(key=lambda u: u.current_hp / max(u.max_hp, 1))
+                all_allies.sort(key=lambda u: (int(u.current_hp / max(u.max_hp, 1) * 10000) / 10000,
+                                               self.target_service._get_sort_key(caster, u)))
                 targets = [all_allies[0]]
                 _log.info("[AURA_APPLY] %s: lowest_hp_priority -> %s (hp_pct=%.1f%%)",
                           caster.name, targets[0].name,
@@ -6348,12 +6381,13 @@ class SkillService:
         if not alive_targets:
             _log.info("[SPLIT_HEAL_BY_DAMAGE] %s: no alive targets", caster.name)
             return {"effect_type": "split_heal_by_damage", "target_count": 0, "total_heal": 0,
-                    "details": [], "heals": []}
+                    "details": [], "heals": [], "heal_link_transfers": []}
 
         per_target = total_heal_value // len(alive_targets) if split else total_heal_value
         details = []
         heals = []
         total_actual = 0
+        heal_link_transfers = []
         for target in alive_targets:
             hp_before = target.current_hp
             missing_hp = target.max_hp - target.current_hp
@@ -6372,6 +6406,37 @@ class SkillService:
             total_actual += actual_heal
             _log.info("[SPLIT_HEAL_BY_DAMAGE] %s: healed %s +%d HP (actual=%d, total_dmg=%s pct=%s split=%s)",
                       caster.name, target.name, per_target, actual_heal, total_damage, percent, split)
+            # heal_link 転送: split_heal_by_damageも回復リンクの対象
+            # 実回復量が0（満血等）でも理論値で転送する
+            heal_link_buffs = [b for b in getattr(target, 'buffs', []) + getattr(target, 'debuffs', [])
+                               if b.effect_type == SkillEffectType.HEAL_LINK.value]
+            for hlb in heal_link_buffs:
+                if hlb.source_unit_id and hlb.source_unit_id != target.unit_id:
+                    link_target = next((u for u in battlefield.get_all_units()
+                                       if u.unit_id == hlb.source_unit_id and u.is_alive), None)
+                    if link_target:
+                        transfer_amount = int(per_target * hlb.value / 100)
+                        if transfer_amount > 0:
+                            link_hp_before = link_target.current_hp
+                            link_max_hp = self.damage_service._calculate_final_stat(link_target, "max_hp")
+                            link_missing = link_max_hp - link_target.current_hp
+                            link_actual = min(transfer_amount, link_missing)
+                            link_target.current_hp = min(link_max_hp, link_target.current_hp + transfer_amount)
+                            _log.info("[HEAL_LINK] %s -> %s: transferred %d (%.0f%% of theoretical %d) via split_heal, hp %d→%d",
+                                      target.name, link_target.name, link_actual, hlb.value, per_target,
+                                      link_target.current_hp - link_actual, link_target.current_hp)
+                            heal_link_transfers.append({
+                                "source_id": target.unit_id,
+                                "source_name": target.name,
+                                "linker_id": link_target.unit_id,
+                                "linker_name": link_target.name,
+                                "transfer_heal": link_actual,
+                                "hp_before": link_hp_before,
+                                "hp_after": link_target.current_hp,
+                                "max_hp": link_max_hp,
+                                "link_value": hlb.value,
+                                "source_theoretical_heal": per_target,
+                            })
 
         return {
             "effect_type": "split_heal_by_damage",
@@ -6382,6 +6447,7 @@ class SkillService:
             "percent": percent,
             "details": details,
             "heals": heals,
+            "heal_link_transfers": heal_link_transfers,
         }
 
     def _apply_skill_power_down(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
@@ -7200,14 +7266,15 @@ class SkillService:
             search_pool = back_targets if back_targets else dmg_targets
             best = self.target_service.select_max_with_stealth(
                 search_pool,
-                key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                key_func=lambda u: int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
         elif target_type == "enemy_single_highest_hp_ratio":
             best = self.target_service.select_max_with_stealth(
                 dmg_targets,
-                key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                    -self.target_service._get_sort_key(caster, u)),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
@@ -7228,7 +7295,8 @@ class SkillService:
         elif target_type == "enemy_single_lowest_hp_ratio":
             best = self.target_service.select_min_with_stealth(
                 dmg_targets,
-                key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                    self.target_service._get_sort_key(caster, u)),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
@@ -7367,17 +7435,41 @@ class SkillService:
         else:
             consume_amount = int(caster.current_hp * pct / 100)
 
+        hp_before = caster.current_hp
         actual_consume = min(consume_amount, caster.current_hp - 1)
         caster.current_hp -= actual_consume
         self._hp_consumed = actual_consume
 
-        _log.info("[CONSUME_HP] %s: consumed %d HP (%.0f%% of %s), hp %d→%d",
+        # 自傷HP消費は累計傷害に含まれる（ゲーム内挙動：私に任せて！+の自傷でそれはやりすぎ！+が触发）
+        caster.cumulative_hp_damage += actual_consume
+
+        # 自傷もダメージ統計とスコアリングトラッカーに記録（戦術演習計分対象）
+        # 敵方自残のダメージは計分に含まれる（target_side=="enemy"で_total_damage_to_enemiesに加算）
+        caster.damage_dealt_total += actual_consume
+        caster.damage_taken_total += actual_consume
+        tracker = getattr(battlefield, 'scoring_tracker', None)
+        if tracker is not None:
+            source_side = "ally" if caster.side.value == "ally" else "enemy"
+            tracker.record_damage(
+                source_id=caster.unit_id, source_name=caster.name, source_side=source_side,
+                target_id=caster.unit_id, target_name=caster.name, target_side=source_side,
+                actual_damage=actual_consume, shield_absorbed=0,
+            )
+
+        _log.info("[CONSUME_HP] %s: consumed %d HP (%.0f%% of %s), hp %d→%d, cumulative_hp_damage=%d",
                   caster.name, actual_consume, pct, hp_base,
-                  caster.current_hp + actual_consume, caster.current_hp)
+                  hp_before, caster.current_hp, caster.cumulative_hp_damage)
 
         return {
             "effect_type": "consume_hp",
             "consumed": actual_consume,
+            "target": caster.unit_id,
+            "target_id": caster.unit_id,
+            "hp_before": hp_before,
+            "hp_after": caster.current_hp,
+            "max_hp": caster.max_hp,
+            "pct": pct,
+            "hp_base": hp_base,
         }
 
     def _apply_heal_link(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
@@ -7419,7 +7511,8 @@ class SkillService:
         if effect.target_type == "enemy_single_lowest_hp_ratio" and targets:
             best = self.target_service.select_min_with_stealth(
                 targets,
-                key_func=lambda u: (u.current_hp / u.max_hp) if u.max_hp > 0 else 0,
+                key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
+                                    self.target_service._get_sort_key(caster, u)),
                 consume=True
             )
             targets = [best] if best else []
@@ -7436,6 +7529,7 @@ class SkillService:
             timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
 
         applied_targets = []
+        applied_auras = []
         for target in targets:
             if not target.is_alive:
                 continue
@@ -7453,13 +7547,26 @@ class SkillService:
             )
             self.aura_service.add_aura(target, aura)
             applied_targets.append(target.name)
+            applied_auras.append({
+                "target_id": target.unit_id,
+                "target": target.name,
+                "effect": "回復リンク",
+                "source_id": caster.unit_id,
+                "source": caster.name,
+                "duration": duration,
+                "dur_type": duration_type,
+                "transfer_pct": transfer_pct,
+            })
             _log.info("[HEAL_LINK] %s -> %s: applied heal_link (transfer=%.0f%%, linked_to=%s, dur=%d, dur_type=%s)",
                       caster.name, target.name, transfer_pct, caster.name, duration, duration_type)
 
         return {
             "effect_type": "heal_link",
             "targets": applied_targets,
+            "auras": applied_auras,
             "transfer_pct": transfer_pct,
+            "duration": duration,
+            "duration_type": duration_type,
         }
 
     def _apply_hp_ratio_damage(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
@@ -7919,6 +8026,9 @@ class SkillService:
             actual_dmg = current_raw
             overflow = max(0, actual_dmg - hp_before)
             target.current_hp = max(0, target.current_hp - actual_dmg)
+            hp_loss = hp_before - target.current_hp
+            if hp_loss > 0:
+                target.cumulative_hp_damage += hp_loss
             total_damage += actual_dmg
             caster.damage_dealt_total += actual_dmg
             target.damage_taken_total += actual_dmg

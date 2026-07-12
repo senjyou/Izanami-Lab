@@ -144,10 +144,49 @@ class StatusService:
                     total_heal += actual
                     _log.info("[STATUS] %s REGEN: +%d HP (%d->%d)",
                               unit.name, actual, old_hp, unit.current_hp)
-                    regen_details.append({
-                        'amount': actual,
-                        'source_unit_id': buff.source_unit_id,
-                    })
+                else:
+                    actual = 0
+                    _log.info("[STATUS] %s REGEN: full HP, theoretical heal=%d (actual=0)",
+                              unit.name, heal)
+                # heal_link 転送: 継続回復も回復リンクの対象
+                # 実回復量が0（満血等）でも理論値で転送する
+                regen_heal_link_transfers = []
+                if battlefield is not None:
+                    heal_link_buffs = [b for b in unit.buffs + unit.debuffs
+                                       if b.effect_type == SkillEffectType.HEAL_LINK.value]
+                    for hlb in heal_link_buffs:
+                        if hlb.source_unit_id and hlb.source_unit_id != unit.unit_id:
+                            link_target = next((u for u in battlefield.get_all_units()
+                                               if u.unit_id == hlb.source_unit_id and u.is_alive), None)
+                            if link_target:
+                                transfer_amount = int(heal * hlb.value / 100)
+                                if transfer_amount > 0:
+                                    link_hp_before = link_target.current_hp
+                                    link_max_hp = (damage_service._calculate_final_stat(link_target, "max_hp")
+                                                  if damage_service else link_target.max_hp)
+                                    link_missing = link_max_hp - link_target.current_hp
+                                    link_actual = min(transfer_amount, link_missing)
+                                    link_target.current_hp = min(link_max_hp, link_target.current_hp + transfer_amount)
+                                    _log.info("[HEAL_LINK] %s -> %s: transferred %d (%.0f%% of theoretical %d) via regen, hp %d→%d",
+                                              unit.name, link_target.name, link_actual, hlb.value, heal,
+                                              link_target.current_hp - link_actual, link_target.current_hp)
+                                    regen_heal_link_transfers.append({
+                                        "source_id": unit.unit_id,
+                                        "source_name": unit.name,
+                                        "linker_id": link_target.unit_id,
+                                        "linker_name": link_target.name,
+                                        "transfer_heal": link_actual,
+                                        "hp_before": link_hp_before,
+                                        "hp_after": link_target.current_hp,
+                                        "max_hp": link_max_hp,
+                                        "link_value": hlb.value,
+                                        "source_theoretical_heal": heal,
+                                    })
+                regen_details.append({
+                    'amount': actual,
+                    'source_unit_id': buff.source_unit_id,
+                    'heal_link_transfers': regen_heal_link_transfers,
+                })
 
         # 移除caster_alive过期的buff
         for b in buffs_to_remove:

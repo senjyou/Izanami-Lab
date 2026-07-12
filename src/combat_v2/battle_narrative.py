@@ -237,6 +237,26 @@ class BattleNarrativeWriter:
         self._add(f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
                   f"{transfer_dmg} 点{damage_type}链接伤害 (源伤害:{source_actual_damage} × {link_value:.0f}%){shield_info}")
 
+    def heal_link_applied(self, target_name: str, source_name: str, transfer_pct: float,
+                          duration: int = 1, dur_type: str = "action"):
+        """回復リンク付与の叙事ログ出力"""
+        if duration > 0:
+            unit_label = "行动" if dur_type == "action" else "回合"
+            dur_str = f" 持续:{duration}{unit_label}"
+        else:
+            dur_str = ""
+        self._add(f"  [回復リンク] {target_name} に回復リンク付与 (→{source_name}へ{transfer_pct:.0f}%転送{dur_str})")
+
+    def heal_link_transfer(self, source_name: str, linker_name: str,
+                           transfer_heal: int, hp_before: int, hp_after: int, max_hp: int,
+                           link_value: float, source_theoretical_heal: int):
+        """回復リンク転送の叙事ログ出力
+
+        source_theoretical_heal: 転送元の理論回復量（満血で実回復0でも転送される）
+        """
+        self._add(f"  [回復リンク転送] {source_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
+                  f"+{transfer_heal} HP (源理論回復:{source_theoretical_heal} × {link_value:.0f}%)")
+
     def enchant_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                        hp_before: int, hp_after: int, damage: int, damage_type: str,
                        modifiers: List[str] = None, calc_detail: dict = None, max_hp: int = 0):
@@ -394,6 +414,11 @@ class BattleNarrativeWriter:
     def lifesteal(self, source_name: str, heal_amount: int, damage_based_on: int,
                   hp_before: int, hp_after: int, max_hp: int, cure_pct: float):
         self._add(f"  [吸血] {source_name} 回复 {heal_amount} HP (造成伤害{damage_based_on}的{cure_pct:.0f}%) HP:{hp_before}/{max_hp}→{hp_after}/{max_hp}")
+
+    def consume_hp(self, source_name: str, amount: int, hp_before: int,
+                   hp_after: int, max_hp: int, pct: float, hp_base: str):
+        base_label = "最大HP" if hp_base == "max_hp" else "当前HP"
+        self._add(f"  [HP消耗] {source_name} (HP:{hp_before}/{max_hp}→{hp_after}/{max_hp}): -{amount} HP (自傷:{base_label}的{pct:.0f}%)")
 
     def heal(self, source_name: str, target_name: str, amount: int,
              source_hp: str = "", hp_before: int = 0, target_max_hp: int = 0,

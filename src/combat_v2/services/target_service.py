@@ -540,7 +540,9 @@ class TargetService:
             return candidates
 
         if p_type == DisplayTargetPriority.LOWEST_HP_PERCENT:
-            candidates.sort(key=lambda u: (u.current_hp / u.max_hp if u.max_hp > 0 else 1.0,
+            # HP比例は万分位（0.01%）精度に切り捨て（ゲーム内挙動：精度損失あり）
+            # roundでは-1血が100%に繰り上がるため、int切捨てで99.99%とする
+            candidates.sort(key=lambda u: (int(u.current_hp / u.max_hp * 10000) / 10000 if u.max_hp > 0 else 1.0,
                                            self._get_sort_key(caster, u)))
             return candidates
 
