@@ -186,13 +186,13 @@ class TacticalExerciseController(BattleFlowController):
         saved_pp = enemy.current_pp
         saved_ep = enemy.current_ep
 
-        # 清除非回忆卡buff/debuff，保留回忆卡buff/debuff(is_memory_buff=True)
+        # 清除非回忆卡buff/debuff，保留回忆卡buff/debuff(is_memory_buff=True)和不可驱散buff(unremovable=True)
         # 旧stage_ buff必须清除，否则跨阶段累积叠加（is_memory_buff=True会无条件求和）
-        kept_buffs = [b for b in enemy.buffs if b.is_memory_buff and not b.buff_id.startswith("stage_")]
+        kept_buffs = [b for b in enemy.buffs if (b.is_memory_buff or getattr(b, 'unremovable', False)) and not b.buff_id.startswith("stage_")]
         buffs_cleared = len(enemy.buffs) - len(kept_buffs)
-        debuffs_cleared = len([d for d in enemy.debuffs if not d.is_memory_buff])
+        debuffs_cleared = len([d for d in enemy.debuffs if not d.is_memory_buff and not getattr(d, 'unremovable', False)])
         enemy.buffs = kept_buffs
-        enemy.debuffs = [d for d in enemy.debuffs if d.is_memory_buff]
+        enemy.debuffs = [d for d in enemy.debuffs if d.is_memory_buff or getattr(d, 'unremovable', False)]
 
         # 重置异常状态标志位（从过滤后的debuffs列表重新派生，保持与debuffs一致）
         # 非回忆卡施加的眩晕/冻结已随debuff清除，回忆卡施加的则保留

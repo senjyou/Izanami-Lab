@@ -558,14 +558,17 @@ class TriggerService:
         return self.check_triggers(TriggerTiming.ALLY_CHARGE_USE, ctx)
 
     def trigger_cumulative_damage(self, battlefield: BattlefieldState,
-                                   damaged_units: Optional[List[UnitState]] = None) -> List[TriggerAction]:
+                                   damaged_units: Optional[List[UnitState]] = None,
+                                   per_hit_reset_values: Optional[Dict[str, int]] = None) -> List[TriggerAction]:
         """累计伤害达到阈值时触发
 
         检查指定单位（或所有单位）的累计HP伤害是否达到阈值。
         阈值从PS技能配置的global_condition.value读取（百分比形式，如10表示10%最大HP）。
         计数器清除时机：
         - PS成功执行后：在_execute_trigger_actions/_execute_global_trigger_actions中清除
-        - PP不足无法执行时：同样在上述方法中check_skill_cost失败分支清除（避免计数器持续累积）
+        - PP不足无法执行时：同样在上述方法中check_skill_cost失败分支清除
+        per_hit_reset_values: Dict[unit_id, reset_value] — per-hit replay結果による
+        PP不足時のリセット値（中間hit→excess、最終hit→0）。Noneの場合は従来通り0にリセット。
         """
         actions = []
         units_to_check = damaged_units if damaged_units else battlefield.get_all_units()
@@ -586,8 +589,15 @@ class TriggerService:
             if unit.cumulative_hp_damage >= threshold_value:
                 _log.info("[CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f (max_hp=%d * %d%%), triggering",
                           unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold)
+                # per-hit reset valueをaction.parametersに付与
+                _reset_val = 0  # デフォルト（単hit等）
+                if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
+                    _reset_val = per_hit_reset_values[unit.unit_id]
                 ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
-                actions.extend(self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx))
+                _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
+                for _a in _new_actions:
+                    _a.parameters['cumulative_pp_zero_reset'] = _reset_val
+                actions.extend(_new_actions)
 
         return actions
 
@@ -1321,16 +1331,11 @@ class TriggerService:
                     if skill_data and skill_data.skill_type in count_skill_types:
                         count += cnt
 
-            # PS-modulo触发器（如「お母様、見ててください……！」）的pending在PS技能执行后处理
-            # 不在这里依赖pending标志，避免在AS技能执行后重复匹配
-            is_ps_modulo_trigger = (count_skill_types == [2])
-            if is_ps_modulo_trigger:
-                result = count > 0 and count % val == 0
-            else:
-                # AS-modulo触发器（如「ぜ～～ったい負けないから！」）使用pending标志
-                result = (count > 0 and count % val == 0) or owner.skill_use_count_pending
-            _log.info("[TRIGGER_COND] %s: skill_use_count_modulo %d (types=%s exclude=%s) mod %d == 0 => %s (pending=%s, is_ps_modulo=%s)",
-                      owner.name, count, count_skill_types, exclude_skill_ids, val, result, owner.skill_use_count_pending, is_ps_modulo_trigger)
+            # 使用 >= 判断：达到阈值即触发，PS成功执行后清除计数器
+            # PS未执行（PP不足/幻惑阻止）时计数器保持，下次技能使用后仍 >= 阈值会再次触发
+            result = count >= val
+            _log.info("[TRIGGER_COND] %s: skill_use_count_modulo %d (types=%s exclude=%s) >= %d => %s",
+                      owner.name, count, count_skill_types, exclude_skill_ids, val, result)
             return result
 
         if cond_type == "crit_count_mod":

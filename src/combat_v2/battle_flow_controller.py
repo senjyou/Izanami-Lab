@@ -481,11 +481,7 @@ class BattleFlowController:
                             owner = action.instance.owner
                             if owner.skill_use_count:
                                 owner.skill_use_count.clear()
-                                owner.skill_use_count_pending = False
-                    else:
-                        for action in skill_count_actions:
-                            owner = action.instance.owner
-                            owner.skill_use_count_pending = True
+                    # PP不足时保留skill_use_count，下次技能使用后 >= 阈值会再次触发
             # 蓄力效果执行完毕，行动结束，其他技能冷却正常递减
             unit.action_phase = UnitActionPhase.AFTER_SKILL
             unit.action_count_total += 1
@@ -723,8 +719,10 @@ class BattleFlowController:
                     hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
                     if hp_consumed and unit.unit_id not in {u.unit_id for u in cumulative_check_units}:
                         cumulative_check_units.append(unit)
+                    _per_hit_resets = self._compute_per_hit_reset_values(cumulative_check_units) if cumulative_check_units else {}
                     phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                        self.battlefield, cumulative_check_units) if cumulative_check_units else []
+                        self.battlefield, cumulative_check_units,
+                        per_hit_reset_values=_per_hit_resets) if cumulative_check_units else []
 
                     # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
                     phase1_actions = []
@@ -884,8 +882,10 @@ class BattleFlowController:
                     self._execute_trigger_actions(after_self, unit)
 
                     # 非AS技能的累计伤害触发器检查（保持原路径）
+                    _per_hit_resets = self._compute_per_hit_reset_values(unique_damaged)
                     cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
-                        self.battlefield, unique_damaged)
+                        self.battlefield, unique_damaged,
+                        per_hit_reset_values=_per_hit_resets)
                     if cumulative_dmg_actions:
                         self._execute_global_trigger_actions(cumulative_dmg_actions)
             else:
@@ -901,8 +901,10 @@ class BattleFlowController:
                     hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
                     phase1_cumulative_actions = []
                     if hp_consumed:
+                        _per_hit_resets = self._compute_per_hit_reset_values([unit])
                         phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                            self.battlefield, [unit])
+                            self.battlefield, [unit],
+                            per_hit_reset_values=_per_hit_resets)
 
                     # Phase 1a: 自身行動後発動（after_own_action）+ 暴击
                     phase1_actions = self.trigger_service.trigger_after_own_action(
@@ -1007,13 +1009,14 @@ class BattleFlowController:
         self.skill_service.update_cooldown_after_skill_use(unit, selected_skill)
 
         # AS技能的skill_use_count更新和skill_count_actions已在phase2_actions中合并处理
-        # 非AS技能仍在此处独立处理
-        if skill_type != 1:
+        # PS技能仍在此处独立处理；EX技能(skill_type=3)不更新计数也不检查触发器
+        if skill_type == 2:
             unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
-            _log.info("[SKILL_COUNT] non-AS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
+            _log.info("[SKILL_COUNT] PS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
                       unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
 
-        skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+        # EX技能不触发skill_use_count_modulo（如「ぜ～～ったい負けないから！」只应在AS技能使用后触发）
+        skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield) if skill_type != 3 else []
 
         # AS技能的skill_count_actions已在phase1b_actions中合并执行，此处仅处理清理逻辑
         # 非AS技能在此处独立执行
@@ -1057,14 +1060,7 @@ class BattleFlowController:
                                           owner.name, cleared_ids, dict(owner.skill_use_count))
                             else:
                                 owner.skill_use_count.clear()
-                        owner.skill_use_count_pending = False
-                else:
-                    # PS因PP不足未执行，保留skill_use_count，设置pending
-                    for action in skill_count_actions:
-                        owner = action.instance.owner
-                        _log.info("[SKILL_COUNT] %s PP insufficient for count trigger, preserving skill_use_count=%s, setting pending",
-                                  owner.name, dict(owner.skill_use_count))
-                        owner.skill_use_count_pending = True
+                # PP不足时保留skill_use_count，下次AS使用后 >= 阈值会再次触发
         else:
             # 非AS技能：独立执行skill_count_actions
             if skill_count_actions:
@@ -1112,23 +1108,7 @@ class BattleFlowController:
                                 _log.info("[SKILL_COUNT] %s skill_use_count full reset after trigger: %s -> {}",
                                           owner.name, dict(owner.skill_use_count))
                                 owner.skill_use_count.clear()
-                            owner.skill_use_count_pending = False
-                else:
-                    for action in skill_count_actions:
-                        owner = action.instance.owner
-                        parsed = self.data_loader.get_parsed_skill_data(action.skill_id) if hasattr(self.data_loader, 'get_parsed_skill_data') else None
-                        gc = parsed.get('global_condition') if parsed else None
-                        is_ps_modulo_trigger = (gc and isinstance(gc, dict)
-                                                and gc.get('type') == 'skill_use_count_modulo'
-                                                and gc.get('count_skill_types') == [2])
-
-                        if is_ps_modulo_trigger:
-                            _log.info("[SKILL_COUNT] %s is PS-modulo trigger, pending handled in PS execution",
-                                      owner.name)
-                        else:
-                            _log.info("[SKILL_COUNT] %s PP insufficient for count trigger, pending for next AS use",
-                                      owner.name)
-                            owner.skill_use_count_pending = True
+                # PP不足时保留skill_use_count，下次技能使用后 >= 阈值会再次触发
 
         unit.action_phase = UnitActionPhase.AFTER_SKILL
 
@@ -1596,6 +1576,49 @@ class BattleFlowController:
         # 被攻撃反応 PS 可能产生新的暴击触发器
         self._flush_deferred_crit_triggers(attacker)
 
+    def _compute_per_hit_reset_values(self, damaged_units) -> dict:
+        """per-hit replayによる累計傷害PP不足時のリセット値を計算。
+
+        ゲーム内挙動：累計傷害はper-hit判定（各hit後に閾値チェック）。
+        PP不足でPS実行不可の場合：
+        - 中間hit（最終hit以外）で閾値超過 → excess (cumulative - threshold) にリセット
+        - 最終hitで閾値超過 → 0にリセット
+        単hitスキルは唯一のhit=最終hit → 常に0リセット（従来通り）。
+        多hitスキルの中間hitはexcessを保持し、後続hitが累積して閾値再超過可能。
+
+        skill_service._per_hit_hp_lossesから各目標のper-hit HP損失を取得し、
+        per-hit閾値チェックをreplayしてリセット値を決定する。
+        """
+        reset_values = {}
+        per_hit_data = getattr(self.skill_service, '_per_hit_hp_losses', {})
+        if not per_hit_data:
+            return reset_values
+        for unit in damaged_units:
+            if unit.unit_id not in per_hit_data:
+                continue
+            threshold = self.trigger_service._get_cumulative_damage_threshold(unit)
+            if threshold is None:
+                continue
+            threshold_value = unit.max_hp * threshold / 100
+            threshold_int = int(threshold_value)
+            hit_losses = per_hit_data[unit.unit_id]
+            if not hit_losses:
+                continue
+            # per-hit replay
+            cumulative = unit.cumulative_hp_damage - sum(hit_losses)
+            for i, hit_loss in enumerate(hit_losses):
+                cumulative += hit_loss
+                is_last_hit = (i == len(hit_losses) - 1)
+                if cumulative >= threshold_value:
+                    if is_last_hit:
+                        cumulative = 0
+                    else:
+                        cumulative = cumulative - threshold_int
+            reset_values[unit.unit_id] = cumulative
+            _log.info("[CUMULATIVE_PER_HIT] %s: per-hit replay reset_value=%d (hit_count=%d, threshold=%.0f)",
+                      unit.name, cumulative, len(hit_losses), threshold_value)
+        return reset_values
+
     def _execute_trigger_actions(self, actions, source_unit: UnitState) -> None:
         if not actions:
             return
@@ -1622,13 +1645,14 @@ class BattleFlowController:
 
             if not self.skill_service.check_skill_cost(owner, action.skill_id):
                 _log.info("[PS_EXEC] PS[%s] insufficient resources for %s", skill_name, owner.name)
-                # on_cumulative_damage触发器：PP不足无法执行时，清空累计伤害计数器
-                # 避免计数器持续累积，PP恢复后立即触发（起死回生の一手等）
+                # on_cumulative_damage触发器：PP不足无法执行时，按per-hit重置值清空累计伤害计数器
+                # 单hit技能重置为0；多hit技能中间hit重置为超额部分(cumulative-threshold)，最后hit重置为0
                 _parsed_fail = self.data_loader.get_parsed_skill_data(action.skill_id) if self.data_loader else None
                 if _parsed_fail and _parsed_fail.get('trigger_type') == 'on_cumulative_damage':
-                    owner.cumulative_hp_damage = 0
-                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 (PP insufficient, PS[%s] cannot execute)",
-                              owner.name, skill_name)
+                    _reset_val = action.parameters.get('cumulative_pp_zero_reset', 0) if hasattr(action, 'parameters') else 0
+                    owner.cumulative_hp_damage = _reset_val
+                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, PS[%s] cannot execute)",
+                              owner.name, _reset_val, skill_name)
                 continue
 
             if self.narrative:
@@ -1782,8 +1806,10 @@ class BattleFlowController:
                             _seen_ids.add(_u.unit_id)
                             _unique_damaged.append(_u)
                     if _unique_damaged:
+                        _per_hit_resets = self._compute_per_hit_reset_values(_unique_damaged)
                         cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
-                            self.battlefield, _unique_damaged)
+                            self.battlefield, _unique_damaged,
+                            per_hit_reset_values=_per_hit_resets)
                         if cumulative_dmg_actions:
                             _log.info("[CUMULATIVE_DMG_RECHECK] PS[%s] dealt damage, re-checking cumulative damage: %d triggers",
                                       skill_name, len(cumulative_dmg_actions))
@@ -1842,10 +1868,9 @@ class BattleFlowController:
                 continue
 
             if not self.skill_service.check_skill_cost(owner, action.skill_id):
-                # PP不足，设置pending，等待下一次PS技能执行后再检查
-                _log.info("[PS_COUNT] %s PP insufficient for %s, setting pending for next PS",
+                # PP不足，保留skill_use_count，下次PS技能执行后 >= 阈值会再次检查
+                _log.info("[PS_COUNT] %s PP insufficient for %s, preserving skill_use_count for next PS",
                           owner.name, skill_name)
-                owner.skill_use_count_pending = True
                 continue
 
             # PP足够，立即执行
@@ -1868,7 +1893,6 @@ class BattleFlowController:
                         cleared_ids.append(sid)
                 _log.info("[PS_COUNT] %s skill_use_count cleared after immediate execution: %s",
                           owner.name, cleared_ids)
-                owner.skill_use_count_pending = False
 
     def _execute_single_ps_action(self, action, source_unit: UnitState) -> None:
         """执行单个PS技能动作（用于PS技能触发的计数触发器）"""
@@ -1948,13 +1972,14 @@ class BattleFlowController:
 
             if not self.skill_service.check_skill_cost(owner, action.skill_id):
                 _log.info("[PS_EXEC] Global PS[%s] insufficient resources for %s", skill_name, owner.name)
-                # on_cumulative_damage触发器：PP不足无法执行时，清空累计伤害计数器
-                # 避免计数器持续累积，PP恢复后立即触发（起死回生の一手等）
+                # on_cumulative_damage触发器：PP不足无法执行时，按per-hit重置值清空累计伤害计数器
+                # 单hit技能重置为0；多hit技能中间hit重置为超额部分(cumulative-threshold)，最后hit重置为0
                 _parsed_fail = self.data_loader.get_parsed_skill_data(action.skill_id) if self.data_loader else None
                 if _parsed_fail and _parsed_fail.get('trigger_type') == 'on_cumulative_damage':
-                    owner.cumulative_hp_damage = 0
-                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 (PP insufficient, global PS[%s] cannot execute)",
-                              owner.name, skill_name)
+                    _reset_val = action.parameters.get('cumulative_pp_zero_reset', 0) if hasattr(action, 'parameters') else 0
+                    owner.cumulative_hp_damage = _reset_val
+                    _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, global PS[%s] cannot execute)",
+                              owner.name, _reset_val, skill_name)
                 continue
 
             if self.narrative:
@@ -2094,8 +2119,10 @@ class BattleFlowController:
                             _seen_ids.add(_u.unit_id)
                             _unique_damaged.append(_u)
                     if _unique_damaged:
+                        _per_hit_resets = self._compute_per_hit_reset_values(_unique_damaged)
                         cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
-                            self.battlefield, _unique_damaged)
+                            self.battlefield, _unique_damaged,
+                            per_hit_reset_values=_per_hit_resets)
                         if cumulative_dmg_actions:
                             _log.info("[CUMULATIVE_DMG_RECHECK] Global PS[%s] dealt damage, re-checking cumulative damage: %d triggers",
                                       skill_name, len(cumulative_dmg_actions))
@@ -2259,10 +2286,16 @@ class BattleFlowController:
                         if hit_count > 1 and len(hit_crits) == hit_count and total_heal > 0:
                             running_hp = t['hp_before']
                             total_original = sum(hit_details) or 1
+                            # per-hit回复値があれば使用（キャップされていない場合）
+                            hit_heals = t.get("genwaku_hit_heals", [])
+                            use_per_hit = (hit_heals and sum(hit_heals) == total_heal
+                                           and len(hit_heals) == hit_count)
                             remaining_heal = total_heal
                             for i, hit_dmg in enumerate(hit_details):
                                 hp_before_hit = running_hp
-                                if i == hit_count - 1:
+                                if use_per_hit:
+                                    hit_heal = hit_heals[i]
+                                elif i == hit_count - 1:
                                     hit_heal = remaining_heal
                                 else:
                                     hit_heal = int(total_heal * hit_dmg / total_original)

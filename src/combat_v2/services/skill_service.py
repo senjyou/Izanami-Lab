@@ -115,6 +115,7 @@ class SkillService:
         self.status_service = status_service
         self.trigger_service = trigger_service
         self._resolver = SkillDataResolver(data_loader)
+        self._per_hit_hp_losses: Dict[str, List[int]] = {}  # 各目标的per-hit HP损失列表，供累计伤害per-hit检查使用
 
         self._battlefield: Optional[BattlefieldState] = None
         self._recursion_guard: bool = False
@@ -691,6 +692,7 @@ class SkillService:
         self._most_recent_damage = 0  # 技能级别：累计该技能所有damage block的伤害，供lifesteal等使用
         self._original_primary_target = None  # 技能级别：第一个damage效果的原始主目标（cover替换前），供after_as_attacked等触发器使用
         self._hp_consumed = 0  # 技能级别：consume_hp消费的HP量，供heal_base=consume_hp和累計傷害チェック使用
+        self._per_hit_hp_losses = {}  # 技能级别：各目标的per-hit HP损失列表，供累计伤害per-hit检查使用
 
         # 快照技能执行前的mark状态（用于has_mark_at_start条件和target_has_mark条件）
         self._marks_at_start = {}
@@ -2900,10 +2902,15 @@ class SkillService:
             genwaku_buffs = [b for b in caster.debuffs if b.effect_type == SkillEffectType.GENWAKU.value]
             if genwaku_buffs:
                 genwaku_pct = genwaku_buffs[0].value
-                heal_amount = int(actual_damage * genwaku_pct / 100)
                 heal_received_mult = self.damage_service._get_heal_received_multiplier(target)
-                if heal_received_mult != 1.0:
-                    heal_amount = int(heal_amount * heal_received_mult)
+                # per-hit独立计算回复值，避免比例分配时余数累积到最后一hit
+                hit_heals = []
+                for hit_dmg in dmg_result.hit_details:
+                    hit_heal = int(hit_dmg * genwaku_pct / 100)
+                    if heal_received_mult != 1.0:
+                        hit_heal = int(hit_heal * heal_received_mult)
+                    hit_heals.append(hit_heal)
+                heal_amount = sum(hit_heals)
                 target_max_hp = self.damage_service._calculate_final_stat(target, "max_hp")
                 actual_heal = min(heal_amount, target_max_hp - target.current_hp)
                 target.current_hp = min(target_max_hp, target.current_hp + heal_amount)
@@ -2923,6 +2930,7 @@ class SkillService:
                     "hit_crits": dmg_result.hit_crits,
                     "hit_evades": dmg_result.hit_evades,
                     "genwaku_heal": actual_heal,
+                    "genwaku_hit_heals": hit_heals,
                     "calc_detail": dmg_result.calc_detail,
                 })
                 continue
@@ -3162,6 +3170,24 @@ class SkillService:
                 absorbed = min(hit_shield_portion, remaining_shield)
                 hit_shield_absorbed.append(absorbed)
                 remaining_shield -= absorbed
+
+            # per-hit HP损失追跡（累計傷害per-hitチェック用）
+            # 各hitのHP損失を計算し、_per_hit_hp_lossesに蓄積
+            if hp_loss > 0 and dmg_result.hit_details:
+                _remaining_hp = hp_before
+                _hit_losses = []
+                for _i, _hd in enumerate(dmg_result.hit_details):
+                    _s_abs = hit_shield_absorbed[_i] if _i < len(hit_shield_absorbed) else 0
+                    _hit_hp_dmg = max(0, _hd - _s_abs)
+                    _hit_hp_loss = min(_hit_hp_dmg, _remaining_hp)
+                    _remaining_hp = max(0, _remaining_hp - _hit_hp_loss)
+                    _hit_losses.append(_hit_hp_loss)
+                # 補正：盾吸收/最低1点伤害等で合計とhp_lossが不一致の場合、最終hitで調整
+                _total_tracked = sum(_hit_losses)
+                if _total_tracked != hp_loss and _hit_losses:
+                    _diff = hp_loss - _total_tracked
+                    _hit_losses[-1] = max(0, _hit_losses[-1] + _diff)
+                self._per_hit_hp_losses.setdefault(target.unit_id, []).extend(_hit_losses)
 
             targets_hit.append({
                 "target": target.name,
@@ -3540,6 +3566,7 @@ class SkillService:
                 hp_loss = hp_before - target.current_hp
                 if hp_loss > 0:
                     target.cumulative_hp_damage += hp_loss
+                    self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -3705,6 +3732,7 @@ class SkillService:
                 hp_loss = hp_before - target.current_hp
                 if hp_loss > 0:
                     target.cumulative_hp_damage += hp_loss
+                    self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -3857,6 +3885,7 @@ class SkillService:
                 hp_loss = hp_before - target.current_hp
                 if hp_loss > 0:
                     target.cumulative_hp_damage += hp_loss
+                    self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
                 total_damage += extra_dmg
                 caster.damage_dealt_total += extra_dmg
                 target.damage_taken_total += extra_dmg
@@ -4232,6 +4261,7 @@ class SkillService:
                         hp_loss = hp_before - dt.current_hp
                         if hp_loss > 0:
                             dt.cumulative_hp_damage += hp_loss
+                            self._per_hit_hp_losses.setdefault(dt.unit_id, []).append(hp_loss)
                         _log.info("[ON_CRIT] %s -> %s: extra damage %d (hp now %d)",
                                   caster.name, dt.name, actual, dt.current_hp)
                         # === 伤害统计累加（与主流程 _apply_damage 保持一致） ===
@@ -5066,7 +5096,19 @@ class SkillService:
             duration = effect_dur
         else:
             hit_limited_from_dur = 0
-            duration = -1
+            # add_damage_to_attack (EnchantDamage) with hit_limited > 0:
+            # null durationは当次行動終了までに期限切れするべき（skip_restoreでjust_applied保護をバイパス）
+            # hit_limitedで消費されなかった場合も行動終了時に削除される（如 追撃符 130051）
+            _enchant_with_hit_limit = (effect.effect_type == "add_damage_to_attack"
+                                       and effect_flags_aura
+                                       and int(effect_flags_aura.get('hit_limited', 0)) > 0)
+            if _enchant_with_hit_limit:
+                duration = 1
+                effect_flags_aura['skip_restore'] = True
+                _log.info("[AURA_APPLY] %s: add_damage_to_attack hit_limited>0 null duration -> dur=1 skip_restore=True",
+                          caster.name)
+            else:
+                duration = -1
 
         if dur_type == "action":
             timing = AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value
@@ -7442,6 +7484,8 @@ class SkillService:
 
         # 自傷HP消費は累計傷害に含まれる（ゲーム内挙動：私に任せて！+の自傷でそれはやりすぎ！+が触发）
         caster.cumulative_hp_damage += actual_consume
+        if actual_consume > 0:
+            self._per_hit_hp_losses.setdefault(caster.unit_id, []).append(actual_consume)
 
         # 自傷もダメージ統計とスコアリングトラッカーに記録（戦術演習計分対象）
         # 敵方自残のダメージは計分に含まれる（target_side=="enemy"で_total_damage_to_enemiesに加算）
@@ -7801,6 +7845,7 @@ class SkillService:
             hp_loss = hp_before - target.current_hp
             if hp_loss > 0:
                 target.cumulative_hp_damage += hp_loss
+                self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
             # 最近受到的伤害：包括被盾吸收的部分（用于反撃系PS）
             received_total = hp_loss + shield_absorbed
             if received_total > 0:
@@ -8029,6 +8074,7 @@ class SkillService:
             hp_loss = hp_before - target.current_hp
             if hp_loss > 0:
                 target.cumulative_hp_damage += hp_loss
+                self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
             total_damage += actual_dmg
             caster.damage_dealt_total += actual_dmg
             target.damage_taken_total += actual_dmg

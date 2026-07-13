@@ -492,14 +492,14 @@ class CompositeTacticController(BattleFlowController):
         saved_pp = boss.current_pp
         saved_ep = boss.current_ep
 
-        # 清除所有非回忆卡buff（包括旧阶段增量stage_ buff），仅保留回忆卡buff
+        # 清除所有非回忆卡buff（包括旧阶段增量stage_ buff），仅保留回忆卡buff和不可驱散buff
         # 旧stage_ buff必须清除，否则跨阶段累积叠加（is_memory_buff=True会无条件求和）
-        kept_buffs = [b for b in boss.buffs if b.is_memory_buff and not b.buff_id.startswith("stage_")]
+        kept_buffs = [b for b in boss.buffs if (b.is_memory_buff or getattr(b, 'unremovable', False)) and not b.buff_id.startswith("stage_")]
         buffs_cleared = len(boss.buffs) - len(kept_buffs)
-        # 清除非回忆卡debuff，保留回忆卡debuff(is_memory_buff=True)
-        debuffs_cleared = len([d for d in boss.debuffs if not d.is_memory_buff])
+        # 清除非回忆卡debuff，保留回忆卡debuff(is_memory_buff=True)和不可驱散debuff
+        debuffs_cleared = len([d for d in boss.debuffs if not d.is_memory_buff and not getattr(d, 'unremovable', False)])
         boss.buffs = kept_buffs
-        boss.debuffs = [d for d in boss.debuffs if d.is_memory_buff]
+        boss.debuffs = [d for d in boss.debuffs if d.is_memory_buff or getattr(d, 'unremovable', False)]
         boss.is_stunned = False
         boss.is_frozen = False
 

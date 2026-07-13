@@ -67611,46 +67611,6 @@
             "flags": {},
             "ignore_defense": 0,
             "ignore_shield": 0
-          },
-          {
-            "effect_type": "cheat_death",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": 25.0,
-            "value_tag": null,
-            "value_source": null,
-            "duration": -1,
-            "duration_type": "turn",
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {
-              "value_type": "percent"
-            },
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "mark",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": null,
-            "value_source": null,
-            "duration": -1,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {
-              "mark_name": "深慮",
-              "is_buff_mark": true,
-              "unremovable": true
-            },
-            "ignore_defense": 0,
-            "ignore_shield": 0
           }
         ],
         "level_min": 11
@@ -67661,7 +67621,7 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death25%+深慮 + Lv11: add_ep(ex)+cheat_death+深慮"
+      "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death25%+深慮 + Lv11: add_ep(ex)"
     ]
   },
   "110068": {
@@ -71814,46 +71774,6 @@
             "flags": {},
             "ignore_defense": 0,
             "ignore_shield": 0
-          },
-          {
-            "effect_type": "cheat_death",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": 1.25,
-            "value_tag": null,
-            "value_source": null,
-            "duration": -1,
-            "duration_type": "turn",
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {
-              "value_type": "percent"
-            },
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "mark",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": null,
-            "value_source": null,
-            "duration": -1,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {
-              "mark_name": "深慮",
-              "is_buff_mark": true,
-              "unremovable": true
-            },
-            "ignore_defense": 0,
-            "ignore_shield": 0
           }
         ],
         "level_min": 5
@@ -71864,7 +71784,7 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death1.25%+深慮 + Lv5: add_ep(ex)+cheat_death+深慮"
+      "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death1.25%+深慮 + Lv5: add_ep(ex)"
     ]
   }
 }
