@@ -54,6 +54,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 恥じらうカジノラビット    | 劉翠蘭          |
 | 理解深き老成の智者      | タチアナ・ドロズドヴァ  |
 | 心色見つめるムードメーカー  | エレーナ・パステルコワ  |
+| 真夏の風紀委員長       | 大賀真桜         |
 
 ## Tactical Exercise Enemies
 

@@ -52,6 +52,8 @@ class BuffState:
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效
+    hp_ratio_dynamic: bool = False  # 动态减伤(130155): 减伤值随持有者实时HP比例变化
+    target_hp_ratio_higher_than_self: bool = False  # 条件增伤(130155 Lv11+): 仅对HP比例高于自身的敌人生效
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk

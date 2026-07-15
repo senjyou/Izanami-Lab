@@ -5657,5 +5657,85 @@
         ]
       }
     ]
+  },
+  "400213": {
+    "skill_id": 400213,
+    "name": "攻撃1行動上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方の攻撃力を1行動の間750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 4,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400214": {
+    "skill_id": 400214,
+    "name": "攻撃上昇【真桜】",
+    "description": "戦闘開始時に発動。大賀真桜の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400215": {
+    "skill_id": 400215,
+    "name": "ENダメージ上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
   }
 }

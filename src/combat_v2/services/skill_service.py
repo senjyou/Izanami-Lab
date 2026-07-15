@@ -1018,6 +1018,35 @@ class SkillService:
                             if _active_level < sub_cond.get('value', 0):
                                 skip_block = True
                                 break
+                        elif st == 'active_level_max':
+                            _active_level = caster.skill_levels.get(skill_id, 1)
+                            if _active_level > sub_cond.get('value', 0):
+                                skip_block = True
+                                break
+                        elif st == 'self_has_mark':
+                            _mark_name = sub_cond.get('mark_name', '')
+                            _has_mark = any(
+                                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
+                                for b in caster.buffs
+                            ) or any(
+                                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
+                                for d in caster.debuffs
+                            )
+                            if not _has_mark:
+                                skip_block = True
+                                break
+                        elif st == 'self_lacks_mark':
+                            _mark_name = sub_cond.get('mark_name', '')
+                            _has_mark = any(
+                                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
+                                for b in caster.buffs
+                            ) or any(
+                                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
+                                for d in caster.debuffs
+                            )
+                            if _has_mark:
+                                skip_block = True
+                                break
                         elif st == 'target_character_type':
                             _ct_val = sub_cond.get('value')
                             self._target_char_type_filter = [_ct_val] if isinstance(_ct_val, int) else _ct_val
@@ -2667,8 +2696,16 @@ class SkillService:
             'bonus_crit_rate': 0.0,
             'skill_id': self._current_skill_id,
             'name': self._get_skill_name(self._current_skill_id),
-            'base_value_source': effect_flags.get('value_source', None),
+            'base_value_source': effect_flags.get('value_source') or effect_flags.get('damage_base'),
         })()
+
+        # damage_base=consume_hp: 设置caster.last_consumed_hp供damage_service读取
+        # _hp_consumed在_apply_consume_hp中赋值，本技能execute_skill开始时reset为0
+        _dmg_base_src = effect_flags.get('value_source') or effect_flags.get('damage_base')
+        if _dmg_base_src == 'consume_hp':
+            caster.last_consumed_hp = getattr(self, '_hp_consumed', 0)
+            _log.info("[DAMAGE_BASE_CONSUME_HP] %s: consume_hp base = %d",
+                      caster.name, caster.last_consumed_hp)
 
         # conditional_power_bonus: 条件满足时增伤
         # bonus_type="power"(默认): 修改skill power（独立倍率乘区）
@@ -3257,9 +3294,18 @@ class SkillService:
                 if cheat_death_buffs:
                     heal_pct = max(b.value for b in cheat_death_buffs)
                     target.current_hp = max(1, int(target.max_hp * heal_pct / 100))
-                    target.buffs = [b for b in target.buffs if b.effect_type not in ("cheat_death", "CheatDeath")]
-                    _log.info("[CHEAT_DEATH] %s: survived lethal, healed to %d/%d (%.1f%%)",
-                              target.name, target.current_hp, target.max_hp, heal_pct)
+                    # 多段cheat_death: stack_count>1时递减而非移除
+                    multi_hit_buffs = [b for b in cheat_death_buffs if b.stack_count > 1]
+                    if multi_hit_buffs:
+                        for b in multi_hit_buffs:
+                            b.stack_count -= 1
+                        remaining = multi_hit_buffs[0].stack_count
+                        _log.info("[CHEAT_DEATH] %s: survived lethal at HP1, stack_count %d->%d",
+                                  target.name, remaining + 1, remaining)
+                    else:
+                        target.buffs = [b for b in target.buffs if b.effect_type not in ("cheat_death", "CheatDeath")]
+                        _log.info("[CHEAT_DEATH] %s: survived lethal, healed to %d/%d (%.1f%%)",
+                                  target.name, target.current_hp, target.max_hp, heal_pct)
                 else:
                     # 延迟阵亡判定：仅标记，技能完整结算后再统一设置 is_alive=False
                     self._pending_deaths.add(target.unit_id)
@@ -5495,6 +5541,12 @@ class SkillService:
                 aura.buff_id = f"{caster.unit_id}_{mapped_effect_type}_{target.unit_id}_{uuid.uuid4().hex[:8]}"
                 aura.is_stackable = True
                 _log.info("[AURA_APPLY] %s: stackable buff -> unique id=%s", caster.name, aura.buff_id)
+            # stack_count: 多段锁血等buff的耐久次数（如110070 cheat_death Lv11+=1~5）
+            _stack_count = int(effect_flags_aura.get('stack_count', 0)) if effect_flags_aura else 0
+            if _stack_count > 1:
+                aura.stack_count = _stack_count
+                _log.info("[AURA_APPLY] %s: stack_count=%d on %s (multi-hit cheat_death)",
+                          caster.name, _stack_count, mapped_effect_type)
             if self._is_memory_card_execution:
                 aura.is_memory_buff = True
                 _log.info("[AURA_APPLY] %s: memory card buff -> is_memory_buff=True", caster.name)
@@ -5551,6 +5603,19 @@ class SkillService:
                 aura.mark_condition = mark_condition_name
                 _log.info("[AURA_APPLY] %s: mark_condition='%s' on %s (only effective when attacker has the mark)",
                           caster.name, mark_condition_name, mapped_effect_type)
+
+            # hp_ratio_dynamic: 动态减伤（如130155），减伤值随持有者实时HP比例变化
+            if effect_flags_aura.get('hp_ratio_dynamic'):
+                aura.hp_ratio_dynamic = True
+                _log.info("[AURA_APPLY] %s: hp_ratio_dynamic on %s (dynamic reduction based on holder HP ratio)",
+                          caster.name, mapped_effect_type)
+
+            # target_hp_ratio_higher_than_self: 条件性增伤（如130155 Lv11+），
+            # 仅对HP比例高于自身的敌人生效
+            if effect_flags_aura.get('target_hp_ratio_higher_than_self'):
+                aura.target_hp_ratio_higher_than_self = True
+                _log.info("[AURA_APPLY] %s: target_hp_ratio_higher_than_self on %s (only vs enemies with higher HP ratio)",
+                          caster.name, mapped_effect_type)
 
             # linked_mark: 当对应的mark消失时，此debuff也消失
             linked_mark = effect_flags_aura.get('linked_mark') if effect_flags_aura else None

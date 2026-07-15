@@ -100,6 +100,18 @@ class DamageService:
                 if tag != value_tag:
                     continue
             val = DamageService._normalize_buff_value(buff)
+            # hp_ratio_dynamic: 动态减伤（如130155 たまには羽を伸ばして）
+            # 减伤值随持有者实时HP比例变化：HP100%→0%, HP40%及以下→最大值, 线性插值
+            # 公式: hp_pct>=0.4时 effective = val * (1-hp_pct)/0.6; hp_pct<0.4时 effective = val
+            if getattr(buff, 'hp_ratio_dynamic', False) and unit is not None:
+                hp_ratio = unit.current_hp / unit.max_hp if unit.max_hp > 0 else 0
+                if hp_ratio >= 0.4:
+                    val = val * (1 - hp_ratio) / 0.6
+                else:
+                    val = val  # 最大值
+                _log.info("[HP_RATIO_DYNAMIC] %s: %s hp_ratio=%.4f => dynamic_val=%.4f (max=%.4f)",
+                          getattr(unit, 'name', '?'), buff.name, hp_ratio, val,
+                          DamageService._normalize_buff_value(buff))
             if buff.is_memory_buff:
                 memory_sum += val
             elif buff.is_stackable:
@@ -140,7 +152,7 @@ class DamageService:
             damage_element: 0=全属性(不过滤), 1=仅物理, 2=仅能量
         """
         if damage_element == 0:
-            return self._aggregate_buff_value_signed(buffs, debuffs, effect_type, value_tag, attacker=attacker)
+            return self._aggregate_buff_value_signed(buffs, debuffs, effect_type, value_tag, unit=unit, attacker=attacker)
 
         # 过滤buffs：仅保留damage_element=0(全属性)或damage_element匹配的buff
         filtered_buffs = []
@@ -161,8 +173,8 @@ class DamageService:
             else:
                 filtered_debuffs.append(d)
 
-        buff_val = self._aggregate_buff_value(filtered_buffs, effect_type, value_tag=value_tag, attacker=attacker)
-        debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, attacker=attacker)
+        buff_val = self._aggregate_buff_value(filtered_buffs, effect_type, value_tag=value_tag, unit=unit, attacker=attacker)
+        debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, unit=unit, attacker=attacker)
         return buff_val - debuff_val
 
     def calculate_damage(self, attacker: UnitState, defender: UnitState, skill_data: Any,
@@ -202,6 +214,15 @@ class DamageService:
             defense = self._calculate_final_stat(defender, "defense")
             _log.info("[DMG_CALC] step1_base_diff: RECEIVED_DAMAGE mode, last_received_damage=%d => base_diff=%d",
                       received_dmg, base_diff)
+        elif base_value_source == "consume_hp":
+            # 自傷HP消費をベース値とするダメージ（如 120156 追加ダメージ）
+            # base_diff = 消費HP × 威力% / 100，享受全乘区
+            consumed_hp = getattr(attacker, 'last_consumed_hp', 0) or 0
+            base_diff = max(1, consumed_hp)
+            atk = self._calculate_final_stat(attacker, "attack")
+            defense = self._calculate_final_stat(defender, "defense")
+            _log.info("[DMG_CALC] step1_base_diff: CONSUME_HP mode, last_consumed_hp=%d => base_diff=%d",
+                      consumed_hp, base_diff)
         else:
             atk = self._calculate_final_stat(attacker, "attack")
             defense = self._calculate_final_stat(defender, "defense")
@@ -230,8 +251,8 @@ class DamageService:
             if confusion_buff:
                 confusion_dmg_reduction = confusion_buff.confusion_dmg_reduction
                 proxy_pct = confusion_buff.confusion_proxy_atk_pct
-                # 仅在正常 ATK-DEF 模式下应用代理数值（received_damage模式不适用）
-                if base_value_source != "received_damage" and atk <= defense and proxy_pct > 0:
+                # 仅在正常 ATK-DEF 模式下应用代理数值（received_damage/consume_hp模式不适用）
+                if base_value_source not in ("received_damage", "consume_hp") and atk <= defense and proxy_pct > 0:
                     orig_base_diff = base_diff
                     base_diff = max(1, int(atk * proxy_pct / 100.0))
                     _log.info("[DMG_CALC] CONFUSION proxy: atk=%d <= def=%d, base_diff %d -> %d (atk×%.0f%%)",
@@ -507,23 +528,34 @@ class DamageService:
 
         # 使用三类buff规则汇总，但根据damage_element过滤
         mult = self._aggregate_buff_value_signed_filtered(
-            unit.buffs, unit.debuffs, target_type, damage_element)
+            unit.buffs, unit.debuffs, target_type, damage_element, unit=unit)
 
-        # 特殊技能130122的条件：仅当攻击者HP比例高于防御者时生效
-        # 需要从buff中单独扣除不满足条件的部分
+        # 条件性dmg_dealt_up buff：根据攻击者与防御者HP比例关系决定是否生效
+        # - target_hp_ratio_lower_than_self: 仅当攻击者HP比例高于防御者时生效 (130122)
+        # - target_hp_ratio_higher_than_self: 仅当防御者HP比例高于攻击者时生效 (130155 Lv11+)
+        # 不满足条件时需从mult中扣除（_aggregate已加入）
         for buff in unit.buffs:
             if buff.effect_type == target_type:
                 # 属性过滤
                 buff_elem = getattr(buff, 'damage_element', 0)
                 if damage_element != 0 and buff_elem != 0 and buff_elem != damage_element:
                     continue
+                # 130122: 仅对HP比例低于自身的敌人生效（向后兼容hardcoded检查）
                 if buff.source_skill_id == 130122 and defender is not None:
-                    # 使用传入的HP或当前HP进行条件判断
                     cond_hp = defender_hp_for_condition if defender_hp_for_condition is not None else defender.current_hp
                     defender_hp_pct = cond_hp / defender.max_hp if defender.max_hp > 0 else 0
                     if defender_hp_pct >= attacker_hp_pct:
                         val = self._normalize_buff_value(buff)
                         mult -= val
+                # 130155 Lv11+: 仅对HP比例高于自身的敌人生效（flag-based）
+                elif getattr(buff, 'target_hp_ratio_higher_than_self', False) and defender is not None:
+                    cond_hp = defender_hp_for_condition if defender_hp_for_condition is not None else defender.current_hp
+                    defender_hp_pct = cond_hp / defender.max_hp if defender.max_hp > 0 else 0
+                    if defender_hp_pct <= attacker_hp_pct:
+                        val = self._normalize_buff_value(buff)
+                        mult -= val
+                        _log.info("[DMG_DEALT_COND] %s: %s skipped (defender hp_pct=%.4f <= attacker=%.4f)",
+                                  unit.name, buff.name, defender_hp_pct, attacker_hp_pct)
 
         return 1.0 + mult
 

@@ -67507,8 +67507,15 @@
       "type": "condition_list",
       "mode": "all",
       "conditions": [
-        {"type": "self_lacks_mark", "mark_name": "深慮"},
-        {"type": "cumulative_damage_percent", "operator": ">=", "value": 20}
+        {
+          "type": "self_lacks_mark",
+          "mark_name": "深慮"
+        },
+        {
+          "type": "cumulative_damage_percent",
+          "operator": ">=",
+          "value": 20
+        }
       ]
     },
     "effect_blocks": [
@@ -71670,8 +71677,15 @@
       "type": "condition_list",
       "mode": "all",
       "conditions": [
-        {"type": "self_lacks_mark", "mark_name": "深慮"},
-        {"type": "cumulative_damage_percent", "operator": ">=", "value": 20}
+        {
+          "type": "self_lacks_mark",
+          "mark_name": "深慮"
+        },
+        {
+          "type": "cumulative_damage_percent",
+          "operator": ">=",
+          "value": 20
+        }
       ]
     },
     "effect_blocks": [
@@ -71785,6 +71799,626 @@
     "parse_status": "manual",
     "parse_notes": [
       "PS: on_cumulative_damage 20% + self_lacks_mark(深慮). shield(shield%maxhp,1hit) + HP<20%: cheat_death1.25%+深慮 + Lv5: add_ep(ex)"
+    ]
+  },
+  "110070": {
+    "skill_id": 110070,
+    "name": "真夏のトラブル発生！",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "解放感",
+              "is_buff_mark": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "ep_gain_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 100.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "and", "conditions": [{"type": "active_level_min", "value": 11}, {"type": "active_level_max", "value": 11}]},
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 1,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {"type": "and", "conditions": [{"type": "active_level_min", "value": 12}, {"type": "active_level_max", "value": 12}]},
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 2,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "condition": {"type": "and", "conditions": [{"type": "active_level_min", "value": 13}, {"type": "active_level_max", "value": 13}]},
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 3,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 5,
+        "condition": {"type": "and", "conditions": [{"type": "active_level_min", "value": 14}, {"type": "active_level_max", "value": 14}]},
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 4,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 6,
+        "condition": {"type": "and", "conditions": [{"type": "active_level_min", "value": 15}, {"type": "active_level_max", "value": 15}]},
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 5,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: mark(解放感) + atk_up(stackable,linked) + dmg_dealt_up(stackable,linked) + ep_gain_down(linked). Lv11-15: cheat_death multi-hit (stack_count=level-10, linked to mark)"
+    ]
+  },
+  "120156": {
+    "skill_id": 120156,
+    "name": "海辺の取り締まり！",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {"type": "self_lacks_mark", "mark_name": "解放感"},
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "self_has_mark", "mark_name": "解放感"},
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {"type": "self_hp_above", "value": 30},
+        "effects": [
+          {
+            "effect_type": "consume_hp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 15.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hp_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": 150.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "damage_base": "consume_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: Block1(lacks 解放感): damage(威力) EN. Block2(has 解放感): damage(威力2) EN. Block3(HP>=30%): consume_hp 15% + damage 150% consume_hp base EN"
+    ]
+  },
+  "120157": {
+    "skill_id": 120157,
+    "name": "うっかり大惨事",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 3
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "self_has_mark", "mark_name": "解放感"},
+        "effects": [
+          {
+            "effect_type": "stun",
+            "target_type": "attacked_targets",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 3,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: damage(威力) EN to 3 enemies. Block2(has 解放感): stun 1 action to all attacked targets"
+    ]
+  },
+  "130154": {
+    "skill_id": 130154,
+    "name": "リフレッシュ完了！",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_critical",
+    "global_condition": {"type": "crit_count_mod", "value": 2},
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {"type": "self_lacks_mark", "mark_name": "解放感"},
+        "effects": [
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "self_has_mark", "mark_name": "解放感"},
+        "effects": [
+          {
+            "effect_type": "crit_rate_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crt",
+            "value_source": null,
+            "duration": null,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {"type": "and", "conditions": [{"type": "self_has_mark", "mark_name": "解放感"}, {"type": "active_level_min", "value": 11}]},
+        "effects": [
+          {
+            "effect_type": "crit_dmg_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crtdmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: on_critical every 2 crits. Block1(lacks 解放感): add_ep 1. Block2(has 解放感): crit_rate_up(crt,stackable). Block3(has 解放感 + Lv11+): crit_dmg_up(crtdmg,stackable)"
+    ]
+  },
+  "130155": {
+    "skill_id": 130155,
+    "name": "たまには羽を伸ばして",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "consume_hp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 30.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hp_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "hp_ratio_dynamic": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {"type": "active_level_min", "value": 11},
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg2",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "target_hp_ratio_higher_than_self": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: on_turn_start once per battle (cooldown=99). Block1: consume_hp 30% + dmg_taken_down(dmg,stackable,hp_ratio_dynamic) permanent. Block2(Lv11+): dmg_dealt_up(dmg2,stackable,target_hp_ratio_higher_than_self) permanent"
     ]
   }
 }

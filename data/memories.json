@@ -3715,5 +3715,54 @@
         "skill_master_id": 400212
       }
     ]
+  },
+  "10027": {
+    "memory_id": 10027,
+    "name": "誰かのためのダイエット",
+    "description": "焼きイカも、味が濃くて美味しいです……！ この歯ごたえ、たまらな……ああ、もうなくなっちゃいました……！？",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 4,
+        "skill_master_id": 400213
+      }
+    ]
+  },
+  "20077": {
+    "memory_id": 20077,
+    "name": "優しさを目に映しながら",
+    "description": "……ということでカリナ、あとはお願いします。 もうサボっちゃダメですからね？",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 142,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400214
+      },
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400215
+      }
+    ]
   }
 }

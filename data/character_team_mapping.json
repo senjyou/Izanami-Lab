@@ -271,6 +271,12 @@
       "name_ruby": "えれーなぱすてるこわ",
       "team_id": 601,
       "team_name": "クラスナ"
+    },
+    "142": {
+      "name": "大賀真桜",
+      "name_ruby": "たいがまお",
+      "team_id": 701,
+      "team_name": "風紀委員会"
     }
   },
   "character_variants": {
@@ -581,6 +587,12 @@
     "145": [
       {
         "character_id": 145301,
+        "rarity": "N/A"
+      }
+    ],
+    "142": [
+      {
+        "character_id": 142302,
         "rarity": "N/A"
       }
     ]

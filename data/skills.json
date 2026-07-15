@@ -75140,5 +75140,486 @@
       "display_target_range": null,
       "display_target_type": 1
     }
+  },
+  "400213": {
+    "skill_id": 400213,
+    "name": "攻撃1行動上昇【右列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列前衛の味方の攻撃力を1行動の間750上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400214": {
+    "skill_id": 400214,
+    "name": "攻撃上昇【真桜】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。大賀真桜の攻撃力を1000上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400215": {
+    "skill_id": 400215,
+    "name": "ENダメージ上昇【アグレッシブ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。アグレッシブ属性の味方全員に対し、EN攻撃で与えるダメージを2.1%上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "110070": {
+    "skill_id": 110070,
+    "name": "真夏のトラブル発生！",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる"
+      },
+      {
+        "min_level": 11,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間1ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 12,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間2ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 13,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間3ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 14,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間4ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 15,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間5ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.539999961853027
+          },
+          {
+            "level": 4,
+            "value": 11.609999656677246
+          },
+          {
+            "level": 6,
+            "value": 12.149999618530273
+          },
+          {
+            "level": 7,
+            "value": 13.220000267028809
+          },
+          {
+            "level": 9,
+            "value": 13.760000228881836
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 7.760000228881836
+          },
+          {
+            "level": 4,
+            "value": 8.270000457763672
+          },
+          {
+            "level": 6,
+            "value": 8.520000457763672
+          },
+          {
+            "level": 7,
+            "value": 9.029999732971191
+          },
+          {
+            "level": 9,
+            "value": 9.279999732971191
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    }
+  },
+  "120156": {
+    "skill_id": 120156,
+    "name": "海辺の取り締まり！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}でEN攻撃する。\n攻撃時点で自身のHPが30%以上だった場合、自身の現在HPの15%を消費し、消費分HP×150%のENダメージを与える攻撃を追加で行う。\n自身が「解放感」を所持していた場合、威力は{威力2}に変化する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66999816894531
+          },
+          {
+            "level": 9,
+            "value": 71.77999877929688
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          },
+          {
+            "level": 15,
+            "value": 106.0
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 55.0
+          },
+          {
+            "level": 3,
+            "value": 58.41999816894531
+          },
+          {
+            "level": 4,
+            "value": 65.2699966430664
+          },
+          {
+            "level": 6,
+            "value": 68.69000244140625
+          },
+          {
+            "level": 7,
+            "value": 75.52999877929688
+          },
+          {
+            "level": 9,
+            "value": 78.95999908447266
+          },
+          {
+            "level": 10,
+            "value": 85.80000305175781
+          },
+          {
+            "level": 15,
+            "value": 116.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "120157": {
+    "skill_id": 120157,
+    "name": "うっかり大惨事",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵3体に威力{威力}でEN攻撃する。自身が「解放感」を所持していた場合、さらに1行動の気絶を付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          },
+          {
+            "level": 15,
+            "value": 127.19999694824219
+          }
+        ]
+      }
+    }
+  },
+  "130154": {
+    "skill_id": 130154,
+    "name": "リフレッシュ完了！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の攻撃が2回会心攻撃になるたびに発動。\n自身が「解放感」を所持していない場合、自身のEXゲージを1加算する。\n自身が「解放感」を所持している場合、自身の会心率を{crt}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "自身の攻撃が2回会心攻撃になるたびに発動。\n自身が「解放感」を所持していない場合、自身のEXゲージを1加算する。\n自身が「解放感」を所持している場合、自身の会心率を{crt}%（重複可）、会心ダメージを{crtdmg}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.0
+          },
+          {
+            "level": 3,
+            "value": 1.159999966621399
+          },
+          {
+            "level": 4,
+            "value": 1.4800000190734863
+          },
+          {
+            "level": 6,
+            "value": 1.6399999856948853
+          },
+          {
+            "level": 7,
+            "value": 1.9600000381469727
+          },
+          {
+            "level": 9,
+            "value": 2.119999885559082
+          },
+          {
+            "level": 10,
+            "value": 2.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 8.75
+          }
+        ]
+      }
+    }
+  },
+  "130155": {
+    "skill_id": 130155,
+    "name": "たまには羽を伸ばして",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。現在HPの30%を消費し、自身に対し被ダメージを最高{dmg}%減少させる効果を付与する（重複可）。この効果は付与時の自身のHPが少ないほど高い効果を発揮し、HP40%地点で最高値となる。\nこのスキルは戦闘中に1度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。現在HPの30%を消費し、自身に対し、被ダメージを最高{dmg}%減少させる効果を付与する（重複可）。この効果は付与時の自身のHPが少ないほど高い効果を発揮し、HP40%地点で最高値となる。\nさらに自身に対し、自身よりHP割合の高い敵に対する攻撃の与ダメージが{dmg2}%増加するバフを付与する（重複可）。\nこのスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 32.220001220703125
+          },
+          {
+            "level": 4,
+            "value": 36.650001525878906
+          },
+          {
+            "level": 6,
+            "value": 38.86000061035156
+          },
+          {
+            "level": 7,
+            "value": 43.29999923706055
+          },
+          {
+            "level": 9,
+            "value": 45.52000045776367
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 10.0
+          }
+        ]
+      }
+    }
   }
 }

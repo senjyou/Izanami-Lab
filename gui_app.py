@@ -250,13 +250,13 @@ SCHOOL_LABELS = [
 
 GEAR_EFFECT_DISPLAY = {
     0: "无效果",
-    7: "有利属性伤害(%)",
-    1: "HP增加(%)",
-    2: "攻击力增加(%)",
-    3: "防御力增加(%)",
-    4: "速度增加(%)",
-    5: "暴击率增加(%)",
-    6: "暴击伤害增加(%)",
+    7: "有利属性伤害",
+    1: "HP增加",
+    2: "攻击力增加",
+    3: "防御力增加",
+    4: "速度增加",
+    5: "暴击率增加",
+    6: "暴击伤害增加",
 }
 GEAR_EFFECT_VALUES = [0, 7, 1, 2, 3, 4, 5, 6]
 GEAR_EFFECT_OPTIONS_DISPLAY = [GEAR_EFFECT_DISPLAY[v] for v in GEAR_EFFECT_VALUES]
@@ -803,14 +803,34 @@ class GlobalParamsTab(ttk.Frame):
         self.skill_lv_spinbox = ttk.Spinbox(lf, from_=1, to=15, textvariable=self.var_skill_lv, width=5)
         self.skill_lv_spinbox.grid(row=0, column=6, padx=5)
 
-        ttk.Label(lf, text="模块Tier:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.var_mod_tier = tk.IntVar(value=9)
-        cb_tier = ttk.Combobox(lf, textvariable=self.var_mod_tier, values=list(range(1, 10)), state="readonly", width=5)
-        cb_tier.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(lf, text="模块Tier/等级:").grid(row=1, column=0, padx=5, pady=(5, 0), sticky="e")
+        mod_tl_frame = ttk.Frame(lf)
+        mod_tl_frame.grid(row=1, column=1, columnspan=4, padx=5, pady=(5, 0), sticky="w")
 
-        ttk.Label(lf, text="模块等级:").grid(row=1, column=3, padx=5, pady=5, sticky="e")
-        self.var_mod_level = tk.IntVar(value=50)
-        ttk.Spinbox(lf, from_=1, to=50, textvariable=self.var_mod_level, width=5).grid(row=1, column=4, padx=5)
+        # 表头
+        ttk.Label(mod_tl_frame, text="").grid(row=0, column=0)
+        ttk.Label(mod_tl_frame, text="Tier", width=5).grid(row=0, column=1, padx=2)
+        ttk.Label(mod_tl_frame, text="等级", width=5).grid(row=0, column=2, padx=2)
+
+        # HP / 攻击 / 防御 三行
+        self.var_mod_tier_hp = tk.IntVar(value=9)
+        self.var_mod_level_hp = tk.IntVar(value=50)
+        self.var_mod_tier_atk = tk.IntVar(value=9)
+        self.var_mod_level_atk = tk.IntVar(value=50)
+        self.var_mod_tier_def = tk.IntVar(value=9)
+        self.var_mod_level_def = tk.IntVar(value=50)
+
+        mod_stat_rows = [
+            ("HP",   self.var_mod_tier_hp,   self.var_mod_level_hp),
+            ("攻击", self.var_mod_tier_atk,  self.var_mod_level_atk),
+            ("防御", self.var_mod_tier_def,  self.var_mod_level_def),
+        ]
+        for idx, (stat_label, tier_var, lv_var) in enumerate(mod_stat_rows, start=1):
+            ttk.Label(mod_tl_frame, text=stat_label, width=5).grid(row=idx, column=0, padx=2, pady=1, sticky="e")
+            ttk.Combobox(mod_tl_frame, textvariable=tier_var, values=list(range(1, 10)),
+                         state="readonly", width=5).grid(row=idx, column=1, padx=2, pady=1, sticky="w")
+            ttk.Spinbox(mod_tl_frame, from_=1, to=50, textvariable=lv_var,
+                        width=5).grid(row=idx, column=2, padx=2, pady=1, sticky="w")
 
         self._build_gear_defaults(lf)
 
@@ -871,7 +891,7 @@ class GlobalParamsTab(ttk.Frame):
 
                 et_var = tk.StringVar(value="无效果")
                 cb = ttk.Combobox(slot_frame, textvariable=et_var, values=GEAR_EFFECT_OPTIONS_DISPLAY,
-                                  state="readonly", width=16)
+                                  state="readonly", width=12)
                 cb.pack()
 
                 slot_grp = grp_idx
@@ -942,8 +962,15 @@ class GlobalParamsTab(ttk.Frame):
             self.skill_lv_spinbox.config(to=skill_max)
             raw_skill_lv = values.get("default_skill_level", 15)
             self.var_skill_lv.set(min(raw_skill_lv, skill_max))
-            self.var_mod_tier.set(values.get("default_mod_tier", 9))
-            self.var_mod_level.set(values.get("default_mod_level", 50))
+            # 模块Tier/等级 (向后兼容: 旧单值 → 三模块统一)
+            old_tier = values.get("default_mod_tier", 9)
+            old_level = values.get("default_mod_level", 50)
+            self.var_mod_tier_hp.set(values.get("default_mod_tier_hp", old_tier))
+            self.var_mod_level_hp.set(values.get("default_mod_level_hp", old_level))
+            self.var_mod_tier_atk.set(values.get("default_mod_tier_atk", old_tier))
+            self.var_mod_level_atk.set(values.get("default_mod_level_atk", old_level))
+            self.var_mod_tier_def.set(values.get("default_mod_tier_def", old_tier))
+            self.var_mod_level_def.set(values.get("default_mod_level_def", old_level))
             saved_gear = values.get("default_gear", [])
             saved_gear_map = {}
             for g in saved_gear:
@@ -971,8 +998,12 @@ class GlobalParamsTab(ttk.Frame):
         self.var_affection.set(40)
         self.skill_lv_spinbox.config(to=15)
         self.var_skill_lv.set(15)
-        self.var_mod_tier.set(9)
-        self.var_mod_level.set(50)
+        self.var_mod_tier_hp.set(9)
+        self.var_mod_level_hp.set(50)
+        self.var_mod_tier_atk.set(9)
+        self.var_mod_level_atk.set(50)
+        self.var_mod_tier_def.set(9)
+        self.var_mod_level_def.set(50)
         for gv in self.gear_vars:
             gv["et"].set("无效果")
             gv["val"].set(0.0)
@@ -1006,8 +1037,12 @@ class GlobalParamsTab(ttk.Frame):
             "default_rarity": self.var_rarity.get(),
             "default_affection": self.var_affection.get(),
             "default_skill_level": self.var_skill_lv.get(),
-            "default_mod_tier": self.var_mod_tier.get(),
-            "default_mod_level": self.var_mod_level.get(),
+            "default_mod_tier_hp": self.var_mod_tier_hp.get(),
+            "default_mod_level_hp": self.var_mod_level_hp.get(),
+            "default_mod_tier_atk": self.var_mod_tier_atk.get(),
+            "default_mod_level_atk": self.var_mod_level_atk.get(),
+            "default_mod_tier_def": self.var_mod_tier_def.get(),
+            "default_mod_level_def": self.var_mod_level_def.get(),
             "default_gear": [{"effect_type": GEAR_EFFECT_REVERSE[gv["et"].get()], "value": gv["val"].get(),
                               "group": gv["group"], "slot": gv["slot"]}
                              for gv in self.gear_vars if gv["et"].get() != "无效果"],
@@ -1499,19 +1534,49 @@ class CharacterParamsTab(ttk.Frame):
 
         ttk.Label(mod_left, text="模块设置", font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w", pady=(0, 3))
 
-        tier_row = ttk.Frame(mod_left)
-        tier_row.pack(fill="x", pady=2)
-        ttk.Label(tier_row, text="Tier:", width=6).pack(side="left")
-        init_tier = cfg.get("mod_tier", self.app.global_tab.var_mod_tier.get()) if cfg.get("override") else self.app.global_tab.var_mod_tier.get()
-        mod_tier_var = tk.IntVar(value=init_tier)
-        ttk.Combobox(tier_row, textvariable=mod_tier_var, values=list(range(1, 10)), state="readonly", width=5).pack(side="left", padx=3)
+        # 表头 + 3 行 HP/攻击/防御 Tier/等级
+        mod_tl_grid = ttk.Frame(mod_left)
+        mod_tl_grid.pack(fill="x", pady=2)
+        ttk.Label(mod_tl_grid, text="", width=4).grid(row=0, column=0)
+        ttk.Label(mod_tl_grid, text="Tier", width=5).grid(row=0, column=1, padx=2)
+        ttk.Label(mod_tl_grid, text="等级", width=5).grid(row=0, column=2, padx=2)
 
-        lv_row = ttk.Frame(mod_left)
-        lv_row.pack(fill="x", pady=2)
-        ttk.Label(lv_row, text="等级:", width=6).pack(side="left")
-        init_lv = cfg.get("mod_level", self.app.global_tab.var_mod_level.get()) if cfg.get("override") else self.app.global_tab.var_mod_level.get()
-        mod_lv_var = tk.IntVar(value=init_lv)
-        ttk.Spinbox(lv_row, from_=1, to=50, textvariable=mod_lv_var, width=5).pack(side="left", padx=3)
+        gv = self.app.global_tab.get_values()
+        if cfg.get("override"):
+            old_tier = cfg.get("mod_tier", 9)
+            old_level = cfg.get("mod_level", 50)
+            init_tier_hp = cfg.get("mod_tier_hp", old_tier)
+            init_lv_hp = cfg.get("mod_level_hp", old_level)
+            init_tier_atk = cfg.get("mod_tier_atk", old_tier)
+            init_lv_atk = cfg.get("mod_level_atk", old_level)
+            init_tier_def = cfg.get("mod_tier_def", old_tier)
+            init_lv_def = cfg.get("mod_level_def", old_level)
+        else:
+            init_tier_hp = gv["default_mod_tier_hp"]
+            init_lv_hp = gv["default_mod_level_hp"]
+            init_tier_atk = gv["default_mod_tier_atk"]
+            init_lv_atk = gv["default_mod_level_atk"]
+            init_tier_def = gv["default_mod_tier_def"]
+            init_lv_def = gv["default_mod_level_def"]
+
+        mod_tier_hp_var = tk.IntVar(value=init_tier_hp)
+        mod_lv_hp_var = tk.IntVar(value=init_lv_hp)
+        mod_tier_atk_var = tk.IntVar(value=init_tier_atk)
+        mod_lv_atk_var = tk.IntVar(value=init_lv_atk)
+        mod_tier_def_var = tk.IntVar(value=init_tier_def)
+        mod_lv_def_var = tk.IntVar(value=init_lv_def)
+
+        mod_stat_rows = [
+            ("HP",   mod_tier_hp_var,  mod_lv_hp_var),
+            ("攻击", mod_tier_atk_var, mod_lv_atk_var),
+            ("防御", mod_tier_def_var, mod_lv_def_var),
+        ]
+        for idx, (stat_label, tier_var, lv_var) in enumerate(mod_stat_rows, start=1):
+            ttk.Label(mod_tl_grid, text=stat_label, width=4).grid(row=idx, column=0, padx=2, pady=1, sticky="e")
+            ttk.Combobox(mod_tl_grid, textvariable=tier_var, values=list(range(1, 10)),
+                         state="readonly", width=5).grid(row=idx, column=1, padx=2, pady=1, sticky="w")
+            ttk.Spinbox(mod_tl_grid, from_=1, to=50, textvariable=lv_var,
+                        width=5).grid(row=idx, column=2, padx=2, pady=1, sticky="w")
 
         # 右3/4：9个模块词条（与"模块设置"同行高度）
         mod_right = ttk.Frame(title_row)
@@ -1522,7 +1587,9 @@ class CharacterParamsTab(ttk.Frame):
         v = {
             "level": level_var,
             "rarity": rarity_var, "affection": aff_var,
-            "mod_tier": mod_tier_var, "mod_level": mod_lv_var,
+            "mod_tier_hp": mod_tier_hp_var, "mod_lv_hp": mod_lv_hp_var,
+            "mod_tier_atk": mod_tier_atk_var, "mod_lv_atk": mod_lv_atk_var,
+            "mod_tier_def": mod_tier_def_var, "mod_lv_def": mod_lv_def_var,
         }
         self.char_override_vars[cid] = v
 
@@ -1593,7 +1660,7 @@ class CharacterParamsTab(ttk.Frame):
             if val == int(val):
                 val_str = str(int(val))
             else:
-                val_str = f"{val:.1f}"
+                val_str = f"{val:.2f}".rstrip('0').rstrip('.')
             result = result.replace(f"{{{tag_name}}}", val_str)
         return result
 
@@ -1828,7 +1895,7 @@ class CharacterParamsTab(ttk.Frame):
 
                 et_var = tk.StringVar(value=init_et)
                 cb = ttk.Combobox(slot_frame, textvariable=et_var, values=GEAR_EFFECT_OPTIONS_DISPLAY,
-                                  state="readonly", width=14)
+                                  state="readonly", width=10)
                 cb.pack()
 
                 g_idx = grp_idx
@@ -1873,7 +1940,7 @@ class CharacterParamsTab(ttk.Frame):
 
                 et_var = tk.StringVar(value=init_et)
                 cb = ttk.Combobox(slot_frame, textvariable=et_var, values=GEAR_EFFECT_OPTIONS_DISPLAY,
-                                  state="readonly", width=16)
+                                  state="readonly", width=10)
                 cb.pack()
 
                 g_idx = grp_idx
@@ -1927,8 +1994,12 @@ class CharacterParamsTab(ttk.Frame):
         # 向后兼容：同时保存统一skill_level（取所有技能中的最大值）
         if skill_levels:
             config["skill_level"] = max(skill_levels.values())
-        config["mod_tier"] = v["mod_tier"].get()
-        config["mod_level"] = v["mod_level"].get()
+        config["mod_tier_hp"] = v["mod_tier_hp"].get()
+        config["mod_level_hp"] = v["mod_lv_hp"].get()
+        config["mod_tier_atk"] = v["mod_tier_atk"].get()
+        config["mod_level_atk"] = v["mod_lv_atk"].get()
+        config["mod_tier_def"] = v["mod_tier_def"].get()
+        config["mod_level_def"] = v["mod_lv_def"].get()
         config["gear"] = self._get_detail_gears()
         self._refresh_preview(cid)
         self.app._save_char_config()
@@ -2001,18 +2072,41 @@ class CharacterParamsTab(ttk.Frame):
 
             tid = get_module_type_ids(char.character_type)
             if cfg.get("override"):
+                # 向后兼容: 旧单值 mod_tier/mod_level 作为三模块统一回退
+                old_tier = cfg.get("mod_tier", 9)
+                old_level = cfg.get("mod_level", 50)
+                per_stat_tiers = [
+                    cfg.get("mod_tier_hp", old_tier),
+                    cfg.get("mod_tier_atk", old_tier),
+                    cfg.get("mod_tier_def", old_tier),
+                ]
+                per_stat_levels = [
+                    cfg.get("mod_level_hp", old_level),
+                    cfg.get("mod_level_atk", old_level),
+                    cfg.get("mod_level_def", old_level),
+                ]
                 gear_list = cfg.get("gear", [])
                 panel.modules[cid] = [ModuleConfig(
                     module_id=mid,
-                    tier=cfg.get("mod_tier", 9),
-                    level=cfg.get("mod_level", 50),
+                    tier=per_stat_tiers[grp_idx],
+                    level=per_stat_levels[grp_idx],
                     gear_effects=[g for g in gear_list if g.get("group", 0) == grp_idx],
                 ) for grp_idx, mid in enumerate(tid)]
             else:
+                per_stat_tiers = [
+                    gv["default_mod_tier_hp"],
+                    gv["default_mod_tier_atk"],
+                    gv["default_mod_tier_def"],
+                ]
+                per_stat_levels = [
+                    gv["default_mod_level_hp"],
+                    gv["default_mod_level_atk"],
+                    gv["default_mod_level_def"],
+                ]
                 panel.modules[cid] = [ModuleConfig(
                     module_id=mid,
-                    tier=gv["default_mod_tier"],
-                    level=gv["default_mod_level"],
+                    tier=per_stat_tiers[grp_idx],
+                    level=per_stat_levels[grp_idx],
                     gear_effects=[g for g in gv["default_gear"] if g.get("group", 0) == grp_idx],
                 ) for grp_idx, mid in enumerate(tid)]
 
@@ -2175,8 +2269,13 @@ class CharacterParamsTab(ttk.Frame):
             "affection": cfg.get("affection", 40),
             "skill_level": cfg.get("skill_level", 15),
             "skill_levels": cfg.get("skill_levels", {}),
-            "mod_tier": cfg.get("mod_tier", 9),
-            "mod_level": cfg.get("mod_level", 50),
+            # 向后兼容: 旧单值 mod_tier/mod_level 作为三模块统一回退
+            "mod_tier_hp": cfg.get("mod_tier_hp", cfg.get("mod_tier", 9)),
+            "mod_tier_atk": cfg.get("mod_tier_atk", cfg.get("mod_tier", 9)),
+            "mod_tier_def": cfg.get("mod_tier_def", cfg.get("mod_tier", 9)),
+            "mod_level_hp": cfg.get("mod_level_hp", cfg.get("mod_level", 50)),
+            "mod_level_atk": cfg.get("mod_level_atk", cfg.get("mod_level", 50)),
+            "mod_level_def": cfg.get("mod_level_def", cfg.get("mod_level", 50)),
             "gear": cfg.get("gear", []),
         }
 
@@ -8214,7 +8313,7 @@ class EnemyDetailDialog(tk.Toplevel):
             if val == int(val):
                 val_str = str(int(val))
             else:
-                val_str = f"{val:.1f}"
+                val_str = f"{val:.2f}".rstrip('0').rstrip('.')
             result = result.replace(f"{{{tag_name}}}", val_str)
         return result
 
@@ -11822,8 +11921,17 @@ class MGGBattleSimulatorGUI:
         default_rarity = global_vals["default_rarity"]
         default_affection = global_vals["default_affection"]
         default_skill_lv = global_vals["default_skill_level"]
-        default_mod_tier = global_vals["default_mod_tier"]
-        default_mod_level = global_vals["default_mod_level"]
+        # per-stat 模块 Tier/等级 (HP=0 / 攻击=1 / 防御=2)
+        default_mod_tiers = [
+            global_vals["default_mod_tier_hp"],
+            global_vals["default_mod_tier_atk"],
+            global_vals["default_mod_tier_def"],
+        ]
+        default_mod_levels = [
+            global_vals["default_mod_level_hp"],
+            global_vals["default_mod_level_atk"],
+            global_vals["default_mod_level_def"],
+        ]
         default_gear = global_vals["default_gear"]
 
         for cid in self.char_ids:
@@ -11839,8 +11947,10 @@ class MGGBattleSimulatorGUI:
                 panel.affection_levels[cid] = cc["affection"]
                 panel.character_levels[cid] = cc["level"]
                 tid = get_module_type_ids(char.character_type)
+                per_stat_tiers = [cc["mod_tier_hp"], cc["mod_tier_atk"], cc["mod_tier_def"]]
+                per_stat_levels = [cc["mod_level_hp"], cc["mod_level_atk"], cc["mod_level_def"]]
                 panel.modules[cid] = [
-                    ModuleConfig(module_id=mid, tier=cc["mod_tier"], level=cc["mod_level"],
+                    ModuleConfig(module_id=mid, tier=per_stat_tiers[grp_idx], level=per_stat_levels[grp_idx],
                                  gear_effects=[g for g in cc["gear"] if g.get("group", 0) == grp_idx])
                     for grp_idx, mid in enumerate(tid)
                 ]
@@ -11858,8 +11968,8 @@ class MGGBattleSimulatorGUI:
                 panel.affection_levels[cid] = default_affection
                 tid = get_module_type_ids(char.character_type)
                 panel.modules[cid] = [
-                    ModuleConfig(module_id=mid, tier=default_mod_tier,
-                                 level=default_mod_level,
+                    ModuleConfig(module_id=mid, tier=default_mod_tiers[grp_idx],
+                                 level=default_mod_levels[grp_idx],
                                  gear_effects=[g for g in default_gear if g.get("group", 0) == grp_idx])
                     for grp_idx, mid in enumerate(tid)
                 ]
