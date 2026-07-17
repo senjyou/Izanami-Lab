@@ -220,6 +220,7 @@ class SkillEffectType(Enum):
     ACTION_DAMAGE = "ActionDamage"                    # 行動時ダメージ (行动时受到攻击力x%伤害)
     GENWAKU = "Genwaku"                               # 幻惑 (攻击者持有時、ダメージを回復へ変換)
     HEAL_LINK = "HealLink"                            # 回復リンク (対象が受けた回復効果を指定単位に転送)
+    DARKNESS = "Darkness"                             # 暗闇 (攻撃者持有時、指定確率でスキルが命中しない)
 
     # 属性/战斗修正
     CRITICAL_BONUS_MODIFICATION = "CriticalBonusModification" # 14: 暴击伤害倍率修正
@@ -278,6 +279,7 @@ class SkillEffectType(Enum):
             SkillEffectType.BLOCK_AURAS, # 通常作为禁疗/禁Buff
             SkillEffectType.BLOCK_SPECIFIC_AURA,
             SkillEffectType.BLOCK_EVADE,
+            SkillEffectType.DARKNESS,
         }
 
     @property

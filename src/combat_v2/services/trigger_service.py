@@ -90,6 +90,13 @@ class TriggerService:
         self.data_loader = None
         self.skill_service = None
         self.damage_service = None
+        # 同時発動制限新机制：5类战斗流程时机各自维护全局标志位
+        # 当某时机内触发1个simultaneous_limit PS后设置True，该时机内其他simultaneous_limit PS不可触发
+        # 由battle_flow_controller在时机开始时重置为False，PS成功执行后设置为True
+        self._simultaneous_limit_triggered_in_phase: bool = False
+        # 技能对级别互斥（exclusive_group）：同一group内的PS在该时机内只可触发1个
+        # 与simultaneous_limit独立，不影响其他simultaneous_limit PS
+        self._exclusive_group_triggered: Set[str] = set()
 
     def set_data_loader(self, loader: Any):
         self.data_loader = loader
@@ -246,13 +253,17 @@ class TriggerService:
     def trigger_after_self_attacked(self, targets: List[UnitState],
                                       battlefield: BattlefieldState,
                                       actor: Optional[UnitState] = None,
-                                      primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
-        """自身被攻击后触发：owner必须是被攻击的主目标"""
+                                      primary_target: Optional[UnitState] = None,
+                                      triggered_by: Optional[UnitState] = None) -> List[TriggerAction]:
+        """自身被攻击后触发：owner必须是被攻击的主目标
+        triggered_by: 攻击发起者（用于 counter_damage 的 trigger_attacker 定位）
+        """
         ctx = TriggerContext(
             TriggerTiming.AFTER_SELF_ATTACKED, battlefield,
             targets=targets,
             actor=actor,
             primary_target=primary_target,
+            triggered_by=triggered_by,
         )
         return self.check_triggers(TriggerTiming.AFTER_SELF_ATTACKED, ctx)
 
@@ -1750,6 +1761,29 @@ class TriggerService:
                 _log.info("[PREEMPTIVE] %d preemptive PS matched (executed before %d non-preemptive)",
                           len(preemptive), len(non_preemptive))
                 candidates = preemptive + non_preemptive
+
+        # 同時発動制限新机制：5类战斗流程时机各自维护全局标志位
+        # 若该时机内已有simultaneous_limit PS成功执行（_simultaneous_limit_triggered_in_phase=True），
+        # 则后续所有simultaneous_limit PS都不可触发
+        # 同时检查exclusive_group（技能对级别互斥）
+        if self._simultaneous_limit_triggered_in_phase or self._exclusive_group_triggered:
+            filtered_candidates = []
+            for cand in candidates:
+                parsed = self.data_loader.get_parsed_skill_data(cand.skill_id) if self.data_loader else None
+                is_simul = parsed and parsed.get('simultaneous_limit')
+                excl_group = parsed.get('exclusive_group') if parsed else None
+                if is_simul and self._simultaneous_limit_triggered_in_phase:
+                    _skill_meta = self.data_loader.get_skill_by_id(cand.skill_id) if self.data_loader else None
+                    _log.info("[SIMULTANEOUS_LIMIT_PHASE] %s PS[%s](id=%d) blocked: phase flag already set",
+                              cand.owner.name, _skill_meta.name if _skill_meta else "?", cand.skill_id)
+                    continue
+                if excl_group and excl_group in self._exclusive_group_triggered:
+                    _skill_meta = self.data_loader.get_skill_by_id(cand.skill_id) if self.data_loader else None
+                    _log.info("[EXCLUSIVE_GROUP] %s PS[%s](id=%d) blocked: group '%s' already triggered",
+                              cand.owner.name, _skill_meta.name if _skill_meta else "?", cand.skill_id, excl_group)
+                    continue
+                filtered_candidates.append(cand)
+            candidates = filtered_candidates
 
         # 同時発動制限：当多个simultaneous_limit=true的PS匹配时，只保留速度最快的1个
         simultaneous_candidates = []

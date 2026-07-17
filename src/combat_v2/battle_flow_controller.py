@@ -147,6 +147,7 @@ class BattleFlowController:
         self._log_initial_state()
 
         self.battlefield.current_trigger_phase = TriggerTiming.BATTLE_START
+        self._reset_simultaneous_limit_phase_flags()
         battle_start_actions = self.trigger_service.trigger_battle_start(self.battlefield)
         if self.narrative and battle_start_actions:
             self.narrative.wave_start("战斗开始触发")
@@ -255,6 +256,9 @@ class BattleFlowController:
         self._apply_memory_card_effects_by_trigger("turn_start")
         self._apply_memory_card_effects_by_trigger("periodic_start")
 
+        # 同時発動制限新机制：回合开始时重置全局标志位
+        self._reset_simultaneous_limit_phase_flags()
+
         preemptive_actions = self.trigger_service.trigger_turn_start_preemptive(self.battlefield)
         if self.narrative and preemptive_actions:
             for action in preemptive_actions:
@@ -333,6 +337,9 @@ class BattleFlowController:
         self._apply_memory_card_effects_by_trigger("turn_end")
         self._apply_memory_card_effects_by_trigger("periodic_end")
 
+        # 同時発動制限新机制：回合结束时重置全局标志位
+        self._reset_simultaneous_limit_phase_flags()
+
         turn_end_actions = self.trigger_service.trigger_turn_end(self.battlefield)
         if self.narrative and turn_end_actions:
             for action in turn_end_actions:
@@ -370,6 +377,9 @@ class BattleFlowController:
 
     def _execute_unit_action(self, unit: UnitState, turn: int) -> None:
         self.battlefield.round_number += 1
+
+        # 同時発動制限新机制：单位行动开始时重置全局标志位（AS执行前阶段开始）
+        self._reset_simultaneous_limit_phase_flags()
 
         # 更新所有存活单位的prev_hp_percent为当前HP百分比
         # 修复: 行动间治疗（HOT/技能治疗）后prev_hp_percent未更新，
@@ -607,6 +617,10 @@ class BattleFlowController:
         damaged_targets = []
         if skill_result.get("success"):
             damaged_targets = self._log_narrative_effects(unit, skill_result, skill_name, skill_type, selected_skill)
+
+        # 同時発動制限新机制：AS执行后阶段开始，重置全局标志位（timing 4: AS執行後行動終了前）
+        # 与 timing 3 (AS執行前) 独立，before-AS 的 simultaneous_limit 不影响 after-AS 的 PS
+        self._reset_simultaneous_limit_phase_flags()
 
         # 2. 检测新阵亡单位
         newly_dead = []
@@ -1619,6 +1633,29 @@ class BattleFlowController:
                       unit.name, cumulative, len(hit_losses), threshold_value)
         return reset_values
 
+    def _reset_simultaneous_limit_phase_flags(self) -> None:
+        """同時発動制限新机制：重置全局标志位（每个战斗流程时机开始时调用）
+        5类时机：战斗开始/回合开始/AS执行前/AS执行后行动结束前/回合结束
+        """
+        self.trigger_service._simultaneous_limit_triggered_in_phase = False
+        self.trigger_service._exclusive_group_triggered = set()
+
+    def _mark_simultaneous_limit_triggered(self, skill_id: int) -> None:
+        """同時発動制限新机制：PS成功执行后设置标志位
+        - simultaneous_limit PS: 设置全局标志位，该时机内其他simultaneous_limit PS不可触发
+        - exclusive_group PS: 添加group到集合，同group的其他PS不可触发
+        """
+        parsed = self.data_loader.get_parsed_skill_data(skill_id) if self.data_loader else None
+        if not parsed:
+            return
+        if parsed.get('simultaneous_limit'):
+            self.trigger_service._simultaneous_limit_triggered_in_phase = True
+            _log.info("[SIMULTANEOUS_LIMIT_PHASE] PS[%d] set phase flag (simultaneous_limit)", skill_id)
+        excl_group = parsed.get('exclusive_group')
+        if excl_group:
+            self.trigger_service._exclusive_group_triggered.add(excl_group)
+            _log.info("[EXCLUSIVE_GROUP] PS[%d] marked group '%s' as triggered", skill_id, excl_group)
+
     def _execute_trigger_actions(self, actions, source_unit: UnitState) -> None:
         if not actions:
             return
@@ -1705,6 +1742,8 @@ class BattleFlowController:
             self._cleanup_guard_buffs(owner)
 
             if skill_result.get("success"):
+                # 同時発動制限新机制：PS成功执行后设置标志位（影响该时机内后续PS的触发资格）
+                self._mark_simultaneous_limit_triggered(action.skill_id)
                 damaged_targets_reaction = self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
                 self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
 
@@ -1944,6 +1983,8 @@ class BattleFlowController:
         self._cleanup_guard_buffs(owner)
 
         if skill_result.get("success"):
+            # 同時発動制限新机制：PS成功执行后设置标志位（影响该时机内后续PS的触发资格）
+            self._mark_simultaneous_limit_triggered(action.skill_id)
             self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
             self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
 
@@ -2026,6 +2067,8 @@ class BattleFlowController:
                 self.skill_service._damaged_targets = None
 
             if skill_result.get("success"):
+                # 同時発動制限新机制：PS成功执行后设置标志位（影响该时机内后续PS的触发资格）
+                self._mark_simultaneous_limit_triggered(action.skill_id)
                 damaged_targets_reaction = self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
                 self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
 

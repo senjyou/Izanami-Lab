@@ -319,9 +319,48 @@ class DamageService:
                     cannot_crit = True
                     _log.info("[DMG_CALC] %s: critical_forbidden debuff active -> cannot_crit=True", attacker.name)
                     break
-        _log.info("[DMG_CALC] step6_crit_loop: hit_count=%d crit_rate=%.4f cannot_crit=%s bonus_crit=%.1f",
-                  hit_count, crit_rate, cannot_crit, bonus_crit)
-        
+        # force_crit: 强制必定暴击（无视暴击率和暴击禁止debuff）
+        # 参考 リディアたいちょうのめいれい(110039) L11+ 後列横一列会心攻撃
+        _fc = getattr(skill_data, "force_crit", False)
+        force_crit = _fc if isinstance(_fc, bool) else False
+        if force_crit:
+            cannot_crit = False  # force_crit 覆盖 cannot_crit
+            _log.info("[DMG_CALC] %s: force_crit=True, critical forced", attacker.name)
+        _log.info("[DMG_CALC] step6_crit_loop: hit_count=%d crit_rate=%.4f cannot_crit=%s bonus_crit=%.1f force_crit=%s",
+                  hit_count, crit_rate, cannot_crit, bonus_crit, force_crit)
+
+        # 暗闇チェック（per-skill 一次判定）：攻撃者が暗闇debuffを持有する場合、指定確率でMISS
+        # 暗闇はバフ「必中」の効果を無視し、指定確率でスキルの命中を操作
+        # 複数の暗闇debuffは独立共存、各々独立して掷骰、いずれか命中即MISS（実MISS率 = 1 - ∏(1-pᵢ)）
+        darkness_debuffs = [d for d in attacker.debuffs if d.effect_type == SkillEffectType.DARKNESS.value]
+        if darkness_debuffs:
+            import random as _rng
+            darkness_miss = False
+            for d_buff in darkness_debuffs:
+                d_pct = getattr(d_buff, 'value', 0) or 0
+                if _rng.random() * 100 < d_pct:
+                    darkness_miss = True
+                    _log.info("[DARKNESS_MISS] %s: darkness debuff (pct=%.1f%%) triggered MISS on skill %s -> %s",
+                              attacker.name, d_pct, getattr(skill_data, 'skill_id', '?'), defender.name)
+                    break
+            if darkness_miss:
+                # 全hit设置为闪避（MISS），伤害为0
+                for i_hit in range(hit_count):
+                    hits.append(0)
+                    hit_crits.append(False)
+                    hit_evades.append(True)
+                _log.info("[DARKNESS_MISS] %s -> %s: all %d hits MISS due to darkness (no evade buff consumed)",
+                          attacker.name, defender.name, hit_count)
+                return DamageResult(
+                    total_damage=0,
+                    is_critical=False,
+                    attribute_factor=1.0,
+                    hit_details=[0] * hit_count,
+                    hit_crits=[False] * hit_count,
+                    hit_evades=[True] * hit_count,
+                    calc_detail={"darkness_miss": True},
+                )
+
         for i_hit in range(hit_count):
             # Per-hit evade check
             # 蓄力中不能回避
@@ -334,22 +373,43 @@ class DamageService:
                               attacker.name, defender.name, i_hit + 1)
                 else:
                     ev_buff = evade_buffs[0]
-                    ev_buff.hit_limited -= 1
-                    _log.info("[EVADE_HIT] %s evades hit[%d] from %s! hit_limited=%d",
-                              defender.name, i_hit + 1, attacker.name, ev_buff.hit_limited)
-                    if ev_buff.hit_limited <= 0:
-                        defender.buffs = [b for b in defender.buffs if b.buff_id != ev_buff.buff_id]
-                        _log.info("[EVADE_HIT] %s: Evade buff EXPIRED", defender.name)
-                    # This hit is evaded
-                    hits.append(0)
-                    hit_crits.append(False)
-                    hit_evades.append(True)
-                    continue
+                    # 概率回避判定: ev_buff.value > 0 时表示回避概率%（如60.0=60%）
+                    # value为0或null时默认100%回避（向后兼容）
+                    evade_chance = getattr(ev_buff, 'value', 0) or 0
+                    if evade_chance <= 0:
+                        # 默认100%回避（向后兼容）
+                        evade_triggered = True
+                    else:
+                        evade_triggered = random.random() * 100 < evade_chance
+                        _log.info("[EVADE_HIT] %s evade chance=%.1f%%, hit[%d] roll=%s",
+                                  defender.name, evade_chance, i_hit + 1,
+                                  "SUCCESS" if evade_triggered else "FAIL")
+
+                    if evade_triggered:
+                        ev_buff.hit_limited -= 1
+                        _log.info("[EVADE_HIT] %s evades hit[%d] from %s! hit_limited=%d",
+                                  defender.name, i_hit + 1, attacker.name, ev_buff.hit_limited)
+                        if ev_buff.hit_limited <= 0:
+                            defender.buffs = [b for b in defender.buffs if b.buff_id != ev_buff.buff_id]
+                            _log.info("[EVADE_HIT] %s: Evade buff EXPIRED", defender.name)
+                        # This hit is evaded
+                        hits.append(0)
+                        hit_crits.append(False)
+                        hit_evades.append(True)
+                        continue
+                    # 回避失败：hit_limited不消耗，继续伤害计算
 
             # 4. 暴击因子 (每Hit独立)
             if cannot_crit:
                 is_crit = False
                 crit_factor = 1.0
+            elif force_crit:
+                # force_crit: 必定暴击（无视暴击率）
+                is_crit = True
+                crit_factor = 1.5 + self._get_crit_damage_bonus(attacker)
+                is_any_crit = True
+                _log.info("[DMG_CALC] %s: force_crit hit[%d] -> is_crit=True, crit_factor=%.3f",
+                          attacker.name, i_hit + 1, crit_factor)
             else:
                 # 设置暴击上下文（供crit_override使用）
                 self._crit_context = {
@@ -404,6 +464,29 @@ class DamageService:
             hits.append(final_hit_damage)
             hit_crits.append(is_crit)
             hit_evades.append(False)
+
+            # Hit-limited dmg_dealt_down debuff on attacker: 消耗1次后重算dealt_mult
+            # 用于实现"1ヒット分の与ダメージを減少させる"（仅1 hit减伤）的精准减伤机制
+            # 与attack_limited(per-skill)不同，hit_limited是per-hit消耗，多hit技能仅第1hit减伤
+            attacker_hit_limited_dealt_debuffs = [
+                d for d in attacker.debuffs
+                if d.hit_limited > 0 and d.attack_limited <= 0
+                and d.effect_type == SkillEffectType.DEALT_DAMAGE.value
+            ]
+            for d in attacker_hit_limited_dealt_debuffs:
+                d.hit_limited -= 1
+                _log.info("[HIT_LIMITED] %s: attacker debuff %s hit_limited %d->%d (after hit[%d])",
+                          attacker.name, d.effect_type, d.hit_limited + 1, d.hit_limited, i_hit + 1)
+                if d.hit_limited <= 0:
+                    attacker.debuffs = [x for x in attacker.debuffs if x.buff_id != d.buff_id]
+                    _log.info("[HIT_LIMITED] %s: attacker debuff %s EXPIRED (hit_limited reached 0)",
+                              attacker.name, d.effect_type)
+            # 若有消耗，重算dealt_mult供后续hit使用
+            if attacker_hit_limited_dealt_debuffs:
+                damage_dealt_mult = self._get_damage_dealt_multiplier(
+                    attacker, defender, damage_element=skill_damage_element)
+                _log.info("[HIT_LIMITED] %s: recalculated dealt_mult=%.4f for subsequent hits",
+                          attacker.name, damage_dealt_mult)
 
             # 暴击回调：在当前hit伤害计算完毕后调用，使后续hit能享受易伤效果
             # 回调可能修改defender的debuffs（如施加dmg_taken_up），需重算damage_received_mult

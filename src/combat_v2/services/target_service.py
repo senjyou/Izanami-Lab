@@ -314,6 +314,20 @@ class TargetService:
 
         # 即使是ALL_PAWNS也需要先排序（保持优先级顺序）
         ordered = self._order_by_priority(caster, candidates, priority)
+
+        # enemy_side_columns: 敌方左列+右列（共4体，排除中列）
+        # 参考 リディアたいちょうのめいれい(110039) / ジャマしちゃ、めっ……だよ？(120088)
+        # 描述「敵右列・左列」/「敵右列および左列」选择左右两列4体单位
+        # Must be checked BEFORE ALL_PAWNS early return, since enemy_side_columns
+        # resolves to ALL_PAWNS range but needs column filtering.
+        if target_type_name == 'enemy_side_columns':
+            side_units = [u for u in candidates if self._get_column_index(u) in (0, 2)]
+            # 按距离排序输出（保持稳定顺序）
+            side_units.sort(key=lambda u: self._get_sort_key(caster, u))
+            _log.info("[TARGET]   enemy_side_columns: %d units (left+right columns)",
+                      len(side_units))
+            return side_units
+
         if r_type == DisplayTargetRange.ALL_PAWNS:
             return ordered
 
