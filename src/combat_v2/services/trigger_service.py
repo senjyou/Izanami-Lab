@@ -35,6 +35,7 @@ TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "on_unit_count_below": TriggerTiming.UNIT_COUNT_BELOW,
     "on_ally_charge_use": TriggerTiming.ALLY_CHARGE_USE,
     "on_cumulative_damage": TriggerTiming.CUMULATIVE_DAMAGE,
+    "after_ps_received": TriggerTiming.AFTER_PS_RECEIVED,
 }
 
 
@@ -301,10 +302,12 @@ class TriggerService:
         return self.check_triggers(TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx)
 
     def trigger_pawn_died(self, dead_units: List[UnitState],
-                            battlefield: BattlefieldState) -> List[TriggerAction]:
+                            battlefield: BattlefieldState,
+                            killer: Optional[UnitState] = None) -> List[TriggerAction]:
         ctx = TriggerContext(
             TriggerTiming.PAWN_DIED, battlefield,
             targets=dead_units,
+            actor=killer,
         )
         return self.check_triggers(TriggerTiming.PAWN_DIED, ctx)
 
@@ -686,6 +689,30 @@ class TriggerService:
             ctx.applied_debuff_types = applied_debuff_types
         return self.check_triggers(TriggerTiming.PAWN_RECEIVED_AURA, ctx)
 
+    def trigger_after_ps_received(self, ps_caster: UnitState,
+                                  received_targets: List[UnitState],
+                                  battlefield: BattlefieldState) -> List[TriggerAction]:
+        """自身が他の味方からパッシブスキルを受けた後トリガー (130040 エクストラ・パワーアップ！)
+
+        Args:
+            ps_caster: PSを発動した元の味方(「他の味方」)
+            received_targets: PSの非damage効果の対象となった味方のリスト
+        """
+        if not received_targets:
+            return []
+        actions: List[TriggerAction] = []
+        # 各対象unit毎に個別にトリガー(各々のunitが自身にPSを受けたかを判定)
+        for target_unit in received_targets:
+            if not target_unit.is_alive:
+                continue
+            # ctx.actor = ps_caster(発動者)、ctx.targets = [target_unit](受け取った自身)
+            # トリガー候補はtarget_unit自身が持つafter_ps_received型PS
+            ctx = TriggerContext(TriggerTiming.AFTER_PS_RECEIVED, battlefield,
+                                 actor=ps_caster, targets=[target_unit],
+                                 primary_target=target_unit)
+            actions.extend(self.check_triggers(TriggerTiming.AFTER_PS_RECEIVED, ctx))
+        return actions
+
     def check_triggers(self, timing: TriggerTiming, context: TriggerContext,
                         preemptive_filter: Optional[bool] = None,
                         trigger_type_filter: Optional[Set[str]] = None) -> List[TriggerAction]:
@@ -1039,6 +1066,28 @@ class TriggerService:
             if primary.side == owner.side:
                 _log.info("[TRIGGER_MATCH] %s: AFTER_ALLY_AS_ATTACK blocked (primary target %s same side as owner)",
                           owner.name, primary.name)
+                return False
+            return True
+
+        if timing == TriggerTiming.AFTER_PS_RECEIVED:
+            # 自身が他味方からPSを受けた後(130040 エクストラ・パワーアップ！)
+            # 条件: PS発動者(actor)とowner同陣営、actor ≠ owner(他味方)、
+            #        ownerはcontext.targetsに含まれる(自身がPS対象)
+            if context.actor is None:
+                return False
+            if owner.side != context.actor.side:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_PS_RECEIVED blocked (ps_caster %s is opposite side)",
+                          owner.name, context.actor.name)
+                return False
+            if owner.unit_id == context.actor.unit_id:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_PS_RECEIVED blocked (ps_caster is self)",
+                          owner.name)
+                return False
+            # ownerがPSの対象に含まれているか確認
+            target_ids = {t.unit_id for t in context.targets}
+            if owner.unit_id not in target_ids:
+                _log.info("[TRIGGER_MATCH] %s: AFTER_PS_RECEIVED blocked (owner not in ps targets)",
+                          owner.name)
                 return False
             return True
 
@@ -1397,6 +1446,11 @@ class TriggerService:
         if cond_type == "target_is_ally":
             if not context.targets:
                 return True
+            # target_is_ally 默认期望值为True（目标应为友方）。
+            # 仅当显式配置value=0/false时才表示"目标非友方"。
+            # 原实现继承通用默认val=0导致after_ally_attacked类PS（如リベンジシュート130062）
+            # 在友方被攻击时条件总是返回False，PS无法触发。
+            val = condition.get('value', 1)
             exclude_self = bool(condition.get('exclude_self', 0))
             # 遍历所有目标，找到第一个满足"同阵营"且（非exclude_self或非自身）的目标作为判断依据
             # 这样即使targets[0]是自身，也能正确识别后续的其他友方目标
@@ -1627,6 +1681,43 @@ class TriggerService:
                           owner.name, hp_unit.name, hp_pct, op, val, result, prev_pct, crossed)
             else:
                 _log.info("[TRIGGER_COND] %s: front_ally_hp_below %s hp=%.1f%% %s %.0f%% => %s",
+                          owner.name, hp_unit.name, hp_pct, op, val, result)
+            return result
+
+        if cond_type == "ally_hp_below":
+            # 任一友方HP≤阈值時発動（用于 エナジーバリア 等技能）
+            # "友方"指玩家方（Side.ALLY），不是PS持有者同阵营
+            # 修复bug：PS持有者在敌方时，敌方HP下降也会错误触发
+            # （_match_trigger_timing 的 ally_filter 使用 owner.side 判断同阵营，
+            #   当PS持有者在敌方时，敌方HP下降被视为"同阵营"通过过滤，
+            #   需在此处显式检查 triggered_by.side == Side.ALLY）
+            hp_unit = None
+            if context.timing == TriggerTiming.HP_BELOW and context.triggered_by:
+                hp_unit = context.triggered_by
+            elif context.targets:
+                hp_unit = context.targets[0]
+
+            if hp_unit is None:
+                _log.info("[TRIGGER_COND] %s: ally_hp_below -> no unit to check", owner.name)
+                return False
+
+            # 必须是玩家方（Side.ALLY）单位，不是PS持有者同阵营
+            if hp_unit.side != Side.ALLY:
+                _log.info("[TRIGGER_COND] %s: ally_hp_below -> %s is not player ally (side=%s) => False",
+                          owner.name, hp_unit.name, hp_unit.side)
+                return False
+
+            # HP阈值检查 + 阈值跨越验证（仅on_hp_below + <=/<时需要跨越）
+            hp_pct = hp_unit.current_hp / hp_unit.max_hp * 100 if hp_unit.max_hp > 0 else 0
+            result = _eval_condition(hp_pct, op, val)
+            if result and context.timing == TriggerTiming.HP_BELOW and op in ('<=', '<'):
+                prev_pct = getattr(hp_unit, 'prev_hp_percent', 100.0)
+                crossed = prev_pct > val and hp_pct <= val
+                result = result and crossed
+                _log.info("[TRIGGER_COND] %s: ally_hp_below %s hp=%.1f%% %s %.0f%% => %s (prev=%.1f%%, crossed=%s)",
+                          owner.name, hp_unit.name, hp_pct, op, val, result, prev_pct, crossed)
+            else:
+                _log.info("[TRIGGER_COND] %s: ally_hp_below %s hp=%.1f%% %s %.0f%% => %s",
                           owner.name, hp_unit.name, hp_pct, op, val, result)
             return result
 

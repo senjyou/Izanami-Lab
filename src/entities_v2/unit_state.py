@@ -155,6 +155,7 @@ class UnitState:
     cover_skill_id: int = 0  # 援护技能的技能ID
     guard_rate: float = 0.0  # 护卫减伤百分比（百分比形式，如30表示30%）
     guard_active: bool = False  # 护卫是否激活
+    reflect_rate: float = 0.0  # 反射伤害百分比（百分比形式，如50表示反射受到伤害的50%），cover期间生效
 
     # ========== HP阈值跨越检测（用于on_hp_below触发）==========
     prev_hp_percent: float = 100.0  # 上一次记录的HP百分比，用于检测阈值跨越

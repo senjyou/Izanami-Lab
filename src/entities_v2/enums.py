@@ -41,6 +41,7 @@ class TriggerTiming(Enum):
     UNIT_COUNT_BELOW = "UnitCountBelow"       # 敌军数量低于阈值
     ALLY_CHARGE_USE = "AllyChargeUse"          # 友方使用充能技能时
     CUMULATIVE_DAMAGE = "CumulativeDamage"     # 累计伤害达到阈值
+    AFTER_PS_RECEIVED = "AfterPsReceived"     # 友方被PS技能效果作用后
     BATTLE_END = "BattleEnd"                  # 战斗结束
 
 class Side(Enum):

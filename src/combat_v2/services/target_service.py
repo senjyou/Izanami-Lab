@@ -328,6 +328,35 @@ class TargetService:
                       len(side_units))
             return side_units
 
+        # ally_adjacent: 自身に隣接する同阵营友方（不含自身）
+        # 参考 イグナイト(120053)「自身に隣接する味方に対して威力{威力}でHPを回復する」
+        # 邻接 = caster.position 的前后左右4方向（同阵营，不含caster自身）
+        # candidates已由_get_candidates_by_type过滤为同阵营友方（含自身），此处再过滤邻接位置
+        if target_type_name == 'ally_adjacent':
+            adj_positions = self._get_adjacent_positions(caster.position)
+            result = [u for u in candidates if u.unit_id != caster.unit_id
+                      and u.position in adj_positions]
+            _log.info("[TARGET]   ally_adjacent: caster=%s -> %d allies: %s",
+                      caster.name, len(result), [u.name for u in result])
+            return result
+
+        # enemy_row_highest_atk: 攻撃力最高の敵を含む横一列（前/後列）
+        # 参考 スタンサプレッション(120054)「攻撃力が最も高い敵が含まれる横一列」
+        if target_type_name == 'enemy_row_highest_atk':
+            if not ordered:
+                return []
+            # 攻撃力降順でステルス適用後、先頭をanchorとする
+            ordered.sort(key=lambda u: -u.attack)
+            self.apply_stealth_redirection(ordered, consume=True)
+            highest_atk_unit = ordered[0]
+            anchor_is_front = self._is_front_row(highest_atk_unit)
+            result = [u for u in candidates if self._is_front_row(u) == anchor_is_front]
+            _log.info("[TARGET]   enemy_row_highest_atk: highest_atk=%s (atk=%d, %s row) -> %d units: %s",
+                      highest_atk_unit.name, highest_atk_unit.attack,
+                      "FRONT" if anchor_is_front else "BACK",
+                      len(result), [u.name for u in result])
+            return result
+
         if r_type == DisplayTargetRange.ALL_PAWNS:
             return ordered
 

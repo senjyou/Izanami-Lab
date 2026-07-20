@@ -230,12 +230,27 @@ class BattleNarrativeWriter:
 
     def damage_link_transfer(self, source_target_name: str, linker_name: str,
                               transfer_dmg: int, hp_before: int, hp_after: int, max_hp: int,
-                              damage_type: str, link_value: float, source_actual_damage: int,
+                              damage_type: str, link_value: float, source_total_damage: int,
                               shield_absorbed: int = 0):
-        """ダメージリンク転送の叙事ログ出力"""
+        """ダメージリンク転送の叙事ログ出力
+
+        source_total_damage: 源目标承受的总伤害（HP损失+盾吸收+子单位吸收）
+        """
         shield_info = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         self._add(f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
-                  f"{transfer_dmg} 点{damage_type}链接伤害 (源伤害:{source_actual_damage} × {link_value:.0f}%){shield_info}")
+                  f"{transfer_dmg} 点{damage_type}链接伤害 (源总伤害:{source_total_damage} × {link_value:.0f}%){shield_info}")
+
+    def reflect_damage_transfer(self, coverer_name: str, attacker_name: str,
+                                 reflect_dmg: int, hp_before: int, hp_after: int, max_hp: int,
+                                 reflect_rate: float, source_total_damage: int):
+        """反射ダメージの叙事ログ出力
+
+        coverer: 援护者（反射伤害来源）
+        attacker: 攻击者（反射伤害承受者）
+        source_total_damage: cover者承受的总伤害（HP损失+盾吸收+子单位吸收）
+        """
+        self._add(f"  [反射伤害] {coverer_name} → {attacker_name} (HP:{hp_after}/{max_hp}): "
+                  f"{reflect_dmg} 点反射伤害 (源总伤害:{source_total_damage} × {reflect_rate:.0f}%)")
 
     def heal_link_applied(self, target_name: str, source_name: str, transfer_pct: float,
                           duration: int = 1, dur_type: str = "action"):
