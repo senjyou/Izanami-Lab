@@ -5737,5 +5737,135 @@
         ]
       }
     ]
+  },
+  "400216": {
+    "skill_id": 400216,
+    "name": "HP上昇【小花】",
+    "description": "戦闘開始時に発動。姜小花のHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400217": {
+    "skill_id": 400217,
+    "name": "攻撃上昇【アグレッシブ】",
+    "description": "ターン開始時に発動。アグレッシブ属性の味方の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400218": {
+    "skill_id": 400218,
+    "name": "攻撃上昇【スマート】",
+    "description": "ターン開始時に発動。スマート属性の味方の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400219": {
+    "skill_id": 400219,
+    "name": "HP上昇【左列前衛】",
+    "description": "戦闘開始時に発動。左列前衛の味方のHPを1200上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1200,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400220": {
+    "skill_id": 400220,
+    "name": "攻撃上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体の攻撃力を150上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 150,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }

@@ -192,6 +192,48 @@ class AuraService:
         if newly_expired:
             _log.info("[AURA] %s expired: %s", unit.name, list(newly_expired))
 
+        # ダメージリンク（独立存储）の行動制持续时间递减
+        # duration_type="action"のlinkを递减し、duration=0のlinkを削除
+        # just_applied=Trueのlinkは当次行动新施加のため递减スキップ
+        self._update_damage_link_durations(unit, "action")
+
+    def _update_damage_link_durations(self, unit: UnitState, duration_type: str) -> None:
+        """ダメージリンク（DamageLinkEntry）の持续时间を递减し、期限切れのentryを削除。
+
+        Args:
+            unit: 対象单位
+            duration_type: "action"（行動制）または "turn"（回合制）
+
+        注意：just_appliedフラグのクリアはbattle_flow_controller.pyで行う（buffと同様）。
+        ここではjust_applied=Trueのentryは递减スキップのみ。
+        """
+        if not unit.damage_links:
+            return
+        to_keep = []
+        for entry in unit.damage_links:
+            # duration=-1は永続（递减なし）
+            if entry.duration < 0:
+                to_keep.append(entry)
+                continue
+            # duration_typeが一致しない場合は递减対象外
+            if entry.duration_type != duration_type:
+                to_keep.append(entry)
+                continue
+            # just_applied=Trueは当次行动/回合新施加のため递减スキップ
+            # （just_appliedのクリアはbattle_flow_controller.pyで行う）
+            if entry.just_applied:
+                to_keep.append(entry)
+                continue
+            # 递减
+            entry.duration -= 1
+            if entry.duration > 0:
+                to_keep.append(entry)
+            else:
+                _log.info("[DAMAGE_LINK_EXPIRE] %s: damage_link expired (link_id=%s, partner=%s, direction=%s)",
+                          unit.name, entry.link_id, entry.partner_unit_id, entry.direction)
+        if len(to_keep) != len(unit.damage_links):
+            unit.damage_links = to_keep
+
     def process_source_maneuver_end(self, source_unit: UnitState, all_units: List[UnitState]):
         """
         施法者行动结束时，递减其他单位上由该施法者施加的DURABLE_SOURCE_MANEUVER_END buff/debuff。
@@ -312,6 +354,9 @@ class AuraService:
         newly_expired = set(expired_after) - set(expired_before)
         if newly_expired:
             _log.info("[AURA_TURN_END] %s expired: %s", unit.name, list(newly_expired))
+
+        # ダメージリンク（独立存储）の回合制持续时间递减
+        self._update_damage_link_durations(unit, "turn")
 
     def check_expiration(self, unit: UnitState, all_units: Optional[List[UnitState]] = None):
         """清理过期 Aura (Duration == 0 表示已过期, Duration < 0 表示永久)"""

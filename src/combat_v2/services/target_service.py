@@ -357,6 +357,25 @@ class TargetService:
                       len(result), [u.name for u in result])
             return result
 
+        # enemy_nearest_and_farthest: 选取距离施法者最近和最远的两个敌方单位（如PS1ダメージリンク）
+        # Must be checked BEFORE ALL_PAWNS early return, since _resolve_damage_link_targets
+        # resolves this target_type with ALL_PAWNS range but needs nearest+farthest filtering.
+        if target_type_name == 'enemy_nearest_and_farthest':
+            if not ordered:
+                return []
+            if len(ordered) == 1:
+                _log.info("[TARGET]   enemy_nearest_and_farthest: only 1 candidate, returning single target")
+                return [ordered[0]]
+            nearest = ordered[0]
+            # 使用_get_farthest_key正确破平局（同距离优先左列），参考カオスキャノンのfurthest filter
+            farthest = min(candidates, key=lambda u: self._get_farthest_key(caster, u))
+            # 防止最近和最远是同一单位（理论上不会，但安全检查）
+            if nearest.unit_id == farthest.unit_id:
+                return [nearest]
+            _log.info("[TARGET]   enemy_nearest_and_farthest: nearest=%s, farthest=%s",
+                      nearest.name, farthest.name)
+            return [nearest, farthest]
+
         if r_type == DisplayTargetRange.ALL_PAWNS:
             return ordered
 

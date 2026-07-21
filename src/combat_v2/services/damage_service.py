@@ -112,6 +112,15 @@ class DamageService:
                 _log.info("[HP_RATIO_DYNAMIC] %s: %s hp_ratio=%.4f => dynamic_val=%.4f (max=%.4f)",
                           getattr(unit, 'name', '?'), buff.name, hp_ratio, val,
                           DamageService._normalize_buff_value(buff))
+            # hp_ratio_dynamic_direct: 动态减伤（如130156 油断は禁物ですよ）
+            # 减伤值随持有者实时HP比例线性变化：HP100%→最大值, HP0%→0%
+            # 公式: effective = val * (current_hp / max_hp)
+            if getattr(buff, 'hp_ratio_dynamic_direct', False) and unit is not None:
+                hp_ratio = unit.current_hp / unit.max_hp if unit.max_hp > 0 else 0
+                val = val * hp_ratio
+                _log.info("[HP_RATIO_DYNAMIC_DIRECT] %s: %s hp_ratio=%.4f => dynamic_val=%.4f (max=%.4f)",
+                          getattr(unit, 'name', '?'), buff.name, hp_ratio, val,
+                          DamageService._normalize_buff_value(buff))
             if buff.is_memory_buff:
                 memory_sum += val
             elif buff.is_stackable:

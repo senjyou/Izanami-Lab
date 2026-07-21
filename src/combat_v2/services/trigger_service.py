@@ -1099,18 +1099,16 @@ class TriggerService:
                 return (owner.side == context.targets[0].side and
                         owner.unit_id not in {t.unit_id for t in context.targets})
             # on_linked_enemy_killed → 敵方かつダメージリンク保持者が死亡した時
-            # 双方向リンク: 死亡者がdamage_link buffを持っている、または死亡者をsourceとするdamage_link buffが存在
+            # 重构后：检查死亡者的damage_links字段（独立存储，不属于buff/debuff）
             if trigger_type == "on_linked_enemy_killed":
                 dead_units = context.targets
                 # ownerと逆陣営の死亡者のみ対象
                 relevant_dead = [d for d in dead_units if d.side != owner.side]
                 if not relevant_dead:
                     return False
-                # 死亡者がdamage_link buffを持っているか確認
+                # 死亡者がdamage_linksを持っているか確認
                 for dead in relevant_dead:
-                    dead_link_buffs = [b for b in (dead.buffs + dead.debuffs)
-                                       if b.effect_type == "damage_link"]
-                    if dead_link_buffs:
+                    if dead.damage_links:
                         _log.info("[TRIGGER_MATCH] %s: on_linked_enemy_killed matched (dead=%s has damage_link)",
                                   owner.name, dead.name)
                         return True
@@ -1344,15 +1342,15 @@ class TriggerService:
 
         if cond_type == "self_damage_link_active":
             # ダメージリンク効果が場に残っているか確認（PS2触发条件）
-            # 死亡单位的buff清除在触发器检查之后执行，因此死亡者的damage_link buff仍存在
+            # 重构后：检查unit.damage_links字段（独立存储，不属于buff/debuff）
+            # 死亡单位的damage_links清除在触发器检查之后执行，因此死亡者的damage_links仍存在
             all_units = context.battlefield.get_all_units()
             has_link = False
             for u in all_units:
-                link_buffs = [b for b in (u.buffs + u.debuffs) if b.effect_type == "damage_link"]
-                if link_buffs:
+                if u.damage_links:
                     has_link = True
                     break
-            _log.info("[TRIGGER_COND] %s: self_damage_link_active => %s (damage_link buffs on battlefield)",
+            _log.info("[TRIGGER_COND] %s: self_damage_link_active => %s (damage_links on battlefield)",
                       owner.name, has_link)
             return has_link
 

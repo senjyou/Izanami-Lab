@@ -52,7 +52,8 @@ class BuffState:
     hp_threshold: float = 0.0  # 条件性减伤: HP百分比阈值，仅当HP≥此值时减伤生效
     unremovable: bool = False  # 不可解除: 此buff不可被驱散或过期移除
     mark_condition: str = ""  # mark条件: 仅当攻击者持有指定mark_name时此buff/debuff才生效
-    hp_ratio_dynamic: bool = False  # 动态减伤(130155): 减伤值随持有者实时HP比例变化
+    hp_ratio_dynamic: bool = False  # 动态减伤(130155): 减伤值随持有者实时HP比例变化（HP越低效果越高）
+    hp_ratio_dynamic_direct: bool = False  # 动态减伤(130156): 减伤值随持有者实时HP比例变化（HP越高效果越高，线性HP100%→max HP0%→0）
     target_hp_ratio_higher_than_self: bool = False  # 条件增伤(130155 Lv11+): 仅对HP比例高于自身的敌人生效
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
@@ -62,6 +63,30 @@ class BuffState:
     confusion_dmg_reduction: float = 0.0  # 混乱专用: 伤害减免百分比（如50表示减免50%）
     confusion_proxy_atk_pct: float = 0.0  # 混乱专用: 代理数值百分比（如10表示ATK×10%替代ATK-DEF）
     sub_unit_link_group: str = ""  # [GAME_BUG_SIMULATION] 跨目标联动失效: 同一次技能(如110050)创建的多个子機共享同一link_group，任一失效时其余同步失效
+
+
+@dataclass
+class DamageLinkEntry:
+    """ダメージリンク独立存储条目（不属于buff/debuff，不受buff移除影响）。
+
+    设计要点：
+    - link关系存储在双方单位上（双向施加），任一方死亡时双方同步清除
+    - direction字段区分转送方向：
+      - "outgoing": 持有者受伤害时，转送给partner_unit_id
+      - "incoming": partner_unit_id受伤害时，转送给持有者（仅作为配对记录，不主动触发）
+      - "bidirectional": 双向（兼容旧逻辑）
+    - 不受remove_buff/remove_debuff影响，只能通过remove_damage_links effect或单位死亡清除
+    """
+    link_id: str  # 唯一ID（uuid），同一link关系的双方共享同一link_id
+    partner_unit_id: str  # 配对单位ID（接收转送伤害的单位）
+    value: float  # 转送比例(%)
+    source_skill_id: int  # 来源技能ID
+    source_unit_id: str  # 施法者ID（用于追溯）
+    direction: str = "outgoing"  # "outgoing"/"incoming"/"bidirectional"
+    is_unremovable: bool = False  # 解除不可（仍可被remove_damage_links清除）
+    duration: int = -1  # 持续时间，-1=永久
+    duration_type: str = ""  # "action"/"turn"/""，空=永久
+    just_applied: bool = False  # 当次行动新施加标记，process_maneuver_end跳过递减
 
 
 from .enums import UnitActionPhase
@@ -117,6 +142,11 @@ class UnitState:
     # ========== Buff列表（可变）==========
     buffs: List[BuffState] = field(default_factory=list)
     debuffs: List[BuffState] = field(default_factory=list)
+
+    # ========== ダメージリンク（独立存储，不属于buff/debuff）==========
+    # 重构后：damage_link不再作为buff存储，改为独立字段
+    # 不受remove_buff/remove_debuff影响，只能通过remove_damage_links effect或单位死亡清除
+    damage_links: List[DamageLinkEntry] = field(default_factory=list)
     
     # ========== 技能相关（可变）==========
     skills: List[int] = field(default_factory=list)

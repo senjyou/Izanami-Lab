@@ -13,7 +13,7 @@ src/combat_v2/services/skill_service.py
 
 import random
 from typing import Dict, Any, Optional, List, Callable
-from ...entities_v2.unit_state import UnitState, BuffState
+from ...entities_v2.unit_state import UnitState, BuffState, DamageLinkEntry
 from ...entities_v2.battlefield_state import BattlefieldState
 from ...entities_v2.enums import SkillEffectType, AuraUpdateTiming, Position, SkillType
 from ..skill_data_resolver import ResolvedSkillData, SkillDataResolver
@@ -891,6 +891,7 @@ class SkillService:
                                     "enemy_single_highest_max_hp",
                                     "enemy_single_highest_hp_ratio_back_priority",
                                     "enemy_single_lowest_hp_ratio",
+                                    "enemy_single_highest_mark_count",
                                     "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
                                 }
                                 if _pre_target_type in _SPECIAL_POSTFILTER_TYPES:
@@ -2020,6 +2021,28 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         _log.info("[SKILL_EXEC] %s: lowest_hp_ratio filter -> %s (using pre-skill HP)",
                                   caster.name, best.name)
+                    elif effect.target_type == "enemy_single_highest_mark_count" and dmg_targets:
+                        # 按 mark 数量降序选取目标（mark_count 相同时按距离升序，最近优先）
+                        # 用于 EX あわあわふー「最も「ほてり」を多く持っている敵を優先」
+                        _hmc_mark_name = effect_flags_block.get('mark_name', '') if effect_flags_block else ''
+                        def _count_mark(u):
+                            cnt = sum(1 for d in u.debuffs
+                                      if d.effect_type == SkillEffectType.MARK.value
+                                      and getattr(d, 'name', '') == _hmc_mark_name)
+                            cnt += sum(1 for b in u.buffs
+                                       if b.effect_type == SkillEffectType.MARK.value
+                                       and getattr(b, 'name', '') == _hmc_mark_name)
+                            return cnt
+                        best = self.target_service.select_max_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (_count_mark(u), -self.target_service._get_sort_key(caster, u)),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: highest_mark_count filter -> %s (mark_name='%s', count=%d)",
+                                  caster.name, best.name if best else 'N/A', _hmc_mark_name,
+                                  _count_mark(best) if best else 0)
                     elif effect.target_type == "enemy_column_furthest" and dmg_targets:
                         # 先找最远的敌方，然后选其所在的列（前后列/纵列）
                         # ステルス重定向应用于锚点选择
@@ -2502,6 +2525,14 @@ class SkillService:
 
         elif etype == "modify_pp":
             return self._apply_modify_pp(caster, effect, battlefield)
+
+        elif etype == "damage_link":
+            # ダメージリンク（独立存储，不属于buff/debuff）
+            return self._apply_damage_link(caster, effect, battlefield)
+
+        elif etype == "remove_damage_links":
+            # ダメージリンク解除（独立于remove_buff/remove_debuff）
+            return self._apply_remove_damage_links(caster, effect, battlefield)
 
         _log.info("[EFFECT] %s: unhandled effect_type=%s", caster.name, etype)
         return None
@@ -3023,6 +3054,8 @@ class SkillService:
             cond_met = False
             cond_desc = ""
             cond_tier_value = None  # target_mark_count tiers匹配的增伤值
+            _multiplier_per_count_active = False  # multiplier_per_count模式：bonus_pct = value_tag值 × min(mark_count, max_multiplier_count)
+            _multiplier_effective_count = 0
 
             if cond_type == 'target_hp_below' and targets:
                 first_target = targets[0]
@@ -3078,25 +3111,37 @@ class SkillService:
             elif cond_type == 'target_mark_count' and targets:
                 # 检查目标的mark数量，按tiers阶梯匹配增伤值（如120076 トップライトショット）
                 # tiers按优先级排序（min_count从大到小），匹配第一个满足的tier
+                # multiplier_per_count模式（如113302 120080「ほてり1つにつきdmg%増加(最大5つ)」）：
+                # bonus_pct = value_tag值 × min(mark_count, max_multiplier_count)
                 mark_name = cond.get('mark_name', '')
                 first_target = targets[0]
                 mark_count = sum(1 for d in first_target.debuffs
                                  if d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name)
                 mark_count += sum(1 for b in first_target.buffs
                                   if b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name)
-                tiers = cond_power_bonus.get('tiers', [])
-                matched_tier = None
-                for tier in tiers:
-                    if mark_count >= tier.get('min_count', 0):
-                        matched_tier = tier
-                        break
-                if matched_tier:
-                    cond_met = True
-                    cond_tier_value = matched_tier.get('value', 0.0)
-                    cond_desc = f"target_mark_count('{mark_name}'={mark_count} >= {matched_tier['min_count']})"
+
+                if cond.get('multiplier_per_count'):
+                    # 线性缩放模式：每个mark提供value_tag%增伤，封顶max_multiplier_count倍
+                    max_mult = cond.get('max_multiplier_count', 0)
+                    _multiplier_per_count_active = True
+                    _multiplier_effective_count = min(mark_count, max_mult) if max_mult > 0 else mark_count
+                    cond_met = mark_count > 0
+                    cond_desc = (f"target_mark_count(multiplier_per_count '{mark_name}'={mark_count}, "
+                                 f"effective={_multiplier_effective_count}, max={max_mult})")
                 else:
-                    cond_met = False
-                    cond_desc = f"target_mark_count('{mark_name}'={mark_count}, no tier matched)"
+                    tiers = cond_power_bonus.get('tiers', [])
+                    matched_tier = None
+                    for tier in tiers:
+                        if mark_count >= tier.get('min_count', 0):
+                            matched_tier = tier
+                            break
+                    if matched_tier:
+                        cond_met = True
+                        cond_tier_value = matched_tier.get('value', 0.0)
+                        cond_desc = f"target_mark_count('{mark_name}'={mark_count} >= {matched_tier['min_count']})"
+                    else:
+                        cond_met = False
+                        cond_desc = f"target_mark_count('{mark_name}'={mark_count}, no tier matched)"
 
             if cond_met:
                 value_tag = cond_power_bonus.get('value_tag', 'dmg')
@@ -3113,8 +3158,14 @@ class SkillService:
                         resolved = tag_values.get(value_tag)
                         if resolved is not None:
                             bonus_pct = float(resolved)
+                # multiplier_per_count模式：bonus_pct = 每个mark增伤值 × effective_count
+                if _multiplier_per_count_active and _multiplier_effective_count > 0:
+                    bonus_pct = bonus_pct * _multiplier_effective_count
+                    _log.info("[CONDITIONAL_POWER_BONUS] %s: multiplier_per_count -> bonus_pct=%.1f (%.1f/count × %d counts)",
+                              caster.name, bonus_pct, bonus_pct / _multiplier_effective_count, _multiplier_effective_count)
                 bonus_type = cond_power_bonus.get('bonus_type', 'power')
-                if bonus_type == 'dealt_damage':
+                # bonus_pct=0 时跳过buff付与（如 multiplier_per_count 模式下 value_tag=0% 的Lv1-10场景）
+                if bonus_type == 'dealt_damage' and bonus_pct > 0:
                     # 造成伤害乘区：添加临时dmg_dealt_up buff（attack_limited=1，仅本次攻击生效）
                     temp_aura = BuffState(
                         buff_id=f"{caster.unit_id}_DealtDamage_{caster.unit_id}_cond",
@@ -3132,7 +3183,10 @@ class SkillService:
                     caster.buffs.append(temp_aura)
                     _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> dmg_dealt_up +%.1f%% (dealt_damage乘区)",
                               caster.name, cond_desc, bonus_pct)
-                elif bonus_type == 'received_damage':
+                elif bonus_type == 'dealt_damage' and bonus_pct <= 0:
+                    _log.info("[CONDITIONAL_POWER_BONUS] %s: %s -> skip dmg_dealt_up (bonus_pct=%.1f%% <= 0)",
+                              caster.name, cond_desc, bonus_pct)
+                elif bonus_type == 'received_damage' and bonus_pct > 0:
                     # 易伤乘区：添加临时dmg_taken_up debuff到目标（attack_limited=1，仅本次攻击生效）
                     # 与目标已有的易伤debuff叠加（is_stackable=True），影响received_mult计算
                     first_target = targets[0]
@@ -3747,14 +3801,19 @@ class SkillService:
         # リンクダメージは再度リンクされない（再帰防止）、ダメージ軽減/増加buffの影響を受けない
         # 叙事日志由battle_flow_controller._log_narrative_effects统一输出（skill_service无narrative访问权）
         # 【修复】源目标承受的总伤害（HP损失+盾吸收+子单位吸收）都应计入link基数
+        # 【重构】damage_link不再作为buff存储，改为独立存储在unit.damage_links（DamageLinkEntry列表）
+        #   - direction="outgoing"/"bidirectional": 持有者受伤害时，转送给partner_unit_id
+        #   - direction="incoming": 仅作为配对记录，不主动触发转送
         _is_en_attack = bool(effect_flags.get('is_en_attack', False)) if effect_flags else False
         damage_link_transfers = []  # 收集链接伤害转移信息供叙事日志输出
         for target in targets_hit:
             target_unit = next((u for u in battlefield.get_all_units() if u.unit_id == target["target_id"]), None)
             if target_unit and target_unit.is_alive:
-                damage_link_buffs = [b for b in target_unit.buffs if b.effect_type == "damage_link"]
-                for dl in damage_link_buffs:
-                    linker = next((u for u in battlefield.get_all_units() if u.unit_id == dl.source_unit_id), None)
+                # 读取独立存储的damage_links，仅处理outgoing和bidirectional方向
+                active_links = [dl for dl in target_unit.damage_links
+                                if dl.direction in ("outgoing", "bidirectional")]
+                for dl in active_links:
+                    linker = next((u for u in battlefield.get_all_units() if u.unit_id == dl.partner_unit_id), None)
                     if linker and linker.is_alive and linker.unit_id != target_unit.unit_id:
                         # 源目标承受的总伤害 = HP损失 + 盾/子单位吸收（与dmg_result.total_damage一致，不含溢出）
                         source_total_dmg = target["actual_damage"] + target["shield_absorbed"]
@@ -3784,6 +3843,20 @@ class SkillService:
                                   "EN" if _is_en_attack else "物理", dl.value,
                                   source_total_dmg, target["actual_damage"], target["shield_absorbed"],
                                   shield_absorbed, linker_hp_before, linker.current_hp)
+                        # 累计伤害更新（用于触发on_cumulative_damage类PS）
+                        link_hp_loss = linker_hp_before - linker.current_hp
+                        if link_hp_loss > 0:
+                            linker.cumulative_hp_damage += link_hp_loss
+                        # 计分追踪
+                        _scoring_tracker = getattr(battlefield, 'scoring_tracker', None)
+                        if _scoring_tracker is not None:
+                            _linker_side = "ally" if linker.side.value == "ally" else "enemy"
+                            _target_side = "ally" if target_unit.side.value == "ally" else "enemy"
+                            _scoring_tracker.record_damage(
+                                source_id=target_unit.unit_id, source_name=target_unit.name, source_side=_target_side,
+                                target_id=linker.unit_id, target_name=linker.name, target_side=_linker_side,
+                                actual_damage=transfer_dmg, shield_absorbed=shield_absorbed,
+                            )
                         # 收集叙事日志信息
                         damage_link_transfers.append({
                             "source_target_id": target["target_id"],
@@ -5208,6 +5281,7 @@ class SkillService:
             "enemy_single_highest_max_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
+            "enemy_single_highest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
         }
         if effect.target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
@@ -5574,6 +5648,32 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s: lowest_hp_ratio filter -> %s",
                           caster.name, best.name)
 
+        if effect.target_type == "enemy_single_highest_mark_count":
+            # 按 mark 数量降序选取目标（aura 路径，与 damage 路径保持一致）
+            if targets:
+                _amc_flags = getattr(effect, 'flags', None) or {}
+                if isinstance(_amc_flags, dict):
+                    _amc_mark_name = _amc_flags.get('mark_name', '')
+                else:
+                    _amc_mark_name = getattr(_amc_flags, 'mark_name', '')
+                def _count_mark_aura(u):
+                    cnt = sum(1 for d in u.debuffs
+                              if d.effect_type == SkillEffectType.MARK.value
+                              and getattr(d, 'name', '') == _amc_mark_name)
+                    cnt += sum(1 for b in u.buffs
+                               if b.effect_type == SkillEffectType.MARK.value
+                               and getattr(b, 'name', '') == _amc_mark_name)
+                    return cnt
+                best = self.target_service.select_max_with_stealth(
+                    targets,
+                    key_func=lambda u: (_count_mark_aura(u), -self.target_service._get_sort_key(caster, u)),
+                    consume=True
+                )
+                targets = [best] if best else []
+                if best:
+                    _log.info("[AURA_APPLY] %s: highest_mark_count filter -> %s (mark_name='%s', count=%d)",
+                              caster.name, best.name, _amc_mark_name, _count_mark_aura(best))
+
         if effect.target_type and "furthest" in effect.target_type:
             # furthest filter for aura effects (e.g. dmg_taken_up on enemy_single_furthest)
             # Selects the enemy furthest from the caster (min _get_farthest_key)
@@ -5877,18 +5977,10 @@ class SkillService:
             targets = [t for t in targets if t.unit_id != caster.unit_id]
             _log.info("[AURA_APPLY] %s: exclude_self -> targets=%s", caster.name, [t.name for t in targets])
 
-        # 双向ダメージリンク: enemy_nearest_and_farthest + link_mode=bidirectional
-        # 每个目标的damage_link buff的source_unit_id指向配对目标（而非施法者）
-        _bidir_link_map = {}  # target.unit_id -> paired_target.unit_id
-        is_bidir_damage_link = (effect.effect_type == "damage_link"
-                                and effect_flags_aura.get('link_mode') == 'bidirectional')
-        if is_bidir_damage_link and len(targets) >= 2:
-            for i in range(len(targets)):
-                paired = targets[(i + 1) % len(targets)]
-                _bidir_link_map[targets[i].unit_id] = paired.unit_id
-            _log.info("[AURA_APPLY] %s: bidirectional damage_link pairs=%s",
-                      caster.name,
-                      [(t.name, next((p.name for p in targets if p.unit_id == _bidir_link_map[t.unit_id]), '?')) for t in targets])
+        # 【重构】damage_link已独立存储（_apply_damage_link），不再作为buff处理
+        # 保留_bidir_link_map/is_bidir_damage_link作为False占位，避免下方引用错误
+        _bidir_link_map = {}
+        is_bidir_damage_link = False
 
         for target in targets:
             if not target.is_alive:
@@ -6279,6 +6371,13 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s: hp_ratio_dynamic on %s (dynamic reduction based on holder HP ratio)",
                           caster.name, mapped_effect_type)
 
+            # hp_ratio_dynamic_direct: 动态减伤（如130156），减伤值随持有者实时HP比例线性变化
+            # HP100%→最大值, HP0%→0%, 公式: effective = val * (current_hp / max_hp)
+            if effect_flags_aura.get('hp_ratio_dynamic_direct'):
+                aura.hp_ratio_dynamic_direct = True
+                _log.info("[AURA_APPLY] %s: hp_ratio_dynamic_direct on %s (dynamic reduction linear with holder HP ratio)",
+                          caster.name, mapped_effect_type)
+
             # hp_ratio_dynamic_inverse: 动态增益（如130059），增益值随持有者实时HP比例反比变化
             # HP=100%→0%, HP=0%→max, 线性插值
             if effect_flags_aura.get('hp_ratio_dynamic_inverse'):
@@ -6478,6 +6577,301 @@ class SkillService:
             result["blocked"] = blocked_details
         return result
 
+    def _apply_damage_link(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
+        """ダメージリンクを付与する（独立存储，不属于buff/debuff）。
+
+        重构后的damage_link机制：
+        - link关系存储在双方单位的damage_links字段（DamageLinkEntry列表）
+        - 不受remove_buff/remove_debuff影响，只能通过remove_damage_links effect或单位死亡清除
+        - 任一方单位死亡时，双方同步清除对应link关系
+
+        link_mode（通过effect.flags.link_mode指定）：
+        - "bidirectional": 双向link，配对targets中相邻两个单位（如130108 enemy_nearest_and_farthest）
+        - "to_caster"（默认）: 单向link，每个target受伤害时转送给caster（如120123 self_and_friends, 130157 friends）
+        - "to_primary_target": 单向link，caster受伤害时转送给primary_target（如110071 self_and_primary_target）
+
+        DamageLinkEntry.direction：
+        - "outgoing": 持有者受伤害时，转送给partner_unit_id
+        - "incoming": 仅作为配对记录，不主动触发转送
+        - "bidirectional": 双向（持有者受伤害时转送给partner）
+        """
+        import uuid
+        if not self.target_service:
+            _log.info("[DAMAGE_LINK] %s: target_service unavailable", caster.name)
+            return None
+
+        effect_flags = getattr(effect, 'flags', {}) or {}
+        link_mode = effect_flags.get('link_mode', 'to_caster')
+        unremovable = effect_flags.get('unremovable', False)
+        duration = getattr(effect, 'duration', -1)
+        if duration is None:
+            duration = -1
+        duration_type = getattr(effect, 'duration_type', None) or ""
+
+        # 解析value（支持value_tag）
+        value = effect.value
+        if value is None and getattr(effect, 'value_tag', None):
+            resolved = self._resolve_tag_value_for_caster(caster, effect, effect.value_tag)
+            if resolved is not None:
+                value = float(resolved)
+        if value is None:
+            _log.info("[DAMAGE_LINK] %s: no value resolved, skip", caster.name)
+            return None
+
+        # 解析targets
+        target_type = effect.target_type
+        if target_type == "self_and_primary_target":
+            # 110071: caster + primary_target (from previous damage block)
+            primary = getattr(self, '_original_primary_target', None)
+            if primary is None or not primary.is_alive:
+                _log.info("[DAMAGE_LINK] %s: no _original_primary_target, skip", caster.name)
+                return None
+            targets = [caster, primary]
+            link_mode = "to_primary_target"  # override
+        else:
+            # 标准target resolution（复用_apply_aura的目标选择逻辑）
+            targets = self._resolve_damage_link_targets(caster, effect, battlefield)
+
+        # Filter alive targets
+        targets = [t for t in targets if t.is_alive]
+        if not targets:
+            _log.info("[DAMAGE_LINK] %s: no alive targets, skip", caster.name)
+            return None
+
+        applied = []
+
+        if link_mode == "bidirectional":
+            # 130108: 配对targets，双向link
+            # targets = [enemy1, enemy2], 每个得到bidirectional entry指向partner
+            if len(targets) < 2:
+                _log.info("[DAMAGE_LINK] %s: bidirectional needs >=2 targets, skip", caster.name)
+                return None
+            # 共享link_id
+            link_id = str(uuid.uuid4())
+            for i, target in enumerate(targets):
+                partner = targets[(i + 1) % len(targets)]
+                if partner.unit_id == target.unit_id:
+                    continue
+                entry = DamageLinkEntry(
+                    link_id=link_id,
+                    partner_unit_id=partner.unit_id,
+                    value=float(value),
+                    source_skill_id=self._current_skill_id,
+                    source_unit_id=caster.unit_id,
+                    direction="bidirectional",
+                    is_unremovable=unremovable,
+                    duration=duration,
+                    duration_type=duration_type,
+                    just_applied=True,
+                )
+                target.damage_links.append(entry)
+                applied.append({
+                    "target_id": target.unit_id,
+                    "target_name": target.name,
+                    "partner_id": partner.unit_id,
+                    "partner_name": partner.name,
+                    "direction": "bidirectional",
+                    "value": float(value),
+                })
+                _log.info("[DAMAGE_LINK] %s -> %s: bidirectional link applied (value=%.0f%%, duration=%d, type=%s, unremovable=%s)",
+                          target.name, partner.name, value, duration, duration_type or "permanent", unremovable)
+
+        elif link_mode == "to_primary_target":
+            # 110071: caster (outgoing) -> primary_target (incoming)
+            # targets = [caster, primary_target]
+            if len(targets) < 2:
+                _log.info("[DAMAGE_LINK] %s: to_primary_target needs 2 units, skip", caster.name)
+                return None
+            caster_unit, primary_unit = targets[0], targets[1]
+            link_id = str(uuid.uuid4())
+            # Caster gets outgoing entry (caster takes damage -> primary receives)
+            entry_out = DamageLinkEntry(
+                link_id=link_id,
+                partner_unit_id=primary_unit.unit_id,
+                value=float(value),
+                source_skill_id=self._current_skill_id,
+                source_unit_id=caster.unit_id,
+                direction="outgoing",
+                is_unremovable=unremovable,
+                duration=duration,
+                duration_type=duration_type,
+                just_applied=True,
+            )
+            caster_unit.damage_links.append(entry_out)
+            # Primary target gets incoming entry (pairing record for death cleanup)
+            entry_in = DamageLinkEntry(
+                link_id=link_id,
+                partner_unit_id=caster_unit.unit_id,
+                value=float(value),
+                source_skill_id=self._current_skill_id,
+                source_unit_id=caster.unit_id,
+                direction="incoming",
+                is_unremovable=unremovable,
+                duration=duration,
+                duration_type=duration_type,
+                just_applied=True,
+            )
+            primary_unit.damage_links.append(entry_in)
+            applied.append({
+                "target_id": caster_unit.unit_id,
+                "target_name": caster_unit.name,
+                "partner_id": primary_unit.unit_id,
+                "partner_name": primary_unit.name,
+                "direction": "outgoing",
+                "value": float(value),
+            })
+            _log.info("[DAMAGE_LINK] %s -> %s: to_primary_target link applied (value=%.0f%%, duration=%d, type=%s)",
+                      caster_unit.name, primary_unit.name, value, duration, duration_type or "permanent")
+
+        else:  # link_mode == "to_caster" (default)
+            # 120123/130157: each target (outgoing) -> caster (incoming)
+            # target_type="self_and_friends": targets含caster，但caster自身跳过outgoing
+            # target_type="friends": targets不含caster
+            for target in targets:
+                if target.unit_id == caster.unit_id:
+                    # Caster自身不创建outgoing（self→self无意义）
+                    continue
+                link_id = str(uuid.uuid4())
+                # Target gets outgoing entry (target takes damage -> caster receives)
+                entry_out = DamageLinkEntry(
+                    link_id=link_id,
+                    partner_unit_id=caster.unit_id,
+                    value=float(value),
+                    source_skill_id=self._current_skill_id,
+                    source_unit_id=caster.unit_id,
+                    direction="outgoing",
+                    is_unremovable=unremovable,
+                    duration=duration,
+                    duration_type=duration_type,
+                    just_applied=True,
+                )
+                target.damage_links.append(entry_out)
+                # Caster gets incoming entry (pairing record for death cleanup)
+                entry_in = DamageLinkEntry(
+                    link_id=link_id,
+                    partner_unit_id=target.unit_id,
+                    value=float(value),
+                    source_skill_id=self._current_skill_id,
+                    source_unit_id=caster.unit_id,
+                    direction="incoming",
+                    is_unremovable=unremovable,
+                    duration=duration,
+                    duration_type=duration_type,
+                    just_applied=True,
+                )
+                caster.damage_links.append(entry_in)
+                applied.append({
+                    "target_id": target.unit_id,
+                    "target_name": target.name,
+                    "partner_id": caster.unit_id,
+                    "partner_name": caster.name,
+                    "direction": "outgoing",
+                    "value": float(value),
+                })
+                _log.info("[DAMAGE_LINK] %s -> %s: to_caster link applied (value=%.0f%%, duration=%d, type=%s, unremovable=%s)",
+                          target.name, caster.name, value, duration, duration_type or "permanent", unremovable)
+
+        return {
+            "effect_type": "damage_link",
+            "link_mode": link_mode,
+            "applied": applied,
+        }
+
+    def _resolve_damage_link_targets(self, caster: UnitState, effect, battlefield: BattlefieldState) -> List[UnitState]:
+        """解析damage_link效果的目标列表（复用_apply_aura的目标选择逻辑）"""
+        target_type = effect.target_type
+
+        # 使用缓存的damage targets（与_apply_aura一致）
+        cached_targets = getattr(self, '_block_damage_targets', None)
+        if cached_targets is not None and isinstance(cached_targets, dict) and target_type in cached_targets:
+            return list(cached_targets[target_type])
+
+        # 特殊索敌类型需用ALL_PAWNS获取全部候选再后过滤
+        from ...entities_v2.enums import DisplayTargetRange
+        _resolved_range = self._resolve_target_range(target_type)
+        _AURA_SPECIAL_POSTFILTER_TYPES = {
+            "enemy_single_highest_atk", "enemy_single_highest_spd",
+            "enemy_single_lowest_spd", "enemy_single_furthest",
+            "enemy_single_highest_ep",
+            "enemy_single_highest_hp_ratio",
+            "enemy_single_highest_current_hp",
+            "enemy_single_highest_max_hp",
+            "enemy_single_highest_hp_ratio_back_priority",
+            "enemy_single_lowest_hp_ratio",
+        }
+        if target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
+            _resolved_range = DisplayTargetRange.ALL_PAWNS.value
+
+        # enemy_nearest_and_farthest需要ALL_PAWNS
+        if target_type == "enemy_nearest_and_farthest":
+            _resolved_range = DisplayTargetRange.ALL_PAWNS.value
+
+        skill_obj = type('obj', (object,), {
+            'display_target_type': self._resolve_target_type(target_type),
+            'display_target_range': _resolved_range,
+            'display_target_priority': self._current_skill_priority,
+            'target_type_name': target_type,
+        })()
+        return self.target_service.select_targets(skill_obj, caster, battlefield)
+
+    def _apply_remove_damage_links(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
+        """解除目标身上的ダメージリンク（独立于remove_buff/remove_debuff）。
+
+        用于120158 AS1「たまには子供っぽく」: 解除自身全てのダメージリンクバフ。
+
+        effect.target_type: 解除目标（通常为self）
+        effect.value: 解除数量（0或null=全部）
+        """
+        if not self.target_service:
+            _log.info("[REMOVE_DAMAGE_LINKS] %s: target_service unavailable", caster.name)
+            return None
+
+        # 解析目标
+        target_type = effect.target_type or "self"
+        if target_type == "self":
+            targets = [caster]
+        else:
+            skill_obj = type('obj', (object,), {
+                'display_target_type': self._resolve_target_type(target_type),
+                'display_target_range': self._resolve_target_range(target_type),
+                'display_target_priority': self._current_skill_priority,
+                'target_type_name': target_type,
+            })()
+            targets = self.target_service.select_targets(skill_obj, caster, battlefield)
+
+        removed_count = 0
+        removed_details = []
+        for target in targets:
+            if not target.is_alive:
+                continue
+            # 解除数量：0或null=全部，>0=指定数量
+            remove_num = effect.value if effect.value else 0
+            if remove_num and remove_num > 0:
+                # 仅移除指定数量（按付与顺序倒序移除）
+                to_remove = target.damage_links[-remove_num:]
+                target.damage_links = target.damage_links[:-remove_num] if remove_num < len(target.damage_links) else []
+            else:
+                # 移除全部（unremovable也可移除，因为这是技能效果）
+                to_remove = list(target.damage_links)
+                target.damage_links = []
+            for entry in to_remove:
+                removed_count += 1
+                removed_details.append({
+                    "target_id": target.unit_id,
+                    "target_name": target.name,
+                    "link_id": entry.link_id,
+                    "partner_id": entry.partner_unit_id,
+                    "direction": entry.direction,
+                })
+            _log.info("[REMOVE_DAMAGE_LINKS] %s: removed %d damage_link entries",
+                      target.name, len(to_remove))
+
+        return {
+            "effect_type": "remove_damage_links",
+            "removed_count": removed_count,
+            "removed": removed_details,
+        }
+
     def _apply_add_status(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         if not self.aura_service or not self.target_service:
             _log.info("[ADD_STATUS] %s: aura_service or target_service unavailable", caster.name)
@@ -6507,6 +6901,7 @@ class SkillService:
             "enemy_single_highest_max_hp",
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
+            "enemy_single_highest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
         }
         _st_range = self._resolve_target_range("enemies") if effect.target_type in _SPECIAL_POSTFILTER_TYPES \
@@ -7555,7 +7950,12 @@ class SkillService:
             if effect.target_type in ("enemy_single", "enemies", "enemy",
                                       "enemy_single_highest_atk", "enemy_single_highest_spd",
                                       "enemy_single_lowest_spd",
-                                      "enemy_lowest_hp", "enemy_single_furthest"):
+                                      "enemy_lowest_hp", "enemy_single_furthest",
+                                      "enemy_single_highest_hp_ratio",
+                                      "enemy_single_highest_hp_ratio_back_priority",
+                                      "enemy_single_lowest_hp_ratio",
+                                      "enemy_single_highest_max_hp",
+                                      "enemy_single_highest_current_hp"):
                 if self.target_service:
                     # 优先从_block_damage_targets缓存获取目标（确保与damage效果目标一致）
                     cached_targets = getattr(self, '_block_damage_targets', None)
@@ -7802,7 +8202,7 @@ class SkillService:
             "perfect_evasion", "add_damage_to_attack", "add_damage",
             "ignore_defense", "ignore_shield",
             "add_fury",
-            "card_buff", "damage_link",
+            "card_buff",
             "good_luck",
             "max_hp_up",
             "dmg_invulnerable",
@@ -8124,6 +8524,23 @@ class SkillService:
                 dmg_targets,
                 key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
                                     self.target_service._get_sort_key(caster, u)),
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_highest_mark_count":
+            # 按 mark 数量降序选取（prescan 路径，与 damage 路径 L2024 分支保持一致）
+            _hmc_mark_name = effect_flags.get('mark_name', '') if effect_flags else ''
+            def _count_mark_pre(u):
+                cnt = sum(1 for d in u.debuffs
+                          if d.effect_type == SkillEffectType.MARK.value
+                          and getattr(d, 'name', '') == _hmc_mark_name)
+                cnt += sum(1 for b in u.buffs
+                           if b.effect_type == SkillEffectType.MARK.value
+                           and getattr(b, 'name', '') == _hmc_mark_name)
+                return cnt
+            best = self.target_service.select_max_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (_count_mark_pre(u), -self.target_service._get_sort_key(caster, u)),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []

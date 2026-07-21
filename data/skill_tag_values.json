@@ -24339,5 +24339,267 @@
         }
       ]
     }
+  },
+  "110071": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 15.0
+        },
+        {
+          "level": 15,
+          "value": 25.0
+        }
+      ]
+    },
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 15.0
+        },
+        {
+          "level": 3,
+          "value": 16.100000381469727
+        },
+        {
+          "level": 4,
+          "value": 18.299999237060547
+        },
+        {
+          "level": 6,
+          "value": 19.399999618530273
+        },
+        {
+          "level": 7,
+          "value": 21.600000381469727
+        },
+        {
+          "level": 9,
+          "value": 22.700000762939453
+        },
+        {
+          "level": 10,
+          "value": 25.0
+        }
+      ]
+    }
+  },
+  "120158": {
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 5.0
+        },
+        {
+          "level": 3,
+          "value": 5.53000020980835
+        },
+        {
+          "level": 4,
+          "value": 6.599999904632568
+        },
+        {
+          "level": 6,
+          "value": 7.130000114440918
+        },
+        {
+          "level": 7,
+          "value": 8.199999809265137
+        },
+        {
+          "level": 9,
+          "value": 8.729999542236328
+        },
+        {
+          "level": 10,
+          "value": 10.0
+        },
+        {
+          "level": 15,
+          "value": 15.0
+        }
+      ]
+    }
+  },
+  "120159": {
+    "shield": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 5.0
+        },
+        {
+          "level": 3,
+          "value": 5.260000228881836
+        },
+        {
+          "level": 4,
+          "value": 5.78000020980835
+        },
+        {
+          "level": 6,
+          "value": 6.039999961853027
+        },
+        {
+          "level": 7,
+          "value": 6.559999942779541
+        },
+        {
+          "level": 9,
+          "value": 6.820000171661377
+        },
+        {
+          "level": 10,
+          "value": 7.5
+        },
+        {
+          "level": 15,
+          "value": 10.0
+        }
+      ]
+    },
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 15.0
+        },
+        {
+          "level": 3,
+          "value": 15.930000305175781
+        },
+        {
+          "level": 4,
+          "value": 17.799999237060547
+        },
+        {
+          "level": 6,
+          "value": 18.729999542236328
+        },
+        {
+          "level": 7,
+          "value": 20.600000381469727
+        },
+        {
+          "level": 9,
+          "value": 21.530000686645508
+        },
+        {
+          "level": 10,
+          "value": 23.399999618530273
+        },
+        {
+          "level": 15,
+          "value": 31.799999237060547
+        }
+      ]
+    }
+  },
+  "130156": {
+    "def": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0
+        },
+        {
+          "level": 3,
+          "value": 10.380000114440918
+        },
+        {
+          "level": 4,
+          "value": 11.130000114440918
+        },
+        {
+          "level": 6,
+          "value": 11.510000228881836
+        },
+        {
+          "level": 7,
+          "value": 12.260000228881836
+        },
+        {
+          "level": 9,
+          "value": 12.630000114440918
+        },
+        {
+          "level": 10,
+          "value": 13.5
+        },
+        {
+          "level": 15,
+          "value": 17.0
+        }
+      ]
+    }
+  },
+  "130157": {
+    "hp": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 60.0
+        },
+        {
+          "level": 3,
+          "value": 62.220001220703125
+        },
+        {
+          "level": 4,
+          "value": 66.66000366210938
+        },
+        {
+          "level": 6,
+          "value": 68.87999725341797
+        },
+        {
+          "level": 7,
+          "value": 73.30999755859375
+        },
+        {
+          "level": 9,
+          "value": 75.52999877929688
+        },
+        {
+          "level": 10,
+          "value": 80.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 50.0
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        },
+        {
+          "level": 15,
+          "value": 75.0
+        }
+      ]
+    }
   }
 }

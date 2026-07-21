@@ -3764,5 +3764,95 @@
         "skill_master_id": 400215
       }
     ]
+  },
+  "20078": {
+    "memory_id": 20078,
+    "name": "眩しさに手を伸ばして",
+    "description": "わたくしは…… 皆さんと一緒にいる資格など、あるのでしょうか。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 131,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400216
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 2,
+        "skill_master_id": 400026
+      }
+    ]
+  },
+  "20079": {
+    "memory_id": 20079,
+    "name": "夢を見るのは自由",
+    "description": "次のダイエットでは必ず激痩せして……！ いえ、いきなりは難しいですから、その次とかに……",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 1,
+        "skill_master_id": 400219
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400220
+      }
+    ]
+  },
+  "30034": {
+    "memory_id": 30034,
+    "name": "浮かれた事情",
+    "description": "あはは、ぱっと見ただのヒモっぽいよね。 でもこれもちゃんとした水着だよ～",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400217
+      },
+      {
+        "character_attribute": 2,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400218
+      }
+    ]
   }
 }

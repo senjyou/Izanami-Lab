@@ -75621,5 +75621,481 @@
         ]
       }
     }
+  },
+  "400216": {
+    "skill_id": 400216,
+    "name": "HP上昇【小花】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。姜小花のHPを1500上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400219": {
+    "skill_id": 400219,
+    "name": "HP上昇【左列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。左列前衛の味方のHPを1200上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400220": {
+    "skill_id": 400220,
+    "name": "攻撃上昇【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方全体の攻撃力を150上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400217": {
+    "skill_id": 400217,
+    "name": "攻撃上昇【アグレッシブ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。アグレッシブ属性の味方の攻撃力を1500上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400218": {
+    "skill_id": 400218,
+    "name": "攻撃上昇【スマート】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。スマート属性の味方の攻撃力を1500上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "110071": {
+    "skill_id": 110071,
+    "name": "少しお行儀悪いですが……",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 9,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合が高い敵単体に対し、対象の現在HP×35%のENダメージを与える攻撃を行う。この攻撃によるダメージは自身の攻撃力×75%を上限とする。\nさらに攻撃時点で自身にAPが残っていた場合、APを1消費して対象のAPを2削る。\n自身にAPが残っていなかった場合、2行動の間対象の攻撃力を{atk}%低下させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "最もHP割合が高い敵単体に対し、対象の現在HP×35%のENダメージを与える攻撃を行う。この攻撃によるダメージは自身の攻撃力×75%を上限とする。\n加えて自身が1回行動を終えるまでの間自身と対象の間にリンクを付与し、自身が受けるダメージの{dmg}%を送り込む状態にする。\nさらに攻撃時点で自身にAPが残っていた場合、APを1消費して対象のAPを2削る。\n自身にAPが残っていなかった場合、2行動の間対象の攻撃力を{atk}%低下させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 15.0
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 18.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 19.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 21.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 22.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "120158": {
+    "skill_id": 120158,
+    "name": "たまには子供っぽく",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に付与されているダメージリンクバフを全て解除し、自身の攻撃力を{atk}%上昇させる。さらに自身に対し「暑気」を付与する（解除不可）。\nこのスキルは、以下のいずれかの場合は発動しない\n・自身のHPが50%以上の場合\n・自身が「暑気」を所持している場合"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 5.53000020980835
+          },
+          {
+            "level": 4,
+            "value": 6.599999904632568
+          },
+          {
+            "level": 6,
+            "value": 7.130000114440918
+          },
+          {
+            "level": 7,
+            "value": 8.199999809265137
+          },
+          {
+            "level": 9,
+            "value": 8.729999542236328
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "120159": {
+    "skill_id": 120159,
+    "name": "夏のせいです",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が「暑気」を所持していない場合、自身に対し1行動の間、最大HP×{shield}%のシールドを付与する。さらに敵前列に対し1行動の間、与ダメージを5%減少させるデバフを付与する（重複可）。\n自身が「暑気」を所持している場合、敵単体に威力{威力}で5ヒットEN攻撃し、与えたダメージの40%分自身のHPを回復する。この攻撃によって敵を倒した場合、追加で最大HPの7.5%分自身のHPを回復する"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 5.260000228881836
+          },
+          {
+            "level": 4,
+            "value": 5.78000020980835
+          },
+          {
+            "level": 6,
+            "value": 6.039999961853027
+          },
+          {
+            "level": 7,
+            "value": 6.559999942779541
+          },
+          {
+            "level": 9,
+            "value": 6.820000171661377
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 10.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 15.930000305175781
+          },
+          {
+            "level": 4,
+            "value": 17.799999237060547
+          },
+          {
+            "level": 6,
+            "value": 18.729999542236328
+          },
+          {
+            "level": 7,
+            "value": 20.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 21.530000686645508
+          },
+          {
+            "level": 10,
+            "value": 23.399999618530273
+          },
+          {
+            "level": 15,
+            "value": 31.799999237060547
+          }
+        ]
+      }
+    }
+  },
+  "130156": {
+    "skill_id": 130156,
+    "name": "油断は禁物ですよ",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで敵から攻撃される直前に発動。この行動内での自分の防御力を最高{def}%上昇させる。防御バフは自身のHPが多いほど高い効果を発揮する"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.380000114440918
+          },
+          {
+            "level": 4,
+            "value": 11.130000114440918
+          },
+          {
+            "level": 6,
+            "value": 11.510000228881836
+          },
+          {
+            "level": 7,
+            "value": 12.260000228881836
+          },
+          {
+            "level": 9,
+            "value": 12.630000114440918
+          },
+          {
+            "level": 10,
+            "value": 13.5
+          },
+          {
+            "level": 15,
+            "value": 17.0
+          }
+        ]
+      }
+    }
+  },
+  "130157": {
+    "skill_id": 130157,
+    "name": "わたくしがしっかりしないと",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自分の最大HPを{hp}%上昇させ（解除不可）、自身と自身以外の味方全体に対してダメージリンクを付与し、自身以外の味方が受けたダメージの{dmg}%を自身に転送する状態にする。\nこのスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 62.220001220703125
+          },
+          {
+            "level": 4,
+            "value": 66.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 68.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 73.30999755859375
+          },
+          {
+            "level": 9,
+            "value": 75.52999877929688
+          },
+          {
+            "level": 10,
+            "value": 80.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 75.0
+          }
+        ]
+      }
+    }
   }
 }

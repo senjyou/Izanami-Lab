@@ -76,6 +76,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 正義のヒーロー        | リリー・ラヴォア     |
 | #激カワ吸血鬼配信者♪    | フルート・メルヴィル   |
 | 稀代の狙撃手         | 珠瀬壬姫         |
+| 砂浜の策謀家         | 姜小花          |
 
 ## Tactical Exercise Enemies
 

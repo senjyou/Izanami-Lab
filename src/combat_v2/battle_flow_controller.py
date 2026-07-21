@@ -285,6 +285,9 @@ class BattleFlowController:
         for u in self.battlefield.get_all_units():
             for b in u.buffs + u.debuffs:
                 b.just_applied = False
+            # ダメージリンク（独立存储）も同様にjust_appliedをクリア
+            for entry in u.damage_links:
+                entry.just_applied = False
 
         round_in_turn = 0
         while True:
@@ -358,6 +361,9 @@ class BattleFlowController:
         for u in self.battlefield.get_all_units():
             for b in u.buffs + u.debuffs:
                 b.just_applied = False
+            # ダメージリンク（独立存储）も同様にjust_appliedをクリア
+            for entry in u.damage_links:
+                entry.just_applied = False
 
         # 回合结束冷却递减 (cooldown_update_timing: 1)
         snapshot = getattr(self, '_turn_start_cooldowns_snapshot', {})
@@ -1609,27 +1615,34 @@ class BattleFlowController:
                           alive_unit.name, mark.source_unit_id)
 
     def _remove_damage_link_from_dead(self, newly_dead: list) -> None:
-        """清除死亡单位相关的ダメージリンクbuff。
-        - 死亡者自身のdamage_link buffを削除
-        - 死亡者をsource_unit_idとするdamage_link buffを全ユニットから削除（双方向リンクの片側解除）
+        """清除死亡单位相关的ダメージリンク（独立存储，不属于buff/debuff）。
+
+        重构后：damage_link存储在unit.damage_links（DamageLinkEntry列表）
+        - 死亡者自身的damage_links全部清除
+        - 其他单位上partner_unit_id指向死亡者的damage_links也清除（双向同步消失）
         """
         dead_ids = {u.unit_id for u in newly_dead}
         all_units = self.battlefield.get_all_units()
         for unit in all_units:
-            # 死亡者自身のbuff削除（死亡者はaliveでない可能性があるが、buffリストは残っている）
-            to_remove = []
-            for buff in unit.buffs + unit.debuffs:
-                if buff.effect_type != "damage_link":
-                    continue
-                # 死亡者自身のbuff、または死亡者をsourceとするbuffを削除
-                if unit.unit_id in dead_ids or buff.source_unit_id in dead_ids:
-                    to_remove.append(buff.buff_id)
-                    _log.info("[DAMAGE_LINK_DEATH] %s: damage_link buff removed (buff_id=%s, source=%s, unit_dead=%s)",
-                              unit.name, buff.buff_id, buff.source_unit_id,
-                              unit.unit_id in dead_ids)
-            if to_remove:
-                unit.buffs = [b for b in unit.buffs if b.buff_id not in to_remove]
-                unit.debuffs = [b for b in unit.debuffs if b.buff_id not in to_remove]
+            # 死亡者自身的damage_links全部清除
+            if unit.unit_id in dead_ids:
+                if unit.damage_links:
+                    _log.info("[DAMAGE_LINK_DEATH] %s: removed all %d damage_link entries (unit dead)",
+                              unit.name, len(unit.damage_links))
+                    unit.damage_links = []
+                continue
+            # 其他单位上partner_unit_id指向死亡者的damage_links清除
+            to_keep = []
+            removed = 0
+            for entry in unit.damage_links:
+                if entry.partner_unit_id in dead_ids:
+                    removed += 1
+                    _log.info("[DAMAGE_LINK_DEATH] %s: damage_link removed (partner=%s dead, link_id=%s, direction=%s)",
+                              unit.name, entry.partner_unit_id, entry.link_id, entry.direction)
+                else:
+                    to_keep.append(entry)
+            if removed > 0:
+                unit.damage_links = to_keep
 
     def _remove_heal_link_from_dead(self, newly_dead: list) -> None:
         """清除死亡单位相关的回復リンクbuff。
@@ -1657,15 +1670,20 @@ class BattleFlowController:
         """DoT（炎上/毒）ダメージに対するダメージリンク転送。
         公式仕様: DoTリンクダメージはシールドで吸収不可、直接HPに適用。
         リンクダメージは再度リンクされない（再帰防止）。
+
+        重构后：从unit.damage_links读取（DamageLinkEntry列表），
+        仅处理direction="outgoing"或"bidirectional"的entry。
         """
         if dot_damage <= 0:
             return
-        damage_link_buffs = [b for b in unit.buffs + unit.debuffs if b.effect_type == "damage_link"]
-        if not damage_link_buffs:
+        # 仅处理outgoing和bidirectional方向的link
+        active_links = [dl for dl in unit.damage_links
+                        if dl.direction in ("outgoing", "bidirectional")]
+        if not active_links:
             return
         all_units = self.battlefield.get_all_units()
-        for dl in damage_link_buffs:
-            linker = next((u for u in all_units if u.unit_id == dl.source_unit_id), None)
+        for dl in active_links:
+            linker = next((u for u in all_units if u.unit_id == dl.partner_unit_id), None)
             if linker and linker.is_alive and linker.unit_id != unit.unit_id:
                 transfer_dmg = int(dot_damage * dl.value / 100)
                 if transfer_dmg <= 0:
@@ -3947,6 +3965,9 @@ class BattleFlowController:
         for u in self.battlefield.get_all_units():
             for b in u.buffs + u.debuffs:
                 b.just_applied = False
+            # ダメージリンク（独立存储）も同様にjust_appliedをクリア
+            for entry in u.damage_links:
+                entry.just_applied = False
         # 统一清理已过期的buff/debuff
         self.aura_service.check_expiration(unit, self.battlefield.get_all_units())
 
