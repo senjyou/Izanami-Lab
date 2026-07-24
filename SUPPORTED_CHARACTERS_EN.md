@@ -81,6 +81,12 @@ The simulator currently supports a limited set of characters. More will be added
 | クリスマスコーデの参謀    | 姫川泉花         |
 | 大吉ハッピーニューイヤー   | 朽葉ラミ         |
 | 新春のメイズ研究者      | 月ヶ瀬ちゆる       |
+| 雪山もこもこ少女       | ジュリー・ステイシー   |
+| みんなを見守る山ガール    | 黒森ラウラ        |
+| 連れ添い歩む傍らの友     | リュシー・ムーアクロフト |
+| ドメスティックなリーダー   | 榊千鶴          |
+| ダウナーギャルな副委員長   | カリナ・ジェンティーレ  |
+| ポンコツいいんちょ      | 大賀真桜         |
 
 ## Tactical Exercise Enemies
 

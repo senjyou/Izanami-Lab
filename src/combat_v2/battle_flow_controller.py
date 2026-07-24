@@ -1538,6 +1538,17 @@ class BattleFlowController:
                     _log.info("[ATTACKER_ACTION_CLEANUP] %s: %s %s removed (attacker %s action ended)",
                               unit.name, 'debuff' if buff.is_debuff else 'buff',
                               buff.effect_type, attacker.name)
+            # block_buff_by_type with triggered_by_attacker cleanup:
+            # PS触发的block_debuffs(buff_block)在攻击者行动结束时清除（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
+            # 这些buff的source_unit_id是PS持有者而非攻击者，通过triggered_by_attacker匹配
+            for buff in unit.debuffs:
+                if (buff.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value
+                        and getattr(buff, 'triggered_by_attacker', '') == attacker.unit_id
+                        and getattr(buff, 'original_duration_type', '') == 'attacker_action'
+                        and buff.buff_id not in to_remove):
+                    to_remove.append(buff.buff_id)
+                    _log.info("[BLOCK_DEBUFFS_CLEANUP] %s: block_buff_by_type removed (attacker %s action ended)",
+                              unit.name, attacker.name)
 
             # 新版cover/guard特殊机制清理：清理所有设置了cover_target的单位
             # cover/guard在攻击者行动结束时全部清理（不分来源，因为cover的持续时间就是攻击者行动）

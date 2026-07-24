@@ -495,7 +495,10 @@ class TargetService:
         if r_type == DisplayTargetRange.ONE_PAWN:
             # ステルス消費：第一優先対象がステルス所持時、末尾に移動してステルス消費
             # (S6 土雷 220362: stealth 2 actions → 2回の単体攻撃対象選択を回避)
-            self.apply_stealth_redirection(ordered, consume=True)
+            # 仅当候选单位与施法者不同阵营时才触发stealth（敌方攻击触发）
+            # 同阵营目标（自身/友方）不触发stealth，避免PS2(130130)自身HOT/減傷付与时消耗stealth
+            if ordered and ordered[0].side != caster.side:
+                self.apply_stealth_redirection(ordered, consume=True)
             return [ordered[0]]
 
         elif r_type == DisplayTargetRange.LINE:
@@ -538,6 +541,12 @@ class TargetService:
             if target_type_name == 'enemy_back_row':
                 result = [u for u in candidates if self._is_back_row(u)]
                 _log.info("[TARGET]   LINE: enemy_back_row explicit -> force BACK row (%d units)",
+                          len(result))
+                return result
+            # 显式检查 enemy_front_row（如 ルミナス・ガード 130110 Lv11+ 敵前衛デバフ）
+            if target_type_name == 'enemy_front_row':
+                result = [u for u in candidates if self._is_front_row(u)]
+                _log.info("[TARGET]   LINE: enemy_front_row explicit -> force FRONT row (%d units)",
                           len(result))
                 return result
             # 默认行为：按anchor所在排选择
@@ -652,9 +661,14 @@ class TargetService:
                               unit.name, b.duration)
                     return True
                 elif dur_type == 'skill':
-                    # 技能制（未来）：技能结束时 duration-1，此处仅标记触发
-                    _log.info("[STEALTH_CONSUME] %s: skill-based stealth triggered, duration will decay on skill end (%d)",
-                              unit.name, b.duration)
+                    # 技能制（如130130 風紀委員長としての矜持）：被选为主目标时消耗1点duration
+                    # duration到0时移除buff，stealth消失
+                    b.duration -= 1
+                    _log.info("[STEALTH_CONSUME] %s: skill-based stealth triggered, duration %d->%d",
+                              unit.name, b.duration + 1, b.duration)
+                    if b.duration <= 0:
+                        unit.buffs.remove(b)
+                        _log.info("[STEALTH_CONSUME] %s: skill-based stealth EXPIRED (duration=0)", unit.name)
                     return True
                 else:
                     # 兜底：未知 duration_type，按行动制处理（不消耗）

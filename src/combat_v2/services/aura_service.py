@@ -38,6 +38,18 @@ class AuraService:
                               unit.name, aura.effect_type, db.block_status_list)
                     return False
 
+        # 1.3 block_debuffs 检查: 目标持有 BLOCK_BUFF_BY_TYPE debuff 且 block_debuffs=True 时，
+        # 阻止全 debuff 新付与 (如141301 風紀委員会の管轄だよ～ L11+ デバフ無効)
+        # 仅阻止 debuff (is_debuff=True)，不影响 buff 付与
+        if aura.effect_type != SkillEffectType.BLOCK_BUFF_BY_TYPE.value and aura.is_debuff:
+            for db in unit.debuffs:
+                if (db.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value
+                        and db.duration != 0
+                        and getattr(db, 'block_debuffs', False)):
+                    _log.info("[BLOCK_DEBUFFS] %s: %s blocked by BlockBuffByType debuff (block_debuffs=True)",
+                              unit.name, aura.effect_type)
+                    return False
+
         # 标记：当次行动中由add_aura处理的buff，process_maneuver_end跳过递减
         aura.just_applied = True
 
@@ -426,6 +438,22 @@ class AuraService:
                     unit.debuffs.remove(lb)
                     _log.info("[LINKED_BUFF] %s: linked debuff %s removed (triggered by %s expiration)",
                               unit.name, lb.name, removed_buff.name)
+            # 反向linked: 当buff消失时，移除所有linked_buff_id指向该buff的effect_type的其他buff
+            # （如stealth消失时，linked_buff_id="Stealth"的HOT/dmg_taken_down连动消失）
+            removed_effect_type = removed_buff.effect_type
+            if removed_effect_type:
+                reverse_linked_buffs = [b for b in unit.buffs
+                                       if getattr(b, 'linked_buff_id', '') == removed_effect_type]
+                reverse_linked_debuffs = [d for d in unit.debuffs
+                                         if getattr(d, 'linked_buff_id', '') == removed_effect_type]
+                for lb in reverse_linked_buffs:
+                    unit.buffs.remove(lb)
+                    _log.info("[LINKED_BUFF_REVERSE] %s: buff %s removed (linked to %s expiration, effect_type=%s)",
+                              unit.name, lb.name, removed_buff.name, removed_effect_type)
+                for ld in reverse_linked_debuffs:
+                    unit.debuffs.remove(ld)
+                    _log.info("[LINKED_BUFF_REVERSE] %s: debuff %s removed (linked to %s expiration, effect_type=%s)",
+                              unit.name, ld.name, removed_buff.name, removed_effect_type)
 
         # 检查linked_mark联动：当mark消失时，linked到该mark的buff/debuff也消失
         for removed_buff in expired_buffs + expired_debuffs:

@@ -672,6 +672,27 @@ class DamageService:
                 unit.buffs, unit.debuffs, target_type, damage_element, unit=unit, attacker=attacker)
         else:
             net = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_type, unit=unit, attacker=attacker)
+
+        # 条件性dmg_taken_down buff：根据攻击者与受击者HP比例关系决定是否生效
+        # - attacker_hp_ratio_gt_self: 仅当攻击者HP比例高于受击者时生效 (130103)
+        # 不满足条件时需从net中扣除（_aggregate已加入）
+        if attacker is not None:
+            self_hp_pct = unit.current_hp / unit.max_hp if unit.max_hp > 0 else 0
+            attacker_hp_pct = attacker.current_hp / attacker.max_hp if attacker.max_hp > 0 else 0
+            for buff in unit.buffs:
+                if buff.effect_type == target_type:
+                    # 属性过滤
+                    buff_elem = getattr(buff, 'damage_element', 0)
+                    if damage_element != 0 and buff_elem != 0 and buff_elem != damage_element:
+                        continue
+                    # attacker_hp_ratio_gt_self: 攻击者HP比例 > 自身HP比例 时生效
+                    if getattr(buff, 'attacker_hp_ratio_gt_self', False):
+                        if attacker_hp_pct <= self_hp_pct:
+                            val = self._normalize_buff_value(buff)
+                            net -= val  # buff値は减伤(負値)，netから引くことで无効化
+                            _log.info("[DMG_RCVD_COND] %s: %s skipped (attacker hp_pct=%.4f <= self=%.4f)",
+                                      unit.name, buff.name, attacker_hp_pct, self_hp_pct)
+
         result = max(0.0, 1.0 - net)
         _log.info("[DEBUG_RCVD] %s: net=%.4f result=%.4f",
                   unit.name, net, result)

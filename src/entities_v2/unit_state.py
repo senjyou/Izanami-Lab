@@ -58,6 +58,7 @@ class BuffState:
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
     block_status_count: int = 0  # BlockSpecificAura专用: 阻止状态异常次数限制，0=无限制，>0=阻止N个状态后消耗
+    block_debuffs: bool = False  # BlockBuffByType扩展: True=阻止全debuff新付与（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
     skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」)
     just_applied: bool = False  # 当次行动中由add_aura施加/刷新/忽略的buff标记，process_maneuver_end跳过递减

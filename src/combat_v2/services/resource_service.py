@@ -89,11 +89,17 @@ class ResourceService:
             for d in unit.debuffs:
                 if d.effect_type == SkillEffectType.EP_GAIN_DOWN.value:
                     reduction_pct = max(reduction_pct, d.value)
-        effective_amount = amount * (1.0 - reduction_pct / 100.0)
+        # EpGainUp buff: EP获取量增加（百分比），与EpGainDown对称，MAX集计
+        increase_pct = 0.0
+        if apply_ep_gain_down:
+            for b in unit.buffs:
+                if b.effect_type == SkillEffectType.EP_GAIN_UP.value:
+                    increase_pct = max(increase_pct, b.value)
+        effective_amount = amount * (1.0 - reduction_pct / 100.0) * (1.0 + increase_pct / 100.0)
         unit.current_ep = min(unit.current_ep + effective_amount, cap)
-        if reduction_pct > 0:
-            _log.info("[RESOURCE] %s generate_ep: %g -> %g (+%g base=%d ep_gain_down=-%.0f%%, cap=%d)",
-                      unit.name, old, unit.current_ep, unit.current_ep - old, amount, reduction_pct, cap)
+        if reduction_pct > 0 or increase_pct > 0:
+            _log.info("[RESOURCE] %s generate_ep: %g -> %g (+%g base=%d ep_gain_down=-%.0f%% ep_gain_up=+%.0f%%, cap=%d)",
+                      unit.name, old, unit.current_ep, unit.current_ep - old, amount, reduction_pct, increase_pct, cap)
         else:
             _log.info("[RESOURCE] %s generate_ep: %d -> %d (+%d, cap=%d)",
                       unit.name, old, unit.current_ep, unit.current_ep - old, cap)

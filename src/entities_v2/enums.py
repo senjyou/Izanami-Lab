@@ -264,8 +264,9 @@ class SkillEffectType(Enum):
     SERVER_SCRIPT_INSTANT = "ServerScriptInstant"     # 28: 服务器瞬时脚本
     SERVER_SCRIPT_AURA = "ServerScriptAura"           # 29: 服务器状态脚本
     
-    # EP获取量减少
+    # EP获取量减少/增加
     EP_GAIN_DOWN = "EpGainDown"                       # EP获取量减少debuff
+    EP_GAIN_UP = "EpGainUp"                           # EP获取量增加buff (如141301 包囲かんりょ～)
 
     @property
     def is_static_debuff(self) -> bool:
