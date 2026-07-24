@@ -26,6 +26,7 @@ TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "on_turn_end": TriggerTiming.TURN_END,
     "on_ally_killed": TriggerTiming.PAWN_DIED,
     "on_linked_enemy_killed": TriggerTiming.PAWN_DIED,
+    "on_pawn_died": TriggerTiming.PAWN_DIED,
     "on_kill": TriggerTiming.PAWN_KILLED,
     "on_any_kill": TriggerTiming.PAWN_ANY_KILL,
     "on_critical": TriggerTiming.PAWN_CAUSED_CRITICAL,
@@ -330,12 +331,14 @@ class TriggerService:
 
     def trigger_pawn_caused_critical(self, caster: UnitState,
                                      battlefield: BattlefieldState,
-                                     count: int = 1) -> List[TriggerAction]:
+                                     count: int = 1,
+                                     crit_target: Optional[UnitState] = None) -> List[TriggerAction]:
         caster.crit_counter += count
         _log.info("[TRIGGER] %s: crit_counter += %d => %d", caster.name, count, caster.crit_counter)
         ctx = TriggerContext(
             TriggerTiming.PAWN_CAUSED_CRITICAL, battlefield,
             actor=caster,
+            primary_target=crit_target,
         )
         return self.check_triggers(TriggerTiming.PAWN_CAUSED_CRITICAL, ctx)
 
@@ -1098,6 +1101,10 @@ class TriggerService:
             if trigger_type == "on_ally_killed":
                 return (owner.side == context.targets[0].side and
                         owner.unit_id not in {t.unit_id for t in context.targets})
+            # on_pawn_died → trigger when any unit (enemy or ally) dies except owner
+            # 如 130101 お清め「敵または他の味方が倒された際に発動」
+            if trigger_type == "on_pawn_died":
+                return owner.unit_id not in {t.unit_id for t in context.targets}
             # on_linked_enemy_killed → 敵方かつダメージリンク保持者が死亡した時
             # 重构后：检查死亡者的damage_links字段（独立存储，不属于buff/debuff）
             if trigger_type == "on_linked_enemy_killed":

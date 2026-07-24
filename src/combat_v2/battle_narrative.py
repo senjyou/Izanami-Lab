@@ -231,14 +231,55 @@ class BattleNarrativeWriter:
     def damage_link_transfer(self, source_target_name: str, linker_name: str,
                               transfer_dmg: int, hp_before: int, hp_after: int, max_hp: int,
                               damage_type: str, link_value: float, source_total_damage: int,
-                              shield_absorbed: int = 0):
+                              shield_absorbed: int = 0,
+                              source_hp_restored: int = 0, source_hp_before: int = 0,
+                              source_hp_after: int = 0, source_max_hp: int = 0,
+                              direction: str = "outgoing"):
         """ダメージリンク転送の叙事ログ出力
 
         source_total_damage: 源目标承受的总伤害（HP损失+盾吸收+子单位吸收）
+        source_hp_restored: 伤害转移模式下源目标回退的HP量（outgoing方向）
+        direction: "outgoing"(伤害转移) / "bidirectional"(伤害复制)
         """
         shield_info = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
-        self._add(f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
-                  f"{transfer_dmg} 点{damage_type}链接伤害 (源总伤害:{source_total_damage} × {link_value:.0f}%){shield_info}")
+        line = (f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
+                f"{transfer_dmg} 点{damage_type}链接伤害 (源总伤害:{source_total_damage} × {link_value:.0f}%){shield_info}")
+        # outgoing方向（伤害转移）：输出源目标HP回退信息
+        if direction == "outgoing" and source_hp_restored > 0:
+            line += (f" [伤害转移] {source_target_name} HP回复{source_hp_restored} "
+                     f"(HP:{source_hp_after}/{source_max_hp})")
+        self._add(line)
+
+    def damage_link_applied(self, source_name: str, target_name: str, partner_name: str,
+                             link_value: float, duration: int, duration_type: str,
+                             link_mode: str, unremovable: bool = False):
+        """ダメージリンク付与の叙事ログ出力
+
+        source_name: 施放damage_link的单位（PS持有者）
+        target_name: 被付与link的单位（伤害来源方）
+        partner_name: link的目标方（伤害接收方）
+        link_mode: "to_caster" / "to_primary_target" / "bidirectional"
+        """
+        # 根据link_mode生成描述
+        if link_mode == "to_caster":
+            desc = f"{target_name}が受けたダメージの{link_value:.0f}%を{partner_name}に転送"
+        elif link_mode == "to_primary_target":
+            desc = f"{target_name}が受けたダメージの{link_value:.0f}%を{partner_name}に送り込む"
+        elif link_mode == "bidirectional":
+            desc = f"{target_name}と{partner_name}が受けたダメージの{link_value:.0f}%を共有"
+        else:
+            desc = f"ダメージリンク付与({link_value:.0f}%)"
+
+        # 持续时间描述
+        if duration < 0:
+            dur_desc = "永続"
+        elif duration_type == "turn":
+            dur_desc = f"{duration}ターン"
+        else:
+            dur_desc = f"{duration}行動"
+
+        unremovable_tag = " [解除不可]" if unremovable else ""
+        self._add(f"  [伤害链接] {source_name} → {target_name}: {desc} ({dur_desc}){unremovable_tag}")
 
     def reflect_damage_transfer(self, coverer_name: str, attacker_name: str,
                                  reflect_dmg: int, hp_before: int, hp_after: int, max_hp: int,

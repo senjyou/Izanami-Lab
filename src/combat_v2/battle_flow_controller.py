@@ -624,8 +624,9 @@ class BattleFlowController:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_tgt = entry[3] if len(entry) > 3 else None
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(
-                                c, bf, count=crit_count)
+                                c, bf, count=crit_count, crit_target=crit_tgt)
                             phase1_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
 
@@ -767,8 +768,9 @@ class BattleFlowController:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_tgt = entry[3] if len(entry) > 3 else None
                             crit_actions = self.trigger_service.trigger_pawn_caused_critical(
-                                c, bf, count=crit_count)
+                                c, bf, count=crit_count, crit_target=crit_tgt)
                             phase1_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
 
@@ -1137,7 +1139,8 @@ class BattleFlowController:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            crit_tgt = entry[3] if len(entry) > 3 else None
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
                             phase1_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
 
@@ -1285,7 +1288,8 @@ class BattleFlowController:
                         for entry in list(self._deferred_crit_triggers):
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            crit_tgt = entry[3] if len(entry) > 3 else None
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
                             phase1_actions.extend(crit_actions)
                         self._deferred_crit_triggers = []
                     # 技能使用次数触发PS属于Phase1b（幻惑/混乱中はcheck_triggersでスキップ）
@@ -1566,9 +1570,10 @@ class BattleFlowController:
             for entry in triggers_to_execute:
                 c, bf = entry[0], entry[1]
                 crit_count = entry[2] if len(entry) > 2 else 1
+                crit_tgt = entry[3] if len(entry) > 3 else None
                 # 一个技能内即使多hit暴击，PS也只触发1次
                 # 但crit_counter按暴击hit数累加（影响crit_count_mod条件判断）
-                crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
                 self._execute_trigger_actions(crit_actions, source_unit)
 
     def _on_deaths_resolved(self, newly_dead: list) -> None:
@@ -1673,6 +1678,9 @@ class BattleFlowController:
 
         重构后：从unit.damage_links读取（DamageLinkEntry列表），
         仅处理direction="outgoing"或"bidirectional"的entry。
+
+        【伤害转移】outgoing方向（to_caster/to_primary_target）：源目标回退HP
+        bidirectional方向（「共有」）：伤害复制，源目标不回退
         """
         if dot_damage <= 0:
             return
@@ -1688,12 +1696,44 @@ class BattleFlowController:
                 transfer_dmg = int(dot_damage * dl.value / 100)
                 if transfer_dmg <= 0:
                     continue
+
+                # 【伤害转移】outgoing方向：源目标回退HP（DoT伤害转移）
+                # 回退量 = 实际HP损失 - 应该HP损失
+                #   实际HP损失 = dot_damage（DoT造成的HP损失）
+                #   应该HP损失 = min(剩余伤害, hp_before)（转移后源目标应承受的HP损失）
+                #   剩余伤害 = dot_damage - transfer_dmg
+                source_hp_restored = 0
+                if dl.direction == "outgoing":
+                    remaining_dot_dmg = dot_damage - transfer_dmg
+                    source_expected_hp_loss = min(remaining_dot_dmg, unit.current_hp + dot_damage)
+                    source_hp_restored = dot_damage - source_expected_hp_loss
+                    if source_hp_restored > 0:
+                        unit.current_hp = min(unit.max_hp, unit.current_hp + source_hp_restored)
+                        unit.damage_taken_total -= source_hp_restored
+                        unit.cumulative_hp_damage -= source_hp_restored
+                        _log.info("[DAMAGE_LINK_DOT_TRANSFER] %s: HP restored %d (transfer mode, %.0f%%), hp %d->%d, remaining_dmg=%d",
+                                  unit.name, source_hp_restored, dl.value,
+                                  unit.current_hp - source_hp_restored, unit.current_hp, remaining_dot_dmg)
+
                 # DoTリンクダメージはシールド吸収不可、直接HP減少
                 linker.current_hp = max(0, linker.current_hp - transfer_dmg)
                 linker.damage_taken_total += transfer_dmg
+                # 累计伤害更新（用于触发on_cumulative_damage类PS）
+                linker.cumulative_hp_damage += transfer_dmg
                 _log.info("[DAMAGE_LINK_DOT] %s -> %s: transferred %d dmg (DoT, %.0f%% of %d), linker hp %d->%d",
                           unit.name, linker.name, transfer_dmg, dl.value,
                           dot_damage, linker.current_hp + transfer_dmg, linker.current_hp)
+
+                # DoT链接伤害叙事日志输出
+                if self.narrative:
+                    source_dname = self._get_display_name(unit)
+                    linker_dname = self._get_display_name(linker)
+                    line = (f"  [链接伤害] {source_dname} → {linker_dname} (HP:{linker.current_hp}/{linker.max_hp}): "
+                            f"{transfer_dmg} 点DoT链接伤害 (源DoT伤害:{dot_damage} × {dl.value:.0f}%)")
+                    if source_hp_restored > 0:
+                        line += (f" [伤害转移] {source_dname} HP回复{source_hp_restored} "
+                                 f"(HP:{unit.current_hp}/{unit.max_hp})")
+                    self.narrative._add(line)
 
     def _on_death_narrative_complete(self, newly_dead: list) -> None:
         """死亡通知叙事输出完毕后的钩子。子类可覆写此方法输出复活等叙事。
@@ -2843,6 +2883,11 @@ class BattleFlowController:
                         link_value=dl_transfer["link_value"],
                         source_total_damage=dl_transfer["source_total_damage"],
                         shield_absorbed=dl_transfer["shield_absorbed"],
+                        source_hp_restored=dl_transfer.get("source_hp_restored", 0),
+                        source_hp_before=dl_transfer.get("source_hp_before", 0),
+                        source_hp_after=dl_transfer.get("source_hp_after", 0),
+                        source_max_hp=dl_transfer.get("source_max_hp", 0),
+                        direction=dl_transfer.get("direction", "outgoing"),
                     )
                 # 反射ダメージ叙事ログ出力
                 for r_transfer in applied.get("reflect_transfers", []):
@@ -3119,6 +3164,32 @@ class BattleFlowController:
                             target_dname, -delta,
                             applied.get("new_pp", caster.current_pp),
                             caster.initial_passive_point, caster_dname)
+            elif applied.get("effect_type") == "damage_link":
+                # ダメージリンク付与叙事日志出力
+                link_mode = applied.get("link_mode", "to_caster")
+                duration = applied.get("duration", -1)
+                duration_type = applied.get("duration_type", "")
+                unremovable = applied.get("unremovable", False)
+                for a in applied.get("applied", []):
+                    target_dname = self._get_display_name(a.get('target_id'))
+                    partner_dname = self._get_display_name(a.get('partner_id'))
+                    self.narrative.damage_link_applied(
+                        source_name=caster_dname,
+                        target_name=target_dname,
+                        partner_name=partner_dname,
+                        link_value=a.get('value', 0),
+                        duration=duration,
+                        duration_type=duration_type,
+                        link_mode=link_mode,
+                        unremovable=unremovable,
+                    )
+            elif applied.get("effect_type") == "remove_damage_links":
+                # ダメージリンク解除叙事日志出力
+                removed_count = applied.get("removed_count", 0)
+                if removed_count > 0:
+                    for a in applied.get("removed", []):
+                        target_dname = self._get_display_name(a.get('target_id'))
+                        self.narrative._add(f"  [伤害链接解除] {target_dname}: 解除伤害链接 (方向:{a.get('direction', '?')})")
 
         for ps_result in skill_result.get("inline_ps_results", []):
             trigger_timing = ps_result.get("trigger_timing", "")

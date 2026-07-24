@@ -565,6 +565,16 @@ class AuraService:
                 if incoming_type in blocked:
                     _log.info("[BLOCK_SPECIFIC_AURA] %s: %s blocked by BlockSpecificAura (block_status=%s)",
                               unit.name, aura.effect_type, b.block_status_list)
+                    # block_status_count > 0: 阻止N个状态异常后消耗（如130095 セルフ・プロデュース「1つ無効」语义）
+                    # 每次成功阻止1个状态异常就递减1，到0时移除buff
+                    if getattr(b, 'block_status_count', 0) > 0:
+                        b.block_status_count -= 1
+                        _log.info("[BLOCK_SPECIFIC_AURA] %s: block_status_count %d->%d",
+                                  unit.name, b.block_status_count + 1, b.block_status_count)
+                        if b.block_status_count <= 0:
+                            unit.buffs = [x for x in unit.buffs if x.buff_id != b.buff_id]
+                            _log.info("[BLOCK_SPECIFIC_AURA] %s: BlockSpecificAura EXPIRED (block_status_count reached 0)",
+                                      unit.name)
                     return True
         return False
 

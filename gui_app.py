@@ -7602,19 +7602,21 @@ class TacticalExerciseTab(ttk.Frame):
         enemy_units = {uid: s for uid, s in unit_stats.items() if s.get("side") == "enemy"}
 
         if tables is not None:
-            # 角色明细用 Treeview 表格呈现
-            columns = ["角色", "造成伤害", "受到伤害", "提供回复"]
-            col_widths = [135, 120, 120, 120]
-            col_aligns = ["w", "e", "e", "e"]
+            # 角色明细用 Treeview 表格呈现（含存活/阵亡状态）
+            columns = ["角色", "造成伤害", "受到伤害", "提供回复", "状态"]
+            col_widths = [135, 120, 120, 120, 50]
+            col_aligns = ["w", "e", "e", "e", "center"]
 
             if ally_units:
                 ally_rows = []
                 for uid, s in ally_units.items():
                     name = s.get("name", uid)[:18]
+                    status = "存活" if s.get("alive") else "阵亡"
                     ally_rows.append([name,
                                       f"{s.get('damage_dealt', 0):,}",
                                       f"{s.get('damage_received', 0):,}",
-                                      f"{s.get('hp_healed', 0):,}"])
+                                      f"{s.get('hp_healed', 0):,}",
+                                      status])
                 tables.append({"title": "我方角色明细", "columns": columns,
                                "rows": ally_rows, "col_widths": col_widths,
                                "col_aligns": col_aligns})
@@ -7623,29 +7625,33 @@ class TacticalExerciseTab(ttk.Frame):
                 enemy_rows = []
                 for uid, s in enemy_units.items():
                     name = s.get("name", uid)[:18]
+                    status = "存活" if s.get("alive") else "阵亡"
                     enemy_rows.append([name,
                                        f"{s.get('damage_dealt', 0):,}",
                                        f"{s.get('damage_received', 0):,}",
-                                       f"{s.get('hp_healed', 0):,}"])
+                                       f"{s.get('hp_healed', 0):,}",
+                                       status])
                 tables.append({"title": "敌方角色明细", "columns": columns,
                                "rows": enemy_rows, "col_widths": col_widths,
                                "col_aligns": col_aligns})
         else:
-            # 回退：以文本形式输出角色明细
+            # 回退：以文本形式输出角色明细（含存活/阵亡状态）
             if ally_units:
                 out.append(f"  【我方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'状态':>6}")
                 for uid, s in ally_units.items():
                     name = s.get("name", uid)[:18]
-                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    status = "存活" if s.get("alive") else "阵亡"
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,} {status:>6}")
 
             if enemy_units:
                 out.append(f"")
                 out.append(f"  【敌方角色明细】")
-                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12}")
+                out.append(f"    {_cjk_fit('角色', 20)} {'造成伤害':>12} {'受到伤害':>12} {'提供回复':>12} {'状态':>6}")
                 for uid, s in enemy_units.items():
                     name = s.get("name", uid)[:18]
-                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,}")
+                    status = "存活" if s.get("alive") else "阵亡"
+                    out.append(f"    {_cjk_fit(name, 20)} {s['damage_dealt']:>12,} {s['damage_received']:>12,} {s['hp_healed']:>12,} {status:>6}")
 
         out.append("─" * 60)
 
@@ -7704,7 +7710,7 @@ class TacticalExerciseTab(ttk.Frame):
         # 存储导出所需的上下文
         self._score_stats_cache = score_stats
 
-        # 角色明细表格（场均）：聚合 all_unit_stats
+        # 角色明细表格（场均）：聚合 all_unit_stats（含存活率）
         if tables is not None:
             all_unit_stats = score_stats.get("all_unit_stats", [])
             if all_unit_stats:
@@ -7716,22 +7722,31 @@ class TacticalExerciseTab(ttk.Frame):
                         target = ally_agg if side == "ally" else enemy_agg
                         if uid not in target:
                             target[uid] = {"name": s.get("name", uid),
-                                           "damage_dealt": 0, "damage_received": 0, "hp_healed": 0}
+                                           "damage_dealt": 0, "damage_received": 0,
+                                           "hp_healed": 0, "survivals": 0, "deaths": 0}
                         target[uid]["damage_dealt"] += s.get("damage_dealt", 0)
                         target[uid]["damage_received"] += s.get("damage_received", 0)
                         target[uid]["hp_healed"] += s.get("hp_healed", 0)
+                        if s.get("alive"):
+                            target[uid]["survivals"] += 1
+                        else:
+                            target[uid]["deaths"] += 1
 
-                columns = ["角色", "造成伤害", "受到伤害", "提供回复"]
-                col_widths = [135, 120, 120, 120]
-                col_aligns = ["w", "e", "e", "e"]
+                columns = ["角色", "造成伤害", "受到伤害", "提供回复", "存活率"]
+                col_widths = [135, 120, 120, 120, 70]
+                col_aligns = ["w", "e", "e", "e", "center"]
 
                 if ally_agg:
                     ally_rows = []
                     for uid, s in ally_agg.items():
+                        surv = s["survivals"]
+                        death = s["deaths"]
+                        sr = surv / (surv + death) * 100 if (surv + death) else 0
                         ally_rows.append([s["name"][:18],
                                           f"{s['damage_dealt'] / n:,.1f}",
                                           f"{s['damage_received'] / n:,.1f}",
-                                          f"{s['hp_healed'] / n:,.1f}"])
+                                          f"{s['hp_healed'] / n:,.1f}",
+                                          f"{sr:.1f}%"])
                     tables.append({"title": "我方角色明细(场均)", "columns": columns,
                                    "rows": ally_rows, "col_widths": col_widths,
                                    "col_aligns": col_aligns})
@@ -7739,10 +7754,14 @@ class TacticalExerciseTab(ttk.Frame):
                 if enemy_agg:
                     enemy_rows = []
                     for uid, s in enemy_agg.items():
+                        surv = s["survivals"]
+                        death = s["deaths"]
+                        sr = surv / (surv + death) * 100 if (surv + death) else 0
                         enemy_rows.append([s["name"][:18],
                                            f"{s['damage_dealt'] / n:,.1f}",
                                            f"{s['damage_received'] / n:,.1f}",
-                                           f"{s['hp_healed'] / n:,.1f}"])
+                                           f"{s['hp_healed'] / n:,.1f}",
+                                           f"{sr:.1f}%"])
                     tables.append({"title": "敌方角色明细(场均)", "columns": columns,
                                    "rows": enemy_rows, "col_widths": col_widths,
                                    "col_aligns": col_aligns})

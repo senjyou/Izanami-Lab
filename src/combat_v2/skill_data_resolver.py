@@ -182,6 +182,10 @@ class SkillDataResolver:
                     min_level = block_condition.get('value', 0)
                     if skill_level < min_level:
                         continue
+                elif block_condition.get('type') == 'active_level_max':
+                    max_level = block_condition.get('value', 0)
+                    if skill_level > max_level:
+                        continue
 
             level_min = block_data.get('level_min')
             if level_min is not None and skill_level < level_min:

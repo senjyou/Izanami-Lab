@@ -290,6 +290,9 @@ class SkillService:
             # 保存外层技能的_last_primary_target，防止内层execute_skill覆盖
             saved_last_primary_target = getattr(self, '_last_primary_target', None)
 
+            # 保存外层技能的_last_heal_targets，防止内层execute_skill覆盖
+            saved_last_heal_targets = list(getattr(self, '_last_heal_targets', []))
+
             # 保存外层技能的_original_primary_target，防止内层execute_skill覆盖
             saved_original_primary_target = getattr(self, '_original_primary_target', None)
 
@@ -365,6 +368,9 @@ class SkillService:
 
             # 恢复外层技能的_last_primary_target
             self._last_primary_target = saved_last_primary_target
+
+            # 恢复外层技能的_last_heal_targets
+            self._last_heal_targets = saved_last_heal_targets
 
             # 恢复外层技能的_original_primary_target
             self._original_primary_target = saved_original_primary_target
@@ -746,6 +752,7 @@ class SkillService:
         self._most_recent_damage = 0  # 技能级别：累计该技能所有damage block的伤害，供lifesteal等使用
         self._original_primary_target = None  # 技能级别：第一个damage效果的原始主目标（cover替换前），供after_as_attacked等触发器使用
         self._last_primary_target = None  # 技能级别：前序block的主攻击目标（跨block引用），防止上一个技能的残留值影响当前技能
+        self._last_heal_targets = []  # 技能级别：前序heal block的治疗目标（跨block引用，供healed_target identifier使用）
         self._hp_consumed = 0  # 技能级别：consume_hp消费的HP量，供heal_base=consume_hp和累計傷害チェック使用
         self._per_hit_hp_losses = {}  # 技能级别：各目标的per-hit HP损失列表，供累计伤害per-hit检查使用
         self._per_target_enchant_cache = None  # 技能级别：per-target附魔伤害缓存，由_prepare_enchant_buffs_for_damage_effect初始化
@@ -2360,9 +2367,10 @@ class SkillService:
                         for entry in self._pending_crit_triggers:
                             c, bf = entry[0], entry[1]
                             crit_count = entry[2] if len(entry) > 2 else 1
+                            crit_tgt = entry[3] if len(entry) > 3 else None
                             # 一个技能内即使多hit暴击，PS也只触发1次
                             # 但crit_counter按暴击hit数累加（影响crit_count_mod条件判断）
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count)
+                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
                             self._execute_trigger_actions_inline(crit_actions, bf, trigger_timing="pawn_caused_critical")
                     finally:
                         self._recursion_guard = False
@@ -3696,7 +3704,8 @@ class SkillService:
             if dmg_result.is_critical and self.trigger_service and not self._recursion_guard:
                 # 按暴击hit数累加，而非每个目标只算1次
                 crit_hit_count = sum(1 for c in dmg_result.hit_crits if c) if dmg_result.hit_crits else 1
-                deferred_crit_actions.append((caster, battlefield, crit_hit_count))
+                # 暴击目标を同時に記録（PS 130096等のon_critical PSがcrit_targetを使用するため）
+                deferred_crit_actions.append((caster, battlefield, crit_hit_count, target))
 
             if dmg_result.is_critical and self._on_crit_blocks:
                 # 延迟执行on_crit块：记录暴击目标，在所有正常block执行完毕后再执行
@@ -3820,6 +3829,58 @@ class SkillService:
                         transfer_dmg = int(source_total_dmg * dl.value / 100)
                         if transfer_dmg <= 0:
                             continue
+
+                        # 【伤害转移】outgoing方向（to_caster/to_primary_target）：源目标回退HP
+                        # 语义：「転送」/「送り込む」= 部分伤害转移，源目标只承受剩余伤害
+                        # bidirectional方向（「共有」）：伤害复制，源目标不回退
+                        #
+                        # 回退量计算：回退量 = 实际HP损失 - 应该HP损失
+                        #   实际HP损失 = hp_before - hp_after（原始伤害造成的HP损失）
+                        #   应该HP损失 = min(剩余伤害, hp_before)（转移后源目标应承受的HP损失）
+                        #   剩余伤害 = source_total_dmg - transfer_dmg
+                        # 这样确保源目标只承受剩余伤害，而非完整伤害
+                        source_hp_restored = 0
+                        source_hp_before_for_log = target["hp_before"]
+                        if dl.direction == "outgoing":
+                            source_hp_loss = target["hp_before"] - target["hp_after"]
+                            # 剩余伤害 = 原始伤害 - 转移伤害
+                            remaining_dmg = source_total_dmg - transfer_dmg
+                            # 源目标应该承受的HP损失 = min(剩余伤害, 源目标HP_before)
+                            source_expected_hp_loss = min(remaining_dmg, target["hp_before"])
+                            # 回退量 = 实际HP损失 - 应该HP损失
+                            source_hp_restored = source_hp_loss - source_expected_hp_loss
+                            if source_hp_restored > 0:
+                                target_unit.current_hp = min(target_unit.max_hp, target_unit.current_hp + source_hp_restored)
+                                # 更新target info（hp_after和actual_damage）
+                                target["hp_after"] = target_unit.current_hp
+                                target["actual_damage"] -= source_hp_restored
+                                # 按比例减少hit_details，使[伤害]日志显示转移后的伤害
+                                if source_total_dmg > 0:
+                                    remaining_ratio = remaining_dmg / source_total_dmg
+                                    if "hits" in target and target["hits"]:
+                                        target["hits"] = [max(0, int(h * remaining_ratio)) for h in target["hits"]]
+                                    if "hit_shield_absorbed" in target and target["hit_shield_absorbed"]:
+                                        target["hit_shield_absorbed"] = [max(0, int(s * remaining_ratio)) for s in target["hit_shield_absorbed"]]
+                                # 减少源目标的累计伤害和伤害总计（伤害转移后源目标实际承受的伤害减少）
+                                target_unit.cumulative_hp_damage -= source_hp_restored
+                                target_unit.damage_taken_total -= source_hp_restored
+                                caster.damage_dealt_total -= source_hp_restored
+                                total_damage -= source_hp_restored
+                                # 计分追踪：减少源目标的伤害记录（伤害转移）
+                                _scoring_tracker_adj = getattr(battlefield, 'scoring_tracker', None)
+                                if _scoring_tracker_adj is not None:
+                                    _target_side_adj = "ally" if target_unit.side.value == "ally" else "enemy"
+                                    _scoring_tracker_adj.record_damage(
+                                        source_id=caster.unit_id, source_name=caster.name,
+                                        source_side="ally" if caster.side.value == "ally" else "enemy",
+                                        target_id=target_unit.unit_id, target_name=target_unit.name,
+                                        target_side=_target_side_adj,
+                                        actual_damage=-source_hp_restored, shield_absorbed=0,
+                                    )
+                                _log.info("[DAMAGE_LINK_TRANSFER] %s: HP restored %d (transfer mode, %.0f%%), hp %d->%d, remaining_dmg=%d",
+                                          target_unit.name, source_hp_restored, dl.value,
+                                          target_unit.current_hp - source_hp_restored, target_unit.current_hp, remaining_dmg)
+
                         linker_hp_before = linker.current_hp
                         # 対応するシールドで吸収（物理=physical_shield, EN=en_shield）
                         shield_absorbed = 0
@@ -3871,6 +3932,11 @@ class SkillService:
                             "damage_type": "EN" if _is_en_attack else "物理",
                             "link_value": dl.value,
                             "source_total_damage": source_total_dmg,
+                            "source_hp_restored": source_hp_restored,
+                            "source_hp_before": source_hp_before_for_log,
+                            "source_hp_after": target_unit.current_hp,
+                            "source_max_hp": target_unit.max_hp,
+                            "direction": dl.direction,
                         })
 
         # 反射伤害 (reflect_damage): cover者反射受到伤害的reflect_rate%给攻击者
@@ -3941,16 +4007,19 @@ class SkillService:
                 for entry in deferred_crit_actions:
                     c, bf = entry[0], entry[1]
                     crit_count = entry[2] if len(entry) > 2 else 1
+                    # 暴击目标（最新の暴击目标を保持、PS 130096等のcrit_target使用PSのため）
+                    crit_target = entry[3] if len(entry) > 3 else None
                     # 收集到技能级别的列表，延迟到execute_skill末尾统一触发
                     # 同一caster的crit_count累加（每技能仅触发一次PS，但crit_counter按hit数累加）
+                    # crit_targetは最新の暴击目標で上書き（多目標暴击時は最後の目標を使用）
                     existing = next((ca for ca in self._pending_crit_triggers if ca[0].unit_id == c.unit_id), None)
                     if existing:
-                        # 累加crit_count
-                        updated = (existing[0], existing[1], existing[2] + crit_count)
+                        # 累加crit_count, 更新crit_target为最新
+                        updated = (existing[0], existing[1], existing[2] + crit_count, crit_target)
                         self._pending_crit_triggers = [ca for ca in self._pending_crit_triggers if ca[0].unit_id != c.unit_id]
                         self._pending_crit_triggers.append(updated)
                     else:
-                        self._pending_crit_triggers.append((c, bf, crit_count))
+                        self._pending_crit_triggers.append((c, bf, crit_count, crit_target))
             finally:
                 self._recursion_guard = False
 
@@ -5012,6 +5081,11 @@ class SkillService:
                     rbbt_result = self._apply_remove_buff_by_type(caster, effect, battlefield)
                     if rbbt_result:
                         self._on_crit_effects.append(rbbt_result)
+                elif effect_type == "remove_buff":
+                    # on_crit block中解除暴击目标的buff（如130096 はらぐろさくしー）
+                    rb_result = self._apply_remove_buff(caster, effect, battlefield)
+                    if rb_result:
+                        self._on_crit_effects.append(rb_result)
                 else:
                     _log.info("[ON_CRIT] %s: unhandled effect_type=%s in on_crit block, skip",
                               caster.name, effect_type)
@@ -5124,8 +5198,11 @@ class SkillService:
         # 记录heal主目标，供后续block的lowest_hp_row_only引用
         if targets:
             self._last_primary_target = targets[0]
-            _log.info("[SKILL_EXEC] %s: recorded _last_primary_target (heal)=%s",
-                      caster.name, targets[0].name)
+            # healed_target identifier: 记录所有治疗目标，供后续block（如def_up）对治疗目标施加buff
+            # 仅记录存活目标（heal循环中会跳过非存活目标）
+            self._last_heal_targets = [t for t in targets if t.is_alive]
+            _log.info("[SKILL_EXEC] %s: recorded _last_primary_target (heal)=%s, _last_heal_targets=%s",
+                      caster.name, targets[0].name, [t.name for t in self._last_heal_targets])
         effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
         effective_max_hp = self.damage_service._calculate_final_stat(caster, "max_hp")
         _log.info("[HEAL] %s: heal_pct=%d%% base=%s atk=%d max_hp=%d targets=%d",
@@ -5156,6 +5233,18 @@ class SkillService:
                           caster.name, target.name, consumed, heal_pct)
             else:
                 heal_amount = int(effective_atk * heal_pct / 100)
+
+            # low_hp_heal_bonus: 対象のHPが少ないほど回復量が増加する（+50%まで等）
+            # 線形スケーリング: HP100%→+0%, HP0%→+max_bonus
+            # bonus_mult = 1 + max_bonus * (1 - hp_ratio)
+            low_hp_bonus = heal_flags.get('low_hp_heal_bonus')
+            if low_hp_bonus and target_effective_max_hp > 0:
+                hp_ratio = target.current_hp / target_effective_max_hp
+                bonus_mult = 1.0 + low_hp_bonus * (1.0 - hp_ratio)
+                original_amount = heal_amount
+                heal_amount = int(heal_amount * bonus_mult)
+                _log.info("[HEAL] %s -> %s: low_hp_heal_bonus hp_ratio=%.3f bonus_mult=%.4f heal %d->%d",
+                          caster.name, target.name, hp_ratio, bonus_mult, original_amount, heal_amount)
 
             # debuff_heal_bonus: 目标有debuff时治疗量+100%（如イケてる♡イケてる）
             if heal_flags.get('debuff_heal_bonus') and target.debuffs:
@@ -5191,6 +5280,12 @@ class SkillService:
             actual_heal = min(heal_amount, missing_hp)
             target.current_hp = min(target_effective_max_hp, target.current_hp + heal_amount)
             total_heal += actual_heal
+            # 治疗公式: 含low_hp_heal_bonus倍率（如有）
+            _formula_parts = [f"ATK:{effective_atk}", f"base:{heal_base}", f"pct:{heal_pct}%",
+                              f"crit:{'1.5' if is_heal_crit else '1.0'}",
+                              f"efficacy:{heal_received_mult:.4f}", f"raw:{heal_amount}"]
+            if low_hp_bonus and target_effective_max_hp > 0:
+                _formula_parts.append(f"low_hp_bonus:x{bonus_mult:.4f}")
             heal_details.append({
                 "target": target.name,
                 "target_id": target.unit_id,
@@ -5198,7 +5293,7 @@ class SkillService:
                 "hp_after": target.current_hp,
                 "amount": actual_heal,
                 "is_crit": is_heal_crit,
-                "heal_formula": f"[ATK:{effective_atk} base:{heal_base} pct:{heal_pct}% crit:{'1.5' if is_heal_crit else '1.0'} efficacy:{heal_received_mult:.4f} raw:{heal_amount}]",
+                "heal_formula": "[" + " ".join(_formula_parts) + "]",
             })
             crit_tag = "【Critical】" if is_heal_crit else ""
             _log.info("[HEAL] %s -> %s: hp %d→%d (+%d, raw=%d) %s",
@@ -5825,6 +5920,41 @@ class SkillService:
             else:
                 targets = []
                 _log.info("[AURA_APPLY] %s: nearest_ally -> no ally available", caster.name)
+        elif target_identifier == "behind_self":
+            # behind_self: 同列后位友方（如130095 セルフ・プロデュース Lv11+「自身の背後にいる味方単体」）
+            # 施法者在ALLAY_*_FRONT时，目标为ALLY_*_BACK同列；施法者在后排时无身后友方（targets=[]）
+            from src.entities_v2.enums import Position as _PosBS, Side as _SideBS
+            _BEHIND_POS_MAP = {
+                _PosBS.ALLY_LEFT_FRONT: _PosBS.ALLY_LEFT_BACK,
+                _PosBS.ALLY_CENTER_FRONT: _PosBS.ALLY_CENTER_BACK,
+                _PosBS.ALLY_RIGHT_FRONT: _PosBS.ALLY_RIGHT_BACK,
+                _PosBS.ENEMY_LEFT_FRONT: _PosBS.ENEMY_LEFT_BACK,
+                _PosBS.ENEMY_CENTER_FRONT: _PosBS.ENEMY_CENTER_BACK,
+                _PosBS.ENEMY_RIGHT_FRONT: _PosBS.ENEMY_RIGHT_BACK,
+            }
+            behind_pos = _BEHIND_POS_MAP.get(caster.position)
+            if behind_pos is not None:
+                team = battlefield.friend_team if caster.side == _SideBS.ALLY else battlefield.enemy_team
+                behind_targets = [u for u in team if u.is_alive and u.position == behind_pos]
+                if behind_targets:
+                    targets = behind_targets[:1]
+                    _log.info("[AURA_APPLY] %s: behind_self (pos=%s) -> %s",
+                              caster.name, behind_pos.value, targets[0].name)
+                else:
+                    targets = []
+                    _log.info("[AURA_APPLY] %s: behind_self (pos=%s) -> no ally behind", caster.name, behind_pos.value)
+            else:
+                targets = []
+                _log.info("[AURA_APPLY] %s: behind_self -> caster not in front row, no behind ally", caster.name)
+        elif target_identifier == "healed_target":
+            # healed_target: 当次heal效果的目标（如120084 プレゼント・タイム Lv11+ def_up指向heal目标）
+            last_heal_targets = getattr(self, '_last_heal_targets', [])
+            if last_heal_targets:
+                targets = [last_heal_targets[0]]
+                _log.info("[AURA_APPLY] %s: healed_target -> %s", caster.name, targets[0].name)
+            else:
+                targets = []
+                _log.info("[AURA_APPLY] %s: healed_target -> no heal target recorded, skip", caster.name)
         aura_target_count = effect_flags_aura.get('target_count')
         if aura_target_count is not None and aura_target_count > 0 and len(targets) > aura_target_count:
             targets = targets[:aura_target_count]
@@ -6228,6 +6358,26 @@ class SkillService:
                 final_value = value * scale_factor
                 _log.info("[AURA_APPLY] %s -> %s: scale_by_alive_allies alive=%d initial=%d factor=%.4f value %.1f -> %.1f",
                           caster.name, target.name, alive_allies, initial_allies, scale_factor, value, final_value)
+            # value_scales_with_self_mark_count: 自身の指定mark数でvalueを乗算
+            # （如120093 除災招福 Lv11+「お餅1つにつきatk%/def%上昇(最大6つ)」）
+            # 公式: final_value = value × min(mark_count, max_count)
+            if effect_flags_aura and effect_flags_aura.get('value_scales_with_self_mark_count'):
+                _mochi_mark_name = effect_flags_aura.get('mark_name', '')
+                _mochi_max_count = int(effect_flags_aura.get('max_count', 0))
+                _mochi_count = sum(1 for b in caster.buffs
+                                   if b.effect_type == SkillEffectType.MARK.value
+                                   and getattr(b, 'name', '') == _mochi_mark_name)
+                _mochi_count += sum(1 for d in caster.debuffs
+                                    if d.effect_type == SkillEffectType.MARK.value
+                                    and getattr(d, 'name', '') == _mochi_mark_name)
+                if _mochi_max_count > 0:
+                    _effective_count = min(_mochi_count, _mochi_max_count)
+                else:
+                    _effective_count = _mochi_count
+                final_value = value * _effective_count
+                _log.info("[AURA_APPLY] %s -> %s: value_scales_with_self_mark_count '%s' count=%d effective=%d max=%d value %.1f -> %.1f",
+                          caster.name, target.name, _mochi_mark_name, _mochi_count,
+                          _effective_count, _mochi_max_count, value, final_value)
             # double_for_character_type: 指定character_typeの対象はvalueが2倍
             # （130024 ヒール・アクティブ「物理タイプの味方の場合、バフ効果が2倍になる」）
             # 適用: aura value確定後(final_value)に2倍を掛ける
@@ -6406,8 +6556,12 @@ class SkillService:
             if mapped_effect_type == SkillEffectType.BLOCK_SPECIFIC_AURA.value:
                 block_status = effect_flags_aura.get('block_status', []) if effect_flags_aura else []
                 aura.block_status_list = list(block_status)
-                _log.info("[AURA_APPLY] %s -> %s: BlockSpecificAura block_status=%s",
-                          caster.name, target.name, aura.block_status_list)
+                # block_status_count: 阻止N个状态异常后消耗（如130095「1つ無効」语义）
+                block_status_count = effect_flags_aura.get('block_status_count', 0) if effect_flags_aura else 0
+                if block_status_count > 0:
+                    aura.block_status_count = int(block_status_count)
+                _log.info("[AURA_APPLY] %s -> %s: BlockSpecificAura block_status=%s block_status_count=%s",
+                          caster.name, target.name, aura.block_status_list, getattr(aura, 'block_status_count', 0))
 
             # HOT: 存储治疗基数来源（heal_base）
             if mapped_effect_type == SkillEffectType.HEAL_OVER_TIME.value:
@@ -6774,6 +6928,9 @@ class SkillService:
         return {
             "effect_type": "damage_link",
             "link_mode": link_mode,
+            "duration": duration,
+            "duration_type": duration_type,
+            "unremovable": unremovable,
             "applied": applied,
         }
 
@@ -7292,23 +7449,45 @@ class SkillService:
         }
 
     def _apply_remove_buff(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
-        """解除目标1个buff，排除回忆卡buff和不可解除buff"""
+        """解除目标buff，排除回忆卡buff和不可解除buff
+
+        支持flags:
+        - remove_all: True时解除全部可解除buff（如130096 Lv15「全て解除」）
+        - count: 解除buff数量（与effect.value二选一，effect.value优先）
+        """
         if not self.target_service:
             _log.info("[REMOVE_BUFF] %s: target_service unavailable", caster.name)
             return None
 
-        target_skill_obj = type('obj', (object,), {
-            'display_target_type': self._resolve_target_type(effect.target_type),
-            'display_target_range': self._resolve_target_range(effect.target_type),
-            'display_target_priority': None,
-            'target_type_name': effect.target_type,
-        })()
-        targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+        # crit_target: on_crit block中使用_on_crit_target，PS触发时使用_primary_target
+        # （如130096 はらぐろさくしー: on_critical PS triggered by crit, crit_target = _primary_target）
+        if effect.target_type == "crit_target":
+            crit_target = getattr(self, '_on_crit_target', None)
+            # on_crit block未设置时，回退到_primary_target（PS触发由trigger系统设置）
+            if crit_target is None or not crit_target.is_alive:
+                crit_target = getattr(self, '_primary_target', None)
+            if crit_target and crit_target.is_alive:
+                targets = [crit_target]
+                _log.info("[REMOVE_BUFF] %s: crit_target -> %s",
+                          caster.name, crit_target.name)
+            else:
+                _log.info("[REMOVE_BUFF] %s: crit_target unavailable, no targets", caster.name)
+                return None
+        else:
+            target_skill_obj = type('obj', (object,), {
+                'display_target_type': self._resolve_target_type(effect.target_type),
+                'display_target_range': self._resolve_target_range(effect.target_type),
+                'display_target_priority': None,
+                'target_type_name': effect.target_type,
+            })()
+            targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
 
         total_removed = 0
         removed_details = []
-        # count: 解除buff数量，从effect.value或flags.count获取，默认1
         remove_buff_flags = getattr(effect, 'flags', {}) or {}
+        remove_all = remove_buff_flags.get('remove_all', False)
+        # count: 解除buff数量，从effect.value或flags.count获取，默认1
+        # 注意: remove_all=True时count被忽略
         count = 1
         if effect.value:
             try:
@@ -7327,9 +7506,15 @@ class SkillService:
             removable = [b for b in target.buffs
                          if not b.is_memory_buff and not b.unremovable]
             if removable:
-                # LIFO: 从列表末尾（最近施加）开始移除count个
-                actual_count = min(count, len(removable))
-                to_remove = removable[-actual_count:] if actual_count > 0 else []
+                if remove_all:
+                    # 全て解除: 移除所有可解除buff
+                    to_remove = list(removable)
+                    _log.info("[REMOVE_BUFF] %s: remove_all=True, removing all %d removable buff(s) from %s",
+                              caster.name, len(to_remove), target.name)
+                else:
+                    # LIFO: 从列表末尾（最近施加）开始移除count个
+                    actual_count = min(count, len(removable))
+                    to_remove = removable[-actual_count:] if actual_count > 0 else []
                 removed_names = []
                 for b in to_remove:
                     target.buffs.remove(b)
@@ -7352,6 +7537,7 @@ class SkillService:
             "target_count": len(targets),
             "total_removed": total_removed,
             "removed_details": removed_details,
+            "remove_all": remove_all,
         }
 
     def _apply_remove_buff_by_type(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:

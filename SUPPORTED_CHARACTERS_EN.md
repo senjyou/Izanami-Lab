@@ -77,6 +77,10 @@ The simulator currently supports a limited set of characters. More will be added
 | #激カワ吸血鬼配信者♪    | フルート・メルヴィル   |
 | 稀代の狙撃手         | 珠瀬壬姫         |
 | 砂浜の策謀家         | 姜小花          |
+| 自己に揺れる白湯気      | フィー・ドレーゼ     |
+| クリスマスコーデの参謀    | 姫川泉花         |
+| 大吉ハッピーニューイヤー   | 朽葉ラミ         |
+| 新春のメイズ研究者      | 月ヶ瀬ちゆる       |
 
 ## Tactical Exercise Enemies
 

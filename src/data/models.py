@@ -112,6 +112,10 @@ class TemplateTag:
                     v2 = self.values[i + 1]
                     ratio = (level - v1.level) / (v2.level - v1.level)
                     return v1.value + (v2.value - v1.value) * ratio
+                elif self.interpolation_mode == 3:
+                    # 模式3：阶跃模式（同模式1，返回当前区间的起始值）
+                    # 如130096 はらぐろさくしー: Lv1=1, Lv4=2, Lv6=3...Lv14=9, Lv15=100
+                    return self.values[i].value
         
         # 默认返回最后一个值
         return self.values[-1].value
