@@ -76097,5 +76097,1131 @@
         ]
       }
     }
+  },
+  "110072": {
+    "skill_id": 110072,
+    "name": "ミッドサマー・ラブ",
+    "skill_type": 3,
+    "skill_kind": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身以外を優先した味方単体か、自身に最も近い敵単体からランダムに3回対象を抽出し、抽選1回につき以下の効果を付与する\n・対象が敵の場合：1行動の間防御力を{def}%低下させる（重複可）\n・対象が味方の場合：1行動の間攻撃力を{atk}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "自身以外を優先した味方単体か、自身に最も近い敵単体からランダムに3回対象を抽出し、抽選1回につき以下の効果を付与する\n・対象が敵の場合：1行動の間防御力を{def}%低下させる（重複可）\n・対象が味方の場合：1行動の間攻撃力を{atk}%上昇させる（重複可）。さらに対象の味方と自身に対し、EXゲージを1加算する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 5.53000020980835
+          },
+          {
+            "level": 4,
+            "value": 6.599999904632568
+          },
+          {
+            "level": 6,
+            "value": 7.130000114440918
+          },
+          {
+            "level": 7,
+            "value": 8.199999809265137
+          },
+          {
+            "level": 9,
+            "value": 8.729999542236328
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 5.53000020980835
+          },
+          {
+            "level": 4,
+            "value": 6.599999904632568
+          },
+          {
+            "level": 6,
+            "value": 7.130000114440918
+          },
+          {
+            "level": 7,
+            "value": 8.199999809265137
+          },
+          {
+            "level": 9,
+            "value": 8.729999542236328
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "120160": {
+    "skill_id": 120160,
+    "name": "サマー・スプラッシュ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で4ヒットEN攻撃する。対象がEXゲージを1以上所持していた場合、対象のEXゲージを1削り、自身のEXゲージを1加算する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.619999885559082
+          },
+          {
+            "level": 4,
+            "value": 11.869999885559082
+          },
+          {
+            "level": 6,
+            "value": 12.489999771118164
+          },
+          {
+            "level": 7,
+            "value": 13.729999542236328
+          },
+          {
+            "level": 9,
+            "value": 14.359999656677246
+          },
+          {
+            "level": 10,
+            "value": 15.600000381469727
+          },
+          {
+            "level": 15,
+            "value": 21.200000762939453
+          }
+        ]
+      }
+    }
+  },
+  "130158": {
+    "skill_id": 130158,
+    "name": "ヒートアップ・ラブ",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵からの攻撃1ヒットで、最大HP×15%以上のダメージを負った際に発動。自身のEXゲージを消費し、その行動内での被ダメージ分のHPを割合で回復する。EXゲージの所持状況により、消費量と回復量が変化する。\n・EXゲージが2：EXゲージを1消費し、被ダメージの{cure1}%分回復する。\n・EXゲージが3以上：EXゲージを2消費し、被ダメージの{cure2}%分回復する。\n自身のEXゲージが0の場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "自身が敵からの攻撃1ヒットで、最大HP×15%以上のダメージを負った際に発動。自身に対し1行動の間得られるEXゲージが{ex}%増加するバフを付与する（重複可）。\nまた自身のEXゲージを消費し、その行動内での被ダメージ分のHPを割合で回復する。EXゲージの所持状況により、消費量と回復量が変化する。\n・EXゲージが2：EXゲージを1消費し、被ダメージの{cure1}%分回復する。\n・EXゲージが3以上：EXゲージを2消費し、被ダメージの{cure2}%分回復する。\n自身のEXゲージが0の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "ex": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 100.0
+          }
+        ]
+      },
+      "cure1": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 28.0
+          },
+          {
+            "level": 4,
+            "value": 34.0
+          },
+          {
+            "level": 6,
+            "value": 37.0
+          },
+          {
+            "level": 7,
+            "value": 43.0
+          },
+          {
+            "level": 9,
+            "value": 46.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      },
+      "cure2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 3,
+            "value": 78.0
+          },
+          {
+            "level": 4,
+            "value": 84.0
+          },
+          {
+            "level": 6,
+            "value": 87.0
+          },
+          {
+            "level": 7,
+            "value": 93.0
+          },
+          {
+            "level": 9,
+            "value": 96.0
+          },
+          {
+            "level": 10,
+            "value": 100.0
+          }
+        ]
+      }
+    }
+  },
+  "130159": {
+    "skill_id": 130159,
+    "name": "アクア・セービング",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身以外の「汐風」を所持している味方が累計で最大HP×30%のダメージを受けるたびに発動。対象の味方単体のHPを威力{威力}で回復し、付与されている「汐風」を1つ解除する。さらに自身が2以上EXゲージを所持していた場合、EXゲージを1消費して自身のPPを1加算する。\nこのスキルは「ヒートアップ・ラブ」と同タイミングでは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 32.5
+          },
+          {
+            "level": 3,
+            "value": 33.31999969482422
+          },
+          {
+            "level": 4,
+            "value": 34.959999084472656
+          },
+          {
+            "level": 6,
+            "value": 35.779998779296875
+          },
+          {
+            "level": 7,
+            "value": 37.41999816894531
+          },
+          {
+            "level": 9,
+            "value": 38.2400016784668
+          },
+          {
+            "level": 10,
+            "value": 40.0
+          },
+          {
+            "level": 15,
+            "value": 47.5
+          }
+        ]
+      }
+    }
+  },
+  "130160": {
+    "skill_id": 130160,
+    "name": "サマータイム・ロマンス",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身に隣接する味方に対し「汐風」を3つ付与する。さらに自身に対し、自身の現在HPの20%を超えるダメージのみ1ヒットまで{dmg}%減少させる効果を付与する。このスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。自身に隣接する味方に対し「汐風」を3つ付与する。さらに自身に対し、自身の現在HPの20%を超えるダメージのみ2ヒットまで{dmg}%減少させる効果を付与する。このスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 12,
+        "template": "ターン開始時に発動。自身に隣接する味方に対し「汐風」を3つ付与する。さらに自身に対し、自身の現在HPの20%を超えるダメージのみ3ヒットまで{dmg}%減少させる効果を付与する。このスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 13,
+        "template": "ターン開始時に発動。自身に隣接する味方に対し「汐風」を3つ付与する。さらに自身に対し、自身の現在HPの20%を超えるダメージのみ3ヒットまで{dmg}%減少させる効果を付与し、EXゲージを{ex}加算する。このスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 36.650001525878906
+          },
+          {
+            "level": 4,
+            "value": 39.959999084472656
+          },
+          {
+            "level": 6,
+            "value": 41.619998931884766
+          },
+          {
+            "level": 7,
+            "value": 44.93000030517578
+          },
+          {
+            "level": 9,
+            "value": 46.59000015258789
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      },
+      "ex": {
+        "interpolation_mode": 3,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 12,
+            "value": 0.0
+          },
+          {
+            "level": 13,
+            "value": 1.0
+          },
+          {
+            "level": 14,
+            "value": 2.0
+          },
+          {
+            "level": 15,
+            "value": 3.0
+          }
+        ]
+      }
+    }
+  },
+  "400221": {
+    "skill_id": 400221,
+    "name": "回復毎T終了【最低HP】",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン終了時に発動。最大HPが最も低い味方のHPを最大HPの5%回復する"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400222": {
+    "skill_id": 400222,
+    "name": "攻撃上昇【アニス】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。アニス・ベネットの攻撃力を1000上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400223": {
+    "skill_id": 400223,
+    "name": "回復量上昇【シャイ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。シャイ属性の味方のHP回復量を1.2%上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "210113": {
+    "skill_id": 210113,
+    "name": "真夏のトラブル発生！",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 21,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる"
+      },
+      {
+        "min_level": 3,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間1ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 5,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間3ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      },
+      {
+        "min_level": 10,
+        "template": "自身に対し、2行動の「解放感」を付与する。「解放感」の効果期間中、自身の攻撃力が{atk}%・与ダメージが{dmg}%上昇する（重複可）が、同時に自身が得られるEXゲージが-100%される状態になる。\nさらに自身に対し、2行動の間5ヒットまで致死ダメージをHP1で耐えるバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          }
+        ]
+      }
+    }
+  },
+  "220409": {
+    "skill_id": 220409,
+    "name": "海辺の取り締まり！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}でEN攻撃する。\n攻撃時点で自身のHPが1.5%以上だった場合、自身の現在HPの0.75%を消費し、消費分HP×150%のENダメージを与える攻撃を追加で行う。\n自身が「解放感」を所持していた場合、威力は{威力2}に変化する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 78.0
+          },
+          {
+            "level": 10,
+            "value": 106.0
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 55.0
+          },
+          {
+            "level": 3,
+            "value": 85.80000305175781
+          },
+          {
+            "level": 10,
+            "value": 116.5999984741211
+          }
+        ]
+      }
+    }
+  },
+  "220410": {
+    "skill_id": 220410,
+    "name": "うっかり大惨事",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵3体に威力{威力}でEN攻撃する。自身が「解放感」を所持していた場合、さらに1行動の気絶を付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 93.5999984741211
+          },
+          {
+            "level": 10,
+            "value": 127.19999694824219
+          }
+        ]
+      }
+    }
+  },
+  "230424": {
+    "skill_id": 230424,
+    "name": "リフレッシュ完了！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の攻撃が2回会心攻撃になるたびに発動。\n自身が「解放感」を所持していない場合、自身のEXゲージを1加算する。\n自身が「解放感」を所持している場合、自身の会心率を{crt}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 10,
+        "template": "自身の攻撃が2回会心攻撃になるたびに発動。\n自身が「解放感」を所持していない場合、自身のEXゲージを1加算する。\n自身が「解放感」を所持している場合、自身の会心率を{crt}%（重複可）、会心ダメージを{crtdmg}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.0
+          },
+          {
+            "level": 5,
+            "value": 2.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 9,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 8.75
+          }
+        ]
+      }
+    }
+  },
+  "230425": {
+    "skill_id": 230425,
+    "name": "たまには羽を伸ばして+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 128,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。現在HPの30%を消費し、自身に対し被ダメージを40%減少させる効果を付与する（重複可・解除不可）。\nこのスキルは戦闘中に1度しか発動しない"
+      },
+      {
+        "min_level": 5,
+        "template": "ターン開始時に発動。現在HPの30%を消費し、自身に対し被ダメージを40%減少させる効果を付与する（重複可・解除不可）。\nさらに自身に対し、自身よりHP割合の高い敵に対する攻撃の与ダメージが{dmg2}%増加するバフを付与する（重複可・解除不可）。\nこのスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    }
+  },
+  "110073": {
+    "skill_id": 110073,
+    "name": "だ、誰か止めてぇ～～！",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も近い位置にいる敵単体、および対象に隣接する敵に対して威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 125.0
+          },
+          {
+            "level": 3,
+            "value": 132.77999877929688
+          },
+          {
+            "level": 4,
+            "value": 148.3300018310547
+          },
+          {
+            "level": 6,
+            "value": 156.11000061035156
+          },
+          {
+            "level": 7,
+            "value": 171.6699981689453
+          },
+          {
+            "level": 9,
+            "value": 179.44000244140625
+          },
+          {
+            "level": 10,
+            "value": 195.0
+          },
+          {
+            "level": 15,
+            "value": 265.0
+          }
+        ]
+      }
+    }
+  },
+  "120161": {
+    "skill_id": 120161,
+    "name": "クリティカル・スプラッシュ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も攻撃力の高い敵単体に威力{威力}で攻撃する。このスキルはENアタッカーに対して優先して発動する"
+      },
+      {
+        "min_level": 11,
+        "template": "最も攻撃力の高い敵単体に威力{威力}で攻撃する。このスキルはENアタッカーに対して優先して発動する。\nまた対象に「潮騒」を1つ付与し、さらに自身に対し「潮騒」を所持している相手からの被ダメージを{dmg}%減少する効果（解除不可）を付与する。\n既に対象が「潮騒」を所持している場合は新たに付与を行わない。"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 150.0
+          },
+          {
+            "level": 3,
+            "value": 159.3300018310547
+          },
+          {
+            "level": 4,
+            "value": 178.0
+          },
+          {
+            "level": 6,
+            "value": 187.3300018310547
+          },
+          {
+            "level": 7,
+            "value": 206.0
+          },
+          {
+            "level": 9,
+            "value": 215.3300018310547
+          },
+          {
+            "level": 10,
+            "value": 234.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 35.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "130161": {
+    "skill_id": 130161,
+    "name": "オブ・ザ・グラウンド",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃した後に発動。前列優先で敵2体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間対象の防御力を15%低下させる（重複可）。防御デバフは付与者が倒れると解除される"
+      },
+      {
+        "min_level": 11,
+        "template": "自身がアクティブスキルで攻撃した後に発動。前列優先で敵2体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間対象の防御力を15%低下させる（重複可）。防御デバフは付与者が倒れると解除される。\nさらに自身に対して1行動の間、被ダメージを{dmg}%減少させる効果を付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 65.0
+          },
+          {
+            "level": 3,
+            "value": 69.04000091552734
+          },
+          {
+            "level": 4,
+            "value": 77.12999725341797
+          },
+          {
+            "level": 6,
+            "value": 81.18000030517578
+          },
+          {
+            "level": 7,
+            "value": 89.2699966430664
+          },
+          {
+            "level": 9,
+            "value": 93.30999755859375
+          },
+          {
+            "level": 10,
+            "value": 101.4000015258789
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 12.5
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "130162": {
+    "skill_id": 130162,
+    "name": "サマー・クラッチ",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が敵に倒された際に発動。自身の攻撃力を1行動の間{atk}%上昇させ（重複可）、EXゲージを2加算する"
+      },
+      {
+        "min_level": 11,
+        "template": "他の味方が敵に倒された際に発動。自身の攻撃力を1行動の間{atk}%上昇させ（重複可）、EXゲージを2加算し、1行動の間与ダメージを{dmg}%増加させるバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 3,
+            "value": 21.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 23.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 24.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 26.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 27.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "130163": {
+    "skill_id": 130163,
+    "name": "スイッチ・ポジション",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。\n自身が前列に編成されていた場合、自身に対して{kaihi}%の確率で3ヒットまで攻撃を回避するバフと、致死ダメージを1ヒットまでHP1で耐えるバフを付与する。\n自身が後列に編成されていた場合、自身に対し与ダメージを{dmg}%増加させるバフを付与し（重複可）、会心ダメージを15%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "kaihi": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 27.760000228881836
+          },
+          {
+            "level": 4,
+            "value": 33.279998779296875
+          },
+          {
+            "level": 6,
+            "value": 36.040000915527344
+          },
+          {
+            "level": 7,
+            "value": 41.560001373291016
+          },
+          {
+            "level": 9,
+            "value": 44.31999969482422
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 75.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.5
+          },
+          {
+            "level": 3,
+            "value": 2.759999990463257
+          },
+          {
+            "level": 4,
+            "value": 3.2699999809265137
+          },
+          {
+            "level": 6,
+            "value": 3.5299999713897705
+          },
+          {
+            "level": 7,
+            "value": 4.039999961853027
+          },
+          {
+            "level": 9,
+            "value": 4.300000190734863
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 10.0
+          }
+        ]
+      }
+    }
   }
 }

@@ -652,11 +652,11 @@ class DataLoader:
             return self._tactical_exercise_enemies
         with open(data_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        seen_names = set()
+        # 不再按 character_name 去重：同一角色可能存在多个不同变体
+        # （如 652405=土属性大賀真桜 vs 652105=火属性大賀真桜），需各自可选。
+        # enemy_id 作为 JSON 主键已保证唯一性。
         for eid_str, data in sorted(raw.items(), key=lambda x: x[1]["character_name"]):
-            if data["character_name"] not in seen_names:
-                seen_names.add(data["character_name"])
-                self._tactical_exercise_enemies[int(eid_str)] = data
+            self._tactical_exercise_enemies[int(eid_str)] = data
         print(f"[OK] 已加载 {len(self._tactical_exercise_enemies)} 个战术演习敌方单位")
         return self._tactical_exercise_enemies
 

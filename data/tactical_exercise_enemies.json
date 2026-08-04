@@ -1450,5 +1450,38 @@
     ],
     "position": 5,
     "party_id": 400220
+  },
+  "652105": {
+    "enemy_id": 652105,
+    "name": "惨禍：大賀真桜",
+    "character_name": "大賀真桜",
+    "asset_id": "142302",
+    "hp": 390844,
+    "attack": 12184,
+    "defense": 5659,
+    "speed": 607,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 4,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 1,
+    "type": 2,
+    "role_type": 2,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 701,
+    "skill_ids": [
+      210113,
+      220409,
+      220410,
+      230424,
+      230425
+    ],
+    "position": 2,
+    "party_id": 400225
   }
 }

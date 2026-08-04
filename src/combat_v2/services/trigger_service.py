@@ -99,6 +99,10 @@ class TriggerService:
         # 技能对级别互斥（exclusive_group）：同一group内的PS在该时机内只可触发1个
         # 与simultaneous_limit独立，不影响其他simultaneous_limit PS
         self._exclusive_group_triggered: Set[str] = set()
+        # 130159 アクア・セービング: PS互斥机制（self_ps_lower_priority_than）
+        # 记录当前phase内已成功执行的PS skill_id集合
+        # 低优先级PS通过 self_ps_lower_priority_than 条件检查高优先级PS是否已触发
+        self._triggered_ps_ids_in_phase: Set[int] = set()
 
     def set_data_loader(self, loader: Any):
         self.data_loader = loader
@@ -595,26 +599,55 @@ class TriggerService:
 
             # 从PS技能配置中读取累计伤害阈值
             threshold = self._get_cumulative_damage_threshold(unit)
-            if threshold is None:
-                continue
+            if threshold is not None:
+                # 检查累计HP伤害是否达到阈值
+                threshold_value = unit.max_hp * threshold / 100
+                _log.info("[CUMULATIVE_DMG_CHECK] %s: cumulative_hp_damage=%d, threshold=%.0f (max_hp=%d * %d%%), exceeded=%s",
+                          unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold,
+                          unit.cumulative_hp_damage >= threshold_value)
+                if unit.cumulative_hp_damage >= threshold_value:
+                    _log.info("[CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f (max_hp=%d * %d%%), triggering",
+                              unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold)
+                    # per-hit reset valueをaction.parametersに付与
+                    _reset_val = 0  # デフォルト（単hit等）
+                    if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
+                        _reset_val = per_hit_reset_values[unit.unit_id]
+                    ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
+                    _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
+                    for _a in _new_actions:
+                        _a.parameters['cumulative_pp_zero_reset'] = _reset_val
+                    actions.extend(_new_actions)
 
-            # 检查累计HP伤害是否达到阈值
-            threshold_value = unit.max_hp * threshold / 100
-            _log.info("[CUMULATIVE_DMG_CHECK] %s: cumulative_hp_damage=%d, threshold=%.0f (max_hp=%d * %d%%), exceeded=%s",
-                      unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold,
-                      unit.cumulative_hp_damage >= threshold_value)
-            if unit.cumulative_hp_damage >= threshold_value:
-                _log.info("[CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f (max_hp=%d * %d%%), triggering",
-                          unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold)
-                # per-hit reset valueをaction.parametersに付与
-                _reset_val = 0  # デフォルト（単hit等）
-                if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
-                    _reset_val = per_hit_reset_values[unit.unit_id]
-                ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
-                _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
-                for _a in _new_actions:
-                    _a.parameters['cumulative_pp_zero_reset'] = _reset_val
-                actions.extend(_new_actions)
+            # 130159 アクア・セービング: 检查同阵营友方的 on_cumulative_damage PS
+            # （ally_cumulative_damage_percent 条件，triggered_by=damaged_unit）
+            _ally_triggers = self._get_ally_cumulative_damage_triggers(unit, battlefield)
+            for (_ps_owner, _ally_threshold, _mark_name) in _ally_triggers:
+                # 检查damaged_unit是否持有指定mark（若mark_name为None则不检查）
+                _mark_ok = True
+                if _mark_name:
+                    _mark_ok = any(
+                        b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
+                        for b in unit.buffs
+                    ) or any(
+                        d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
+                        for d in unit.debuffs
+                    )
+                if not _mark_ok:
+                    _log.info("[ALLY_CUMULATIVE_DMG] %s: lacks mark '%s', skip (ps_owner=%s)",
+                              unit.name, _mark_name, _ps_owner.name)
+                    continue
+                # 检查累计伤害是否达到阈值
+                if unit.cumulative_hp_damage >= _ally_threshold:
+                    _log.info("[ALLY_CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f, triggering (ps_owner=%s, mark='%s')",
+                              unit.name, unit.cumulative_hp_damage, _ally_threshold, _ps_owner.name, _mark_name or 'any')
+                    _reset_val = 0
+                    if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
+                        _reset_val = per_hit_reset_values[unit.unit_id]
+                    ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
+                    _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
+                    for _a in _new_actions:
+                        _a.parameters['cumulative_pp_zero_reset'] = _reset_val
+                    actions.extend(_new_actions)
 
         return actions
 
@@ -660,6 +693,72 @@ class TriggerService:
                                 return float(val)
         _log.info("[CUMULATIVE_DMG_THRESHOLD] %s: no on_cumulative_damage PS found among %d skills", unit.name, len(char_skills))
         return None
+
+    def _get_ally_cumulative_damage_triggers(self, unit: UnitState, battlefield: BattlefieldState) -> List[tuple]:
+        """130159 アクア・セービング: 扫描同阵营友方（含自身）的 on_cumulative_damage PS，
+        检查是否含 ally_cumulative_damage_percent 条件。
+
+        返回 [(ps_owner, threshold_value, mark_name), ...] 列表：
+        - ps_owner: 持有PS的友方单位
+        - threshold_value: 阈值（绝对值，= max_hp * pct / 100）
+        - mark_name: 需要damaged_unit持有的mark名称（从 check_other_allies_with_mark 条件提取）
+        """
+        from ...entities_v2.enums import Side as _SideAC
+        results = []
+        if not self.data_loader:
+            return results
+        ally_team = (battlefield.friend_team
+                     if unit.side == _SideAC.ALLY
+                     else battlefield.enemy_team)
+        for ally in ally_team:
+            if not ally.is_alive:
+                continue
+            char_skills = self.data_loader.get_character_skills(ally.character_id)
+            if not char_skills:
+                if hasattr(ally, 'skills') and ally.skills:
+                    char_skills = []
+                    for sid in ally.skills:
+                        sk = self.data_loader.get_skill_by_id(sid)
+                        if sk:
+                            char_skills.append(sk)
+            if not char_skills:
+                continue
+            for skill in char_skills:
+                if skill.skill_type != SkillType.PS.value:
+                    continue
+                parsed = self.data_loader.get_parsed_skill_data(skill.skill_id)
+                if not parsed:
+                    continue
+                if parsed.get('trigger_type') != 'on_cumulative_damage':
+                    continue
+                gc = parsed.get('global_condition')
+                if not isinstance(gc, dict):
+                    continue
+                # 从 and/condition_list 中提取 ally_cumulative_damage_percent 和 check_other_allies_with_mark
+                _conds = []
+                if gc.get('type') == 'and':
+                    _conds = gc.get('conditions', [])
+                elif gc.get('type') == 'condition_list':
+                    _conds = gc.get('conditions', [])
+                elif gc.get('type') == 'ally_cumulative_damage_percent':
+                    _conds = [gc]
+                _threshold_pct = None
+                _mark_name = None
+                for sub in _conds:
+                    if not isinstance(sub, dict):
+                        continue
+                    if sub.get('type') == 'ally_cumulative_damage_percent':
+                        _threshold_pct = float(sub.get('value', 0))
+                    elif sub.get('type') == 'check_other_allies_with_mark':
+                        _mark_name = sub.get('mark_name', '')
+                if _threshold_pct is None:
+                    continue
+                # threshold_value 基于damaged unit的max_hp（unit参数），而非PS owner的max_hp
+                threshold_value = unit.max_hp * _threshold_pct / 100
+                results.append((ally, threshold_value, _mark_name))
+                _log.info("[ALLY_CUMULATIVE_DMG] PS owner=%s, damaged=%s, threshold=%.0f (%.0f%% of %s max_hp=%d), mark='%s'",
+                          ally.name, unit.name, threshold_value, _threshold_pct, unit.name, unit.max_hp, _mark_name or 'any')
+        return results
 
     def trigger_pawn_received_aura(self, battlefield: BattlefieldState,
                                    affected_unit_ids: List[str] = None,
@@ -1825,6 +1924,75 @@ class TriggerService:
             _log.info("[TRIGGER_COND] %s: debuff_type=%s not found on any target => False",
                       owner.name, debuff_type_name)
             return False
+
+        # 130158 ヒートアップ・ラブ: 检查triggered_by当次行动中受到的伤害是否>=max_hp的value%
+        if cond_type == "damage_taken_in_action_percent":
+            triggered_by = context.triggered_by
+            if triggered_by is None:
+                _log.info("[TRIGGER_COND] %s: damage_taken_in_action_percent -> no triggered_by => False",
+                          owner.name)
+                return False
+            dmg_taken = getattr(triggered_by, '_damage_taken_in_action', 0)
+            dmg_pct = (dmg_taken / triggered_by.max_hp * 100) if triggered_by.max_hp > 0 else 0
+            result = _eval_condition(dmg_pct, op, val)
+            _log.info("[TRIGGER_COND] %s: damage_taken_in_action_percent %.1f%% %s %.0f%% => %s (triggered_by=%s, dmg=%d)",
+                      owner.name, dmg_pct, op, val, result, triggered_by.name, dmg_taken)
+            return result
+
+        # 130158 ヒートアップ・ラブ: 检查自身EP是否>=value
+        if cond_type == "self_ep_above_or_equal":
+            _self_ep = getattr(owner, 'current_ep', 0)
+            result = _self_ep >= val
+            _log.info("[TRIGGER_COND] %s: self_ep_above_or_equal ep=%.1f >= %s => %s",
+                      owner.name, _self_ep, val, result)
+            return result
+
+        # 130159 アクア・セービング: 检查自身以外持有指定mark的友方是否存在
+        if cond_type == "check_other_allies_with_mark":
+            mark_name = condition.get('mark_name', '')
+            from ...entities_v2.enums import Side as _SideCM
+            ally_team = (context.battlefield.friend_team
+                         if owner.side == _SideCM.ALLY
+                         else context.battlefield.enemy_team)
+            has_other = False
+            for ally in ally_team:
+                if not ally.is_alive or ally.unit_id == owner.unit_id:
+                    continue
+                ally_has = any(
+                    b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                    for b in ally.buffs
+                ) or any(
+                    d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                    for d in ally.debuffs
+                )
+                if ally_has:
+                    has_other = True
+                    break
+            _log.info("[TRIGGER_COND] %s: check_other_allies_with_mark '%s' => %s",
+                      owner.name, mark_name, has_other)
+            return has_other
+
+        # 130159 アクア・セービング: 检查triggered_by(持有mark的友方)的累计伤害>=max_hp的value%
+        if cond_type == "ally_cumulative_damage_percent":
+            triggered_by = context.triggered_by
+            if triggered_by is None:
+                _log.info("[TRIGGER_COND] %s: ally_cumulative_damage_percent -> no triggered_by => False",
+                          owner.name)
+                return False
+            dmg_pct = (triggered_by.cumulative_hp_damage / triggered_by.max_hp * 100
+                       ) if triggered_by.max_hp > 0 else 0
+            result = _eval_condition(dmg_pct, op, val)
+            _log.info("[TRIGGER_COND] %s: ally_cumulative_damage_percent %.1f%% %s %.0f%% => %s (triggered_by=%s, cumul=%d)",
+                      owner.name, dmg_pct, op, val, result, triggered_by.name, triggered_by.cumulative_hp_damage)
+            return result
+
+        # 130159 アクア・セービング: PS互斥，检查指定PS是否已在当前phase触发
+        if cond_type == "self_ps_lower_priority_than":
+            higher_ps_id = int(val)
+            already_triggered = higher_ps_id in self._triggered_ps_ids_in_phase
+            _log.info("[TRIGGER_COND] %s: self_ps_lower_priority_than PS[%d] triggered=%s => %s",
+                      owner.name, higher_ps_id, already_triggered, not already_triggered)
+            return not already_triggered
 
         _log.info("[TRIGGER_COND] %s: unknown condition type=%s → PASS (allow)", owner.name, cond_type)
         return True

@@ -24601,5 +24601,591 @@
         }
       ]
     }
+  },
+  "110072": {
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 5.0
+        },
+        {
+          "level": 3,
+          "value": 5.53000020980835
+        },
+        {
+          "level": 4,
+          "value": 6.599999904632568
+        },
+        {
+          "level": 6,
+          "value": 7.130000114440918
+        },
+        {
+          "level": 7,
+          "value": 8.199999809265137
+        },
+        {
+          "level": 9,
+          "value": 8.729999542236328
+        },
+        {
+          "level": 10,
+          "value": 10.0
+        },
+        {
+          "level": 15,
+          "value": 15.0
+        }
+      ]
+    },
+    "def": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 5.0
+        },
+        {
+          "level": 3,
+          "value": 5.53000020980835
+        },
+        {
+          "level": 4,
+          "value": 6.599999904632568
+        },
+        {
+          "level": 6,
+          "value": 7.130000114440918
+        },
+        {
+          "level": 7,
+          "value": 8.199999809265137
+        },
+        {
+          "level": 9,
+          "value": 8.729999542236328
+        },
+        {
+          "level": 10,
+          "value": 10.0
+        },
+        {
+          "level": 15,
+          "value": 15.0
+        }
+      ]
+    }
+  },
+  "120160": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0
+        },
+        {
+          "level": 3,
+          "value": 10.619999885559082
+        },
+        {
+          "level": 4,
+          "value": 11.869999885559082
+        },
+        {
+          "level": 6,
+          "value": 12.489999771118164
+        },
+        {
+          "level": 7,
+          "value": 13.729999542236328
+        },
+        {
+          "level": 9,
+          "value": 14.359999656677246
+        },
+        {
+          "level": 10,
+          "value": 15.600000381469727
+        },
+        {
+          "level": 15,
+          "value": 21.200000762939453
+        }
+      ]
+    }
+  },
+  "130158": {
+    "ex": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 50.0
+        },
+        {
+          "level": 15,
+          "value": 100.0
+        }
+      ]
+    },
+    "cure1": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 25.0
+        },
+        {
+          "level": 3,
+          "value": 28.0
+        },
+        {
+          "level": 4,
+          "value": 34.0
+        },
+        {
+          "level": 6,
+          "value": 37.0
+        },
+        {
+          "level": 7,
+          "value": 43.0
+        },
+        {
+          "level": 9,
+          "value": 46.0
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        }
+      ]
+    },
+    "cure2": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 75.0
+        },
+        {
+          "level": 3,
+          "value": 78.0
+        },
+        {
+          "level": 4,
+          "value": 84.0
+        },
+        {
+          "level": 6,
+          "value": 87.0
+        },
+        {
+          "level": 7,
+          "value": 93.0
+        },
+        {
+          "level": 9,
+          "value": 96.0
+        },
+        {
+          "level": 10,
+          "value": 100.0
+        }
+      ]
+    }
+  },
+  "130159": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 32.5
+        },
+        {
+          "level": 3,
+          "value": 33.31999969482422
+        },
+        {
+          "level": 4,
+          "value": 34.959999084472656
+        },
+        {
+          "level": 6,
+          "value": 35.779998779296875
+        },
+        {
+          "level": 7,
+          "value": 37.41999816894531
+        },
+        {
+          "level": 9,
+          "value": 38.2400016784668
+        },
+        {
+          "level": 10,
+          "value": 40.0
+        },
+        {
+          "level": 15,
+          "value": 47.5
+        }
+      ]
+    }
+  },
+  "130160": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 35.0
+        },
+        {
+          "level": 3,
+          "value": 36.650001525878906
+        },
+        {
+          "level": 4,
+          "value": 39.959999084472656
+        },
+        {
+          "level": 6,
+          "value": 41.619998931884766
+        },
+        {
+          "level": 7,
+          "value": 44.93000030517578
+        },
+        {
+          "level": 9,
+          "value": 46.59000015258789
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        }
+      ]
+    },
+    "ex": {
+      "interpolation_mode": 3,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 12,
+          "value": 0.0
+        },
+        {
+          "level": 13,
+          "value": 1.0
+        },
+        {
+          "level": 14,
+          "value": 2.0
+        },
+        {
+          "level": 15,
+          "value": 3.0
+        }
+      ]
+    }
+  },
+  "110073": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 125.0
+        },
+        {
+          "level": 3,
+          "value": 132.77999877929688
+        },
+        {
+          "level": 4,
+          "value": 148.3300018310547
+        },
+        {
+          "level": 6,
+          "value": 156.11000061035156
+        },
+        {
+          "level": 7,
+          "value": 171.6699981689453
+        },
+        {
+          "level": 9,
+          "value": 179.44000244140625
+        },
+        {
+          "level": 10,
+          "value": 195.0
+        },
+        {
+          "level": 15,
+          "value": 265.0
+        }
+      ]
+    }
+  },
+  "120161": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 150.0
+        },
+        {
+          "level": 3,
+          "value": 159.3300018310547
+        },
+        {
+          "level": 4,
+          "value": 178.0
+        },
+        {
+          "level": 6,
+          "value": 187.3300018310547
+        },
+        {
+          "level": 7,
+          "value": 206.0
+        },
+        {
+          "level": 9,
+          "value": 215.3300018310547
+        },
+        {
+          "level": 10,
+          "value": 234.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 35.0
+        },
+        {
+          "level": 15,
+          "value": 50.0
+        }
+      ]
+    }
+  },
+  "130161": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 65.0
+        },
+        {
+          "level": 3,
+          "value": 69.04000091552734
+        },
+        {
+          "level": 4,
+          "value": 77.12999725341797
+        },
+        {
+          "level": 6,
+          "value": 81.18000030517578
+        },
+        {
+          "level": 7,
+          "value": 89.2699966430664
+        },
+        {
+          "level": 9,
+          "value": 93.30999755859375
+        },
+        {
+          "level": 10,
+          "value": 101.4000015258789
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 12.5
+        },
+        {
+          "level": 15,
+          "value": 25.0
+        }
+      ]
+    }
+  },
+  "130162": {
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 20.0
+        },
+        {
+          "level": 3,
+          "value": 21.100000381469727
+        },
+        {
+          "level": 4,
+          "value": 23.299999237060547
+        },
+        {
+          "level": 6,
+          "value": 24.399999618530273
+        },
+        {
+          "level": 7,
+          "value": 26.600000381469727
+        },
+        {
+          "level": 9,
+          "value": 27.700000762939453
+        },
+        {
+          "level": 10,
+          "value": 30.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 7.5
+        },
+        {
+          "level": 15,
+          "value": 15.0
+        }
+      ]
+    }
+  },
+  "130163": {
+    "kaihi": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 25.0
+        },
+        {
+          "level": 3,
+          "value": 27.760000228881836
+        },
+        {
+          "level": 4,
+          "value": 33.279998779296875
+        },
+        {
+          "level": 6,
+          "value": 36.040000915527344
+        },
+        {
+          "level": 7,
+          "value": 41.560001373291016
+        },
+        {
+          "level": 9,
+          "value": 44.31999969482422
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        },
+        {
+          "level": 15,
+          "value": 75.0
+        }
+      ]
+    },
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 2.5
+        },
+        {
+          "level": 3,
+          "value": 2.759999990463257
+        },
+        {
+          "level": 4,
+          "value": 3.2699999809265137
+        },
+        {
+          "level": 6,
+          "value": 3.5299999713897705
+        },
+        {
+          "level": 7,
+          "value": 4.039999961853027
+        },
+        {
+          "level": 9,
+          "value": 4.300000190734863
+        },
+        {
+          "level": 10,
+          "value": 5.0
+        },
+        {
+          "level": 15,
+          "value": 10.0
+        }
+      ]
+    }
   }
 }

@@ -500,8 +500,10 @@ class CompositeTacticController(BattleFlowController):
         debuffs_cleared = len([d for d in boss.debuffs if not d.is_memory_buff and not getattr(d, 'unremovable', False)])
         boss.buffs = kept_buffs
         boss.debuffs = [d for d in boss.debuffs if d.is_memory_buff or getattr(d, 'unremovable', False)]
-        boss.is_stunned = False
-        boss.is_frozen = False
+        # 重置异常状态标志位（从过滤后的debuffs列表重新派生，保持与debuffs一致）
+        # 非回忆卡且非不可解除的眩晕/冻结已随debuff清除，回忆卡或不可解除的则保留
+        boss.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value for b in boss.debuffs)
+        boss.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value for b in boss.debuffs)
 
         # 恢复基础属性（base已包含组队加成）
         boss.attack = int(base["attack"])

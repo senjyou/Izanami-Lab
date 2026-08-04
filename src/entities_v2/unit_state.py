@@ -43,6 +43,7 @@ class BuffState:
     snapshot_crit_rate: float = 0.0  # HOT专用: 快照发起者的暴击率，用于HOT触发时判定暴击
     linked_buff_id: str = ""  # 联动buff: 当此buff消失时，linked_buff_id对应的buff也消失
     threshold_pct: float = 0.0  # dmg_invulnerable专用: 伤害阈值百分比（当前HP的X%）
+    threshold_base: str = ""  # dmg_taken_down_threshold专用: 阈值基数来源（"current_hp"/"max_hp"），空=current_hp
     caster_alive: bool = False  # caster_alive: 施法者死亡时此buff自动消失
     original_duration_type: str = ""  # 原始duration_type（如"attacker_action"），用于攻击者行动结束时精确清理
     shield_amount: int = 0  # 盾buff贡献的实际盾值，用于叠加盾正确扣除
@@ -59,12 +60,14 @@ class BuffState:
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
     block_status_count: int = 0  # BlockSpecificAura专用: 阻止状态异常次数限制，0=无限制，>0=阻止N个状态后消耗
     block_debuffs: bool = False  # BlockBuffByType扩展: True=阻止全debuff新付与（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
+    block_buffs: bool = False  # BlockBuffByType扩展: True=阻止全buff新付与（如230169 バフシャット「対象に向けられるバフを無効にする」）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
     skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」)
     just_applied: bool = False  # 当次行动中由add_aura施加/刷新/忽略的buff标记，process_maneuver_end跳过递减
     confusion_dmg_reduction: float = 0.0  # 混乱专用: 伤害减免百分比（如50表示减免50%）
     confusion_proxy_atk_pct: float = 0.0  # 混乱专用: 代理数值百分比（如10表示ATK×10%替代ATK-DEF）
     sub_unit_link_group: str = ""  # [GAME_BUG_SIMULATION] 跨目标联动失效: 同一次技能(如110050)创建的多个子機共享同一link_group，任一失效时其余同步失效
+    source_death_remove: bool = False  # 付与者死亡时清除: 施法者被击败时此buff/debuff自动消失（如130161 PS1 def_down「防御デバフは付与者が倒れると解除される」）
 
 
 @dataclass

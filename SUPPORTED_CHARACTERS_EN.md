@@ -87,6 +87,8 @@ The simulator currently supports a limited set of characters. More will be added
 | ドメスティックなリーダー   | 榊千鶴          |
 | ダウナーギャルな副委員長   | カリナ・ジェンティーレ  |
 | ポンコツいいんちょ      | 大賀真桜         |
+| 渚のスイートデビル      | アニス・ベネット     |
+| 夏色シャイガール       | 波瀬うるう        |
 
 ## Tactical Exercise Enemies
 
@@ -100,4 +102,5 @@ The simulator currently supports a limited set of characters. More will be added
 | 生駒葵         |
 | エレーナ・パステルコワ |
 | タチアナ・ドロズドヴァ |
+| 大賀真桜        |
 

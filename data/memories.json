@@ -3854,5 +3854,54 @@
         "skill_master_id": 400218
       }
     ]
+  },
+  "10028": {
+    "memory_id": 10028,
+    "name": "海水浴場でデートしてみた♪",
+    "description": "水上スポーツ大会に来てるんだけど、ちょ～っと待ち時間があるから、 海の家を回ってイチオシメニュー紹介しちゃうね～！",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400221
+      }
+    ]
+  },
+  "20080": {
+    "memory_id": 20080,
+    "name": "あたしの１番大切なもの",
+    "description": "あら、一体全体どこを触るつもりなのかしら？ コワ～イ……ふふ♪",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 114,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400222
+      },
+      {
+        "character_attribute": 3,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400223
+      }
+    ]
   }
 }

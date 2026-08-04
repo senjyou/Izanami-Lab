@@ -387,6 +387,12 @@ class BattleFlowController:
         # 同時発動制限新机制：单位行动开始时重置全局标志位（AS执行前阶段开始）
         self._reset_simultaneous_limit_phase_flags()
 
+        # 130158 ヒートアップ・ラブ: 重置所有单位的 _damage_taken_in_action
+        # 该字段在 skill_service 伤害结算时累加，供 damage_taken_in_action_percent 条件检查
+        # 每次单位行动开始时清零，确保只追踪当次行动中受到的伤害
+        for _u in self.battlefield.get_all_units():
+            _u._damage_taken_in_action = 0
+
         # 更新所有存活单位的prev_hp_percent为当前HP百分比
         # 修复: 行动间治疗（HOT/技能治疗）后prev_hp_percent未更新，
         # 导致下次DOT降血时阈值跨越检测失效（如「再起律動」不触发）
@@ -409,34 +415,7 @@ class BattleFlowController:
         self._check_and_apply_status_effects(unit)
 
         # 检测DOT（炎上/毒/行動時ダメージ）导致的死亡，触发击杀触发器
-        dot_killed = [u for u in self.battlefield.get_all_units()
-                      if not u.is_alive and not u.is_death_notified]
-        if dot_killed:
-            for u in dot_killed:
-                if self.narrative:
-                    self.narrative.death(self._get_display_name(u))
-                u.is_death_notified = True
-                # 查找DOT的施法者作为击杀者
-                dot_source_id = None
-                for debuff in u.debuffs:
-                    if debuff.effect_type in (
-                        SkillEffectType.CONFLAGRATION.value,
-                        SkillEffectType.POISON.value,
-                        SkillEffectType.ACTION_DAMAGE.value,
-                    ):
-                        dot_source_id = debuff.source_unit_id
-                        break
-                killer = next((x for x in self.battlefield.get_all_units()
-                               if x.unit_id == dot_source_id), None) if dot_source_id else None
-                if killer:
-                    kill_actions = self.trigger_service.trigger_pawn_killed(killer, self.battlefield)
-                    self._execute_trigger_actions(kill_actions, killer)
-                    any_kill_actions = self.trigger_service.trigger_pawn_any_kill(killer, self.battlefield)
-                    self._execute_trigger_actions(any_kill_actions, killer)
-            # 允许子类（如战术演习）在此执行复活等逻辑
-            self._on_deaths_resolved(dot_killed)
-            if self.narrative:
-                self._on_death_narrative_complete(dot_killed)
+        self._handle_dot_deaths()
 
         pre_action_cooldowns = dict(unit.skill_cooldowns)
 
@@ -457,401 +436,7 @@ class BattleFlowController:
         # 蓄力完成：如果单位正在蓄力中，执行蓄力效果
         # 蓄力释放视为AS技能攻击，执行与普通AS相同的5阶段post-skill trigger流程
         if unit.is_charging and unit.charge_skill_id:
-            charge_skill_id = unit.charge_skill_id
-            charge_meta = self.data_loader.get_skill_by_id(charge_skill_id)
-            charge_name = charge_meta.name if charge_meta else f"Skill_{charge_skill_id}"
-            _log.info("[CHARGE_EXECUTE] %s: executing charge effect [%s] (ID=%d)",
-                      unit.name, charge_name, charge_skill_id)
-            unit.is_charging = False
-            unit.charge_skill_id = 0
-            if self.narrative:
-                self.narrative.charge_complete(self._get_display_name(unit), charge_name, 1)
-
-            # 初始化暴击触发收集器：所有crit triggers统一收集，在复活后执行
-            self._deferred_crit_triggers = []
-
-            # 捕获技能执行前的存活单位集合（用于检测新阵亡）
-            units_before = set(u.unit_id for u in self.battlefield.get_all_units() if u.is_alive)
-
-            # 执行蓄力效果（跳过资源消耗，已在蓄力时消耗）
-            skill_result = self.skill_service.execute_skill(
-                caster=unit,
-                skill_id=charge_skill_id,
-                battlefield=self.battlefield,
-                skip_cost=True,
-                defer_crit_triggers=True,
-            )
-            # Guard cleanup: 蓄力技能执行完毕后立即清理由该攻击者触发的Guard buff
-            self._cleanup_guard_buffs(unit)
-
-            # SAFETY: 确保所有HP<=0的单位都被标记为死亡（兜底保护）
-            forced_dead = []
-            for u in self.battlefield.get_all_units():
-                if u.unit_id in units_before and u.current_hp <= 0 and u.is_alive:
-                    u.is_alive = False
-                    forced_dead.append(u.name)
-                    _log.info("[SAFETY] Forcing is_alive=False for %s (HP=%d/%d)",
-                              u.name, u.current_hp, u.max_hp)
-            if forced_dead:
-                _log.info("[SAFETY] Forced dead units: %s", forced_dead)
-
-            # 1. 先输出蓄力技能的叙事日志（伤害、治疗等）
-            damaged_targets = []
-            if skill_result.get("success"):
-                damaged_targets = self._log_narrative_effects(
-                    unit, skill_result, charge_name, 1, charge_skill_id)
-
-            # 2. 检测新阵亡单位
-            newly_dead = []
-            for u in self.battlefield.get_all_units():
-                if u.unit_id in units_before and not u.is_alive:
-                    newly_dead.append(u)
-
-            # 3. 输出死亡通知（在复活逻辑之前）
-            if self.narrative:
-                for u in newly_dead:
-                    if not u.is_death_notified:
-                        self.narrative.death(self._get_display_name(u))
-                        u.is_death_notified = True
-
-            # 4. 死亡触发器（PAWN_DIED/PAWN_KILLED/PAWN_ANY_KILL/HP_BELOW/UNIT_COUNT_BELOW）
-            if newly_dead:
-                death_actions = self.trigger_service.trigger_pawn_died(newly_dead, self.battlefield)
-                self._execute_trigger_actions(death_actions, unit)
-                kill_actions = self.trigger_service.trigger_pawn_killed(unit, self.battlefield)
-                self._execute_trigger_actions(kill_actions, unit)
-                any_kill_actions = self.trigger_service.trigger_pawn_any_kill(unit, self.battlefield)
-                self._execute_trigger_actions(any_kill_actions, unit)
-
-                hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield)
-                self._execute_global_trigger_actions(hp_below_actions)
-
-                cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield)
-                if cumulative_dmg_actions:
-                    self._execute_global_trigger_actions(cumulative_dmg_actions)
-
-                unit_count_actions = self.trigger_service.trigger_unit_count_below(self.battlefield)
-                self._execute_global_trigger_actions(unit_count_actions)
-
-                self._remove_marks_from_dead_caster(newly_dead)
-                self._remove_damage_link_from_dead(newly_dead)
-                self._on_deaths_resolved(newly_dead)
-
-            # 6. 输出复活叙事
-            if newly_dead and self.narrative:
-                self._on_death_narrative_complete(newly_dead)
-
-            # 7. 暴击触发PS：收集蓄力技能的pending_crit_triggers
-            as_pending_crit = skill_result.get("pending_crit_triggers", [])
-            if as_pending_crit:
-                self._deferred_crit_triggers.extend(as_pending_crit)
-                _log.info("[CRIT_COLLECT] Charge skill: collected %d crit triggers (total=%d)",
-                          len(as_pending_crit), len(self._deferred_crit_triggers))
-
-            if skill_result.get("success"):
-                had_aura = any(
-                    applied.get("effect_type") in ("aura", "add_status")
-                    for applied in skill_result.get("effects_applied", [])
-                )
-
-                if damaged_targets:
-                    primary_target = damaged_targets[0] if damaged_targets else None
-
-                    # 蓄力释放视为AS技能攻击（skill_type=1），执行5阶段post-skill trigger流程
-                    # Phase 1a-pre（累計傷害）: on_cumulative_damage
-                    # Phase 1a（被攻撃反応+自身行動後発動+暴撃）:
-                    #   after_ally_attacked, after_self_attacked, after_as_attacked,
-                    #   after_as_attacked_ally, after_own_action, on_critical
-                    # Phase 1b（技能使用次数）: skill_use_count
-                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack
-                    # Phase 3（主动技能结束后）: after_as_attack
-
-                    unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
-                    hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
-                    self._execute_global_trigger_actions(hp_below_normal)
-                    owners_with_hp_below = set()
-                    for a in hp_below_normal:
-                        owners_with_hp_below.add(a.instance.owner.unit_id)
-
-                    _original_primary = getattr(self.skill_service, '_original_primary_target', None)
-                    primary_target = _original_primary if _original_primary else (
-                        damaged_targets[0] if damaged_targets else None)
-
-                    # ===== 收集 Phase 1a-pre: 累計傷害 =====
-                    cumulative_check_units = list(unique_damaged)
-                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
-                    if hp_consumed and unit.unit_id not in {u.unit_id for u in cumulative_check_units}:
-                        cumulative_check_units.append(unit)
-                    _per_hit_resets = (self._compute_per_hit_reset_values(cumulative_check_units)
-                                       if cumulative_check_units else {})
-                    phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                        self.battlefield, cumulative_check_units,
-                        per_hit_reset_values=_per_hit_resets) if cumulative_check_units else []
-
-                    # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
-                    phase1_actions = []
-
-                    after_ally = self.trigger_service.trigger_after_ally_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    after_ally = [a for a in after_ally
-                                  if a.instance.owner.unit_id not in owners_with_hp_below]
-                    phase1_actions.extend(after_ally)
-
-                    after_self = self.trigger_service.trigger_after_self_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_self)
-
-                    after_as_attacked = self.trigger_service.trigger_after_as_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_as_attacked)
-
-                    after_as_ally = self.trigger_service.trigger_after_as_attacked_ally(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_as_ally)
-
-                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-                    after_own_action = self.trigger_service.trigger_after_own_action(
-                        unit, charge_skill_id, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-                    phase1_actions.extend(after_own_action)
-
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_tgt = entry[3] if len(entry) > 3 else None
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(
-                                c, bf, count=crit_count, crit_target=crit_tgt)
-                            phase1_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
-
-                    # ===== 收集 Phase 1b: 技能使用次数 =====
-                    # 蓄力技能成功释放，AS技能计数+1（开始蓄力不算使用AS技能）
-                    unit.skill_use_count[charge_skill_id] = \
-                        unit.skill_use_count.get(charge_skill_id, 0) + 1
-                    _log.info("[SKILL_COUNT] Charge skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
-                              unit.name, charge_skill_id,
-                              unit.skill_use_count[charge_skill_id], dict(unit.skill_use_count))
-                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-
-                    # ===== 收集 Phase 2: AS攻撃後追撃 =====
-                    phase2_actions = []
-                    after_ally_as = self.trigger_service.trigger_after_ally_as_attack(
-                        unit, charge_skill_id, damaged_targets, self.battlefield,
-                        primary_target=primary_target,
-                    )
-                    phase2_actions.extend(after_ally_as)
-
-                    # ===== 收集 Phase 3: 主动技能结束后 =====
-                    phase3_actions = self.trigger_service.trigger_after_as_attack(
-                        unit, charge_skill_id, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-
-                    # 记录PP快照（所有阶段合并）
-                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions
-                                        + phase1b_actions + phase2_actions + phase3_actions)
-                    self._pp_snapshot_before_as_triggers = {}
-                    for a in all_for_snapshot:
-                        o = a.instance.owner
-                        self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
-
-                    # ===== 执行 Phase 1a-pre: 累計傷害 =====
-                    if phase1_cumulative_actions:
-                        phase1_cumulative_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Charge release Phase1a-pre (累計傷害): %d actions",
-                                  len(phase1_cumulative_actions))
-                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
-                    if phase1_actions:
-                        phase1_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Charge release Phase1a: %d actions",
-                                  len(phase1_actions))
-                    self._execute_trigger_actions(phase1_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 1b: 技能使用次数 =====
-                    if phase1b_actions:
-                        phase1b_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Charge release Phase1b: %d actions",
-                                  len(phase1b_actions))
-                    self._execute_trigger_actions(phase1b_actions, unit)
-                    # 处理skill_use_count清理（与regular AS path一致）
-                    if phase1b_actions:
-                        any_executed = False
-                        pp_snap = getattr(self, '_pp_snapshot_before_as_triggers', {})
-                        for action in phase1b_actions:
-                            owner = action.instance.owner
-                            pp_before = pp_snap.get(owner.unit_id, owner.current_pp)
-                            if owner.current_pp < pp_before:
-                                any_executed = True
-                                break
-                        if any_executed:
-                            for action in phase1b_actions:
-                                owner = action.instance.owner
-                                if owner.skill_use_count:
-                                    parsed = (self.data_loader.get_parsed_skill_data(action.skill_id)
-                                              if hasattr(self.data_loader, 'get_parsed_skill_data') else None)
-                                    gc = parsed.get('global_condition') if parsed else None
-                                    if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
-                                        count_skill_types = gc.get('count_skill_types', [1])
-                                        is_ps_modulo_trigger = (count_skill_types == [2])
-                                        if is_ps_modulo_trigger:
-                                            continue
-                                        exclude_skill_ids = gc.get('exclude_skill_ids', [])
-                                        cleared_ids = []
-                                        for sid in list(owner.skill_use_count.keys()):
-                                            if sid in exclude_skill_ids:
-                                                continue
-                                            sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
-                                            if sd and sd.skill_type in count_skill_types:
-                                                del owner.skill_use_count[sid]
-                                                cleared_ids.append(sid)
-                                        _log.info("[SKILL_COUNT] %s skill_use_count selective reset: cleared=%s, remaining=%s",
-                                                  owner.name, cleared_ids, dict(owner.skill_use_count))
-                                    else:
-                                        owner.skill_use_count.clear()
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 2: AS攻撃後追撃 =====
-                    if phase2_actions:
-                        phase2_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Charge release Phase2: %d actions",
-                                  len(phase2_actions))
-                    self._execute_trigger_actions(phase2_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 3: 主动技能结束后 =====
-                    if phase3_actions:
-                        phase3_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Charge release Phase3: %d actions",
-                                  len(phase3_actions))
-                    self._execute_trigger_actions(phase3_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-                else:
-                    # 非伤害型蓄力技能（如支援型AS）：damaged_targets为空，跳过伤害相关触发器
-                    # 仍需处理 after_own_action、暴击触发器、skill_count_actions、after_as_attack
-                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-
-                    # Phase 1a-pre: 累計傷害（仅consume_hp自傷チェック）
-                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
-                    phase1_cumulative_actions = []
-                    if hp_consumed:
-                        _per_hit_resets = self._compute_per_hit_reset_values([unit])
-                        phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                            self.battlefield, [unit],
-                            per_hit_reset_values=_per_hit_resets)
-
-                    # Phase 1a: 自身行動後発動 + 暴击
-                    phase1_actions = self.trigger_service.trigger_after_own_action(
-                        unit, charge_skill_id, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_tgt = entry[3] if len(entry) > 3 else None
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(
-                                c, bf, count=crit_count, crit_target=crit_tgt)
-                            phase1_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
-
-                    # Phase 1b: 技能使用次数
-                    unit.skill_use_count[charge_skill_id] = \
-                        unit.skill_use_count.get(charge_skill_id, 0) + 1
-                    _log.info("[SKILL_COUNT] Charge skill_use_count updated (non-damage): %s skill[%d] -> count=%d",
-                              unit.name, charge_skill_id, unit.skill_use_count[charge_skill_id])
-                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-
-                    # Phase 2: 空
-                    phase2_actions = []
-
-                    # Phase 3: 主动技能结束后
-                    phase3_actions = self.trigger_service.trigger_after_as_attack(
-                        unit, charge_skill_id, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-
-                    # 记录PP快照
-                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions
-                                        + phase1b_actions + phase2_actions + phase3_actions)
-                    self._pp_snapshot_before_as_triggers = {}
-                    for a in all_for_snapshot:
-                        o = a.instance.owner
-                        self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
-
-                    # 执行各阶段
-                    if phase1_cumulative_actions:
-                        phase1_cumulative_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    if phase1_actions:
-                        phase1_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                    self._execute_trigger_actions(phase1_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    if phase1b_actions:
-                        phase1b_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                    self._execute_trigger_actions(phase1b_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    self._execute_trigger_actions(phase2_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    if phase3_actions:
-                        phase3_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                    self._execute_trigger_actions(phase3_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                # Aura trigger handling
-                if had_aura:
-                    aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
-                        self._collect_debuff_trigger_data(skill_result)
-                    _log.info("[AURA_TRIGGER] charge release: aura_target_ids=%s new_knockout_target_ids=%s applied_debuff_types=%s",
-                              aura_target_ids, new_knockout_target_ids, applied_debuff_types)
-                    if aura_target_ids:
-                        aura_actions = self.trigger_service.trigger_pawn_received_aura(
-                            self.battlefield, aura_target_ids, actor=unit,
-                            new_knockout_target_ids=new_knockout_target_ids,
-                            applied_debuff_types=applied_debuff_types)
-                        _log.info("[AURA_TRIGGER] charge release: aura_actions=%d",
-                                  len(aura_actions))
-                        self._execute_trigger_actions(aura_actions, unit)
-
-            # 蓄力技能释放后进入冷却
-            self.skill_service.update_cooldown_after_skill_use(unit, charge_skill_id)
-
-            # 蓄力效果执行完毕，行动结束，其他技能冷却正常递减
-            unit.action_phase = UnitActionPhase.AFTER_SKILL
-            unit.action_count_total += 1
-            self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
+            self._execute_charge_release(unit, pre_action_cooldowns)
             return
 
         selected_skill = self.skill_service.select_skill(unit)
@@ -921,21 +506,8 @@ class BattleFlowController:
         # 注意：skill_kind==3表示debuff技能（如atk_down），不是蓄力技能
         is_charge_skill = skill_type == 1 and meta and (meta.features & 32)
         if is_charge_skill:
-            _log.info("[CHARGE] %s: 蓄力技能 [%s] 开始蓄力，下次行动时执行效果",
-                      unit.name, skill_name)
-            unit.is_charging = True
-            unit.charge_skill_id = selected_skill
-            if self.narrative:
-                self.narrative.charge_start(self._get_display_name(unit), skill_name, skill_type)
-            # 触发on_ally_charge_use（友方响应蓄力）
-            charge_actions = self.trigger_service.trigger_ally_charge_use(unit, self.battlefield)
-            if charge_actions:
-                self._execute_trigger_actions(charge_actions, unit)
-            # 蓄力技能当前行动结束，其他技能冷却正常递减
-            unit.action_phase = UnitActionPhase.AFTER_SKILL
-            unit.action_count_total += 1
-            self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
-            return
+            if self._start_charging(unit, selected_skill, skill_name, skill_type, pre_action_cooldowns):
+                return
 
         skill_result = self.skill_service.execute_skill(
             caster=unit,
@@ -1022,6 +594,11 @@ class BattleFlowController:
             # 死亡者自身のheal_link buffと、死亡者をsource(転送先)とするheal_link buffを全て削除
             self._remove_heal_link_from_dead(newly_dead)
 
+            # 4.8 清除死亡单位施加的带 source_death_remove 标志的 buff/debuff
+            # 施法者被击败时，其施加的 source_death_remove=True 的 buff/debuff 自动消失
+            # 例: 130161 PS1 def_down「防御デバフは付与者が倒れると解除される」
+            self._remove_source_death_buffs_from_dead(newly_dead)
+
             # 5. 钩子：击杀触发器处理完毕后，允许子类（如战术演习）在此执行复活等逻辑
             self._on_deaths_resolved(newly_dead)
 
@@ -1044,200 +621,42 @@ class BattleFlowController:
 
             # AS技能使用次数计数：无论是否造成伤害都需更新（如支援型AS技能 120111/120112）
             # 必须在收集 skill_count_actions 之前更新，以确保 on_skill_use_count 触发器（如 130119/130081）能正确匹配
+            # 注意：此更新需在调用 _collect_and_run_post_as_triggers 之前完成
             if skill_type == 1:
                 unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
                 _log.info("[SKILL_COUNT] AS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
                           unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
 
-            if damaged_targets:
-                unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
-                # hp_below triggers FIRST (priority over after_ally_attacked for same character,
-                # e.g. ぽよぽよプロテクト(130041) before イケてる♡イケてる(130025))
-                hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
-                self._execute_global_trigger_actions(hp_below_normal)
-                # Track which owners had hp_below triggers fire (used to suppress after_ally_attacked)
-                owners_with_hp_below = set()
-                for a in hp_below_normal:
-                    owners_with_hp_below.add(a.instance.owner.unit_id)
+            if skill_type == 1:
+                # AS技能：调用统一的5阶段post-skill trigger流程
+                # _collect_and_run_post_as_triggers 内部根据 damaged_targets 自动分支：
+                # - 伤害型路径：执行 hp_below + Phase1a-pre(累計傷害) + Phase1a(被攻撃反応+自身行動後発動+暴撃)
+                #   + Phase1b(技能使用次数) + Phase2(AS攻撃後追撃) + Phase3(主动技能结束后)
+                # - 非伤害型路径：跳过被攻撃反応/追撃，仅处理 Phase1a-pre(自傷累計) + Phase1a(自身行動後+暴撃)
+                #   + Phase1b(技能使用次数) + Phase2(空) + Phase3(主动技能结束后)
+                # 同时内部处理 skill_use_count 清理逻辑
+                self._collect_and_run_post_as_triggers(
+                    unit, selected_skill, skill_result, damaged_targets,
+                )
+            else:
+                # 非AS技能（EX/PS）：保留原有简化流程，不进入5阶段触发器
+                # 仅处理 hp_below + 被攻撃反応(after_ally/after_self) + 累計傷害
+                if damaged_targets:
+                    unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
+                    # hp_below triggers FIRST (priority over after_ally_attacked for same character,
+                    # e.g. ぽよぽよプロテクト(130041) before イケてる♡イケてる(130025))
+                    hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
+                    self._execute_global_trigger_actions(hp_below_normal)
+                    # Track which owners had hp_below triggers fire (used to suppress after_ally_attacked)
+                    owners_with_hp_below = set()
+                    for a in hp_below_normal:
+                        owners_with_hp_below.add(a.instance.owner.unit_id)
 
-                # primary_target优先使用cover替换前的原始主目标
-                # 场景：敌方真AoE攻击左前（原始主目标），デコイプロトコル cover替换后
-                # damaged_targets[0] 变为coverer，导致左前的after_as_attacked型PS（如捲土重来）不触发
-                _original_primary = getattr(self.skill_service, '_original_primary_target', None)
-                primary_target = _original_primary if _original_primary else (damaged_targets[0] if damaged_targets else None)
+                    # primary_target优先使用cover替换前的原始主目标
+                    _original_primary = getattr(self.skill_service, '_original_primary_target', None)
+                    primary_target = _original_primary if _original_primary else (
+                        damaged_targets[0] if damaged_targets else None)
 
-                if skill_type == 1:
-                    # AS技能执行结束后，触发器分五阶段执行：
-                    # Phase 1a-pre（累計傷害）: on_cumulative_damage
-                    #   on_critical より先に実行（ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ、速度無関係）
-                    # Phase 1a（被攻撃反応+自身行動後発動+暴撃）:
-                    #   after_ally_attacked, after_self_attacked, after_as_attacked,
-                    #   after_as_attacked_ally, after_own_action, on_critical
-                    #   被攻撃反応と自身行動後発動は同リストで速度順に実行
-                    # Phase 1b（技能使用次数）: skill_use_count
-                    #   Phase1aの後に実行（ゲーム内挙動：累計傷害 → 技能使用次数）
-                    #   （ゲーム内挙動：それはやりすぎ！+ → ぜ～～ったい負けないから！）
-                    # Phase 2（AS攻撃後追撃）: after_ally_as_attack
-                    # Phase 3（主动技能结束后）: after_as_attack
-                    #   全ての傷害関連トリガー終了後に実行（如 ハロウィン・オブ・ザ・デッド）
-                    # 每阶段内部按速度→位置排序
-
-                    # ===== 收集 Phase 1a-pre: 累計傷害 =====
-                    # on_cumulative_damage は on_critical より先に実行（速度無関係）
-                    # consume_hpによる自傷も累計傷害に含まれる（如 私に任せて！+ の自傷で それはやりすぎ！+ が触发）
-                    cumulative_check_units = list(unique_damaged)
-                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
-                    if hp_consumed and unit.unit_id not in {u.unit_id for u in cumulative_check_units}:
-                        cumulative_check_units.append(unit)
-                    _per_hit_resets = self._compute_per_hit_reset_values(cumulative_check_units) if cumulative_check_units else {}
-                    phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                        self.battlefield, cumulative_check_units,
-                        per_hit_reset_values=_per_hit_resets) if cumulative_check_units else []
-
-                    # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
-                    phase1_actions = []
-
-                    after_ally = self.trigger_service.trigger_after_ally_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    # Suppress after_ally_attacked for owners who already triggered hp_below
-                    # (e.g. ぽよぽよプロテクト takes priority over イケてる♡イケてる)
-                    after_ally = [a for a in after_ally if a.instance.owner.unit_id not in owners_with_hp_below]
-                    phase1_actions.extend(after_ally)
-
-                    after_self = self.trigger_service.trigger_after_self_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_self)
-
-                    # 自身被AS攻击后触发（如フレンジーキャノン、捲土重来）
-                    # 仅AS技能主目标触发
-                    after_as_attacked = self.trigger_service.trigger_after_as_attacked(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_as_attacked)
-
-                    # 友方被AS技能攻击后触发（如ラッキー4！）
-                    after_as_ally = self.trigger_service.trigger_after_as_attacked_ally(
-                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
-                    )
-                    phase1_actions.extend(after_as_ally)
-
-                    # 自身行動後発動（after_own_action，如夜会のプレリュード、諸元修正、ファイティングブースト）
-                    # 被攻撃反応と同リストで速度順に実行（ゲーム内挙動：フレンジーキャノン等の反撃と同タイミングで速度競合）
-                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-                    after_own_action = self.trigger_service.trigger_after_own_action(
-                        unit, selected_skill, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-                    phase1_actions.extend(after_own_action)
-
-                    # 暴击触发PS（ラッキー4！、ジャックポット、アンデッドリベンジ等）
-                    # on_cumulative_damage (Phase1a-pre) の後に実行
-                    # （ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ、速度無関係）
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_tgt = entry[3] if len(entry) > 3 else None
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
-                            phase1_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
-
-                    # 技能使用次数触发PS（おまけで、えいっ！等）属于Phase1b
-                    # 幻惑/混乱中はcheck_triggersでスキップされ、行動終了時のbuff移除前に評価される
-                    # skill_use_count已在上方统一更新（含非伤害型AS技能）
-                    # Phase1bに分離：Phase1a(on_critical)の後に実行
-                    # （ゲーム内挙動：累計傷害 → 技能使用次数、速度排序ではなく段階的に分離）
-                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-
-                    # ===== 收集 Phase 2: AS攻撃後追撃 =====
-                    phase2_actions = []
-
-                    # 其他友方AS攻击后触发（如ポイズンチェイス、チェイスブレイダー）
-                    # 传入primary_target使追撃型PS仅追击AS主目标，主目标阵亡时不触发
-                    after_ally_as = self.trigger_service.trigger_after_ally_as_attack(
-                        unit, selected_skill, damaged_targets, self.battlefield,
-                        primary_target=primary_target,
-                    )
-                    phase2_actions.extend(after_ally_as)
-
-                    # ===== 收集 Phase 3: 主动技能结束后 =====
-                    # after_as_attack（如 ハロウィン・オブ・ザ・デッド「アクティブスキルで攻撃した直後」）
-                    # 全ての傷害関連トリガー（Phase1/Phase2）終了後に実行
-                    phase3_actions = self.trigger_service.trigger_after_as_attack(
-                        unit, selected_skill, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-
-                    # 记录PP快照（所有阶段合并），用于后续判断PS是否实际执行
-                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions + phase1b_actions
-                                        + phase2_actions + phase3_actions)
-                    self._pp_snapshot_before_as_triggers = {}
-                    for a in all_for_snapshot:
-                        o = a.instance.owner
-                        self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
-
-                    # ===== 执行 Phase 1a-pre: 累計傷害 =====
-                    # on_cumulative_damage は on_critical より先に実行（速度無関係）
-                    # （ゲーム内挙動：それはやりすぎ！+ → アンデッドリベンジ）
-                    if phase1_cumulative_actions:
-                        phase1_cumulative_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Phase1a-pre (累計傷害): %d actions sorted by speed→position",
-                                  len(phase1_cumulative_actions))
-                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
-                    # Phase 1a-pre 可能产生新的暴击触发器
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
-                    # on_critical含む、速度順で実行
-                    if phase1_actions:
-                        phase1_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Phase1a (被攻撃反応+自身行動後発動+暴撃): %d actions sorted by speed→position",
-                                  len(phase1_actions))
-                    self._execute_trigger_actions(phase1_actions, unit)
-                    # Phase 1a 可能产生新的暴击触发器
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 1b: 技能使用次数 =====
-                    # Phase1a(on_critical)の後に実行
-                    # （ゲーム内挙動：それはやりすぎ！+ → ぜ～～ったい負けないから！）
-                    if phase1b_actions:
-                        phase1b_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Phase1b (技能使用次数): %d actions sorted by speed→position",
-                                  len(phase1b_actions))
-                    self._execute_trigger_actions(phase1b_actions, unit)
-                    # Phase 1b 可能产生新的暴击触发器
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 2: AS攻撃後追撃 =====
-                    if phase2_actions:
-                        phase2_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Phase2 (AS攻撃後追撃): %d actions sorted by speed→position",
-                                  len(phase2_actions))
-                    self._execute_trigger_actions(phase2_actions, unit)
-                    # PS技能可能产生新的暴击触发器，继续处理
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # ===== 执行 Phase 3: 主动技能结束后 =====
-                    if phase3_actions:
-                        phase3_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] Phase3 (主动技能结束后): %d actions sorted by speed→position",
-                                  len(phase3_actions))
-                    self._execute_trigger_actions(phase3_actions, unit)
-                    # Phase 3 的 after_as_attack 攻击也可能产生新的暴击触发器
-                    self._flush_deferred_crit_triggers(unit)
-                else:
                     # 非AS技能：先执行暴击触发器，再执行其他触发器
                     self._flush_deferred_crit_triggers(unit)
 
@@ -1259,109 +678,6 @@ class BattleFlowController:
                         per_hit_reset_values=_per_hit_resets)
                     if cumulative_dmg_actions:
                         self._execute_global_trigger_actions(cumulative_dmg_actions)
-            else:
-                # 非伤害型AS技能（如支援型AS 120111/120112）：damaged_targets为空，跳过伤害相关触发器
-                # 但仍需处理 after_own_action、暴击触发器、skill_count_actions、after_as_attack
-                # 与伤害型AS路径保持一致的 Phase1/Phase2/Phase3 划分
-                if skill_type == 1:
-                    _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
-
-                    # Phase 1a-pre: 累計傷害（on_cumulative_damage）
-                    # on_critical より先に実行（速度無関係）
-                    # consume_hpによる自傷の累計傷害チェック（如 私に任せて！+ の自傷で それはやりすぎ！+ が触发）
-                    hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
-                    phase1_cumulative_actions = []
-                    if hp_consumed:
-                        _per_hit_resets = self._compute_per_hit_reset_values([unit])
-                        phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
-                            self.battlefield, [unit],
-                            per_hit_reset_values=_per_hit_resets)
-
-                    # Phase 1a: 自身行動後発動（after_own_action）+ 暴击
-                    phase1_actions = self.trigger_service.trigger_after_own_action(
-                        unit, selected_skill, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-                    # 暴击触发PS
-                    # on_cumulative_damage (Phase1a-pre) の後に実行
-                    if self._deferred_crit_triggers:
-                        for entry in list(self._deferred_crit_triggers):
-                            c, bf = entry[0], entry[1]
-                            crit_count = entry[2] if len(entry) > 2 else 1
-                            crit_tgt = entry[3] if len(entry) > 3 else None
-                            crit_actions = self.trigger_service.trigger_pawn_caused_critical(c, bf, count=crit_count, crit_target=crit_tgt)
-                            phase1_actions.extend(crit_actions)
-                        self._deferred_crit_triggers = []
-                    # 技能使用次数触发PS属于Phase1b（幻惑/混乱中はcheck_triggersでスキップ）
-                    # Phase1a(on_critical)の後に実行（伤害型ASと同順序）
-                    phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
-
-                    # Phase 2: （空 - 暴击触发器はPhase1aに移動）
-                    phase2_actions = []
-
-                    # Phase 3: 主动技能结束后（after_as_attack）
-                    phase3_actions = self.trigger_service.trigger_after_as_attack(
-                        unit, selected_skill, skill_result, self.battlefield,
-                        primary_target=_as_primary_target
-                    )
-
-                    # 记录PP快照（所有阶段合并）
-                    all_for_snapshot = (phase1_cumulative_actions + phase1_actions + phase1b_actions
-                                        + phase2_actions + phase3_actions)
-                    self._pp_snapshot_before_as_triggers = {}
-                    for a in all_for_snapshot:
-                        o = a.instance.owner
-                        self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
-
-                    # 执行 Phase 1a-pre: 累計傷害
-                    if phase1_cumulative_actions:
-                        phase1_cumulative_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1a-pre (累計傷害): %d actions",
-                                  len(phase1_cumulative_actions))
-                    self._execute_trigger_actions(phase1_cumulative_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # 执行 Phase 1a
-                    if phase1_actions:
-                        phase1_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1a (自身行動後発動+暴撃): %d actions",
-                                  len(phase1_actions))
-                    self._execute_trigger_actions(phase1_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # 执行 Phase 1b: 技能使用次数
-                    if phase1b_actions:
-                        phase1b_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase1b (技能使用次数): %d actions",
-                                  len(phase1b_actions))
-                    self._execute_trigger_actions(phase1b_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # 执行 Phase 2
-                    if phase2_actions:
-                        phase2_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase2 (空): %d actions",
-                                  len(phase2_actions))
-                    self._execute_trigger_actions(phase2_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
-
-                    # 执行 Phase 3
-                    if phase3_actions:
-                        phase3_actions.sort(
-                            key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                        )
-                        _log.info("[POST_AS_TRIGGERS] non-damage AS Phase3 (主动技能结束后): %d actions",
-                                  len(phase3_actions))
-                    self._execute_trigger_actions(phase3_actions, unit)
-                    self._flush_deferred_crit_triggers(unit)
 
             if had_aura:
                 aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
@@ -1380,111 +696,69 @@ class BattleFlowController:
 
         self.skill_service.update_cooldown_after_skill_use(unit, selected_skill)
 
-        # AS技能的skill_use_count更新和skill_count_actions已在phase2_actions中合并处理
-        # PS技能仍在此处独立处理；EX技能(skill_type=3)不更新计数也不检查触发器
+        # PS技能的skill_use_count更新（AS技能已在调用_collect_and_run_post_as_triggers前更新）
+        # EX技能(skill_type=3)不更新计数也不检查触发器
         if skill_type == 2:
             unit.skill_use_count[selected_skill] = unit.skill_use_count.get(selected_skill, 0) + 1
             _log.info("[SKILL_COUNT] PS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
                       unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
 
-        # EX技能不触发skill_use_count_modulo（如「ぜ～～ったい負けないから！」只应在AS技能使用后触发）
-        skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield) if skill_type != 3 else []
+        # AS技能的skill_count_actions已在_collect_and_run_post_as_triggers的Phase1b中合并执行+清理
+        # 非AS技能（PS/EX）在此处独立执行；EX技能不触发skill_use_count_modulo
+        # （如「ぜ～～ったい負けないから！」只应在AS技能使用后触发）
+        if skill_type != 1:
+            skill_count_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield) if skill_type != 3 else []
 
-        # AS技能的skill_count_actions已在phase1b_actions中合并执行，此处仅处理清理逻辑
-        # 非AS技能在此处独立执行
-        if skill_type == 1:
-            # AS技能：skill_count_actions已在phase1b_actions中执行
-            # 此处仅处理skill_use_count清理
-            # 需要检查PS是否实际执行了（PP是否足够），避免PP不足时错误清除计数器
-            if skill_count_actions:
-                # 检查PS是否实际执行了（通过PP快照判断）
-                any_executed = False
-                pp_snap = getattr(self, '_pp_snapshot_before_as_triggers', {})
-                for action in skill_count_actions:
-                    owner = action.instance.owner
-                    pp_before = pp_snap.get(owner.unit_id, owner.current_pp)
-                    if owner.current_pp < pp_before:
-                        # PP已被消耗，说明PS实际执行了
-                        any_executed = True
-                        break
-
-                if any_executed:
-                    for action in skill_count_actions:
-                        owner = action.instance.owner
-                        if owner.skill_use_count:
-                            parsed = self.data_loader.get_parsed_skill_data(action.skill_id) if hasattr(self.data_loader, 'get_parsed_skill_data') else None
-                            gc = parsed.get('global_condition') if parsed else None
-                            if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
-                                count_skill_types = gc.get('count_skill_types', [1])
-                                is_ps_modulo_trigger = (count_skill_types == [2])
-                                if is_ps_modulo_trigger:
-                                    continue
-                                exclude_skill_ids = gc.get('exclude_skill_ids', [])
-                                cleared_ids = []
-                                for sid in list(owner.skill_use_count.keys()):
-                                    if sid in exclude_skill_ids:
-                                        continue
-                                    sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
-                                    if sd and sd.skill_type in count_skill_types:
-                                        del owner.skill_use_count[sid]
-                                        cleared_ids.append(sid)
-                                _log.info("[SKILL_COUNT] %s skill_use_count selective reset: cleared=%s, remaining=%s",
-                                          owner.name, cleared_ids, dict(owner.skill_use_count))
-                            else:
-                                owner.skill_use_count.clear()
-                # PP不足时保留skill_use_count，下次AS使用后 >= 阈值会再次触发
-        else:
-            # 非AS技能：独立执行skill_count_actions
             if skill_count_actions:
                 pp_snapshot = {}
                 for action in skill_count_actions:
                     owner = action.instance.owner
                     pp_snapshot[owner.unit_id] = owner.current_pp
 
-            self._execute_trigger_actions(skill_count_actions, unit)
+                self._execute_trigger_actions(skill_count_actions, unit)
 
-            if skill_count_actions:
-                any_executed = False
-                for action in skill_count_actions:
-                    owner = action.instance.owner
-                    if pp_snapshot.get(owner.unit_id, 999) > owner.current_pp:
-                        any_executed = True
-                        break
-
-                if any_executed:
+                if skill_count_actions:
+                    any_executed = False
                     for action in skill_count_actions:
                         owner = action.instance.owner
-                        if owner.skill_use_count:
-                            skill_data_for_action = self.data_loader.get_skill_by_id(action.skill_id)
-                            parsed = self.data_loader.get_parsed_skill_data(action.skill_id) if hasattr(self.data_loader, 'get_parsed_skill_data') else None
-                            gc = parsed.get('global_condition') if parsed else None
-                            if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
-                                count_skill_types = gc.get('count_skill_types', [1])
-                                exclude_skill_ids = gc.get('exclude_skill_ids', [])
-                                is_ps_modulo_trigger = (count_skill_types == [2])
-                                if is_ps_modulo_trigger:
-                                    _log.info("[SKILL_COUNT] %s is PS-modulo trigger, NOT clearing counts (handled in PS execution)",
-                                              owner.name)
-                                    continue
-                                cleared_ids = []
-                                for sid in list(owner.skill_use_count.keys()):
-                                    if sid in exclude_skill_ids:
+                        if pp_snapshot.get(owner.unit_id, 999) > owner.current_pp:
+                            any_executed = True
+                            break
+
+                    if any_executed:
+                        for action in skill_count_actions:
+                            owner = action.instance.owner
+                            if owner.skill_use_count:
+                                skill_data_for_action = self.data_loader.get_skill_by_id(action.skill_id)
+                                parsed = self.data_loader.get_parsed_skill_data(action.skill_id) if hasattr(self.data_loader, 'get_parsed_skill_data') else None
+                                gc = parsed.get('global_condition') if parsed else None
+                                if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
+                                    count_skill_types = gc.get('count_skill_types', [1])
+                                    exclude_skill_ids = gc.get('exclude_skill_ids', [])
+                                    is_ps_modulo_trigger = (count_skill_types == [2])
+                                    if is_ps_modulo_trigger:
+                                        _log.info("[SKILL_COUNT] %s is PS-modulo trigger, NOT clearing counts (handled in PS execution)",
+                                                  owner.name)
                                         continue
-                                    sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
-                                    if sd and sd.skill_type in count_skill_types:
-                                        del owner.skill_use_count[sid]
-                                        cleared_ids.append(sid)
-                                _log.info("[SKILL_COUNT] %s skill_use_count selective reset after trigger: cleared skill_ids=%s, remaining=%s",
-                                          owner.name, cleared_ids, dict(owner.skill_use_count))
-                            else:
-                                _log.info("[SKILL_COUNT] %s skill_use_count full reset after trigger: %s -> {}",
-                                          owner.name, dict(owner.skill_use_count))
-                                owner.skill_use_count.clear()
-                # PP不足时保留skill_use_count，下次技能使用后 >= 阈值会再次触发
+                                    cleared_ids = []
+                                    for sid in list(owner.skill_use_count.keys()):
+                                        if sid in exclude_skill_ids:
+                                            continue
+                                        sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
+                                        if sd and sd.skill_type in count_skill_types:
+                                            del owner.skill_use_count[sid]
+                                            cleared_ids.append(sid)
+                                    _log.info("[SKILL_COUNT] %s skill_use_count selective reset after trigger: cleared skill_ids=%s, remaining=%s",
+                                              owner.name, cleared_ids, dict(owner.skill_use_count))
+                                else:
+                                    _log.info("[SKILL_COUNT] %s skill_use_count full reset after trigger: %s -> {}",
+                                              owner.name, dict(owner.skill_use_count))
+                                    owner.skill_use_count.clear()
+                    # PP不足时保留skill_use_count，下次技能使用后 >= 阈值会再次触发
 
         unit.action_phase = UnitActionPhase.AFTER_SKILL
 
-        # AS技能的after_own_action/after_as_attack触发器已在phase1/phase3中合并处理
+        # AS技能的after_own_action/after_as_attack触发器已在_collect_and_run_post_as_triggers的Phase1a/Phase3中合并处理
         # 此处仅对非AS技能调用，保持 after_own_action 先于 after_as_attack 的顺序
         if skill_type != 1:
             _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
@@ -1509,6 +783,520 @@ class BattleFlowController:
 
         # Guard cleanup: remove guard buffs triggered by this unit's action
         self._cleanup_guard_buffs(unit)
+
+    def _handle_dot_deaths(self) -> None:
+        """检测DOT（炎上/毒/行動時ダメージ）导致的死亡并触发击杀触发器。
+
+        在 _execute_unit_action 中 _check_and_apply_status_effects 之后调用，
+        处理因DoT结算导致的死亡：输出死亡通知、查找DOT施法者作为击杀者、
+        触发 PAWN_KILLED / PAWN_ANY_KILL 触发器，并允许子类执行复活等逻辑。
+
+        从 _execute_unit_action 提取，保持原逻辑等价。
+        """
+        dot_killed = [u for u in self.battlefield.get_all_units()
+                      if not u.is_alive and not u.is_death_notified]
+        if not dot_killed:
+            return
+
+        for u in dot_killed:
+            if self.narrative:
+                self.narrative.death(self._get_display_name(u))
+            u.is_death_notified = True
+            # 查找DOT的施法者作为击杀者
+            dot_source_id = None
+            for debuff in u.debuffs:
+                if debuff.effect_type in (
+                    SkillEffectType.CONFLAGRATION.value,
+                    SkillEffectType.POISON.value,
+                    SkillEffectType.ACTION_DAMAGE.value,
+                ):
+                    dot_source_id = debuff.source_unit_id
+                    break
+            killer = next((x for x in self.battlefield.get_all_units()
+                           if x.unit_id == dot_source_id), None) if dot_source_id else None
+            if killer:
+                kill_actions = self.trigger_service.trigger_pawn_killed(killer, self.battlefield)
+                self._execute_trigger_actions(kill_actions, killer)
+                any_kill_actions = self.trigger_service.trigger_pawn_any_kill(killer, self.battlefield)
+                self._execute_trigger_actions(any_kill_actions, killer)
+        # 允许子类（如战术演习）在此执行复活等逻辑
+        self._on_deaths_resolved(dot_killed)
+        if self.narrative:
+            self._on_death_narrative_complete(dot_killed)
+
+    def _start_charging(
+        self,
+        unit: UnitState,
+        selected_skill: int,
+        skill_name: str,
+        skill_type: int,
+        pre_action_cooldowns: dict,
+    ) -> bool:
+        """启动蓄力状态：标记单位为蓄力中，下次行动时执行效果。
+
+        蓄力技能不立即执行效果，标记 is_charging=True 并记录 charge_skill_id，
+        触发 on_ally_charge_use（友方响应蓄力），然后结束本次行动。
+
+        Args:
+            unit: 蓄力单位
+            selected_skill: 蓄力技能ID
+            skill_name: 技能名称（用于日志和叙事）
+            skill_type: 技能类型（1=AS, 2=PS, 3=EX）
+            pre_action_cooldowns: 行动前的技能冷却快照
+
+        Returns:
+            True 表示已进入蓄力状态（调用方应 return 结束本次行动）
+
+        从 _execute_unit_action 提取，保持原逻辑等价。
+        """
+        _log.info("[CHARGE] %s: 蓄力技能 [%s] 开始蓄力，下次行动时执行效果",
+                  unit.name, skill_name)
+        unit.is_charging = True
+        unit.charge_skill_id = selected_skill
+        if self.narrative:
+            self.narrative.charge_start(self._get_display_name(unit), skill_name, skill_type)
+        # 触发on_ally_charge_use（友方响应蓄力）
+        charge_actions = self.trigger_service.trigger_ally_charge_use(unit, self.battlefield)
+        if charge_actions:
+            self._execute_trigger_actions(charge_actions, unit)
+        # 蓄力技能当前行动结束，其他技能冷却正常递减
+        unit.action_phase = UnitActionPhase.AFTER_SKILL
+        unit.action_count_total += 1
+        self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
+        return True
+
+    def _execute_charge_release(self, unit: UnitState, pre_action_cooldowns: dict) -> None:
+        """蓄力完成时执行蓄力技能效果。
+
+        蓄力释放视为AS技能攻击（skill_type=1），执行与普通AS相同的5阶段post-skill trigger流程：
+        Phase 1a-pre（累計傷害）→ Phase 1a（被攻撃反応+自身行動後発動+暴撃）
+        → Phase 1b（技能使用次数）→ Phase 2（AS攻撃後追撃）→ Phase 3（主动技能结束后）
+
+        从 _execute_unit_action 提取，保持原逻辑等价。
+        """
+        charge_skill_id = unit.charge_skill_id
+        charge_meta = self.data_loader.get_skill_by_id(charge_skill_id)
+        charge_name = charge_meta.name if charge_meta else f"Skill_{charge_skill_id}"
+        _log.info("[CHARGE_EXECUTE] %s: executing charge effect [%s] (ID=%d)",
+                  unit.name, charge_name, charge_skill_id)
+        unit.is_charging = False
+        unit.charge_skill_id = 0
+        if self.narrative:
+            self.narrative.charge_complete(self._get_display_name(unit), charge_name, 1)
+
+        # 初始化暴击触发收集器：所有crit triggers统一收集，在复活后执行
+        self._deferred_crit_triggers = []
+
+        # 捕获技能执行前的存活单位集合（用于检测新阵亡）
+        units_before = set(u.unit_id for u in self.battlefield.get_all_units() if u.is_alive)
+
+        # 执行蓄力效果（跳过资源消耗，已在蓄力时消耗）
+        skill_result = self.skill_service.execute_skill(
+            caster=unit,
+            skill_id=charge_skill_id,
+            battlefield=self.battlefield,
+            skip_cost=True,
+            defer_crit_triggers=True,
+        )
+        # Guard cleanup: 蓄力技能执行完毕后立即清理由该攻击者触发的Guard buff
+        self._cleanup_guard_buffs(unit)
+
+        # SAFETY: 确保所有HP<=0的单位都被标记为死亡（兜底保护）
+        forced_dead = []
+        for u in self.battlefield.get_all_units():
+            if u.unit_id in units_before and u.current_hp <= 0 and u.is_alive:
+                u.is_alive = False
+                forced_dead.append(u.name)
+                _log.info("[SAFETY] Forcing is_alive=False for %s (HP=%d/%d)",
+                          u.name, u.current_hp, u.max_hp)
+        if forced_dead:
+            _log.info("[SAFETY] Forced dead units: %s", forced_dead)
+
+        # 1. 先输出蓄力技能的叙事日志（伤害、治疗等）
+        damaged_targets = []
+        if skill_result.get("success"):
+            damaged_targets = self._log_narrative_effects(
+                unit, skill_result, charge_name, 1, charge_skill_id)
+
+        # 2. 检测新阵亡单位
+        newly_dead = []
+        for u in self.battlefield.get_all_units():
+            if u.unit_id in units_before and not u.is_alive:
+                newly_dead.append(u)
+
+        # 3. 输出死亡通知（在复活逻辑之前）
+        if self.narrative:
+            for u in newly_dead:
+                if not u.is_death_notified:
+                    self.narrative.death(self._get_display_name(u))
+                    u.is_death_notified = True
+
+        # 4. 死亡触发器（PAWN_DIED/PAWN_KILLED/PAWN_ANY_KILL/HP_BELOW/UNIT_COUNT_BELOW）
+        if newly_dead:
+            death_actions = self.trigger_service.trigger_pawn_died(newly_dead, self.battlefield)
+            self._execute_trigger_actions(death_actions, unit)
+            kill_actions = self.trigger_service.trigger_pawn_killed(unit, self.battlefield)
+            self._execute_trigger_actions(kill_actions, unit)
+            any_kill_actions = self.trigger_service.trigger_pawn_any_kill(unit, self.battlefield)
+            self._execute_trigger_actions(any_kill_actions, unit)
+
+            hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield)
+            self._execute_global_trigger_actions(hp_below_actions)
+
+            cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield)
+            if cumulative_dmg_actions:
+                self._execute_global_trigger_actions(cumulative_dmg_actions)
+
+            unit_count_actions = self.trigger_service.trigger_unit_count_below(self.battlefield)
+            self._execute_global_trigger_actions(unit_count_actions)
+
+            self._remove_marks_from_dead_caster(newly_dead)
+            self._remove_damage_link_from_dead(newly_dead)
+            self._on_deaths_resolved(newly_dead)
+
+        # 6. 输出复活叙事
+        if newly_dead and self.narrative:
+            self._on_death_narrative_complete(newly_dead)
+
+        # 7. 暴击触发PS：收集蓄力技能的pending_crit_triggers
+        as_pending_crit = skill_result.get("pending_crit_triggers", [])
+        if as_pending_crit:
+            self._deferred_crit_triggers.extend(as_pending_crit)
+            _log.info("[CRIT_COLLECT] Charge skill: collected %d crit triggers (total=%d)",
+                      len(as_pending_crit), len(self._deferred_crit_triggers))
+
+        if skill_result.get("success"):
+            had_aura = any(
+                applied.get("effect_type") in ("aura", "add_status")
+                for applied in skill_result.get("effects_applied", [])
+            )
+
+            # 蓄力技能成功释放，AS技能计数+1（开始蓄力不算使用AS技能）
+            # 在5阶段流程的 phase1b 收集 trigger_skill_use_count 之前更新
+            unit.skill_use_count[charge_skill_id] = \
+                unit.skill_use_count.get(charge_skill_id, 0) + 1
+            _log.info("[SKILL_COUNT] Charge skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
+                      unit.name, charge_skill_id,
+                      unit.skill_use_count[charge_skill_id], dict(unit.skill_use_count))
+
+            # 蓄力释放视为AS技能攻击（skill_type=1），执行5阶段post-skill trigger流程
+            self._collect_and_run_post_as_triggers(
+                unit, charge_skill_id, skill_result, damaged_targets,
+                is_charge_release=True,
+            )
+
+            # Aura trigger handling
+            if had_aura:
+                aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
+                    self._collect_debuff_trigger_data(skill_result)
+                _log.info("[AURA_TRIGGER] charge release: aura_target_ids=%s new_knockout_target_ids=%s applied_debuff_types=%s",
+                          aura_target_ids, new_knockout_target_ids, applied_debuff_types)
+                if aura_target_ids:
+                    aura_actions = self.trigger_service.trigger_pawn_received_aura(
+                        self.battlefield, aura_target_ids, actor=unit,
+                        new_knockout_target_ids=new_knockout_target_ids,
+                        applied_debuff_types=applied_debuff_types)
+                    _log.info("[AURA_TRIGGER] charge release: aura_actions=%d",
+                              len(aura_actions))
+                    self._execute_trigger_actions(aura_actions, unit)
+
+        # 蓄力技能释放后进入冷却
+        self.skill_service.update_cooldown_after_skill_use(unit, charge_skill_id)
+
+        # 蓄力效果执行完毕，行动结束，其他技能冷却正常递减
+        unit.action_phase = UnitActionPhase.AFTER_SKILL
+        unit.action_count_total += 1
+        self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
+
+    def _collect_and_run_post_as_triggers(
+        self,
+        unit: UnitState,
+        skill_id: int,
+        skill_result: Dict,
+        damaged_targets: List[UnitState],
+        is_charge_release: bool = False,
+    ) -> None:
+        """收集并执行AS技能后的5阶段触发器流程。
+
+        Phase 1a-pre（累計傷害）→ Phase 1a（被攻撃反応+自身行動後発動+暴撃）
+        → Phase 1b（技能使用次数）→ Phase 2（AS攻撃後追撃）→ Phase 3（主动技能结束后）
+
+        根据 damaged_targets 是否为空自动分支：
+        - 伤害型路径：收集全部5阶段（被攻撃反応+追撃+...）
+        - 非伤害型路径：跳过被攻撃反応/追撃，仅处理 after_own_action/暴击/skill_count/after_as_attack
+
+        Args:
+            unit: AS施法者
+            skill_id: AS技能ID
+            skill_result: execute_skill返回结果
+            damaged_targets: 受伤目标列表（可能为空）
+            is_charge_release: 是否为蓄力释放（仅影响日志前缀和skill_use_count清理位置）
+
+        从 _execute_unit_action 和 _execute_charge_release 提取，保持原逻辑等价。
+        """
+        _log_prefix = "Charge release" if is_charge_release else ""
+
+        if damaged_targets:
+            # ========== 伤害型路径 ==========
+            primary_target = damaged_targets[0] if damaged_targets else None
+
+            unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
+            hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
+            self._execute_global_trigger_actions(hp_below_normal)
+            owners_with_hp_below = set()
+            for a in hp_below_normal:
+                owners_with_hp_below.add(a.instance.owner.unit_id)
+
+            _original_primary = getattr(self.skill_service, '_original_primary_target', None)
+            primary_target = _original_primary if _original_primary else (
+                damaged_targets[0] if damaged_targets else None)
+
+            # ===== 收集 Phase 1a-pre: 累計傷害 =====
+            cumulative_check_units = list(unique_damaged)
+            hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
+            if hp_consumed and unit.unit_id not in {u.unit_id for u in cumulative_check_units}:
+                cumulative_check_units.append(unit)
+            _per_hit_resets = (self._compute_per_hit_reset_values(cumulative_check_units)
+                               if cumulative_check_units else {})
+            phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
+                self.battlefield, cumulative_check_units,
+                per_hit_reset_values=_per_hit_resets) if cumulative_check_units else []
+
+            # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
+            phase1_actions = []
+
+            after_ally = self.trigger_service.trigger_after_ally_attacked(
+                damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
+            )
+            after_ally = [a for a in after_ally
+                          if a.instance.owner.unit_id not in owners_with_hp_below]
+            phase1_actions.extend(after_ally)
+
+            after_self = self.trigger_service.trigger_after_self_attacked(
+                damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
+            )
+            phase1_actions.extend(after_self)
+
+            after_as_attacked = self.trigger_service.trigger_after_as_attacked(
+                damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
+            )
+            phase1_actions.extend(after_as_attacked)
+
+            after_as_ally = self.trigger_service.trigger_after_as_attacked_ally(
+                damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
+            )
+            phase1_actions.extend(after_as_ally)
+
+            _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
+            after_own_action = self.trigger_service.trigger_after_own_action(
+                unit, skill_id, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+            phase1_actions.extend(after_own_action)
+
+            if self._deferred_crit_triggers:
+                for entry in list(self._deferred_crit_triggers):
+                    c, bf = entry[0], entry[1]
+                    crit_count = entry[2] if len(entry) > 2 else 1
+                    crit_tgt = entry[3] if len(entry) > 3 else None
+                    crit_actions = self.trigger_service.trigger_pawn_caused_critical(
+                        c, bf, count=crit_count, crit_target=crit_tgt)
+                    phase1_actions.extend(crit_actions)
+                self._deferred_crit_triggers = []
+
+            # ===== 收集 Phase 1b: 技能使用次数 =====
+            # skill_use_count 由调用方在调用前更新（_execute_unit_action L650-L655 预更新，
+            # _execute_charge_release 在调用本方法前更新），此处仅收集触发器
+            phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+
+            # ===== 收集 Phase 2: AS攻撃後追撃 =====
+            phase2_actions = []
+            after_ally_as = self.trigger_service.trigger_after_ally_as_attack(
+                unit, skill_id, damaged_targets, self.battlefield,
+                primary_target=primary_target,
+            )
+            phase2_actions.extend(after_ally_as)
+
+            # ===== 收集 Phase 3: 主动技能结束后 =====
+            phase3_actions = self.trigger_service.trigger_after_as_attack(
+                unit, skill_id, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+
+            # 记录PP快照（所有阶段合并）
+            all_for_snapshot = (phase1_cumulative_actions + phase1_actions
+                                + phase1b_actions + phase2_actions + phase3_actions)
+            self._pp_snapshot_before_as_triggers = {}
+            for a in all_for_snapshot:
+                o = a.instance.owner
+                self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
+
+            # ===== 执行 Phase 1a-pre: 累計傷害 =====
+            if phase1_cumulative_actions:
+                phase1_cumulative_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a-pre (累計傷害): %d actions",
+                          _log_prefix, len(phase1_cumulative_actions))
+            self._execute_trigger_actions(phase1_cumulative_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
+            if phase1_actions:
+                phase1_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a: %d actions",
+                          _log_prefix, len(phase1_actions))
+            self._execute_trigger_actions(phase1_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== 执行 Phase 1b: 技能使用次数 =====
+            if phase1b_actions:
+                phase1b_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1b: %d actions",
+                          _log_prefix, len(phase1b_actions))
+            self._execute_trigger_actions(phase1b_actions, unit)
+            # 处理skill_use_count清理（与regular AS path一致）
+            if phase1b_actions:
+                any_executed = False
+                pp_snap = getattr(self, '_pp_snapshot_before_as_triggers', {})
+                for action in phase1b_actions:
+                    owner = action.instance.owner
+                    pp_before = pp_snap.get(owner.unit_id, owner.current_pp)
+                    if owner.current_pp < pp_before:
+                        any_executed = True
+                        break
+                if any_executed:
+                    for action in phase1b_actions:
+                        owner = action.instance.owner
+                        if owner.skill_use_count:
+                            parsed = (self.data_loader.get_parsed_skill_data(action.skill_id)
+                                      if hasattr(self.data_loader, 'get_parsed_skill_data') else None)
+                            gc = parsed.get('global_condition') if parsed else None
+                            if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
+                                count_skill_types = gc.get('count_skill_types', [1])
+                                is_ps_modulo_trigger = (count_skill_types == [2])
+                                if is_ps_modulo_trigger:
+                                    continue
+                                exclude_skill_ids = gc.get('exclude_skill_ids', [])
+                                cleared_ids = []
+                                for sid in list(owner.skill_use_count.keys()):
+                                    if sid in exclude_skill_ids:
+                                        continue
+                                    sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
+                                    if sd and sd.skill_type in count_skill_types:
+                                        del owner.skill_use_count[sid]
+                                        cleared_ids.append(sid)
+                                _log.info("[SKILL_COUNT] %s skill_use_count selective reset: cleared=%s, remaining=%s",
+                                          owner.name, cleared_ids, dict(owner.skill_use_count))
+                            else:
+                                owner.skill_use_count.clear()
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== 执行 Phase 2: AS攻撃後追撃 =====
+            if phase2_actions:
+                phase2_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase2: %d actions",
+                          _log_prefix, len(phase2_actions))
+            self._execute_trigger_actions(phase2_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== 执行 Phase 3: 主动技能结束后 =====
+            if phase3_actions:
+                phase3_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase3: %d actions",
+                          _log_prefix, len(phase3_actions))
+            self._execute_trigger_actions(phase3_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+        else:
+            # ========== 非伤害型路径 ==========
+            # 非伤害型AS技能（如支援型AS）：damaged_targets为空，跳过伤害相关触发器
+            # 仍需处理 after_own_action、暴击触发器、skill_count_actions、after_as_attack
+            _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
+
+            # Phase 1a-pre: 累計傷害（仅consume_hp自傷チェック）
+            hp_consumed = getattr(self.skill_service, '_hp_consumed', 0)
+            phase1_cumulative_actions = []
+            if hp_consumed:
+                _per_hit_resets = self._compute_per_hit_reset_values([unit])
+                phase1_cumulative_actions = self.trigger_service.trigger_cumulative_damage(
+                    self.battlefield, [unit],
+                    per_hit_reset_values=_per_hit_resets)
+
+            # Phase 1a: 自身行動後発動 + 暴击
+            phase1_actions = self.trigger_service.trigger_after_own_action(
+                unit, skill_id, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+            if self._deferred_crit_triggers:
+                for entry in list(self._deferred_crit_triggers):
+                    c, bf = entry[0], entry[1]
+                    crit_count = entry[2] if len(entry) > 2 else 1
+                    crit_tgt = entry[3] if len(entry) > 3 else None
+                    crit_actions = self.trigger_service.trigger_pawn_caused_critical(
+                        c, bf, count=crit_count, crit_target=crit_tgt)
+                    phase1_actions.extend(crit_actions)
+                self._deferred_crit_triggers = []
+
+            # Phase 1b: 技能使用次数
+            # skill_use_count 由调用方在调用前更新，此处仅收集触发器
+            phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
+
+            # Phase 2: 空
+            phase2_actions = []
+
+            # Phase 3: 主动技能结束后
+            phase3_actions = self.trigger_service.trigger_after_as_attack(
+                unit, skill_id, skill_result, self.battlefield,
+                primary_target=_as_primary_target
+            )
+
+            # 记录PP快照
+            all_for_snapshot = (phase1_cumulative_actions + phase1_actions
+                                + phase1b_actions + phase2_actions + phase3_actions)
+            self._pp_snapshot_before_as_triggers = {}
+            for a in all_for_snapshot:
+                o = a.instance.owner
+                self._pp_snapshot_before_as_triggers[o.unit_id] = o.current_pp
+
+            # 执行各阶段
+            if phase1_cumulative_actions:
+                phase1_cumulative_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+            self._execute_trigger_actions(phase1_cumulative_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            if phase1_actions:
+                phase1_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+            self._execute_trigger_actions(phase1_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            if phase1b_actions:
+                phase1b_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+            self._execute_trigger_actions(phase1b_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            self._execute_trigger_actions(phase2_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            if phase3_actions:
+                phase3_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+            self._execute_trigger_actions(phase3_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
 
     def _cleanup_guard_buffs(self, attacker: UnitState) -> None:
         """清理由指定攻击者触发的guard buff和attacker_action类型的debuff/buff。
@@ -1678,6 +1466,27 @@ class BattleFlowController:
                     _log.info("[HEAL_LINK_DEATH] %s: heal_link buff removed (buff_id=%s, source=%s, unit_dead=%s)",
                               unit.name, buff.buff_id, buff.source_unit_id,
                               unit.unit_id in dead_ids)
+            if to_remove:
+                unit.buffs = [b for b in unit.buffs if b.buff_id not in to_remove]
+                unit.debuffs = [b for b in unit.debuffs if b.buff_id not in to_remove]
+
+    def _remove_source_death_buffs_from_dead(self, newly_dead: list) -> None:
+        """清除死亡单位施加的带 source_death_remove 标志的 buff/debuff。
+
+        当施加者被击败时，其施加的所有 source_death_remove=True 的 buff/debuff 应立即消失。
+        例: 130161 PS1 オブ・ザ・グラウンド「防御デバフは付与者が倒れると解除される」
+        """
+        dead_ids = {u.unit_id for u in newly_dead}
+        all_units = self.battlefield.get_all_units()
+        for unit in all_units:
+            if unit.unit_id in dead_ids:
+                continue
+            to_remove = []
+            for buff in unit.buffs + unit.debuffs:
+                if getattr(buff, 'source_death_remove', False) and buff.source_unit_id in dead_ids:
+                    to_remove.append(buff.buff_id)
+                    _log.info("[SOURCE_DEATH_REMOVE] %s: buff '%s' (effect_type=%s) removed (caster %s died)",
+                              unit.name, buff.name, buff.effect_type, buff.source_unit_id)
             if to_remove:
                 unit.buffs = [b for b in unit.buffs if b.buff_id not in to_remove]
                 unit.debuffs = [b for b in unit.debuffs if b.buff_id not in to_remove]
@@ -2057,12 +1866,19 @@ class BattleFlowController:
         """
         self.trigger_service._simultaneous_limit_triggered_in_phase = False
         self.trigger_service._exclusive_group_triggered = set()
+        # 130159 アクア・セービング: PS互斥机制，重置当前phase内已触发的PS skill_id集合
+        # self_ps_lower_priority_than 条件通过此集合检查高优先级PS是否已触发
+        self.trigger_service._triggered_ps_ids_in_phase = set()
 
     def _mark_simultaneous_limit_triggered(self, skill_id: int) -> None:
         """同時発動制限新机制：PS成功执行后设置标志位
         - simultaneous_limit PS: 设置全局标志位，该时机内其他simultaneous_limit PS不可触发
         - exclusive_group PS: 添加group到集合，同group的其他PS不可触发
+        - _triggered_ps_ids_in_phase: 记录所有成功执行的PS skill_id（无条件下添加），
+          供 self_ps_lower_priority_than 条件检查
         """
+        # 130159 アクア・セービング: 无条件记录PS skill_id，供 self_ps_lower_priority_than 检查
+        self.trigger_service._triggered_ps_ids_in_phase.add(skill_id)
         parsed = self.data_loader.get_parsed_skill_data(skill_id) if self.data_loader else None
         if not parsed:
             return
@@ -2612,38 +2428,31 @@ class BattleFlowController:
 
         primary_target = None
         all_target_names = []
+        # 目标名提取器：将每个 effect_type 映射到原始目标名列表（target_id 或 target 字段）
+        # 提取器只返回原始字段值，由循环体调用 _get_display_name 转换为显示名
+        # consume_hp 依赖 caster 兜底（提取器无法访问），保留为 elif 分支
+        _target_name_extractors = {
+            "damage": lambda a: [t.get('target_id', t['target']) for t in a.get("targets", [])],
+            "hp_ratio_damage": lambda a: [t.get('target_id', t['target']) for t in a.get("targets", [])],
+            "damage_special": lambda a: [t.get('target_id', t['target']) for t in a.get("targets", [])],
+            "heal": lambda a: [h.get('target_id', h['target']) for h in a.get("heals", [])],
+            "split_heal_by_damage": lambda a: [h.get('target_id', h['target']) for h in a.get("heals", [])],
+            "aura": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "add_status": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "block_buff_by_type": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "stealth": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "heal_link": lambda a: [x.get('target_id', x['target']) for x in a.get("auras", [])],
+        }
         for applied in skill_result.get("effects_applied", []):
-            if applied.get("effect_type") in ("damage", "hp_ratio_damage", "damage_special"):
-                for t in applied.get("targets", []):
-                    dname = self._get_display_name(t.get('target_id', t['target']))
+            etype = applied.get("effect_type")
+            extractor = _target_name_extractors.get(etype)
+            if extractor:
+                for raw_name in extractor(applied):
+                    dname = self._get_display_name(raw_name)
                     if primary_target is None:
                         primary_target = dname
                     all_target_names.append(dname)
-            elif applied.get("effect_type") == "heal":
-                for h in applied.get("heals", []):
-                    dname = self._get_display_name(h.get('target_id', h['target']))
-                    if primary_target is None:
-                        primary_target = dname
-                    all_target_names.append(dname)
-            elif applied.get("effect_type") == "split_heal_by_damage":
-                for h in applied.get("heals", []):
-                    dname = self._get_display_name(h.get('target_id', h['target']))
-                    if primary_target is None:
-                        primary_target = dname
-                    all_target_names.append(dname)
-            elif applied.get("effect_type") in ("aura", "add_status", "block_buff_by_type", "stealth"):
-                for a in (applied.get("auras", []) or applied.get("statuses", [])):
-                    dname = self._get_display_name(a.get('target_id', a['target']))
-                    if primary_target is None:
-                        primary_target = dname
-                    all_target_names.append(dname)
-            elif applied.get("effect_type") == "heal_link":
-                for a in applied.get("auras", []):
-                    dname = self._get_display_name(a.get('target_id', a['target']))
-                    if primary_target is None:
-                        primary_target = dname
-                    all_target_names.append(dname)
-            elif applied.get("effect_type") == "consume_hp":
+            elif etype == "consume_hp":
                 dname = self._get_display_name(applied.get('target_id', caster.unit_id))
                 if primary_target is None:
                     primary_target = dname
@@ -2672,535 +2481,55 @@ class BattleFlowController:
 
         for applied in skill_result.get("effects_applied", []):
             if applied.get("effect_type") == "damage":
-                # 输出条件暴击率上升信息
-                bonus_crit = applied.get("bonus_crit_applied", 0)
-                if bonus_crit > 0:
-                    self.narrative.bonus_crit(caster_dname, bonus_crit)
-                for t in applied.get("targets", []):
-                    # SubUnit追加伤害使用专门的叙事方法
-                    sub_unit_name = t.get("sub_unit_name")
-                    if sub_unit_name:
-                        target_unit = self._find_unit(t)
-                        max_hp = target_unit.max_hp if target_unit else t['hp_before']
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        shield_abs = t.get('shield_absorbed', 0)
-                        self.narrative.sub_unit_damage(
-                            sub_unit_name, target_dname,
-                            t.get('actual_damage', t['damage']),
-                            t['hp_after'], max_hp, t.get('crit', False),
-                            shield_absorbed=shield_abs,
-                            calc_detail=t.get('calc_detail'))
-                        continue
-
-                    # 附魔伤害使用专门的叙事方法
-                    is_enchant = "附魔" in (t.get("modifiers") or [])
-                    if is_enchant:
-                        target_unit = self._find_unit(t)
-                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        modifiers = list(t.get("modifiers", []))
-                        if t.get("crit"):
-                            modifiers.append("Critical")
-                        self.narrative.enchant_damage(
-                            attacker_name=caster_dname,
-                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                            target_name=target_dname,
-                            hp_before=t['hp_before'],
-                            hp_after=t['hp_after'],
-                            damage=t.get('actual_damage', t['damage']),
-                            damage_type=dmg_type,
-                            modifiers=modifiers,
-                            calc_detail=t.get('calc_detail'),
-                            max_hp=max_hp,
-                        )
-                        continue
-
-                    # 追加伤害(ADD_DAMAGE)使用专门的叙事方法
-                    is_add_damage = "追加" in (t.get("modifiers") or [])
-                    if is_add_damage:
-                        target_unit = self._find_unit(t)
-                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        self.narrative.add_damage(
-                            attacker_name=caster_dname,
-                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                            target_name=target_dname,
-                            hp_before=t['hp_before'],
-                            hp_after=t['hp_after'],
-                            damage=t.get('actual_damage', t['damage']),
-                            damage_type=dmg_type,
-                            crit=t.get('crit', False),
-                            calc_detail=t.get('calc_detail'),
-                            max_hp=max_hp,
-                        )
-                        continue
-
-                    # 幻惑(伤害转回复)叙事ログ
-                    if t.get('genwaku_heal') is not None:
-                        target_unit = self._find_unit(t)
-                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        hit_details = t.get("hits", [])
-                        hit_crits = t.get("hit_crits", [])
-                        hit_count = len(hit_details)
-                        total_heal = t['genwaku_heal']
-                        if hit_count > 1 and len(hit_crits) == hit_count and total_heal > 0:
-                            running_hp = t['hp_before']
-                            total_original = sum(hit_details) or 1
-                            # per-hit回复値があれば使用（キャップされていない場合）
-                            hit_heals = t.get("genwaku_hit_heals", [])
-                            use_per_hit = (hit_heals and sum(hit_heals) == total_heal
-                                           and len(hit_heals) == hit_count)
-                            remaining_heal = total_heal
-                            for i, hit_dmg in enumerate(hit_details):
-                                hp_before_hit = running_hp
-                                if use_per_hit:
-                                    hit_heal = hit_heals[i]
-                                elif i == hit_count - 1:
-                                    hit_heal = remaining_heal
-                                else:
-                                    hit_heal = int(total_heal * hit_dmg / total_original)
-                                    remaining_heal -= hit_heal
-                                running_hp = running_hp + hit_heal
-                                modifiers = []
-                                if hit_crits[i]:
-                                    modifiers.append("Critical")
-                                if target_unit:
-                                    target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
-                                    if self._is_element_advantage(caster.element, target_elem):
-                                        modifiers.append("Effective")
-                                self.narrative.genwaku_heal(
-                                    attacker_name=caster_dname,
-                                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                                    target_name=target_dname,
-                                    hp_before=hp_before_hit,
-                                    hp_after=running_hp,
-                                    heal_amount=hit_heal,
-                                    damage_type=dmg_type,
-                                    modifiers=modifiers,
-                                    max_hp=max_hp,
-                                    calc_detail=t.get('calc_detail') if i == 0 else None,
-                                )
-                        else:
-                            modifiers = list(t.get("modifiers", []))
-                            if t.get("crit"):
-                                modifiers.append("Critical")
-                            if target_unit:
-                                target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
-                                if self._is_element_advantage(caster.element, target_elem):
-                                    modifiers.append("Effective")
-                            self.narrative.genwaku_heal(
-                                attacker_name=caster_dname,
-                                attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                                target_name=target_dname,
-                                hp_before=t['hp_before'],
-                                hp_after=t['hp_after'],
-                                heal_amount=total_heal,
-                                damage_type=dmg_type,
-                                modifiers=modifiers,
-                                max_hp=max_hp,
-                                calc_detail=t.get('calc_detail'),
-                            )
-                        continue
-
-                    target_unit = self._find_unit(t)
-                    max_hp = target_unit.max_hp if target_unit else t['hp_before']
-                    hit_details = t.get("hits", [t.get('actual_damage', t['damage'])])
-                    hit_crits = t.get("hit_crits", [t.get("crit")])
-                    hit_evades = t.get("hit_evades", [])
-                    hit_shield_list = t.get("hit_shield_absorbed", [])
-                    hit_count = len(hit_details)
-                    if hit_count > 1 and len(hit_crits) == hit_count:
-                        running_hp = t['hp_before']
-                        for i, hit_dmg in enumerate(hit_details):
-                            hp_before_hit = running_hp
-                            hit_shield = hit_shield_list[i] if i < len(hit_shield_list) else 0
-                            is_evaded = hit_evades[i] if i < len(hit_evades) else False
-                            if is_evaded:
-                                modifiers = ["Miss"]
-                                actual_hp_loss = 0
-                            else:
-                                actual_hp_loss = max(0, hit_dmg - hit_shield)
-                                running_hp = max(0, running_hp - actual_hp_loss)
-                                modifiers = []
-                                if hit_crits[i]:
-                                    modifiers.append("Critical")
-                                if target_unit:
-                                    target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
-                                    if self._is_element_advantage(caster.element, target_elem):
-                                        modifiers.append("Effective")
-                            self.narrative.damage(
-                                attacker_name=caster_dname,
-                                attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                                target_name=self._get_display_name(t.get('target_id', t['target'])),
-                                hp_before=hp_before_hit,
-                                hp_after=running_hp,
-                                damage=actual_hp_loss,
-                                damage_type=dmg_type,
-                                modifiers=modifiers,
-                                shield_absorbed=hit_shield,
-                                max_hp=max_hp,
-                                calc_detail=t.get('calc_detail') if i == 0 else None,
-                            )
-                    else:
-                        is_evaded = hit_evades[0] if hit_evades else False
-                        if is_evaded:
-                            modifiers = ["Miss"]
-                        else:
-                            modifiers = list(t.get("modifiers", []))
-                            if t.get("crit"):
-                                modifiers.append("Critical")
-                            if target_unit:
-                                target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
-                                if self._is_element_advantage(caster.element, target_elem):
-                                    modifiers.append("Effective")
-                        hit_shield = hit_shield_list[0] if hit_shield_list else t.get('shield_absorbed', 0)
-                        self.narrative.damage(
-                            attacker_name=caster_dname,
-                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                            target_name=self._get_display_name(t.get('target_id', t['target'])),
-                            hp_before=t['hp_before'],
-                            hp_after=t['hp_after'],
-                            damage=t.get('actual_damage', t['damage']),
-                            damage_type=dmg_type,
-                            modifiers=modifiers,
-                            shield_absorbed=hit_shield,
-                            max_hp=max_hp,
-                            calc_detail=t.get('calc_detail'),
-                        )
-                    # SubUnit吸收伤害叙事
-                    for sa in t.get("sub_unit_absorbs", []):
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        self.narrative.sub_unit_absorb(
-                            target_dname, sa['sub_unit_name'], sa['absorbed'],
-                            sa['sub_unit_hp_after'], sa['sub_unit_max_hp'])
-                    # 护盾消失叙事（按次数/按攻击次数消耗的盾）
-                    shield_expired = t.get("shield_expired")
-                    if shield_expired:
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        self.narrative.effect_expired(target_dname, shield_expired, is_debuff=False)
-                # ダメージリンク転送叙事日志出力
-                for dl_transfer in applied.get("damage_link_transfers", []):
-                    source_dname = self._get_display_name(dl_transfer["source_target_id"])
-                    linker_dname = self._get_display_name(dl_transfer["linker_id"])
-                    self.narrative.damage_link_transfer(
-                        source_target_name=source_dname,
-                        linker_name=linker_dname,
-                        transfer_dmg=dl_transfer["transfer_dmg"],
-                        hp_before=dl_transfer["hp_before"],
-                        hp_after=dl_transfer["hp_after"],
-                        max_hp=dl_transfer["max_hp"],
-                        damage_type=dl_transfer["damage_type"],
-                        link_value=dl_transfer["link_value"],
-                        source_total_damage=dl_transfer["source_total_damage"],
-                        shield_absorbed=dl_transfer["shield_absorbed"],
-                        source_hp_restored=dl_transfer.get("source_hp_restored", 0),
-                        source_hp_before=dl_transfer.get("source_hp_before", 0),
-                        source_hp_after=dl_transfer.get("source_hp_after", 0),
-                        source_max_hp=dl_transfer.get("source_max_hp", 0),
-                        direction=dl_transfer.get("direction", "outgoing"),
-                    )
-                # 反射ダメージ叙事ログ出力
-                for r_transfer in applied.get("reflect_transfers", []):
-                    coverer_dname = self._get_display_name(r_transfer["coverer_id"])
-                    attacker_dname = self._get_display_name(r_transfer["attacker_id"])
-                    self.narrative.reflect_damage_transfer(
-                        coverer_name=coverer_dname,
-                        attacker_name=attacker_dname,
-                        reflect_dmg=r_transfer["reflect_dmg"],
-                        hp_before=r_transfer["hp_before"],
-                        hp_after=r_transfer["hp_after"],
-                        max_hp=r_transfer["max_hp"],
-                        reflect_rate=r_transfer["reflect_rate"],
-                        source_total_damage=r_transfer["source_total_damage"],
-                    )
+                self._log_narrative_damage(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") == "heal":
-                for h in applied.get("heals", []):
-                    target_unit = self._find_unit(h)
-                    target_max = target_unit.max_hp if target_unit else 0
-                    hp_before_heal = h['hp_after'] - h['amount']
-                    self.narrative.heal(
-                        source_name=caster_dname,
-                        source_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                        target_name=self._get_display_name(h.get('target_id', h['target'])),
-                        hp_before=hp_before_heal,
-                        amount=h['amount'],
-                        target_max_hp=target_max,
-                        is_crit=h.get('is_crit', False),
-                        formula=h.get('heal_formula', ''),
-                    )
-                # 回復リンク転送叙事ログ
-                for lt in applied.get("heal_link_transfers", []):
-                    self.narrative.heal_link_transfer(
-                        source_name=self._get_display_name(lt["source_id"]),
-                        linker_name=self._get_display_name(lt["linker_id"]),
-                        transfer_heal=lt["transfer_heal"],
-                        hp_before=lt["hp_before"],
-                        hp_after=lt["hp_after"],
-                        max_hp=lt["max_hp"],
-                        link_value=lt["link_value"],
-                        source_theoretical_heal=lt["source_theoretical_heal"],
-                    )
+                self._log_narrative_heal(caster, caster_dname, applied)
             elif applied.get("effect_type") == "split_heal_by_damage":
-                # 若雷 220360/220361: 与ダメ100%味方均等分配回復
-                for h in applied.get("heals", []):
-                    target_unit = self._find_unit(h)
-                    target_max = target_unit.max_hp if target_unit else 0
-                    self.narrative.heal(
-                        source_name=caster_dname,
-                        source_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                        target_name=self._get_display_name(h.get('target_id', h['target'])),
-                        hp_before=h.get('hp_before', h.get('hp_after', 0) - h.get('amount', 0)),
-                        amount=h.get('amount', 0),
-                        target_max_hp=target_max,
-                        is_crit=h.get('is_crit', False),
-                        formula=h.get('heal_formula', ''),
-                    )
-                # 回復リンク転送叙事ログ
-                for lt in applied.get("heal_link_transfers", []):
-                    self.narrative.heal_link_transfer(
-                        source_name=self._get_display_name(lt["source_id"]),
-                        linker_name=self._get_display_name(lt["linker_id"]),
-                        transfer_heal=lt["transfer_heal"],
-                        hp_before=lt["hp_before"],
-                        hp_after=lt["hp_after"],
-                        max_hp=lt["max_hp"],
-                        link_value=lt["link_value"],
-                        source_theoretical_heal=lt["source_theoretical_heal"],
-                    )
+                self._log_narrative_heal(caster, caster_dname, applied)
             elif applied.get("effect_type") == "heal_link":
-                # 回復リンク付与叙事ログ
-                for a in applied.get("auras", []):
-                    self.narrative.heal_link_applied(
-                        target_name=self._get_display_name(a.get('target_id', a['target'])),
-                        source_name=self._get_display_name(a.get('source_id', a['source'])),
-                        transfer_pct=a.get('transfer_pct', 100.0),
-                        duration=a.get('duration', 1),
-                        dur_type=a.get('dur_type', 'action'),
-                    )
+                self._log_narrative_heal(caster, caster_dname, applied)
             elif applied.get("effect_type") == "consume_hp":
-                # HP消耗（自傷）叙事ログ
-                self.narrative.consume_hp(
-                    source_name=caster_dname,
-                    amount=applied.get('consumed', 0),
-                    hp_before=applied.get('hp_before', 0),
-                    hp_after=applied.get('hp_after', 0),
-                    max_hp=applied.get('max_hp', 0),
-                    pct=applied.get('pct', 0),
-                    hp_base=applied.get('hp_base', 'current_hp'),
-                )
+                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") in ("aura", "block_buff_by_type", "stealth"):
-                for a in applied.get("auras", []):
-                    target_unit = self._find_unit(a)
-                    detail = a.get('detail', '')
-                    if target_unit and not detail:
-                        detail = self._get_buff_debuff_detail(target_unit, a['effect'])
-                    target_dname = self._get_display_name(a.get('target_id', a['target']))
-                    source_dname = self._get_display_name(a.get('source_id', a['source']))
-                    if applied.get("is_debuff"):
-                        self.narrative.debuff_applied(target_dname, a['effect'], source_dname, a.get('duration', 0), a.get('dur_type', 'turn'), detail)
-                    else:
-                        self.narrative.buff_applied(target_dname, a['effect'], source_dname, a.get('duration', 0), a.get('dur_type', 'turn'), detail)
-                    # 眩晕打断蓄力叙事
-                    if a.get("charge_cancelled"):
-                        self.narrative.charge_cancelled(target_dname, a["charge_skill_name"], "眩晕")
-                # 输出被免疫/闪避的debuff叙事
-                for b in applied.get("blocked", []):
-                    target_dname = self._get_display_name(b.get('target_id', b['target']))
-                    source_dname = self._get_display_name(b.get('source_id', b['source']))
-                    self.narrative.debuff_blocked(target_dname, b['effect'], source_dname, b.get('reason', 'debuff_immune'))
+                self._log_narrative_aura_block(caster, caster_dname, applied)
             elif applied.get("effect_type") == "hp_ratio_damage":
-                for t in applied.get("targets", []):
-                    target_unit = self._find_unit(t)
-                    max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
-                    target_dname = self._get_display_name(t.get('target_id', t['target']))
-                    self.narrative.hp_ratio_damage(
-                        attacker_name=caster_dname,
-                        attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                        target_name=target_dname,
-                        hp_before=t['hp_before'],
-                        hp_after=t['hp_after'],
-                        damage=t.get('actual_damage', t['damage']),
-                        damage_type=dmg_type,
-                        calc_detail=t.get('calc_detail'),
-                        max_hp=max_hp,
-                        shield_absorbed=t.get('shield_absorbed', 0),
-                    )
+                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") == "damage_special":
-                for t in applied.get("targets", []):
-                    if isinstance(t, dict):
-                        target_dname = self._get_display_name(t.get('target_id', t['target']))
-                        target_unit = self._find_unit(t)
-                        max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
-                        if t.get('evaded'):
-                            self.narrative.evade(target_dname, caster_dname)
-                        else:
-                            self.narrative.damage(
-                                attacker_name=caster_dname,
-                                attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
-                                target_name=target_dname,
-                                hp_before=t['hp_before'],
-                                hp_after=t['hp_after'],
-                                damage=t.get('actual_damage', t['damage']),
-                                damage_type=dmg_type,
-                                modifiers=["特殊"],
-                                shield_absorbed=t.get('shield_absorbed', 0),
-                                max_hp=max_hp,
-                            )
+                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") == "lifesteal":
-                heal_amount = applied.get("heal_amount", 0)
-                if heal_amount > 0:
-                    self.narrative.lifesteal(
-                        source_name=caster_dname,
-                        heal_amount=heal_amount,
-                        damage_based_on=applied.get("damage_based_on", 0),
-                        hp_before=applied.get("hp_before", caster.current_hp - heal_amount),
-                        hp_after=applied.get("hp_after", caster.current_hp),
-                        max_hp=caster.max_hp,
-                        cure_pct=applied.get("cure_pct", 0),
-                    )
+                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") == "add_fury":
-                fc = applied.get("fury_count", 0)
-                self.narrative.fury_add(self._get_display_name(caster), fc)
+                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
             elif applied.get("effect_type") == "add_status":
-                for s in applied.get("statuses", []):
-                    target_unit = self._find_unit(s)
-                    detail = ""
-                    if target_unit:
-                        detail = self._get_buff_debuff_detail(target_unit, s['effect'])
-                    target_dname = self._get_display_name(s.get('target_id', s['target']))
-                    source_dname = self._get_display_name(s.get('source_id', s['source']))
-                    if applied.get("is_debuff"):
-                        self.narrative.debuff_applied(target_dname, s['effect'], source_dname, s.get('duration', 0), s.get('dur_type', 'turn'), detail)
-                    else:
-                        self.narrative.buff_applied(target_dname, s['effect'], source_dname, s.get('duration', 0), s.get('dur_type', 'turn'), detail)
-                    # 眩晕打断蓄力叙事
-                    if s.get("charge_cancelled"):
-                        self.narrative.charge_cancelled(target_dname, s["charge_skill_name"], "眩晕")
+                self._log_narrative_aura_block(caster, caster_dname, applied)
             elif applied.get("effect_type") == "reset_cooldown":
-                if applied.get("was_on_cd"):
-                    sk_name = applied.get("skill_name", f"技能ID:{applied.get('skill_id', '?')}")
-                    self.narrative.reset_cooldown(caster_dname, sk_name)
+                self._log_narrative_other(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_debuff":
-                for rd in applied.get("removed_details", []):
-                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
-                    self.narrative.debuff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+                self._log_narrative_remove(caster, caster_dname, applied)
             elif applied.get("effect_type") in ("remove_buff", "remove_buff_by_type"):
-                for rd in applied.get("removed_details", []):
-                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
-                    self.narrative.buff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+                self._log_narrative_remove(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_shield":
-                for rd in applied.get("targets", []):
-                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
-                    self.narrative.shield_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
+                self._log_narrative_remove(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_sub_unit":
-                for rd in applied.get("targets", []):
-                    target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
-                    self.narrative.sub_unit_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
+                self._log_narrative_remove(caster, caster_dname, applied)
             elif applied.get("effect_type") == "sub_unit":
-                for su in applied.get("targets", []):
-                    target_dname = self._get_display_name(su.get('target_id', su.get('target')))
-                    self.narrative.sub_unit_applied(
-                        target_dname, su.get('sub_unit_name', 'SubUnit'),
-                        su.get('sub_unit_hp', 0), su.get('sub_unit_max_hp', 0),
-                        su.get('atk_dmg_pct', 0), su.get('duration', 1),
-                        su.get('dur_type', 'action'), caster_dname)
+                self._log_narrative_other(caster, caster_dname, applied)
             elif applied.get("effect_type") == "shield_from_damage":
-                shield_value = applied.get("shield_value", 0)
-                if shield_value > 0:
-                    self.narrative.shield_added(caster_dname, shield_value, caster.shield)
+                self._log_narrative_other(caster, caster_dname, applied)
             elif applied.get("effect_type") in ("add_ap", "add_ep", "remove_ap"):
-                if not applied.get("skipped"):
-                    rtype = applied["effect_type"]
-                    if rtype == "add_ap":
-                        ap_targets = applied.get("targets", [])
-                        if ap_targets:
-                            for at in ap_targets:
-                                target_dname = self._get_display_name(at.get('target_id', at.get('target')))
-                                self.narrative.resource_restore(target_dname, at['ap_after'], at['ap_max'])
-                        else:
-                            self.narrative.resource_restore(caster_dname, caster.current_ap, caster.initial_active_point)
-                    elif rtype == "add_ep":
-                        # add_ep 可能有多个目标，逐个显示
-                        ep_targets = applied.get("targets", [])
-                        if ep_targets:
-                            for et in ep_targets:
-                                target_dname = self._get_display_name(et.get('target_id', et.get('target')))
-                                self.narrative.resource_restore_ep(
-                                    target_dname, et['amount'], et['ep_after'], et['ep_max'])
-                        else:
-                            self.narrative.resource_restore_ep(caster_dname, 0, caster.current_ep, caster.max_extra_point)
-                    elif rtype == "remove_ap":
-                        ap_targets = applied.get("targets", [])
-                        for at in ap_targets:
-                            target_dname = self._get_display_name(at.get('target_id', at.get('target')))
-                            cover_for = at.get('cover_replaced_for')
-                            if cover_for:
-                                self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname, cover_for)
-                            else:
-                                self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname)
+                self._log_narrative_resource(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_pp":
-                pp_targets = applied.get("targets", [])
-                for pt in pp_targets:
-                    target_dname = self._get_display_name(pt.get('target_id', pt.get('target')))
-                    cover_for = pt.get('cover_replaced_for')
-                    if cover_for:
-                        self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname, cover_for)
-                    else:
-                        self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname)
+                self._log_narrative_resource(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_ep":
-                ep_targets = applied.get("targets", [])
-                for et in ep_targets:
-                    target_dname = self._get_display_name(et.get('target_id', et.get('target')))
-                    cover_for = et.get('cover_replaced_for')
-                    if cover_for:
-                        self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname, cover_for)
-                    else:
-                        self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname)
+                self._log_narrative_resource(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_mark":
-                for rm in applied.get("targets", []):
-                    target_dname = self._get_display_name(rm.get('target_id', rm.get('target')))
-                    self.narrative.mark_removed(target_dname, rm['mark_name'], rm['removed_count'], caster_dname)
+                self._log_narrative_remove(caster, caster_dname, applied)
             elif applied.get("effect_type") == "modify_pp":
-                delta = applied.get("delta", 0)
-                if delta != 0:
-                    target_dname = self._get_display_name(caster)
-                    if delta > 0:
-                        self.narrative.pp_restored(
-                            target_dname, delta,
-                            applied.get("new_pp", caster.current_pp),
-                            caster.initial_passive_point)
-                    else:
-                        self.narrative.pp_removed(
-                            target_dname, -delta,
-                            applied.get("new_pp", caster.current_pp),
-                            caster.initial_passive_point, caster_dname)
+                self._log_narrative_resource(caster, caster_dname, applied)
             elif applied.get("effect_type") == "damage_link":
-                # ダメージリンク付与叙事日志出力
-                link_mode = applied.get("link_mode", "to_caster")
-                duration = applied.get("duration", -1)
-                duration_type = applied.get("duration_type", "")
-                unremovable = applied.get("unremovable", False)
-                for a in applied.get("applied", []):
-                    target_dname = self._get_display_name(a.get('target_id'))
-                    partner_dname = self._get_display_name(a.get('partner_id'))
-                    self.narrative.damage_link_applied(
-                        source_name=caster_dname,
-                        target_name=target_dname,
-                        partner_name=partner_dname,
-                        link_value=a.get('value', 0),
-                        duration=duration,
-                        duration_type=duration_type,
-                        link_mode=link_mode,
-                        unremovable=unremovable,
-                    )
+                self._log_narrative_other(caster, caster_dname, applied)
             elif applied.get("effect_type") == "remove_damage_links":
-                # ダメージリンク解除叙事日志出力
-                removed_count = applied.get("removed_count", 0)
-                if removed_count > 0:
-                    for a in applied.get("removed", []):
-                        target_dname = self._get_display_name(a.get('target_id'))
-                        self.narrative._add(f"  [伤害链接解除] {target_dname}: 解除伤害链接 (方向:{a.get('direction', '?')})")
+                self._log_narrative_other(caster, caster_dname, applied)
 
         for ps_result in skill_result.get("inline_ps_results", []):
             trigger_timing = ps_result.get("trigger_timing", "")
@@ -3252,6 +2581,538 @@ class BattleFlowController:
                 else:
                     self.narrative.buff_applied(target_dname, s['effect'], source_dname,
                                                s.get('duration', 0), s.get('dur_type', 'turn'), detail)
+    def _log_narrative_damage(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
+        """输出 damage 效果的叙事日志（含sub_unit/enchant/add_damage/genwaku/常规伤害/damage_link/reflect）"""
+        # 输出条件暴击率上升信息
+        bonus_crit = applied.get("bonus_crit_applied", 0)
+        if bonus_crit > 0:
+            self.narrative.bonus_crit(caster_dname, bonus_crit)
+        for t in applied.get("targets", []):
+            # SubUnit追加伤害使用专门的叙事方法
+            sub_unit_name = t.get("sub_unit_name")
+            if sub_unit_name:
+                target_unit = self._find_unit(t)
+                max_hp = target_unit.max_hp if target_unit else t['hp_before']
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                shield_abs = t.get('shield_absorbed', 0)
+                self.narrative.sub_unit_damage(
+                    sub_unit_name, target_dname,
+                    t.get('actual_damage', t['damage']),
+                    t['hp_after'], max_hp, t.get('crit', False),
+                    shield_absorbed=shield_abs,
+                    calc_detail=t.get('calc_detail'))
+                continue
+
+            # 附魔伤害使用专门的叙事方法
+            is_enchant = "附魔" in (t.get("modifiers") or [])
+            if is_enchant:
+                target_unit = self._find_unit(t)
+                max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                modifiers = list(t.get("modifiers", []))
+                if t.get("crit"):
+                    modifiers.append("Critical")
+                self.narrative.enchant_damage(
+                    attacker_name=caster_dname,
+                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    target_name=target_dname,
+                    hp_before=t['hp_before'],
+                    hp_after=t['hp_after'],
+                    damage=t.get('actual_damage', t['damage']),
+                    damage_type=dmg_type,
+                    modifiers=modifiers,
+                    calc_detail=t.get('calc_detail'),
+                    max_hp=max_hp,
+                )
+                continue
+
+            # 追加伤害(ADD_DAMAGE)使用专门的叙事方法
+            is_add_damage = "追加" in (t.get("modifiers") or [])
+            if is_add_damage:
+                target_unit = self._find_unit(t)
+                max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                self.narrative.add_damage(
+                    attacker_name=caster_dname,
+                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    target_name=target_dname,
+                    hp_before=t['hp_before'],
+                    hp_after=t['hp_after'],
+                    damage=t.get('actual_damage', t['damage']),
+                    damage_type=dmg_type,
+                    crit=t.get('crit', False),
+                    calc_detail=t.get('calc_detail'),
+                    max_hp=max_hp,
+                )
+                continue
+
+            # 幻惑(伤害转回复)叙事ログ
+            if t.get('genwaku_heal') is not None:
+                target_unit = self._find_unit(t)
+                max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                hit_details = t.get("hits", [])
+                hit_crits = t.get("hit_crits", [])
+                hit_count = len(hit_details)
+                total_heal = t['genwaku_heal']
+                if hit_count > 1 and len(hit_crits) == hit_count and total_heal > 0:
+                    running_hp = t['hp_before']
+                    total_original = sum(hit_details) or 1
+                    # per-hit回复値があれば使用（キャップされていない場合）
+                    hit_heals = t.get("genwaku_hit_heals", [])
+                    use_per_hit = (hit_heals and sum(hit_heals) == total_heal
+                                   and len(hit_heals) == hit_count)
+                    remaining_heal = total_heal
+                    for i, hit_dmg in enumerate(hit_details):
+                        hp_before_hit = running_hp
+                        if use_per_hit:
+                            hit_heal = hit_heals[i]
+                        elif i == hit_count - 1:
+                            hit_heal = remaining_heal
+                        else:
+                            hit_heal = int(total_heal * hit_dmg / total_original)
+                            remaining_heal -= hit_heal
+                        running_hp = running_hp + hit_heal
+                        modifiers = []
+                        if hit_crits[i]:
+                            modifiers.append("Critical")
+                        if target_unit:
+                            target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                            if self._is_element_advantage(caster.element, target_elem):
+                                modifiers.append("Effective")
+                        self.narrative.genwaku_heal(
+                            attacker_name=caster_dname,
+                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                            target_name=target_dname,
+                            hp_before=hp_before_hit,
+                            hp_after=running_hp,
+                            heal_amount=hit_heal,
+                            damage_type=dmg_type,
+                            modifiers=modifiers,
+                            max_hp=max_hp,
+                            calc_detail=t.get('calc_detail') if i == 0 else None,
+                        )
+                else:
+                    modifiers = list(t.get("modifiers", []))
+                    if t.get("crit"):
+                        modifiers.append("Critical")
+                    if target_unit:
+                        target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                        if self._is_element_advantage(caster.element, target_elem):
+                            modifiers.append("Effective")
+                    self.narrative.genwaku_heal(
+                        attacker_name=caster_dname,
+                        attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                        target_name=target_dname,
+                        hp_before=t['hp_before'],
+                        hp_after=t['hp_after'],
+                        heal_amount=total_heal,
+                        damage_type=dmg_type,
+                        modifiers=modifiers,
+                        max_hp=max_hp,
+                        calc_detail=t.get('calc_detail'),
+                    )
+                continue
+
+            target_unit = self._find_unit(t)
+            max_hp = target_unit.max_hp if target_unit else t['hp_before']
+            hit_details = t.get("hits", [t.get('actual_damage', t['damage'])])
+            hit_crits = t.get("hit_crits", [t.get("crit")])
+            hit_evades = t.get("hit_evades", [])
+            hit_shield_list = t.get("hit_shield_absorbed", [])
+            hit_count = len(hit_details)
+            if hit_count > 1 and len(hit_crits) == hit_count:
+                running_hp = t['hp_before']
+                for i, hit_dmg in enumerate(hit_details):
+                    hp_before_hit = running_hp
+                    hit_shield = hit_shield_list[i] if i < len(hit_shield_list) else 0
+                    is_evaded = hit_evades[i] if i < len(hit_evades) else False
+                    if is_evaded:
+                        modifiers = ["Miss"]
+                        actual_hp_loss = 0
+                    else:
+                        actual_hp_loss = max(0, hit_dmg - hit_shield)
+                        running_hp = max(0, running_hp - actual_hp_loss)
+                        modifiers = []
+                        if hit_crits[i]:
+                            modifiers.append("Critical")
+                        if target_unit:
+                            target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                            if self._is_element_advantage(caster.element, target_elem):
+                                modifiers.append("Effective")
+                    self.narrative.damage(
+                        attacker_name=caster_dname,
+                        attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                        target_name=self._get_display_name(t.get('target_id', t['target'])),
+                        hp_before=hp_before_hit,
+                        hp_after=running_hp,
+                        damage=actual_hp_loss,
+                        damage_type=dmg_type,
+                        modifiers=modifiers,
+                        shield_absorbed=hit_shield,
+                        max_hp=max_hp,
+                        calc_detail=t.get('calc_detail') if i == 0 else None,
+                    )
+            else:
+                is_evaded = hit_evades[0] if hit_evades else False
+                if is_evaded:
+                    modifiers = ["Miss"]
+                else:
+                    modifiers = list(t.get("modifiers", []))
+                    if t.get("crit"):
+                        modifiers.append("Critical")
+                    if target_unit:
+                        target_elem = target_unit.element if hasattr(target_unit, 'element') else 0
+                        if self._is_element_advantage(caster.element, target_elem):
+                            modifiers.append("Effective")
+                hit_shield = hit_shield_list[0] if hit_shield_list else t.get('shield_absorbed', 0)
+                self.narrative.damage(
+                    attacker_name=caster_dname,
+                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    target_name=self._get_display_name(t.get('target_id', t['target'])),
+                    hp_before=t['hp_before'],
+                    hp_after=t['hp_after'],
+                    damage=t.get('actual_damage', t['damage']),
+                    damage_type=dmg_type,
+                    modifiers=modifiers,
+                    shield_absorbed=hit_shield,
+                    max_hp=max_hp,
+                    calc_detail=t.get('calc_detail'),
+                )
+            # SubUnit吸收伤害叙事
+            for sa in t.get("sub_unit_absorbs", []):
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                self.narrative.sub_unit_absorb(
+                    target_dname, sa['sub_unit_name'], sa['absorbed'],
+                    sa['sub_unit_hp_after'], sa['sub_unit_max_hp'])
+            # 护盾消失叙事（按次数/按攻击次数消耗的盾）
+            shield_expired = t.get("shield_expired")
+            if shield_expired:
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                self.narrative.effect_expired(target_dname, shield_expired, is_debuff=False)
+        # ダメージリンク転送叙事日志出力
+        for dl_transfer in applied.get("damage_link_transfers", []):
+            source_dname = self._get_display_name(dl_transfer["source_target_id"])
+            linker_dname = self._get_display_name(dl_transfer["linker_id"])
+            self.narrative.damage_link_transfer(
+                source_target_name=source_dname,
+                linker_name=linker_dname,
+                transfer_dmg=dl_transfer["transfer_dmg"],
+                hp_before=dl_transfer["hp_before"],
+                hp_after=dl_transfer["hp_after"],
+                max_hp=dl_transfer["max_hp"],
+                damage_type=dl_transfer["damage_type"],
+                link_value=dl_transfer["link_value"],
+                source_total_damage=dl_transfer["source_total_damage"],
+                shield_absorbed=dl_transfer["shield_absorbed"],
+                source_hp_restored=dl_transfer.get("source_hp_restored", 0),
+                source_hp_before=dl_transfer.get("source_hp_before", 0),
+                source_hp_after=dl_transfer.get("source_hp_after", 0),
+                source_max_hp=dl_transfer.get("source_max_hp", 0),
+                direction=dl_transfer.get("direction", "outgoing"),
+            )
+        # 反射ダメージ叙事ログ出力
+        for r_transfer in applied.get("reflect_transfers", []):
+            coverer_dname = self._get_display_name(r_transfer["coverer_id"])
+            attacker_dname = self._get_display_name(r_transfer["attacker_id"])
+            self.narrative.reflect_damage_transfer(
+                coverer_name=coverer_dname,
+                attacker_name=attacker_dname,
+                reflect_dmg=r_transfer["reflect_dmg"],
+                hp_before=r_transfer["hp_before"],
+                hp_after=r_transfer["hp_after"],
+                max_hp=r_transfer["max_hp"],
+                reflect_rate=r_transfer["reflect_rate"],
+                source_total_damage=r_transfer["source_total_damage"],
+            )
+
+    def _log_narrative_heal(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
+        """输出 heal/split_heal_by_damage/heal_link 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype == "heal" or etype == "split_heal_by_damage":
+            for h in applied.get("heals", []):
+                target_unit = self._find_unit(h)
+                target_max = target_unit.max_hp if target_unit else 0
+                if etype == "heal":
+                    hp_before_heal = h['hp_after'] - h['amount']
+                else:
+                    hp_before_heal = h.get('hp_before', h.get('hp_after', 0) - h.get('amount', 0))
+                self.narrative.heal(
+                    source_name=caster_dname,
+                    source_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    target_name=self._get_display_name(h.get('target_id', h['target'])),
+                    hp_before=hp_before_heal,
+                    amount=h.get('amount', 0),
+                    target_max_hp=target_max,
+                    is_crit=h.get('is_crit', False),
+                    formula=h.get('heal_formula', ''),
+                )
+            # 回復リンク転送叙事ログ
+            for lt in applied.get("heal_link_transfers", []):
+                self.narrative.heal_link_transfer(
+                    source_name=self._get_display_name(lt["source_id"]),
+                    linker_name=self._get_display_name(lt["linker_id"]),
+                    transfer_heal=lt["transfer_heal"],
+                    hp_before=lt["hp_before"],
+                    hp_after=lt["hp_after"],
+                    max_hp=lt["max_hp"],
+                    link_value=lt["link_value"],
+                    source_theoretical_heal=lt["source_theoretical_heal"],
+                )
+        elif etype == "heal_link":
+            # 回復リンク付与叙事ログ
+            for a in applied.get("auras", []):
+                self.narrative.heal_link_applied(
+                    target_name=self._get_display_name(a.get('target_id', a['target'])),
+                    source_name=self._get_display_name(a.get('source_id', a['source'])),
+                    transfer_pct=a.get('transfer_pct', 100.0),
+                    duration=a.get('duration', 1),
+                    dur_type=a.get('dur_type', 'action'),
+                )
+
+    def _log_narrative_aura_block(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
+        """输出 aura/block_buff_by_type/stealth/add_status 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype in ("aura", "block_buff_by_type", "stealth"):
+            for a in applied.get("auras", []):
+                target_unit = self._find_unit(a)
+                detail = a.get('detail', '')
+                if target_unit and not detail:
+                    detail = self._get_buff_debuff_detail(target_unit, a['effect'])
+                target_dname = self._get_display_name(a.get('target_id', a['target']))
+                source_dname = self._get_display_name(a.get('source_id', a['source']))
+                if applied.get("is_debuff"):
+                    self.narrative.debuff_applied(target_dname, a['effect'], source_dname, a.get('duration', 0), a.get('dur_type', 'turn'), detail)
+                else:
+                    self.narrative.buff_applied(target_dname, a['effect'], source_dname, a.get('duration', 0), a.get('dur_type', 'turn'), detail)
+                # 眩晕打断蓄力叙事
+                if a.get("charge_cancelled"):
+                    self.narrative.charge_cancelled(target_dname, a["charge_skill_name"], "眩晕")
+            # 输出被免疫/闪避的debuff叙事
+            for b in applied.get("blocked", []):
+                target_dname = self._get_display_name(b.get('target_id', b['target']))
+                source_dname = self._get_display_name(b.get('source_id', b['source']))
+                self.narrative.debuff_blocked(target_dname, b['effect'], source_dname, b.get('reason', 'debuff_immune'))
+        elif etype == "add_status":
+            for s in applied.get("statuses", []):
+                target_unit = self._find_unit(s)
+                detail = ""
+                if target_unit:
+                    detail = self._get_buff_debuff_detail(target_unit, s['effect'])
+                target_dname = self._get_display_name(s.get('target_id', s['target']))
+                source_dname = self._get_display_name(s.get('source_id', s['source']))
+                if applied.get("is_debuff"):
+                    self.narrative.debuff_applied(target_dname, s['effect'], source_dname, s.get('duration', 0), s.get('dur_type', 'turn'), detail)
+                else:
+                    self.narrative.buff_applied(target_dname, s['effect'], source_dname, s.get('duration', 0), s.get('dur_type', 'turn'), detail)
+                # 眩晕打断蓄力叙事
+                if s.get("charge_cancelled"):
+                    self.narrative.charge_cancelled(target_dname, s["charge_skill_name"], "眩晕")
+
+    def _log_narrative_damage_variants(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
+        """输出 hp_ratio_damage/damage_special/lifesteal/add_fury/consume_hp 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype == "hp_ratio_damage":
+            for t in applied.get("targets", []):
+                target_unit = self._find_unit(t)
+                max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                target_dname = self._get_display_name(t.get('target_id', t['target']))
+                self.narrative.hp_ratio_damage(
+                    attacker_name=caster_dname,
+                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    target_name=target_dname,
+                    hp_before=t['hp_before'],
+                    hp_after=t['hp_after'],
+                    damage=t.get('actual_damage', t['damage']),
+                    damage_type=dmg_type,
+                    calc_detail=t.get('calc_detail'),
+                    max_hp=max_hp,
+                    shield_absorbed=t.get('shield_absorbed', 0),
+                )
+        elif etype == "damage_special":
+            for t in applied.get("targets", []):
+                if isinstance(t, dict):
+                    target_dname = self._get_display_name(t.get('target_id', t['target']))
+                    target_unit = self._find_unit(t)
+                    max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
+                    if t.get('evaded'):
+                        self.narrative.evade(target_dname, caster_dname)
+                    else:
+                        self.narrative.damage(
+                            attacker_name=caster_dname,
+                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                            target_name=target_dname,
+                            hp_before=t['hp_before'],
+                            hp_after=t['hp_after'],
+                            damage=t.get('actual_damage', t['damage']),
+                            damage_type=dmg_type,
+                            modifiers=["特殊"],
+                            shield_absorbed=t.get('shield_absorbed', 0),
+                            max_hp=max_hp,
+                        )
+        elif etype == "lifesteal":
+            heal_amount = applied.get("heal_amount", 0)
+            if heal_amount > 0:
+                self.narrative.lifesteal(
+                    source_name=caster_dname,
+                    heal_amount=heal_amount,
+                    damage_based_on=applied.get("damage_based_on", 0),
+                    hp_before=applied.get("hp_before", caster.current_hp - heal_amount),
+                    hp_after=applied.get("hp_after", caster.current_hp),
+                    max_hp=caster.max_hp,
+                    cure_pct=applied.get("cure_pct", 0),
+                )
+        elif etype == "add_fury":
+            fc = applied.get("fury_count", 0)
+            self.narrative.fury_add(self._get_display_name(caster), fc)
+        elif etype == "consume_hp":
+            # HP消耗（自傷）叙事ログ
+            self.narrative.consume_hp(
+                source_name=caster_dname,
+                amount=applied.get('consumed', 0),
+                hp_before=applied.get('hp_before', 0),
+                hp_after=applied.get('hp_after', 0),
+                max_hp=applied.get('max_hp', 0),
+                pct=applied.get('pct', 0),
+                hp_base=applied.get('hp_base', 'current_hp'),
+            )
+
+    def _log_narrative_resource(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
+        """输出 add_ap/add_ep/remove_ap/remove_pp/remove_ep/modify_pp 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype in ("add_ap", "add_ep", "remove_ap"):
+            if not applied.get("skipped"):
+                rtype = applied["effect_type"]
+                if rtype == "add_ap":
+                    ap_targets = applied.get("targets", [])
+                    if ap_targets:
+                        for at in ap_targets:
+                            target_dname = self._get_display_name(at.get('target_id', at.get('target')))
+                            self.narrative.resource_restore(target_dname, at['ap_after'], at['ap_max'])
+                    else:
+                        self.narrative.resource_restore(caster_dname, caster.current_ap, caster.initial_active_point)
+                elif rtype == "add_ep":
+                    # add_ep 可能有多个目标，逐个显示
+                    ep_targets = applied.get("targets", [])
+                    if ep_targets:
+                        for et in ep_targets:
+                            target_dname = self._get_display_name(et.get('target_id', et.get('target')))
+                            self.narrative.resource_restore_ep(
+                                target_dname, et['amount'], et['ep_after'], et['ep_max'])
+                    else:
+                        self.narrative.resource_restore_ep(caster_dname, 0, caster.current_ep, caster.max_extra_point)
+                elif rtype == "remove_ap":
+                    ap_targets = applied.get("targets", [])
+                    for at in ap_targets:
+                        target_dname = self._get_display_name(at.get('target_id', at.get('target')))
+                        cover_for = at.get('cover_replaced_for')
+                        if cover_for:
+                            self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname, cover_for)
+                        else:
+                            self.narrative.ap_removed(target_dname, at['amount'], at['ap_after'], at['ap_max'], caster_dname)
+        elif etype == "remove_pp":
+            pp_targets = applied.get("targets", [])
+            for pt in pp_targets:
+                target_dname = self._get_display_name(pt.get('target_id', pt.get('target')))
+                cover_for = pt.get('cover_replaced_for')
+                if cover_for:
+                    self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname, cover_for)
+                else:
+                    self.narrative.pp_removed(target_dname, pt['amount'], pt['pp_after'], pt['pp_max'], caster_dname)
+        elif etype == "remove_ep":
+            ep_targets = applied.get("targets", [])
+            for et in ep_targets:
+                target_dname = self._get_display_name(et.get('target_id', et.get('target')))
+                cover_for = et.get('cover_replaced_for')
+                if cover_for:
+                    self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname, cover_for)
+                else:
+                    self.narrative.ep_removed(target_dname, et['amount'], et['ep_after'], et['ep_max'], caster_dname)
+        elif etype == "modify_pp":
+            delta = applied.get("delta", 0)
+            if delta != 0:
+                target_dname = self._get_display_name(caster)
+                if delta > 0:
+                    self.narrative.pp_restored(
+                        target_dname, delta,
+                        applied.get("new_pp", caster.current_pp),
+                        caster.initial_passive_point)
+                else:
+                    self.narrative.pp_removed(
+                        target_dname, -delta,
+                        applied.get("new_pp", caster.current_pp),
+                        caster.initial_passive_point, caster_dname)
+
+    def _log_narrative_remove(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
+        """输出 remove_debuff/remove_buff/remove_shield/remove_sub_unit/remove_mark 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype == "remove_debuff":
+            for rd in applied.get("removed_details", []):
+                target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                self.narrative.debuff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+        elif etype in ("remove_buff", "remove_buff_by_type"):
+            for rd in applied.get("removed_details", []):
+                target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                self.narrative.buff_removed(target_dname, rd['removed_count'], rd['removed_names'], caster_dname)
+        elif etype == "remove_shield":
+            for rd in applied.get("targets", []):
+                target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                self.narrative.shield_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
+        elif etype == "remove_sub_unit":
+            for rd in applied.get("targets", []):
+                target_dname = self._get_display_name(rd.get('target_id', rd.get('target')))
+                self.narrative.sub_unit_removed(target_dname, rd.get('removed_count', 0), rd.get('removed_names', []), caster_dname)
+        elif etype == "remove_mark":
+            for rm in applied.get("targets", []):
+                target_dname = self._get_display_name(rm.get('target_id', rm.get('target')))
+                self.narrative.mark_removed(target_dname, rm['mark_name'], rm['removed_count'], caster_dname)
+
+    def _log_narrative_other(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
+        """输出 sub_unit/shield_from_damage/reset_cooldown/damage_link/remove_damage_links 效果的叙事日志"""
+        etype = applied.get("effect_type")
+        if etype == "sub_unit":
+            for su in applied.get("targets", []):
+                target_dname = self._get_display_name(su.get('target_id', su.get('target')))
+                self.narrative.sub_unit_applied(
+                    target_dname, su.get('sub_unit_name', 'SubUnit'),
+                    su.get('sub_unit_hp', 0), su.get('sub_unit_max_hp', 0),
+                    su.get('atk_dmg_pct', 0), su.get('duration', 1),
+                    su.get('dur_type', 'action'), caster_dname)
+        elif etype == "shield_from_damage":
+            shield_value = applied.get("shield_value", 0)
+            if shield_value > 0:
+                self.narrative.shield_added(caster_dname, shield_value, caster.shield)
+        elif etype == "reset_cooldown":
+            if applied.get("was_on_cd"):
+                sk_name = applied.get("skill_name", f"技能ID:{applied.get('skill_id', '?')}")
+                self.narrative.reset_cooldown(caster_dname, sk_name)
+        elif etype == "damage_link":
+            # ダメージリンク付与叙事日志出力
+            link_mode = applied.get("link_mode", "to_caster")
+            duration = applied.get("duration", -1)
+            duration_type = applied.get("duration_type", "")
+            unremovable = applied.get("unremovable", False)
+            for a in applied.get("applied", []):
+                target_dname = self._get_display_name(a.get('target_id'))
+                partner_dname = self._get_display_name(a.get('partner_id'))
+                self.narrative.damage_link_applied(
+                    source_name=caster_dname,
+                    target_name=target_dname,
+                    partner_name=partner_dname,
+                    link_value=a.get('value', 0),
+                    duration=duration,
+                    duration_type=duration_type,
+                    link_mode=link_mode,
+                    unremovable=unremovable,
+                )
+        elif etype == "remove_damage_links":
+            # ダメージリンク解除叙事日志出力
+            removed_count = applied.get("removed_count", 0)
+            if removed_count > 0:
+                for a in applied.get("removed", []):
+                    target_dname = self._get_display_name(a.get('target_id'))
+                    self.narrative._add(f"  [伤害链接解除] {target_dname}: 解除伤害链接 (方向:{a.get('direction', '?')})")
+
 
     _POSITION_BITMASK_MAP = {
         Position.ALLY_LEFT_FRONT: 1,
@@ -3663,6 +3524,12 @@ class BattleFlowController:
         if target_type == "ally_back_row":
             back = {Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK}
             return [u for u in self.battlefield.friend_team if u.is_alive and u.position in back]
+
+        if target_type == "ally_single_lowest_max_hp":
+            allies = [u for u in self.battlefield.friend_team if u.is_alive]
+            if not allies:
+                return []
+            return [min(allies, key=lambda u: u.max_hp)]
 
         if target_type == "enemy_front_row":
             front = {Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT}

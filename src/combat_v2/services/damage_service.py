@@ -121,6 +121,15 @@ class DamageService:
                 _log.info("[HP_RATIO_DYNAMIC_DIRECT] %s: %s hp_ratio=%.4f => dynamic_val=%.4f (max=%.4f)",
                           getattr(unit, 'name', '?'), buff.name, hp_ratio, val,
                           DamageService._normalize_buff_value(buff))
+            # hp_ratio_dynamic_inverse: 动态增益（如130059 まだ終わんないけど？）
+            # 增益值随持有者实时HP比例反比变化：HP100%→0%, HP0%→max, 线性插值
+            # 公式: effective = val * (1 - hp_ratio)
+            if getattr(buff, 'hp_ratio_dynamic_inverse', False) and unit is not None:
+                hp_ratio = unit.current_hp / unit.max_hp if unit.max_hp > 0 else 0
+                val = val * (1 - hp_ratio)
+                _log.info("[HP_RATIO_DYNAMIC_INVERSE] %s: %s hp_ratio=%.4f => dynamic_val=%.4f (max=%.4f)",
+                          getattr(unit, 'name', '?'), buff.name, hp_ratio, val,
+                          DamageService._normalize_buff_value(buff))
             if buff.is_memory_buff:
                 memory_sum += val
             elif buff.is_stackable:
@@ -457,6 +466,33 @@ class DamageService:
             final_hit_damage = math.floor(raw_damage)
             final_hit_damage = max(1, final_hit_damage)
 
+            # 130160 サマータイム・ロマンス: HP阈值减伤 (dmg_taken_down_threshold)
+            # 仅超过 threshold (current_hp × threshold_pct%) 的伤害部分按 value% 减免
+            # 公式: actual = min(dmg, threshold) + max(0, dmg - threshold) × (1 - value/100)
+            # hit_limited 控制可生效的hit次数 (1/2/3)，每次被击中消耗1次
+            for _dtd_buff in defender.buffs:
+                if _dtd_buff.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
+                    continue
+                _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
+                _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
+                if _thr_base == 'max_hp':
+                    _threshold = defender.max_hp * _thr_pct / 100.0
+                else:
+                    _threshold = defender.current_hp * _thr_pct / 100.0
+                _reduction_val = DamageService._normalize_buff_value(_dtd_buff)
+                if final_hit_damage > _threshold and _threshold > 0:
+                    _orig_dtd = final_hit_damage
+                    _excess = final_hit_damage - _threshold
+                    _reduced_excess = int(_excess * (1.0 - _reduction_val))
+                    final_hit_damage = max(1, int(_threshold) + _reduced_excess)
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, excess=%d, reduction=%.1f%%)",
+                              defender.name, _orig_dtd, final_hit_damage, _threshold, _excess, _reduction_val * 100)
+                else:
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d <= threshold %.0f, no reduction",
+                              defender.name, final_hit_damage, _threshold)
+
             # 混乱伤害减免：所有伤害按dmg_reduction%减少
             if confusion_dmg_reduction > 0:
                 orig_final = final_hit_damage
@@ -496,6 +532,24 @@ class DamageService:
                     attacker, defender, damage_element=skill_damage_element)
                 _log.info("[HIT_LIMITED] %s: recalculated dealt_mult=%.4f for subsequent hits",
                           attacker.name, damage_dealt_mult)
+
+            # 130160 サマータイム・ロマンス: dmg_taken_down_threshold buff hit_limited消耗
+            # 每次被击中消耗1次，hit_limited归零时移除buff
+            _dtd_expired = []
+            for _dtd_b in defender.buffs:
+                if _dtd_b.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_b, 'hit_limited', 0) <= 0:
+                    continue
+                _dtd_b.hit_limited -= 1
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: hit_limited %d->%d (after hit[%d])",
+                          defender.name, _dtd_b.hit_limited + 1, _dtd_b.hit_limited, i_hit + 1)
+                if _dtd_b.hit_limited <= 0:
+                    _dtd_expired.append(_dtd_b.buff_id)
+            if _dtd_expired:
+                defender.buffs = [b for b in defender.buffs if b.buff_id not in _dtd_expired]
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: %d buff(s) expired (hit_limited reached 0)",
+                          defender.name, len(_dtd_expired))
 
             # 暴击回调：在当前hit伤害计算完毕后调用，使后续hit能享受易伤效果
             # 回调可能修改defender的debuffs（如施加dmg_taken_up），需重算damage_received_mult
@@ -555,10 +609,11 @@ class DamageService:
             target_effect = SkillEffectType.STATUS_DEFENSE.value
 
         # 百分比buff/debuff：使用三类buff规则汇总 (value_tag=0)
-        multiplier = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_effect, value_tag=0)
+        # 传递 unit 参数以启用 hp_ratio_dynamic_direct 缩放逻辑（如 130156 油断は禁物ですよ）
+        multiplier = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_effect, value_tag=0, unit=unit)
 
         # 固定值buff/debuff：同样使用三类buff规则汇总 (value_tag=1)
-        fixed_add = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_effect, value_tag=1)
+        fixed_add = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_effect, value_tag=1, unit=unit)
 
         # 公式: Base * (1 + Sum(Percent)) + Sum(Fixed)
         final_val = base_val * (1.0 + multiplier) + fixed_add

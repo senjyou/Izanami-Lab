@@ -1727,7 +1727,16 @@
       {
         "block_id": 2,
         "condition": {
-          "type": "target_killed"
+          "type": "and",
+          "conditions": [
+            {
+              "type": "target_killed"
+            },
+            {
+              "type": "active_level_min",
+              "value": 11
+            }
+          ]
         },
         "effects": [
           {
@@ -11075,15 +11084,46 @@
     "global_condition": {
       "type": "enemy_hp_percent",
       "operator": "<=",
-      "value": 50
+      "value": 50,
+      "ally_filter": "enemy"
     },
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "level_max": null,
+        "level_min": null,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "Manual configuration: dmg_dealt_up (attack_limited=1, stackable) on enemy_hp_below<=50%, ally_filter=enemy (triggers on enemy HP drop)"
     ]
   },
   "130012": {
@@ -12576,7 +12616,10 @@
       },
       {
         "block_id": 2,
-        "condition": null,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
         "effects": [
           {
             "effect_type": "shield",
@@ -13919,7 +13962,7 @@
           {
             "effect_type": "damage",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": 0,
             "value_tag": "威力",
             "value_source": null,
@@ -13936,7 +13979,7 @@
           {
             "effect_type": "remove_ep",
             "target_type": "enemy_single",
-            "target_identifier": null,
+            "target_identifier": "trigger_attacker",
             "value": 1,
             "value_tag": null,
             "value_source": null,
@@ -13946,7 +13989,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "level_min": 11
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -19433,13 +19478,39 @@
     "ignore_shield": 0,
     "trigger_type": null,
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "value",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "freeze"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：敵全体に3行動の凍結を付与（被ダメ時凍結解除＋被ダメージ増加%はvalue_tag=value、damage_service.pyが凍結解除処理を担当）。参考: 110016 七彩の庭園"
     ]
   },
   "210033": {
@@ -31305,13 +31376,37 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_end",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：ターン終了時に発動、最も攻撃力の高い敵単体のEXゲージを1削る（remove_ep効果、target_type=enemy_single_highest_atk、value=1）"
     ]
   },
   "230046": {
@@ -31714,13 +31809,41 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "ally_front",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "damage_element": "physical"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 6,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：ターン開始時に発動、前列味方に物理ダメージ軽減buffを付与（dmg_taken_down+damage_element=physical、value_tag=dmg、target_type=ally_front、duration=-1永続、stackable=true重複可）。戦闘中1回のみ発動はcooldown=99で表現。参考: dmg_taken_down+damage_element=physical パターン（11534等）"
     ]
   },
   "230054": {
@@ -31734,13 +31857,41 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "ally_front",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "damage_element": "en"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 6,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：ターン開始時に発動、前列味方にENダメージ軽減buffを付与（dmg_taken_down+damage_element=en、value_tag=dmg、target_type=ally_front、duration=-1永続、stackable=true重複可）。戦闘中1回のみ発動はcooldown=99で表現。参考: 230053 フィジックスヴェール"
     ]
   },
   "230055": {
@@ -31754,13 +31905,37 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "debuff_immune",
+            "target_type": "ally_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start (one-time via cooldown=99) -> debuff_immune to ally_all (3 attacker_actions = until user ends 3 actions). Description: このスキルの使用者が3回行動を終えるまでの間、状態異常を無効にする (negate status ailments until user ends 3 actions)."
     ]
   },
   "230056": {
@@ -32249,13 +32424,40 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "ally_front",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 6,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：ターン開始時に発動、前列味方に全ダメージ軽減buffを付与（dmg_taken_down、value_tag=dmg、target_type=ally_front、duration=-1永続、stackable=true重複可、damage_element指定なし=全ダメージ対象）。戦闘中1回のみ発動はcooldown=99で表現。参考: 230053 フィジックスヴェール"
     ]
   },
   "230065": {
@@ -34785,15 +34987,63 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "trigger_type": "on_critical",
+    "global_condition": {
+      "type": "crit_count_mod",
+      "value": 4
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage_special",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 0.8,
+            "value_tag": null,
+            "value_source": "self_max_hp",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "apply_guard": true,
+              "can_evade": true,
+              "apply_shield": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_critical (4回会心), Block1 damage(enemy_single, 威力%) + damage_special(enemy_single, value_source=self_max_hp × 0.8%, flags: apply_guard/can_evade/apply_shield). Mirror of 130047 (20% version) but value=0.8"
     ]
   },
   "230114": {
@@ -35584,13 +35834,37 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_end",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：ターン終了時に発動、最も攻撃力の高い敵単体のEXゲージを2削る（remove_ep効果、target_type=enemy_single_highest_atk、value=2）。参考: 230045 EXジャマー"
     ]
   },
   "230130": {
@@ -36012,14 +36286,46 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_hp_below",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": "<=",
+      "value": 50
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self_and_friends",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attribute_filter": "smart"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_hp_below (自身HP<=50%), once per battle (cooldown=99). Block1 dmg_taken_down(self_and_friends, dmg%, permanent, stackable, attribute_filter=smart). Note: attribute_filter=smart 是占位字段，实际属性过滤需 skill_service 配合实现（当前未实装则退化为全体友方）。描述要求'スマート属性の味方'，因无专用 target_type，使用 self_and_friends + attribute_filter 标记。"
     ]
   },
   "230140": {
@@ -36380,14 +36686,44 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_end",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": "<",
+      "value": 50
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_end, global_condition self_hp_percent<50 (描述'HP>=50%时不发动'反转). Block1 cheat_death(self, permanent, duration_type=turn, hit_limited=1) 仅一次致死伤害HP1存活。cheat_death duration=-1+duration_type=turn 表示永久但只生效1次（hit_limited=1）"
     ]
   },
   "230147": {
@@ -36441,15 +36777,44 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "trigger_type": "on_critical",
+    "global_condition": {
+      "type": "crit_count_mod",
+      "value": 5
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "freeze"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：5回会心攻撃毎に発動（trigger_type=on_critical+global_condition=crit_count_mod:value=5）、敵全体に2行動の凍結を付与（被ダメ時凍結解除＋被ダメージ増加%はvalue_tag=dmg、damage_service.pyが凍結解除処理を担当）。参考: 110016 七彩の庭園 / crit_count_mod条件はtrigger_service.py L1406実装"
     ]
   },
   "230149": {
@@ -37423,13 +37788,39 @@
     "ignore_shield": 0,
     "trigger_type": "after_as_attack",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "block_buff_by_type",
+            "target_type": "enemy_single",
+            "target_identifier": "primary_target",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "block_buffs": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "Manual: バフシャット - block_buffs=True, target=primary_target, dur=2/action"
     ]
   },
   "230170": {
@@ -37441,15 +37832,41 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
+    "trigger_type": "before_ally_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "block_buff_by_type",
+            "target_type": "ally_single",
+            "target_identifier": "triggered_by",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "block_debuffs": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "Manual: デバフシャット - block_debuffs=True, target=triggered_by, dur=2/action"
     ],
     "simultaneous_limit": true
   },
@@ -37541,13 +37958,43 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "target_character_type",
+          "value": [
+            1,
+            2
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": -1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start -> consume AP via resource_cost (description says 1 AP, current resource_cost=2 may need separate review) + remove_pp(enemy_all, value=-1=all PP) filtered by block target_character_type=[1,2] (物理アタッカー=1, ENアタッカー=2)"
     ]
   },
   "230173": {
@@ -37561,13 +38008,40 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "target_character_type",
+          "value": 3
+        },
+        "effects": [
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": -1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start -> consume AP via resource_cost (description says 1 AP, current resource_cost=2 may need separate review) + remove_pp(enemy_all, value=-1=all PP) filtered by block target_character_type=3 (タンク=3)"
     ]
   },
   "230174": {
@@ -37581,13 +38055,43 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "target_character_type",
+          "value": [
+            4,
+            5
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": -1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start -> consume AP via resource_cost (description says 1 AP, current resource_cost=2 may need separate review) + remove_pp(enemy_all, value=-1=all PP) filtered by block target_character_type=[4,5] (サポート=4, コントロール=5)"
     ]
   },
   "230175": {
@@ -37691,13 +38195,58 @@
     "ignore_shield": 0,
     "trigger_type": "after_as_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "ターゲット",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: after_as_attacked (自身がASで攻撃された後). Block1 damage(enemy_single, trigger_attacker, 威力) + mark(ターゲット, permanent, stackable, is_buff_mark=false). 镜像 130086 キャッチライト 配置"
     ]
   },
   "230178": {
@@ -37753,15 +38302,39 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "before_any_attacked",
+    "trigger_type": "before_as_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "reflect_damage",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "reflect",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_as_attacked (自身被攻撃直前), cooldown=1. Block1 reflect_damage(self, value_tag=reflect, duration=1, duration_type=attack) その行動の間反射ダメージ。参考 130088 ネガティブヘイト (cover+reflect, before_any_attacked) 但本技能仅反射无 cover，且触发时机为自身被攻击时"
     ]
   },
   "230180": {
@@ -38912,7 +39485,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true},
+            "flags": {
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -38929,7 +39504,10 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true, "target_count": 2},
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 2
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -38954,7 +39532,9 @@
       },
       {
         "block_id": 2,
-        "condition": {"active_level_min": 11},
+        "condition": {
+          "active_level_min": 11
+        },
         "effects": [
           {
             "effect_type": "dmg_dealt_down",
@@ -38969,7 +39549,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"stackable": true},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39065,7 +39647,10 @@
     "trigger_type": null,
     "global_condition": null,
     "simultaneous_limit": false,
-    "execute_condition": {"type": "self_hp_above", "value": 60},
+    "execute_condition": {
+      "type": "self_hp_above",
+      "value": 60
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -39084,7 +39669,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"hp_base": "current_hp"},
+            "flags": {
+              "hp_base": "current_hp"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -39101,7 +39688,12 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true, "apply_guard": true, "can_evade": true, "apply_shield": true},
+            "flags": {
+              "is_en_attack": true,
+              "apply_guard": true,
+              "can_evade": true,
+              "apply_shield": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39109,7 +39701,9 @@
       },
       {
         "block_id": 2,
-        "condition": {"active_level_min": 11},
+        "condition": {
+          "active_level_min": 11
+        },
         "effects": [
           {
             "effect_type": "shield",
@@ -39124,7 +39718,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"shield_base": "consume_hp", "attack_limited": 1},
+            "flags": {
+              "shield_base": "consume_hp",
+              "attack_limited": 1
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39169,7 +39766,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"status_type": "action_damage", "is_en_attack": true},
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -39186,7 +39786,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"mark_name": "風紀", "mark_priority": "風紀"},
+            "flags": {
+              "mark_name": "風紀",
+              "mark_priority": "風紀"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39423,7 +40026,10 @@
     "trigger_type": "on_skill_use_count",
     "global_condition": {
       "type": "skill_use_count_modulo",
-      "count_skill_types": [1, 3],
+      "count_skill_types": [
+        1,
+        3
+      ],
       "value": 3
     },
     "simultaneous_limit": false,
@@ -39446,7 +40052,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true},
+            "flags": {
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39454,7 +40062,9 @@
       },
       {
         "block_id": 2,
-        "condition": {"active_level_min": 11},
+        "condition": {
+          "active_level_min": 11
+        },
         "effects": [
           {
             "effect_type": "dmg_dealt_up",
@@ -39469,7 +40079,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"stackable": true},
+            "flags": {
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -39569,7 +40181,11 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"heal_base": "max_hp", "unremovable": true, "linked_buff_id": "Stealth"},
+            "flags": {
+              "heal_base": "max_hp",
+              "unremovable": true,
+              "linked_buff_id": "Stealth"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -39586,7 +40202,12 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"stackable": true, "hp_ratio_dynamic_direct": true, "unremovable": true, "linked_buff_id": "Stealth"},
+            "flags": {
+              "stackable": true,
+              "hp_ratio_dynamic_direct": true,
+              "unremovable": true,
+              "linked_buff_id": "Stealth"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -41407,13 +42028,39 @@
     "ignore_shield": 0,
     "trigger_type": null,
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "value",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "freeze"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：敵全体に3行動の凍結を付与（被ダメ時凍結解除＋被ダメージ増加%はvalue_tag=value、damage_service.pyが凍結解除処理を担当）。参考: 110016 七彩の庭園"
     ]
   },
   "210052": {
@@ -52176,13 +52823,60 @@
     "ignore_shield": 0,
     "trigger_type": null,
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_column_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_column_lowest_mark_count",
+            "target_identifier": null,
+            "value": 1.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "風紀",
+              "mark_priority": "風紀"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 7,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "AS: 敵前後列に3行動のEN行動ダメージ + 風紀mark。参考 120122 容疑者を捕捉！ 配置。target_type=enemy_column_lowest_mark_count 实现'風紀数最少の敵を優先'+前后列纵列2人。action_damage(value_tag=dmg, 3行動, EN伤害) + mark(風紀, 永続, mark_priority=風紀)"
     ]
   },
   "220330": {
@@ -52910,13 +53604,60 @@
     "ignore_shield": 0,
     "trigger_type": null,
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_column_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_column_lowest_mark_count",
+            "target_identifier": null,
+            "value": 1.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "風紀",
+              "mark_priority": "風紀"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 7,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "AS: 同 220329 容疑者を捕捉！。参考 120122 容疑者を捕捉！ 配置。target_type=enemy_column_lowest_mark_count 实现'風紀数最少の敵を優先'+前后列纵列2人。action_damage(value_tag=dmg, 3行動, EN伤害) + mark(風紀, 永続, mark_priority=風紀)"
     ]
   },
   "220342": {
@@ -54309,19 +55050,64 @@
     "name": "あなたにマーキング♡",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_single_furthest",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 dmg_taken_up(enemy_single_furthest, dmg%, attack_limited=1, stackable) + cheat_death(self, permanent). 完全参考 130077 あなたにマーキング♡ 配置"
     ]
   },
   "230192": {
@@ -54443,15 +55229,60 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
+    "trigger_type": "on_ally_killed",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "ターゲット",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_ally_killed (他の味方が敵に倒された際). trigger_attacker=killer. Block1 damage(enemy_single, killer, 威力) + mark(ターゲット, permanent, stackable, is_buff_mark=false). 镜像 130086 キャッチライト 配置. trigger_type 从 on_battle_start 修正为 on_ally_killed"
     ]
   },
   "230195": {
@@ -54656,19 +55487,67 @@
     "name": "ラッキー4！",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": null,
+    "cooldown": 0,
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "trigger_type": "on_critical",
+    "global_condition": {
+      "type": "crit_count_mod",
+      "value": 4
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage_special",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 20,
+            "value_tag": null,
+            "value_source": "self_max_hp",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "apply_guard": true,
+              "can_evade": true,
+              "apply_shield": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_critical (4回会心), Block1 damage(enemy_single, 威力%) + damage_special(enemy_single, value_source=self_max_hp × 20%, flags: apply_guard/can_evade/apply_shield). 镜像 130047 ラッキー4！(20% 版本)"
     ]
   },
   "230200": {
@@ -54684,15 +55563,44 @@
     "global_condition": {
       "type": "enemy_hp_percent",
       "operator": "<=",
-      "value": 50
+      "value": 50,
+      "ally_filter": "enemy"
     },
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_hp_below (敵HP<=50%, ally_filter=enemy), cooldown=1. Block1 dmg_dealt_up(self, dmg%, attack_limited=1, stackable) 自身の次の攻撃与ダメージ増加。镜像 130011 ラスト・プレゼント 配置"
     ]
   },
   "230201": {
@@ -55077,15 +55985,42 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "after_as_attack",
+    "trigger_type": "after_ally_as_attack",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_follow_up": true,
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：他の味方がAS攻撃した後に発動、味方が攻撃した敵単体にEN追撃（trigger_type=after_ally_as_attack、damage+is_follow_up=trueで_primary_target=友方攻撃目標を参照、is_en_attack=true、value_tag=威力）。trigger_typeをafter_as_attack(自身AS後)からafter_ally_as_attack(他味方AS後)に修正。参考: 130054 チェイスブレイダー(after_ally_as_attack+is_follow_up=true パターン)"
     ]
   },
   "230209": {
@@ -55381,13 +56316,58 @@
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "guard",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "guard",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "debuff_immune",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_any_attacked -> self guard(value_tag=guard, attack_limited=1, negate one attack) + self debuff_immune(1 action, hit_limited=1, negate 1 status ailment). Description: 敵の攻撃をguard%ガードし、自身に向けられる状態異常を1つ無効にするバフを付与する."
     ]
   },
   "230215": {
@@ -56333,19 +57313,50 @@
     "name": "融和の象徴",
     "skill_type": 2,
     "resource_cost": 2,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "enemy_alive_count",
+      "operator": ">=",
+      "value": 2
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage_link",
+            "target_type": "enemy_nearest_and_farthest",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "link_mode": "bidirectional"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 2,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 damage_link(enemy_nearest_and_farthest, dmg%, 1ターン, link_mode=bidirectional) 自身最近+最遠の敵2体に双方向ダメージ共有リンク付与。global_condition enemy_alive_count>=2 (生存敵1体の場合発動しない)。镜像 130108 融和の象徴 配置"
     ]
   },
   "230233": {
@@ -56537,15 +57548,42 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "trigger_type": "after_as_attacked",
+    "global_condition": {
+      "type": "actor_character_type",
+      "value": 1
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 3,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "手动配置：自身が物理タイプの敵からAS攻撃された後に発動（trigger_type=after_as_attacked+global_condition=actor_character_type:1=物理）、攻撃者のEXゲージを3減少（remove_ep効果、target_identifier=trigger_attackerで攻撃者を特定、value=3）。actor_character_typeはtrigger_service.py L1609実装"
     ]
   },
   "230237": {
@@ -56800,15 +57838,100 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_ally_killed",
+    "trigger_type": "on_any_kill",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "max_hp_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "reset_cooldown",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 220233,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "お餅",
+              "is_buff_mark": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_any_kill (敵または他の味方が倒された際) -> heal self by max_hp*cure% + max_hp_up 5% (permanent, stackable, unremovable) + reset_cooldown(220233 除災招福) + self お餅 mark (permanent, stackable)"
     ]
   },
   "230243": {
@@ -56886,14 +58009,144 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_skill_use",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": ">=",
+      "value": 50
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 10
+        },
+        "effects": [
+          {
+            "effect_type": "ignore_defense",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 50,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 20
+        },
+        "effects": [
+          {
+            "effect_type": "ignore_defense",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 25,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 30
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk1",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 40
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk2",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_skill_use, global_condition self_hp_percent>=50 (HP>=50%才発動)",
+      "おみくじ抽選: Block1-4 random_choice group=0 (大吉10%/中吉20%/小吉30%/末吉40%)",
+      "大吉: ignore_defense 50%, 中吉: ignore_defense 25%, 小吉: atk_up by atk1 tag (stackable), 末吉: atk_up by atk2 tag (stackable)",
+      "全buff attack_limited=1 + duration_type=attack: AS終了時消費. 镜像 130100 おみくじ運試し 配置 (省略 Lv11+ dmg_dealt_up block)"
     ]
   },
   "230245": {
@@ -56907,13 +58160,43 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "activation_condition": {
+                "type": "attacker_hp_ratio_higher_than_self"
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true"
     ]
   },
   "230246": {
@@ -56925,15 +58208,60 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "after_any_attack",
+    "trigger_type": "after_as_attack",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": "triggered_by",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "burn_damage_pct": 30
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal_efficacy_down",
+            "target_type": "enemy_single",
+            "target_identifier": "triggered_by",
+            "value": null,
+            "value_tag": "debuff",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: after_as_attack (自身がAS/EXで攻撃した後) -> attacked enemy single (triggered_by) gets burn(2 actions, atk*30% DoT) + heal_efficacy_down(2 actions, debuff% percent)"
     ]
   },
   "230247": {
@@ -56987,15 +58315,39 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_kill",
+    "trigger_type": "on_pawn_killed",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_ap",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_pawn_killed (自身が敵を殺した際). Block1 add_ap(self, value=1). trigger_type 从 on_kill 修正为 on_pawn_killed (PAWN_KILLED 标准枚举值)"
     ]
   },
   "230249": {
@@ -57290,13 +58642,58 @@
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "guard",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "guard",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "debuff_immune",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_any_attacked -> self guard(value_tag=guard, attack_limited=1, negate one attack) + self debuff_immune(1 action, hit_limited=1, negate 1 status ailment). Description: 敵の攻撃をguard%ガードし、自身に向けられる状態異常を1つ無効にするバフを付与する."
     ]
   },
   "230256": {
@@ -57571,15 +58968,60 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
+    "trigger_type": "on_ally_killed",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "ターゲット",
+              "is_buff_mark": false,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_ally_killed (他の味方が敵に倒された際). trigger_attacker=killer. Block1 damage(enemy_single, killer, 威力) + mark(ターゲット, permanent, stackable, is_buff_mark=false). 镜像 130086 キャッチライト 配置. trigger_type 从 on_battle_start 修正为 on_ally_killed"
     ]
   },
   "230262": {
@@ -57637,13 +59079,43 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "activation_condition": {
+                "type": "attacker_hp_ratio_higher_than_self"
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true. 镜像 230245 配置"
     ]
   },
   "230264": {
@@ -57655,15 +59127,60 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "after_any_attack",
+    "trigger_type": "after_as_attack",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": "triggered_by",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "burn_damage_pct": 30
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal_efficacy_down",
+            "target_type": "enemy_single",
+            "target_identifier": "triggered_by",
+            "value": null,
+            "value_tag": "debuff",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: after_as_attack (自身がAS/EXで攻撃した後) -> attacked enemy single (triggered_by) gets burn(2 actions, atk*30% DoT) + heal_efficacy_down(2 actions, debuff% percent)"
     ]
   },
   "230265": {
@@ -57676,14 +59193,144 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_skill_use",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": ">=",
+      "value": 50
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 10
+        },
+        "effects": [
+          {
+            "effect_type": "ignore_defense",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 50,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 20
+        },
+        "effects": [
+          {
+            "effect_type": "ignore_defense",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 25,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 30
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk1",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "condition": {
+          "type": "random_choice",
+          "group_id": 0,
+          "weight": 40
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk2",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_skill_use, global_condition self_hp_percent>=50 (HP>=50%才発動)",
+      "おみくじ抽選: Block1-4 random_choice group=0 (大吉10%/中吉20%/小吉30%/末吉40%)",
+      "大吉: ignore_defense 50%, 中吉: ignore_defense 25%, 小吉: atk_up by atk1 tag (stackable), 末吉: atk_up by atk2 tag (stackable)",
+      "全buff attack_limited=1 + duration_type=attack: AS終了時消費. 镜像 130100 おみくじ運試し 配置 (省略 Lv11+ dmg_dealt_up block)"
     ]
   },
   "230266": {
@@ -57691,19 +59338,50 @@
     "name": "融和の象徴",
     "skill_type": 2,
     "resource_cost": 2,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "enemy_alive_count",
+      "operator": ">=",
+      "value": 2
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage_link",
+            "target_type": "enemy_nearest_and_farthest",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "link_mode": "bidirectional"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 2,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 damage_link(enemy_nearest_and_farthest, dmg%, 1ターン, link_mode=bidirectional) 自身最近+最遠の敵2体に双方向ダメージ共有リンク付与。global_condition enemy_alive_count>=2 (生存敵1体の場合発動しない)。镜像 230232 融和の象徴 配置"
     ]
   },
   "230267": {
@@ -57854,13 +59532,62 @@
       "type": "skill_use_count_modulo",
       "value": 2
     },
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 5,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_is_front_row"
+            },
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 5,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_is_back_row"
+            },
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_skill_use_count + skill_use_count_modulo=2 (AS 2回使用ごとに発動). Block1: 5hit EN damage, 前衛なら威力tag, 後衛なら威力2tag (target_is_front_row/back_row で出し分け). 镜像 130119 期待に応えたい 配置 (省略 Lv11+ dmg_dealt_down block)"
     ]
   },
   "230271": {
@@ -57931,13 +59658,41 @@
     "ignore_shield": 0,
     "trigger_type": "before_skill_use",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "コスモル",
+              "is_buff_mark": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_skill_use (自身がASで攻撃する前). Block1 mark(self, コスモル, permanent, stackable, is_buff_mark=true). 自身にコスモル mark 1つ付与"
     ]
   },
   "230273": {
@@ -58091,19 +59846,51 @@
     "name": "残光の誓い",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "before_any_attacked",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": "<",
+      "value": 20
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "ally_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "コスモル",
+              "is_buff_mark": true,
+              "exclude_self": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_any_attacked with global_condition(self_hp_percent < 20%) -> add コスモル mark to ally_all (exclude_self=true). One-time trigger via cooldown=99. Description: 自身のHPが20%未満の状態で敵から攻撃される直前に発動。自身を除く味方全体に「コスモル」を1つ付与する。戦闘中に1度しか発動しない."
     ]
   },
   "230277": {
@@ -58314,13 +60101,41 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "ally_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "コスモル",
+              "is_buff_mark": true,
+              "exclude_self": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start -> add コスモル mark to ally_single (exclude_self=true, prioritize other allies)"
     ]
   },
   "230281": {
@@ -58441,13 +60256,42 @@
     "ignore_shield": 0,
     "trigger_type": "on_kill",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "ネヴュリム",
+              "is_buff_mark": false,
+              "stackable": true,
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 2,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_kill (自身が敵を倒した際に発動) -> mark 2 enemies with ネヴュリム (1 each, permanent, stackable debuff mark). target_type=enemy_single + flags.target_count=2 selects 2 enemies (display_target_range=TWO_PAWNS=2). Pattern follows ターゲット mark (duration=-1, is_buff_mark=false, stackable=true)."
     ]
   },
   "230284": {
@@ -58987,13 +60831,43 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "activation_condition": {
+                "type": "attacker_hp_ratio_higher_than_self"
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true. 镜像 230245 配置"
     ]
   },
   "230294": {
@@ -59315,13 +61189,62 @@
       "type": "skill_use_count_modulo",
       "value": 2
     },
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 5,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_is_front_row"
+            },
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 5,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_is_back_row"
+            },
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_skill_use_count + skill_use_count_modulo=2 (AS 2回使用ごとに発動). Block1: 5hit EN damage, 前衛なら威力tag, 後衛なら威力2tag (target_is_front_row/back_row で出し分け). 镜像 130119 期待に応えたい 配置 (省略 Lv11+ dmg_dealt_down block)"
     ]
   },
   "230302": {
@@ -59436,13 +61359,39 @@
     "ignore_shield": 0,
     "trigger_type": "on_ally_killed",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "burn",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "burn_damage_pct": 30
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_ally_killed (他の味方が倒された際). Block1 add_status burn(enemy_all, 1 action, burn_damage_pct=30 = atk*30% DoT). 参考既存 burn テンプレート (add_status + value_tag=burn + flags.burn_damage_pct=30)"
     ]
   },
   "230305": {
@@ -60310,14 +62259,45 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_hp_below",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": "<=",
+      "value": 50,
+      "ally_filter": "ally"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": 50.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "darkness"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_hp_below with global_condition(self_hp_percent<=50%, ally_filter=ally) -> add_status(darkness) to enemy_all (2 actions, value=50 means 50% miss rate). Description: 自身のHPが50%以下になった際に発動。敵全体に2行動の暗闇を付与する。暗闇状態は50%の確率でスキルが命中しなくなる."
     ]
   },
   "230320": {
@@ -60539,13 +62519,37 @@
     "ignore_shield": 0,
     "trigger_type": "on_ally_killed",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "reset_cooldown",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 220041,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_ally_killed (他の味方が倒された際). Block1 reset_cooldown(self, value=220041 ラインブラスター). 参考既存 reset_cooldown テンプレート (value=skill_id). skill_id 220041 = ラインブラスター"
     ]
   },
   "230325": {
@@ -60686,15 +62690,100 @@
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_ally_killed",
+    "trigger_type": "on_any_kill",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "max_hp_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "reset_cooldown",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 220310,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "お餅",
+              "is_buff_mark": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_any_kill (敵または他の味方が倒された際) -> heal self by max_hp*cure% + max_hp_up 5% (permanent, stackable, unremovable) + reset_cooldown(220310 除災招福) + self お餅 mark (permanent, stackable)"
     ]
   },
   "230329": {
@@ -60885,19 +62974,64 @@
     "name": "あなたにマーキング♡",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_single_furthest",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 dmg_taken_up(enemy_single_furthest, dmg%, attack_limited=1, stackable) + cheat_death(self, permanent). 镜像 230191 あなたにマーキング♡ 配置"
     ]
   },
   "230342": {
@@ -61405,13 +63539,114 @@
     "ignore_shield": 0,
     "trigger_type": "before_ally_as_attack",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_lacks_mark",
+          "mark_name": "修復パッチ"
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "ally_single",
+            "target_identifier": "triggered_by",
+            "value": 15,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "修復パッチ",
+          "operator": "==",
+          "value": 1,
+          "target_scope": "self"
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "ally_single",
+            "target_identifier": "triggered_by",
+            "value": 20,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "mark_count",
+          "mark_name": "修復パッチ",
+          "operator": "==",
+          "value": 2,
+          "target_scope": "self"
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "ally_single",
+            "target_identifier": "triggered_by",
+            "value": 25,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: before_ally_as_attack (同時発動制限). 3 blocks by 修復パッチ mark count on self:",
+      "Block1 self_lacks_mark(修復パッチ) -> dmg_dealt_up(triggered_by ally, 15%, attack_limited=1, stackable)",
+      "Block2 mark_count(修復パッチ)==1 -> dmg_dealt_up(triggered_by ally, 20%, ...)",
+      "Block3 mark_count(修復パッチ)==2 -> dmg_dealt_up(triggered_by ally, 25%, ...)",
+      "triggered_by = 攻撃を行う味方. 全buff attack_limited=1 + duration_type=attack: AS終了時消費"
     ],
     "simultaneous_limit": true
   },
@@ -61426,13 +63661,41 @@
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage_link",
+            "target_type": "friends",
+            "target_identifier": null,
+            "value": 75,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "unremovable": true,
+              "link_mode": "to_caster"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 5,
     "display_target_type": 2,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start. Block1 damage_link(friends, value=75, 1ターン, unremovable, link_mode=to_caster). friends=自身以外の味方全体. link_mode=to_caster: friends が受けたダメージの75%を caster(self) に転送. 参考既存 damage_link to_caster テンプレート (target_type=friends, link_mode=to_caster)"
     ]
   },
   "230352": {
@@ -61444,15 +63707,43 @@
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
-    "trigger_type": "on_battle_start",
+    "trigger_type": "after_as_attacked",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": 1,
     "display_target_type": 3,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: after_as_attacked (自身が攻撃を受けた直後). Block1 dmg_taken_up(enemy_single, trigger_attacker, dmg%, 1 hit, stackable, hit_limited=1). 攻撃してきた敵に1ヒットまで被ダメージ増加デバフ. trigger_type 从 on_battle_start 修正为 after_as_attacked"
     ]
   },
   "230353": {
@@ -61784,19 +64075,49 @@
     "name": "サバイバルスキン",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": null,
-    "cooldown_update_timing": null,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
     "global_condition": null,
-    "effect_blocks": [],
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 30,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "activation_condition": {
+                "type": "self_hp_below",
+                "value_tag": "hp"
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 dmg_taken_down(self, value=30% fixed, permanent, duration_type=action) with activation_condition self_hp_below(hp tag) (自身HPが最大HPのhp%以下の場合にのみ被ダメージ30%減少). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition (hp tag 阈值由 skill_tag_values 提供). 30 是固定值减伤 (非 value_tag=hp, hp 是阈值条件)"
     ]
   },
   "230360": {
@@ -62162,14 +64483,57 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "on_turn_start",
-    "global_condition": null,
-    "effect_blocks": [],
+    "global_condition": {
+      "type": "condition_list",
+      "mode": "all",
+      "conditions": [
+        {
+          "type": "ally_alive_count",
+          "operator": "<=",
+          "value": 1
+        },
+        {
+          "type": "round_number",
+          "operator": ">",
+          "value": 1
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "クロウ",
+              "is_buff_mark": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
     "display_target_priority": null,
     "display_target_range": null,
     "display_target_type": 1,
-    "parse_status": "failed",
+    "parse_status": "manual",
     "parse_notes": [
-      "No effects resolved"
+      "PS: on_turn_start with global_condition (ally_alive_count<=1 meaning no other allies alive, AND round_number>1) -> add クロウ mark to self (1 action, unremovable). Description: 自身以外の味方が生存している場合発動しない (do NOT trigger if other allies alive), 1ターン目には発動しない (do NOT trigger on turn 1)."
     ]
   },
   "230367": {
@@ -65436,7 +67800,8 @@
             },
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -65449,7 +67814,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: dmg enemy_single 2hit, dmg_dealt_down(target_has_status_ailment, stackable, dur=1action) Lv11+"
+      "AS: dmg enemy_single 2hit, dmg_dealt_down(target_has_status_ailment, stackable, dur=1action, Lv11+ via effect-level level_min)"
     ]
   },
   "130118": {
@@ -65502,7 +67867,8 @@
             "condition": null,
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -65521,7 +67887,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "hit_limited": 1
+              "hit_limited": 1,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -65534,7 +67901,7 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS before_skill_use: atk_up(attack_limited), dmg_dealt_up(attack_limited, stackable, Lv11+), debuff_immune(hit_limited=1, Lv11+)"
+      "PS before_skill_use: atk_up(attack_limited, Lv1+), dmg_dealt_up(attack_limited, stackable, Lv11+ via effect-level level_min), debuff_immune(hit_limited=1, Lv11+ via effect-level level_min)"
     ]
   },
   "110066": {
@@ -67157,7 +69524,8 @@
               "hit_limited": 1,
               "add_status": "burn",
               "add_status_duration": 1,
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -67198,7 +69566,8 @@
             "condition": null,
             "flags": {
               "hit_limited": 1,
-              "splash_to_adjacent": true
+              "splash_to_adjacent": true,
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -67241,7 +69610,8 @@
               "hit_limited": 1,
               "add_status": "burn",
               "add_status_duration": 1,
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -67305,7 +69675,8 @@
             "condition": null,
             "flags": {
               "hit_limited": 1,
-              "splash_to_adjacent": true
+              "splash_to_adjacent": true,
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -76168,7 +78539,7 @@
             "condition": null,
             "flags": {
               "is_en_attack": true,
-              "damage_cap_atk_pct_tag": "max"
+              "damage_cap_atk_pct": 75
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -76280,7 +78651,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "EX: hp_ratio_damage(enemy_single_highest_hp_ratio, target_current_hp*35%, cap=ATK*75%) + AP分支(self_has_ap: remove_ap 2 from target + remove_ap 1 from self; self_no_ap: atk_down 2action stackable) + Lv11+: damage_link(self_and_primary_target, dmg%, 1action, unremovable)"
+      "EX: hp_ratio_damage(enemy_single_highest_hp_ratio, target_current_hp*35%, cap=ATK*75% fixed) + AP分支(self_has_ap: remove_ap 2 from target + remove_ap 1 from self; self_no_ap: atk_down 2action stackable) + Lv11+: damage_link(self_and_primary_target, dmg%, 1action, unremovable). Note: damage_cap_atk_pct_tag='max'原配置错误（110071无max tag），修正为damage_cap_atk_pct=75固定值"
     ]
   },
   "120158": {
@@ -77508,7 +79879,10 @@
             "hit_count": 3,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true, "target_count": 3},
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 3
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -77525,7 +79899,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"hit_limited": 1},
+            "flags": {
+              "hit_limited": 1
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -77551,7 +79927,9 @@
       {
         "block_id": 2,
         "level_min": 11,
-        "condition": {"type": "any_target_survived"},
+        "condition": {
+          "type": "any_target_survived"
+        },
         "effects": [
           {
             "effect_type": "damage",
@@ -77566,7 +79944,10 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true, "target_count": 3},
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 3
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77577,7 +79958,9 @@
     "display_target_range": 5,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["EX: 3-target 3hit EN damage + perfect_evasion(hit_limited) + debuff_immune(1 action). Lv11+: any_target_survived -> additional damage 威力2"]
+    "parse_notes": [
+      "EX: 3-target 3hit EN damage + perfect_evasion(hit_limited) + debuff_immune(1 action). Lv11+: any_target_survived -> additional damage 威力2"
+    ]
   },
   "120095": {
     "skill_id": 120095,
@@ -77608,7 +79991,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true},
+            "flags": {
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -77625,7 +80010,11 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"value_type": "percent", "attack_limited": 1, "stackable": true},
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1,
+              "stackable": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77660,7 +80049,9 @@
     "display_target_range": 1,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["AS1: enemy_column EN damage + dmg_taken_down(stackable,attack_limited,permanent). Lv11+: lifesteal 20%"]
+    "parse_notes": [
+      "AS1: enemy_column EN damage + dmg_taken_down(stackable,attack_limited,permanent). Lv11+: lifesteal 20%"
+    ]
   },
   "120096": {
     "skill_id": 120096,
@@ -77691,7 +80082,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true},
+            "flags": {
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -77708,7 +80101,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"status_type": "action_damage", "is_en_attack": true},
+            "flags": {
+              "status_type": "action_damage",
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77716,7 +80112,10 @@
       },
       {
         "block_id": 2,
-        "condition": {"type": "target_hp_below", "value": 35},
+        "condition": {
+          "type": "target_hp_below",
+          "value": 35
+        },
         "effects": [
           {
             "effect_type": "damage",
@@ -77731,7 +80130,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"is_en_attack": true},
+            "flags": {
+              "is_en_attack": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77742,7 +80143,9 @@
     "display_target_range": 1,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["AS2: enemy_single EN damage + action_damage debuff(3 actions, atk*10%). Block2: target_hp_below 35% -> additional damage 威力2"]
+    "parse_notes": [
+      "AS2: enemy_single EN damage + action_damage debuff(3 actions, atk*10%). Block2: target_hp_below 35% -> additional damage 威力2"
+    ]
   },
   "130103": {
     "skill_id": 130103,
@@ -77773,7 +80176,12 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"value_type": "percent", "attack_limited": 1, "stackable": true, "attacker_hp_ratio_gt_self": true},
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1,
+              "stackable": true,
+              "attacker_hp_ratio_gt_self": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77782,7 +80190,10 @@
       {
         "block_id": 2,
         "level_min": 11,
-        "condition": {"type": "self_hp_below", "value": 35},
+        "condition": {
+          "type": "self_hp_below",
+          "value": 35
+        },
         "effects": [
           {
             "effect_type": "add_ep",
@@ -77808,7 +80219,9 @@
     "display_target_range": null,
     "display_target_type": 1,
     "parse_status": "manual",
-    "parse_notes": ["PS1: on_turn_start. dmg_taken_down(stackable,attack_limited,attacker_hp_ratio_gt_self). Lv11+: self_hp_below 35% -> add_ep 1"]
+    "parse_notes": [
+      "PS1: on_turn_start. dmg_taken_down(stackable,attack_limited,attacker_hp_ratio_gt_self). Lv11+: self_hp_below 35% -> add_ep 1"
+    ]
   },
   "130104": {
     "skill_id": 130104,
@@ -77840,7 +80253,10 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"status_type": "burn", "burn_damage_pct": 30},
+            "flags": {
+              "status_type": "burn",
+              "burn_damage_pct": 30
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -77857,7 +80273,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {"value_type": "percent"},
+            "flags": {
+              "value_type": "percent"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -77868,7 +80286,9 @@
     "display_target_range": 1,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["PS2: after_as_attack+allow_ex_trigger. burn(2 actions, atk*30%) + heal_efficacy_down(2 actions) on attacked_targets"]
+    "parse_notes": [
+      "PS2: after_as_attack+allow_ex_trigger. burn(2 actions, atk*30%) + heal_efficacy_down(2 actions) on attacked_targets"
+    ]
   },
   "110046": {
     "skill_id": 110046,
@@ -77936,7 +80356,9 @@
     "display_target_range": 6,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["EX: enemy_row damage(威力%) + Lv11: lifesteal(dmg% of damage dealt)"]
+    "parse_notes": [
+      "EX: enemy_row damage(威力%) + Lv11: lifesteal(dmg% of damage dealt)"
+    ]
   },
   "120103": {
     "skill_id": 120103,
@@ -78009,7 +80431,9 @@
     "display_target_range": 2,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["AS1: enemy 2 targets damage(威力%) + condition(self_has_mark 反重力おさげ): add_status knockout(1行動) on 2 targets"]
+    "parse_notes": [
+      "AS1: enemy 2 targets damage(威力%) + condition(self_has_mark 反重力おさげ): add_status knockout(1行動) on 2 targets"
+    ]
   },
   "130111": {
     "skill_id": 130111,
@@ -78072,7 +80496,9 @@
     "display_target_range": 1,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["PS1: on_turn_start preemptive. enemy_single_lowest_max_hp damage(威力%) + damage_link(self_and_primary_target, to_primary_target, dmg%, 1ターン). cooldown=99 (1度のみ)"]
+    "parse_notes": [
+      "PS1: on_turn_start preemptive. enemy_single_lowest_max_hp damage(威力%) + damage_link(self_and_primary_target, to_primary_target, dmg%, 1ターン). cooldown=99 (1度のみ)"
+    ]
   },
   "130112": {
     "skill_id": 130112,
@@ -78145,7 +80571,9 @@
     "display_target_range": 1,
     "display_target_type": 1,
     "parse_status": "manual",
-    "parse_notes": ["PS2: before_as_attacked+target_is_self. cheat_death(cure% heal on lethal) + Lv11: max_hp_up(buff%, 永続, unremovable). cooldown=99 (1度のみ)"]
+    "parse_notes": [
+      "PS2: before_as_attacked+target_is_self. cheat_death(cure% heal on lethal) + Lv11: max_hp_up(buff%, 永続, unremovable). cooldown=99 (1度のみ)"
+    ]
   },
   "130113": {
     "skill_id": 130113,
@@ -78261,7 +80689,9 @@
     "display_target_range": 1,
     "display_target_type": 1,
     "parse_status": "manual",
-    "parse_notes": ["PS3: on_cumulative_damage(>=85%). enemy_single nearest: dmg_dealt_down(dmg%, attack_limited=1) + self: dmg_invulnerable(1行動, hit_limited=999) + self: mark 反重力おさげ(1行動). Lv11: + enemy_single: add_status knockout(1行動)"]
+    "parse_notes": [
+      "PS3: on_cumulative_damage(>=85%). enemy_single nearest: dmg_dealt_down(dmg%, attack_limited=1) + self: dmg_invulnerable(1行動, hit_limited=999) + self: mark 反重力おさげ(1行動). Lv11: + enemy_single: add_status knockout(1行動)"
+    ]
   },
   "110054": {
     "skill_id": 110054,
@@ -78409,7 +80839,9 @@
     "display_target_range": 1,
     "display_target_type": 1,
     "parse_status": "manual",
-    "parse_notes": ["EX: enemy_single nearest + adjacent_enemies(2) damage + action_damage(2行動, 7.5% atk). Lv11+: + atk_down(2行動, atk%) on primary + adjacent"]
+    "parse_notes": [
+      "EX: enemy_single nearest + adjacent_enemies(2) damage + action_damage(2行動, 7.5% atk). Lv11+: + atk_down(2行動, atk%) on primary + adjacent"
+    ]
   },
   "120119": {
     "skill_id": 120119,
@@ -78445,10 +80877,10 @@
               "conditional_power_bonus": {
                 "condition": {
                   "type": "target_mark_count",
-                  "mark_name": "警棒"
+                  "mark_name": "警棒",
+                  "multiplier_per_count": true,
+                  "max_multiplier_count": 3
                 },
-                "multiplier_per_count": true,
-                "max_multiplier_count": 3,
                 "value": 15.0,
                 "bonus_type": "dealt_damage"
               }
@@ -78469,7 +80901,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "target_count": 99
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -78480,7 +80914,9 @@
     "display_target_range": 5,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["AS1: enemy_all damage (警棒 mark 1つにつき+15%, 最大3つ) + remove_ep 1"]
+    "parse_notes": [
+      "AS1: enemy_all damage (警棒 mark 1つにつき+15%, 最大3つ) + remove_ep 1"
+    ]
   },
   "120120": {
     "skill_id": 120120,
@@ -78542,7 +80978,9 @@
     "display_target_range": 1,
     "display_target_type": 1,
     "parse_status": "manual",
-    "parse_notes": ["AS2: enemy_single_furthest damage + atk_down(2行動, stackable)"]
+    "parse_notes": [
+      "AS2: enemy_single_furthest damage + atk_down(2行動, stackable)"
+    ]
   },
   "130127": {
     "skill_id": 130127,
@@ -78693,7 +81131,9 @@
     "display_target_range": 1,
     "display_target_type": 2,
     "parse_status": "manual",
-    "parse_notes": ["PS1: before_as_attacked (attacker_is_back_row + target_is_other_ally + self_hp>=40%). Block1: mark 警棒(stackable, 永続) + atk_down(attacker_action, stackable) + cover(attacker_action). Block2 Lv11+: block_buff_by_type block_debuffs(attacker_action). Block3 Lv12+: atk_down enemy_back_row(3行動, atk2%, stackable)"],
+    "parse_notes": [
+      "PS1: before_as_attacked (attacker_is_back_row + target_is_other_ally + self_hp>=40%). Block1: mark 警棒(stackable, 永続) + atk_down(attacker_action, stackable) + cover(attacker_action). Block2 Lv11+: block_buff_by_type block_debuffs(attacker_action). Block3 Lv12+: atk_down enemy_back_row(3行動, atk2%, stackable)"
+    ],
     "simultaneous_limit": true
   },
   "130128": {
@@ -78760,6 +81200,1765 @@
     "display_target_range": 5,
     "display_target_type": 3,
     "parse_status": "manual",
-    "parse_notes": ["PS2: on_turn_end. enemy_all: dmg_dealt_down(dmg%, attack_limited=1, scale_by_target_hp_ratio=true, stackable) + ally_all: ep_gain_up(50%, 1行動)"]
+    "parse_notes": [
+      "PS2: on_turn_end. enemy_all: dmg_dealt_down(dmg%, attack_limited=1, scale_by_target_hp_ratio=true, stackable) + ally_all: ep_gain_up(50%, 1行動)"
+    ]
+  },
+  "110072": {
+    "skill_id": 110072,
+    "name": "ミッドサマー・ラブ",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "random_draw",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "candidate_types": [
+                "ally_single_exclude_self",
+                "enemy_single_nearest"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "drawn_target_is_enemy"
+        },
+        "effects": [
+          {
+            "effect_type": "def_down",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "def",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "drawn_target_is_ally"
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: 3次独立可重复随机抽取(ally_single_exclude_self/enemy_single_nearest池)。每次抽取: 敌->def_down(atk%,1action,stackable); 友->atk_up(def%,1action,stackable)+Lv11+add_ep(抽到友方+自身各1EP)"
+    ]
+  },
+  "120160": {
+    "skill_id": 120160,
+    "name": "サマー・スプラッシュ",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 4,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_ep_above_or_equal",
+              "value": 1
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_ep_above_or_equal",
+              "value": 1
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: 4hit EN攻击(enemy_single, 威力). damage前检查target EX>=1(快照), damage后remove_ep(target,1)+add_ep(self,1). 注意:add_ep的condition target需为damage目标(快照),而非self实时EP"
+    ]
+  },
+  "130158": {
+    "skill_id": 130158,
+    "name": "ヒートアップ・ラブ",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "target_is_self"
+        },
+        {
+          "type": "damage_taken_in_action_percent",
+          "operator": ">=",
+          "value": 15
+        },
+        {
+          "type": "self_ep_above_or_equal",
+          "value": 1
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_ep_above_or_equal",
+          "value": 3
+        },
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure2",
+            "value_source": "damage_taken_in_action",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "self_ep_below",
+              "value": 3
+            },
+            {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure1",
+            "value_source": "damage_taken_in_action",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "ep_gain_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "ex",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "level_min": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS1: after_as_attacked触发. 单hit伤害>=15%max_hp(由damage_taken_in_action_percent检查),整个AS完成后执行. 互斥优先级高于130159.",
+      "Block1(EX>=3): remove_ep(self,2)+heal(self,cure2%,value_source=damage_taken_in_action).",
+      "Block2(EX<3且EX>=2): remove_ep(self,1)+heal(self,cure1%,value_source=damage_taken_in_action).",
+      "Block3(Lv11+): ep_gain_up(self,ex%,1action,stackable)"
+    ]
+  },
+  "130159": {
+    "skill_id": 130159,
+    "name": "アクア・セービング",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_cumulative_damage",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "check_other_allies_with_mark",
+          "mark_name": "汐風"
+        },
+        {
+          "type": "ally_cumulative_damage_percent",
+          "operator": ">=",
+          "value": 30
+        },
+        {
+          "type": "self_ps_lower_priority_than",
+          "value": 130158
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "triggered_by",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": "max_hp",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_mark",
+            "target_type": "triggered_by",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "汐風"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS2: on_cumulative_damage触发. 检查自身以外持有「汐風」mark的友方累计伤害>=30%max_hp.",
+      "triggered_by=超阈值的友方. heal(triggered_by,威力%,max_hp)+remove_mark(汐風,1)+if self EX>=2: remove_ep(self,1)+modify_pp(self,+1).",
+      "PS成功后:重置triggered_by的cumulative_hp_damage=0 AND 移除1个「汐風」mark. 互斥优先级低于130158(PS1)"
+    ]
+  },
+  "130160": {
+    "skill_id": 130160,
+    "name": "サマータイム・ロマンス",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 99,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "ally_adjacent",
+            "target_identifier": null,
+            "value": 3,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "汐風",
+              "is_buff_mark": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 20,
+              "threshold_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 2,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 20,
+              "threshold_base": "current_hp",
+              "level_min": 11,
+              "level_max": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 20,
+              "threshold_base": "current_hp",
+              "level_min": 12
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "ex",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 13
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: on_turn_start + cooldown=99(战斗中一次触发).",
+      "Block1: mark(ally_adjacent, 汕風, value=3一次性赋3层, is_buff_mark=true, stackable=true, duration=-1永続) +",
+      "dmg_taken_down_threshold(self, dmg%, threshold_pct=20%current_hp, hit_limited=1[Lv1-10]/2[Lv11]/3[Lv12+]) +",
+      "add_ep(self, ex, Lv13+)"
+    ]
+  },
+  "210113": {
+    "skill_id": 210113,
+    "name": "真夏のトラブル発生！",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "解放感",
+              "is_buff_mark": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "ep_gain_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 100.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 3
+            },
+            {
+              "type": "active_level_max",
+              "value": 4
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 1,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 5
+            },
+            {
+              "type": "active_level_max",
+              "value": 9
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 3,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 10
+            },
+            {
+              "type": "active_level_max",
+              "value": 10
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stack_count": 5,
+              "linked_mark": "解放感"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX(敌方版): mark(解放感)+atk_up(linked)+dmg_dealt_up(linked)+ep_gain_down(linked). Lv3-4: cheat_death 1hit, Lv5-9: 3hits, Lv10: 5hits (linked to mark)"
+    ]
+  },
+  "220409": {
+    "skill_id": 220409,
+    "name": "海辺の取り締まり！",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_lacks_mark",
+          "mark_name": "解放感"
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_has_mark",
+          "mark_name": "解放感"
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "self_hp_above",
+          "value": 1.5
+        },
+        "effects": [
+          {
+            "effect_type": "consume_hp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.75,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hp_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": 150.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "damage_base": "consume_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS(敌方版): Block1(lacks 解放感): damage(威力) EN. Block2(has 解放感): damage(威力2) EN. Block3(HP>=1.5%): consume_hp 0.75% + damage 150% consume_hp base EN"
+    ]
+  },
+  "220410": {
+    "skill_id": 220410,
+    "name": "うっかり大惨事",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 3
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_has_mark",
+          "mark_name": "解放感"
+        },
+        "effects": [
+          {
+            "effect_type": "stun",
+            "target_type": "attacked_targets",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 3,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS(敌方版): damage(威力) EN to 3 enemies. Block2(has 解放感): stun 1 action to all attacked targets"
+    ]
+  },
+  "230424": {
+    "skill_id": 230424,
+    "name": "リフレッシュ完了！",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_critical",
+    "global_condition": {
+      "type": "crit_count_mod",
+      "value": 2
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_lacks_mark",
+          "mark_name": "解放感"
+        },
+        "effects": [
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_has_mark",
+          "mark_name": "解放感"
+        },
+        "effects": [
+          {
+            "effect_type": "crit_rate_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crt",
+            "value_source": null,
+            "duration": null,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "self_has_mark",
+              "mark_name": "解放感"
+            },
+            {
+              "type": "active_level_min",
+              "value": 10
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "crit_dmg_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "crtdmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS(敌方版): on_critical every 2 crits. Block1(lacks 解放感): add_ep 1. Block2(has 解放感): crit_rate_up(crt,stackable). Block3(has 解放感 + Lv10+): crit_dmg_up(crtdmg,stackable)"
+    ]
+  },
+  "230425": {
+    "skill_id": 230425,
+    "name": "たまには羽を伸ばして+",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "consume_hp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 30.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hp_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 40.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 5
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg2",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "target_hp_ratio_higher_than_self": true,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS(敌方版+): on_turn_start once per battle (cooldown=99). Block1: consume_hp 30% + dmg_taken_down(fixed 40%,stackable,permanent,unremovable). Block2(Lv5+): dmg_dealt_up(dmg2,stackable,target_hp_ratio_higher_than_self,permanent,unremovable)"
+    ]
+  },
+  "110073": {
+    "skill_id": 110073,
+    "name": "だ、誰か止めてぇ～～！",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "adjacent_enemies",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: 最近敵単体 + 対象に隣接する敵 (enemy_single + adjacent_enemies, 同威力)"
+    ]
+  },
+  "120161": {
+    "skill_id": 120161,
+    "name": "クリティカル・スプラッシュ",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single_highest_atk",
+            "target_identifier": "primary_target",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_without_mark",
+              "mark_name": "潮騒"
+            },
+            "flags": {
+              "mark_name": "潮騒",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "mark_condition": "潮騒",
+              "unremovable": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": 2,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS: highest_atk敵単体にdamage + Lv11+ 潮騒mark付与(target_without_mark条件, 重複可, 永続) + 自身dmg_taken_down(潮騒保持者からの被ダメージ減少, 解除不可, 永続, 重複可, mark_condition=潮騒)"
+    ]
+  },
+  "130161": {
+    "skill_id": 130161,
+    "name": "オブ・ザ・グラウンド",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attack",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "target_count": 2,
+              "front_priority": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "def_down",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 15.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": 1,
+    "display_target_range": 2,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS1: after_as_attack触发, 前列優先敵2体にdamage(威力) + def_down(15%, attacker_action, 重複可, source_death_remove) + Lv11+ 自身dmg_taken_down(1 action, 重複可)"
+    ]
+  },
+  "130162": {
+    "skill_id": 130162,
+    "name": "サマー・クラッチ",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_ally_killed",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS2: on_ally_killed触发(他の味方被击倒, 排除自身), atk_up(1 action, 重複可) + add_ep(2) + Lv11+ dmg_dealt_up(1 action, 重複可)"
+    ]
+  },
+  "130163": {
+    "skill_id": 130163,
+    "name": "スイッチ・ポジション",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "caster_front_row"
+        },
+        "effects": [
+          {
+            "effect_type": "perfect_evasion",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "kaihi",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 3
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "cheat_death",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "caster_back_row"
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "crit_dmg_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 15.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS3: on_turn_start触发, 前列時 perfect_evasion(kaihi%概率, hit_limited:3, 永続) + cheat_death(hit_limited:1, 永続); 後列時 dmg_dealt_up(dmg%, 永続, 重複可) + crit_dmg_up(15%, 永続, 不可叠加)"
+    ]
   }
 }

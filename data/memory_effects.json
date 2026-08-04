@@ -5867,5 +5867,82 @@
         ]
       }
     ]
+  },
+  "400221": {
+    "skill_id": 400221,
+    "name": "回復毎T終了【最低HP】",
+    "description": "ターン終了時に発動。最大HPが最も低い味方のHPを最大HPの5%回復する",
+    "trigger": {
+      "type": "turn_end"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_single_lowest_max_hp",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 5,
+            "value_tag": 0,
+            "value_source": "target_max_hp",
+            "is_buff": true,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400222": {
+    "skill_id": 400222,
+    "name": "攻撃上昇【アニス】",
+    "description": "戦闘開始時に発動。アニス・ベネットの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400223": {
+    "skill_id": 400223,
+    "name": "回復量上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方のHP回復量を1.2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 1.2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }
