@@ -50,6 +50,11 @@ db/
 .pytest_cache/
 .tox/
 
+# === 测试本地配置 ===
+# pytest.ini 为本地并行测试配置（pytest-xdist），不入库
+# 其他开发者可在本地按需创建：addopts = -n auto --dist=loadfile -q --tb=short
+pytest.ini
+
 # === OS ===
 Thumbs.db
 .DS_Store

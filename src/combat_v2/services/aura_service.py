@@ -50,6 +50,19 @@ class AuraService:
                               unit.name, aura.effect_type)
                     return False
 
+        # 1.4 block_buffs 检查: 目标持有 BLOCK_BUFF_BY_TYPE debuff 且 block_buffs=True 时，
+        # 阻止全 buff 新付与 (如230169 バフシャット「対象に向けられるバフを無効にする」)
+        # 仅阻止 buff (is_debuff=False)，不影响 debuff 付与
+        # 与 1.3 block_debuffs 对称
+        if aura.effect_type != SkillEffectType.BLOCK_BUFF_BY_TYPE.value and not aura.is_debuff:
+            for db in unit.debuffs:
+                if (db.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value
+                        and db.duration != 0
+                        and getattr(db, 'block_buffs', False)):
+                    _log.info("[BLOCK_BUFFS] %s: %s blocked by BlockBuffByType debuff (block_buffs=True)",
+                              unit.name, aura.effect_type)
+                    return False
+
         # 标记：当次行动中由add_aura处理的buff，process_maneuver_end跳过递减
         aura.just_applied = True
 

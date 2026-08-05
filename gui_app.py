@@ -153,6 +153,9 @@ ENEMY_SLOT_POSITION_MAP = {
 # 战术演习：用户模式下可选的敌方ID（经过debug验证可正常模拟的单位）
 ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205, 713405, 722305, 652105, 152205, 161418, 242305}
 
+# 战术演习：当期敌方数量（取JSON文件最后添加的N个为当期敌方，其余为往期）
+CURRENT_EXERCISE_ENEMY_COUNT = 4
+
 # 战术演习：敌方ID → 同名角色ID（用于获取头像）
 ENEMY_AVATAR_MAP = {
     232315: 113301,   # フィー・ドレーゼ
@@ -3292,8 +3295,8 @@ class EnemyPickerDialog(tk.Toplevel):
         self.grab_set()
         _bind_modal_minimize_restore(self, parent)
         self.resizable(True, True)
-        self.geometry("440x400")
-        self.minsize(300, 300)
+        self.geometry("440x320")
+        self.minsize(300, 280)
 
         self._build()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -3309,8 +3312,13 @@ class EnemyPickerDialog(tk.Toplevel):
         s = self.app._get_scheme()
         self.configure(bg=s["bg"])
 
-        # 标题
-        ttk.Label(self, text="选择敌方单位", font=("Microsoft YaHei UI", 11, "bold")).pack(pady=(10, 5))
+        # 顶栏：标题（左）+ 显示/隐藏往期敌方按钮（右）
+        self._show_past = False
+        top_bar = ttk.Frame(self)
+        top_bar.pack(fill=tk.X, padx=10, pady=(10, 5))
+        ttk.Label(top_bar, text="选择敌方单位", font=("Microsoft YaHei UI", 11, "bold")).pack(side=tk.LEFT)
+        self._toggle_past_btn = ttk.Button(top_bar, text="显示往期敌方", command=self._toggle_past, width=14)
+        self._toggle_past_btn.pack(side=tk.RIGHT)
 
         # 网格视图
         grid_frame = tk.Frame(self, bg=s["bg"])
@@ -3369,68 +3377,115 @@ class EnemyPickerDialog(tk.Toplevel):
             return None
 
     def _refresh_grid(self):
-        """刷新网格视图"""
+        """刷新网格视图：当期敌方始终显示，往期敌方仅在_show_past为True时显示"""
         s = self.app._get_scheme()
         for child in self._grid_inner.winfo_children():
             child.destroy()
 
         dev_mode = self.app.is_developer_mode()
-        enemies = []
-        for eid, data in sorted(self._enemy_data().items(), key=lambda x: x[1]["character_name"]):
+
+        # 当期敌方 = JSON文件最后添加的 CURRENT_EXERCISE_ENEMY_COUNT 个
+        all_eids = list(self._enemy_data().keys())
+        current_eids = set(all_eids[-CURRENT_EXERCISE_ENEMY_COUNT:]) if all_eids else set()
+
+        # 按当期/往期分组，并过滤白名单
+        current_enemies = []
+        past_enemies = []
+        for eid, data in self._enemy_data().items():
             if not dev_mode and eid not in ALLOWED_ENEMY_IDS:
                 continue
-            enemies.append((eid, data))
+            if eid in current_eids:
+                current_enemies.append((eid, data))
+            else:
+                past_enemies.append((eid, data))
+
+        # 各组按角色名排序
+        current_enemies.sort(key=lambda x: x[1]["character_name"])
+        past_enemies.sort(key=lambda x: x[1]["character_name"])
 
         COLS = 4
         PAD = 4
         THUMB_W, THUMB_H = 70, 90
 
-        for i, (eid, data) in enumerate(enemies):
-            row, col = divmod(i, COLS)
-            card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                           highlightbackground=s["border"], highlightthickness=2,
-                           cursor="hand2")
-            card.grid(row=row, column=col, padx=PAD, pady=PAD)
+        row = 0
 
-            # 头像
-            avatar_cid = ENEMY_AVATAR_MAP.get(eid)
-            photo = None
-            if avatar_cid:
-                photo = self._load_thumb(avatar_cid)
-            if photo:
-                avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
-                avatar_label.image = photo
-                avatar_label.pack()
-            else:
-                placeholder_text = f"[{eid}]" if dev_mode else "???"
-                placeholder = tk.Label(card, text=placeholder_text, bg=s["surface"], fg=s["border"],
-                                       width=THUMB_W // 8, height=THUMB_H // 16,
-                                       font=("Microsoft YaHei UI", 8))
-                placeholder.pack()
+        # 当期敌方
+        if current_enemies:
+            header = tk.Label(self._grid_inner, text="当期演习敌方", bg=s["bg"], fg=s["fg"],
+                              font=("Microsoft YaHei UI", 9, "bold"), anchor="w")
+            header.grid(row=row, column=0, columnspan=COLS, sticky="ew", padx=PAD, pady=(6, 4))
+            row += 1
+            for i, (eid, data) in enumerate(current_enemies):
+                r, c = divmod(i, COLS)
+                self._render_enemy_card(eid, data, row + r, c, s, THUMB_W, THUMB_H, PAD, dev_mode)
+            row += (len(current_enemies) + COLS - 1) // COLS
 
-            # 名称
-            pos_name = ["", "左前", "中前", "右前", "左后", "中后", "右后"][data.get("position", 2)]
-            if dev_mode:
-                name_text = f"[{eid}] {data['character_name']}"
-            else:
-                name_text = f"{data['character_name']}"
-            name_label = tk.Label(card, text=name_text, bg=s["surface"], fg=s["fg"],
-                                  font=("Microsoft YaHei UI", 8), wraplength=THUMB_W + 10,
-                                  height=2, justify="center")
-            name_label.pack(pady=(2, 0))
-
-            # 站位
-            pos_label = tk.Label(card, text=f"({pos_name})", bg=s["surface"], fg=s["border"],
-                                  font=("Microsoft YaHei UI", 7))
-            pos_label.pack()
-
-            # 绑定点击事件
-            for widget in [card] + list(card.winfo_children()):
-                widget.bind("<Button-1>", lambda e, eid=eid: self._on_select(eid))
+        # 往期敌方（仅当_show_past为True时显示）
+        if self._show_past and past_enemies:
+            header = tk.Label(self._grid_inner, text="往期演习敌方", bg=s["bg"], fg=s["fg"],
+                              font=("Microsoft YaHei UI", 9, "bold"), anchor="w")
+            header.grid(row=row, column=0, columnspan=COLS, sticky="ew", padx=PAD, pady=(10, 4))
+            row += 1
+            for i, (eid, data) in enumerate(past_enemies):
+                r, c = divmod(i, COLS)
+                self._render_enemy_card(eid, data, row + r, c, s, THUMB_W, THUMB_H, PAD, dev_mode)
+            row += (len(past_enemies) + COLS - 1) // COLS
 
         # 每列均分权重
         for c in range(COLS):
             self._grid_inner.grid_columnconfigure(c, weight=1, uniform="col")
+
+        # 重置滚动位置到顶部
+        self._canvas.yview_moveto(0.0)
+
+    def _render_enemy_card(self, eid, data, row, col, s, THUMB_W, THUMB_H, PAD, dev_mode):
+        """渲染单个敌方卡片"""
+        card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
+                       highlightbackground=s["border"], highlightthickness=2,
+                       cursor="hand2")
+        card.grid(row=row, column=col, padx=PAD, pady=PAD)
+
+        # 头像
+        avatar_cid = ENEMY_AVATAR_MAP.get(eid)
+        photo = None
+        if avatar_cid:
+            photo = self._load_thumb(avatar_cid)
+        if photo:
+            avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
+            avatar_label.image = photo
+            avatar_label.pack()
+        else:
+            placeholder_text = f"[{eid}]" if dev_mode else "???"
+            placeholder = tk.Label(card, text=placeholder_text, bg=s["surface"], fg=s["border"],
+                                   width=THUMB_W // 8, height=THUMB_H // 16,
+                                   font=("Microsoft YaHei UI", 8))
+            placeholder.pack()
+
+        # 名称
+        pos_name = ["", "左前", "中前", "右前", "左后", "中后", "右后"][data.get("position", 2)]
+        if dev_mode:
+            name_text = f"[{eid}] {data['character_name']}"
+        else:
+            name_text = f"{data['character_name']}"
+        name_label = tk.Label(card, text=name_text, bg=s["surface"], fg=s["fg"],
+                              font=("Microsoft YaHei UI", 8), wraplength=THUMB_W + 10,
+                              height=2, justify="center")
+        name_label.pack(pady=(2, 0))
+
+        # 站位
+        pos_label = tk.Label(card, text=f"({pos_name})", bg=s["surface"], fg=s["border"],
+                              font=("Microsoft YaHei UI", 7))
+        pos_label.pack()
+
+        # 绑定点击事件
+        for widget in [card] + list(card.winfo_children()):
+            widget.bind("<Button-1>", lambda e, eid=eid: self._on_select(eid))
+
+    def _toggle_past(self):
+        """切换往期敌方的显示/隐藏"""
+        self._show_past = not self._show_past
+        self._toggle_past_btn.config(text="隐藏往期敌方" if self._show_past else "显示往期敌方")
+        self._refresh_grid()
 
     def _enemy_data(self):
         """获取敌方数据"""

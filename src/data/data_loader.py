@@ -655,7 +655,9 @@ class DataLoader:
         # 不再按 character_name 去重：同一角色可能存在多个不同变体
         # （如 652405=土属性大賀真桜 vs 652105=火属性大賀真桜），需各自可选。
         # enemy_id 作为 JSON 主键已保证唯一性。
-        for eid_str, data in sorted(raw.items(), key=lambda x: x[1]["character_name"]):
+        # 保留 JSON 文件原始插入顺序，便于调用方判断"最后添加的N个"为当期敌方。
+        # 显示时需要排序的调用方自行 sorted() 即可。
+        for eid_str, data in raw.items():
             self._tactical_exercise_enemies[int(eid_str)] = data
         print(f"[OK] 已加载 {len(self._tactical_exercise_enemies)} 个战术演习敌方单位")
         return self._tactical_exercise_enemies

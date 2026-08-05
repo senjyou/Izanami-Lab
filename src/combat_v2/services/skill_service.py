@@ -2473,7 +2473,10 @@ class SkillService:
         # Note: total_damage may be 0 if all damage was absorbed by shield, but the
         # shield's attack_limited should still be consumed (the unit WAS attacked).
         # Collect units that were attacked in this skill
-        attacked_unit_ids = set()
+        # attacked_unit_ids: dict mapping unit_id -> attack_count
+        #   - main damage targets: count=1 (per-skill)
+        #   - damage_link linkers: count=hit_count (per-hit, 每hit算一次攻击)
+        attacked_unit_ids = {}
         # Collect units that fully evaded all hits (attack_limited debuffs should NOT be consumed)
         fully_evaded_unit_ids = set()
         for applied in result.get("effects_applied", []):
@@ -2483,20 +2486,23 @@ class SkillService:
                 for t in applied.get("targets", []):
                     tid = t.get("target_id")
                     if tid:
-                        attacked_unit_ids.add(tid)
+                        # 主伤害目标：per-skill，attack_count=1
+                        if tid not in attacked_unit_ids:
+                            attacked_unit_ids[tid] = 1
                         # Check if this target fully evaded all hits
                         hit_evades = t.get("hit_evades", [])
                         if hit_evades and all(hit_evades):
                             fully_evaded_unit_ids.add(tid)
                             _log.info("[ATTACK_LIMITED] %s fully evaded, attack_limited debuffs will NOT be consumed", tid)
-                # 伤害链接转送的linker也算作被攻击（消耗shield等attack_limited buff）
-                # 但不触发任何PS，仅影响attack_limited计数（针对性修复：技能110071/210114「少しお行儀悪いですが……」的is_sharing=true伤害共享）
-                # damage_link_transfers中的linker承受了转送伤害，应让如「ドリルミルキィパンチ」(110030)的盾attack_limited-1
+                # damage_link转送：per-hit结算，每hit算一次攻击消耗linker的attack_limited
+                # 但不触发任何PS，仅影响attack_limited计数
                 for lt in applied.get("damage_link_transfers", []):
                     linker_id = lt.get("linker_id")
-                    if linker_id and linker_id not in attacked_unit_ids:
-                        attacked_unit_ids.add(linker_id)
-                        _log.info("[ATTACK_LIMITED] %s added via damage_link transfer (shield attack_limited will be consumed)", linker_id)
+                    hit_count = lt.get("hit_count", 1)
+                    if linker_id:
+                        attacked_unit_ids[linker_id] = attacked_unit_ids.get(linker_id, 0) + hit_count
+                        _log.info("[ATTACK_LIMITED] %s added via damage_link transfer (hit_count=%d, attack_limited will be consumed %d times)",
+                                  linker_id, hit_count, hit_count)
         if attacked_unit_ids:
             # Buffs with attack_limited on the caster should also be consumed
             # (e.g. 怒髪衝天's dmg_dealt_up only lasts for the current skill)
@@ -2506,77 +2512,92 @@ class SkillService:
             for unit in battlefield.get_all_units():
                 if not unit.is_alive:
                     continue
-                # Only consume attack_limited debuffs on units that were actually attacked
-                # BUT skip units that fully evaded all hits (attack missed -> debuff not consumed)
-                if unit.unit_id in attacked_unit_ids and unit.unit_id not in fully_evaded_unit_ids:
-                    for debuff in list(unit.debuffs):
-                        if debuff.attack_limited > 0 and debuff.buff_id not in self._debuffs_applied_this_skill:
-                            # dmg_dealt_down should be consumed when the unit ATTACKS (not when attacked)
-                            if debuff.effect_type in (SkillEffectType.DEALT_DAMAGE.value,):
-                                continue
-                            debuff.attack_limited -= 1
-                            _log.info("[ATTACK_LIMITED] %s: debuff %s attack_limited %d->%d",
-                                      unit.name, debuff.effect_type, debuff.attack_limited + 1, debuff.attack_limited)
-                            if debuff.attack_limited <= 0:
-                                unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
-                                _log.info("[ATTACK_LIMITED] %s: debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
-                # Attack-limited buff cleanup: on attacked units AND caster
-                # Shield buffs with attack_limited should ONLY be consumed when the unit is ATTACKED,
-                # not when the unit (as caster) attacks others.
+                # 获取该单位的攻击次数（主伤害=1, damage_link=N hits）
+                # caster_only的单位attack_count=1（施法者自身的buff消耗）
+                # 完全闪避的被攻击单位attack_count=1（guard等非shield buff仍需消耗一次）
                 is_attacked = unit.unit_id in attacked_unit_ids
                 is_caster_only = unit.unit_id in caster_only_buff_cleanup and not is_attacked
-                if is_attacked or is_caster_only:
-                    for buff in list(unit.buffs):
-                        if buff.attack_limited > 0:
-                            # Shield buffs only consume attack_limited when actually attacked
-                            # (not when the unit as caster attacks others, and not when fully evaded)
-                            if buff.effect_type in ("shield", "Shield"):
-                                if not is_attacked or unit.unit_id in fully_evaded_unit_ids:
-                                    continue
-                                buff.attack_limited -= 1
-                                _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff attack_limited %d->%d (per-skill)",
-                                          unit.name, buff.attack_limited + 1, buff.attack_limited)
-                                if buff.attack_limited <= 0:
-                                    shield_to_remove = getattr(buff, 'shield_amount', unit.shield)
-                                    if shield_to_remove > 0 and unit.shield > 0:
-                                        actual_remove = min(shield_to_remove, unit.shield)
-                                        unit.shield -= actual_remove
-                                        _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff expired, removing %d shield (remaining=%d)",
-                                                  unit.name, actual_remove, unit.shield)
-                                    shield_name = getattr(buff, 'name', '') or buff.effect_type
-                                    unit.buffs = [b for b in unit.buffs if b.buff_id != buff.buff_id]
-                                    _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff EXPIRED (attack_limited reached 0)", unit.name)
-                                continue
-                            # Shield/ReceivedDamage buffs only consume attack_limited when actually attacked
-                            # (not when the unit as caster attacks others)
-                            if is_caster_only and buff.effect_type in (SkillEffectType.RECEIVED_DAMAGE.value,):
-                                continue
-                            # Caster的attack_limited buff只消耗damage效果执行时已存在的buff
-                            # 修复110010 ヴィヴァーチェ的dmg_dealt_up在damage后付与时被错误消耗的bug
-                            # （"次の攻撃で与えるダメージ"应作用于次回技能，而非当次技能）
-                            if is_caster_only and buff.buff_id not in self._caster_buffs_active_during_damage:
-                                _log.info("[ATTACK_LIMITED] %s: buff %s SKIPPED (applied after damage, reserved for next skill)",
-                                          unit.name, buff.effect_type)
-                                continue
-                            buff.attack_limited -= 1
-                            _log.info("[ATTACK_LIMITED] %s: buff %s attack_limited %d->%d",
-                                      unit.name, buff.effect_type, buff.attack_limited + 1, buff.attack_limited)
-                            if buff.attack_limited <= 0:
-                                unit.buffs = [b for b in unit.buffs if b.buff_id != buff.buff_id]
-                                _log.info("[ATTACK_LIMITED] %s: buff %s EXPIRED (attack_limited reached 0)", unit.name, buff.effect_type)
-                    # Attack-limited debuff cleanup on CASTER: dmg_dealt_down should be consumed
-                    # when the caster attacks (performs an offensive action)
-                    if is_caster_only:
+                is_fully_evaded = unit.unit_id in fully_evaded_unit_ids
+                if is_attacked and not is_fully_evaded:
+                    attack_count = attacked_unit_ids[unit.unit_id]
+                elif is_caster_only:
+                    attack_count = 1
+                elif is_attacked and is_fully_evaded:
+                    # 完全闪避但仍需消耗非shield类attack_limited buff（如guard）
+                    attack_count = 1
+                else:
+                    continue
+
+                # 按attack_count次循环消耗attack_limited（per-hit for damage_link linkers）
+                for _ in range(attack_count):
+                    # Debuffs on attacked units (dmg_taken_up etc.)
+                    if is_attacked and unit.unit_id not in fully_evaded_unit_ids:
                         for debuff in list(unit.debuffs):
                             if debuff.attack_limited > 0 and debuff.buff_id not in self._debuffs_applied_this_skill:
-                                # dmg_dealt_down consumed when the unit attacks
+                                # dmg_dealt_down should be consumed when the unit ATTACKS (not when attacked)
                                 if debuff.effect_type in (SkillEffectType.DEALT_DAMAGE.value,):
-                                    debuff.attack_limited -= 1
-                                    _log.info("[ATTACK_LIMITED] %s: caster debuff %s attack_limited %d->%d (consumed on attack)",
-                                              unit.name, debuff.effect_type, debuff.attack_limited + 1, debuff.attack_limited)
-                                    if debuff.attack_limited <= 0:
-                                        unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
-                                        _log.info("[ATTACK_LIMITED] %s: caster debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
+                                    continue
+                                debuff.attack_limited -= 1
+                                _log.info("[ATTACK_LIMITED] %s: debuff %s attack_limited %d->%d",
+                                          unit.name, debuff.effect_type, debuff.attack_limited + 1, debuff.attack_limited)
+                                if debuff.attack_limited <= 0:
+                                    unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
+                                    _log.info("[ATTACK_LIMITED] %s: debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
+                    # Attack-limited buff cleanup: on attacked units AND caster
+                    # Shield buffs with attack_limited should ONLY be consumed when the unit is ATTACKED,
+                    # not when the unit (as caster) attacks others.
+                    if is_attacked or is_caster_only:
+                        for buff in list(unit.buffs):
+                            if buff.attack_limited > 0:
+                                # Shield buffs only consume attack_limited when actually attacked
+                                # (not when the unit as caster attacks others, and not when fully evaded)
+                                if buff.effect_type in ("shield", "Shield"):
+                                    if not is_attacked or unit.unit_id in fully_evaded_unit_ids:
+                                        continue
+                                    buff.attack_limited -= 1
+                                    _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff attack_limited %d->%d (per-skill)",
+                                              unit.name, buff.attack_limited + 1, buff.attack_limited)
+                                    if buff.attack_limited <= 0:
+                                        shield_to_remove = getattr(buff, 'shield_amount', unit.shield)
+                                        if shield_to_remove > 0 and unit.shield > 0:
+                                            actual_remove = min(shield_to_remove, unit.shield)
+                                            unit.shield -= actual_remove
+                                            _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff expired, removing %d shield (remaining=%d)",
+                                                      unit.name, actual_remove, unit.shield)
+                                        shield_name = getattr(buff, 'name', '') or buff.effect_type
+                                        unit.buffs = [b for b in unit.buffs if b.buff_id != buff.buff_id]
+                                        _log.info("[ATTACK_LIMITED_SHIELD] %s: shield buff EXPIRED (attack_limited reached 0)", unit.name)
+                                    continue
+                                # Shield/ReceivedDamage buffs only consume attack_limited when actually attacked
+                                # (not when the unit as caster attacks others)
+                                if is_caster_only and buff.effect_type in (SkillEffectType.RECEIVED_DAMAGE.value,):
+                                    continue
+                                # Caster的attack_limited buff只消耗damage效果执行时已存在的buff
+                                # 修复110010 ヴィヴァーチェ的dmg_dealt_up在damage后付与时被错误消耗的bug
+                                # （"次の攻撃で与えるダメージ"应作用于次回技能，而非当次技能）
+                                if is_caster_only and buff.buff_id not in self._caster_buffs_active_during_damage:
+                                    _log.info("[ATTACK_LIMITED] %s: buff %s SKIPPED (applied after damage, reserved for next skill)",
+                                              unit.name, buff.effect_type)
+                                    continue
+                                buff.attack_limited -= 1
+                                _log.info("[ATTACK_LIMITED] %s: buff %s attack_limited %d->%d",
+                                          unit.name, buff.effect_type, buff.attack_limited + 1, buff.attack_limited)
+                                if buff.attack_limited <= 0:
+                                    unit.buffs = [b for b in unit.buffs if b.buff_id != buff.buff_id]
+                                    _log.info("[ATTACK_LIMITED] %s: buff %s EXPIRED (attack_limited reached 0)", unit.name, buff.effect_type)
+                        # Attack-limited debuff cleanup on CASTER: dmg_dealt_down should be consumed
+                        # when the caster attacks (performs an offensive action)
+                        if is_caster_only:
+                            for debuff in list(unit.debuffs):
+                                if debuff.attack_limited > 0 and debuff.buff_id not in self._debuffs_applied_this_skill:
+                                    # dmg_dealt_down consumed when the unit attacks
+                                    if debuff.effect_type in (SkillEffectType.DEALT_DAMAGE.value,):
+                                        debuff.attack_limited -= 1
+                                        _log.info("[ATTACK_LIMITED] %s: caster debuff %s attack_limited %d->%d (consumed on attack)",
+                                                  unit.name, debuff.effect_type, debuff.attack_limited + 1, debuff.attack_limited)
+                                        if debuff.attack_limited <= 0:
+                                            unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
+                                            _log.info("[ATTACK_LIMITED] %s: caster debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
 
         # 延迟阵亡判定：技能完整结算后，统一设置 is_alive=False
         if self._pending_deaths:
@@ -4511,17 +4532,17 @@ class SkillService:
     def _apply_damage_process_damage_links(
         self, caster: UnitState, effect_flags: dict, targets_hit: list,
         battlefield: BattlefieldState, total_damage: int) -> Tuple[int, list]:
-        """处理 damage_link 转送（outgoing / bidirectional 方向）。
+        """处理 damage_link 转送（outgoing / bidirectional 方向），per-hit 结算。
 
-        涵盖原 _apply_damage L3920-L4051 逻辑：
-        - outgoing 方向：源目标 HP 回退（部分伤害转移，源目标只承受剩余伤害）
-        - bidirectional 方向：伤害复制，源目标不回退
-        - 转送伤害不被盾吸收时直接扣 linker HP，被盾吸收按 EN/物理/通用顺序
-        - 转送伤害不再递归 link，不受减伤/增伤 buff 影响
-        - 更新 linker 的 cumulative_hp_damage / damage_taken_total
-        - 更新 caster.damage_dealt_total / total_damage（仅 outgoing 方向回退调整）
+        - 每hit独立计算transfer_dmg并独立经linker盾吸收
+        - 每hit算作一次攻击（hit_count用于execute_skill中attack_limited消耗）
+        - outgoing方向：源目标HP回退（基于总transfer_dmg）
+        - is_sharing=True时：伤害共享，源目标不回退HP
+        - 转送伤害不再递归link，不受减伤/增伤buff影响
+        - 更新linker的cumulative_hp_damage / damage_taken_total
+        - 更新caster.damage_dealt_total / total_damage（仅outgoing方向回退调整）
         - 计分追踪（scoring_tracker）
-        - 收集 damage_link_transfers 供叙事日志输出
+        - 收集damage_link_transfers供叙事日志输出（含hit_count字段）
 
         Args:
             caster: 施法者
@@ -4544,11 +4565,87 @@ class SkillService:
                 for dl in active_links:
                     linker = next((u for u in battlefield.get_all_units() if u.unit_id == dl.partner_unit_id), None)
                     if linker and linker.is_alive and linker.unit_id != target_unit.unit_id:
-                        # 源目标承受的总伤害 = HP损失 + 盾/子单位吸收（与dmg_result.total_damage一致，不含溢出）
+                        # 源目标承受的总伤害 = HP损失 + 盾/子单位吸收
                         source_total_dmg = target["actual_damage"] + target["shield_absorbed"]
-                        transfer_dmg = int(source_total_dmg * dl.value / 100)
-                        if transfer_dmg <= 0:
+                        if source_total_dmg <= 0:
                             continue
+
+                        # === per-hit 结算：将总transfer_dmg按hit比例分配，每hit独立经linker盾吸收 ===
+                        # 每hit的transfer都是一次独立攻击，应消耗linker盾的attack_limited
+                        # 总transfer_dmg与原逻辑一致（int(source_total_dmg * pct/100)），
+                        # 仅按hit比例分配到各hit用于per-hit盾吸收和attack_limited消耗
+                        hits = target.get("hits") or []
+                        hit_evades = target.get("hit_evades") or []
+
+                        # 计算总transfer_dmg（与原逻辑一致）
+                        transfer_dmg_total = int(source_total_dmg * dl.value / 100)
+                        if transfer_dmg_total <= 0:
+                            continue
+
+                        # 按hit比例分配transfer_dmg到各hit
+                        if hits:
+                            raw_hit_totals = []
+                            for _i in range(len(hits)):
+                                _evaded = hit_evades[_i] if _i < len(hit_evades) else False
+                                _raw = hits[_i] if not _evaded else 0
+                                raw_hit_totals.append(max(0, _raw))
+                            raw_sum = sum(raw_hit_totals)
+                        else:
+                            # 无hit信息时退化为单次结算（hit_count=1）
+                            raw_hit_totals = [transfer_dmg_total]
+                            raw_sum = transfer_dmg_total
+
+                        if raw_sum <= 0:
+                            # 所有hit都闪避或0伤害，但仍应转送（退化为单次）
+                            per_hit_transfers = [transfer_dmg_total]
+                        else:
+                            per_hit_transfers = []
+                            remaining = transfer_dmg_total
+                            for _i in range(len(raw_hit_totals)):
+                                if _i == len(raw_hit_totals) - 1:
+                                    # 最后一个hit承接余数（避免整数截断误差）
+                                    per_hit_transfers.append(remaining)
+                                else:
+                                    _ratio = raw_hit_totals[_i] / raw_sum
+                                    _transfer = int(transfer_dmg_total * _ratio)
+                                    per_hit_transfers.append(_transfer)
+                                    remaining -= _transfer
+
+                        # per-hit 转送伤害结算
+                        total_transfer_dmg = 0
+                        total_shield_absorbed = 0
+                        linker_hp_before = linker.current_hp
+                        transfer_hit_count = 0  # 实际造成伤害的hit数（用于attack_limited消耗）
+
+                        for transfer_per_hit in per_hit_transfers:
+                            if transfer_per_hit <= 0:
+                                continue
+
+                            transfer_hit_count += 1
+                            total_transfer_dmg += transfer_per_hit
+
+                            # linker盾吸收（per-hit独立结算，盾值耗尽后后续hit直接扣HP）
+                            _shield_abs = 0
+                            if _is_en_attack and linker.en_shield > 0:
+                                _shield_abs = min(linker.en_shield, transfer_per_hit)
+                                linker.en_shield -= _shield_abs
+                            elif not _is_en_attack and linker.physical_shield > 0:
+                                _shield_abs = min(linker.physical_shield, transfer_per_hit)
+                                linker.physical_shield -= _shield_abs
+                            elif linker.shield > 0:
+                                _shield_abs = min(linker.shield, transfer_per_hit)
+                                linker.shield -= _shield_abs
+                            total_shield_absorbed += _shield_abs
+
+                            _hp_dmg = transfer_per_hit - _shield_abs
+                            if _hp_dmg > 0:
+                                linker.current_hp = max(0, linker.current_hp - _hp_dmg)
+
+                        if total_transfer_dmg <= 0:
+                            continue
+
+                        transfer_dmg = total_transfer_dmg
+                        shield_absorbed = total_shield_absorbed
 
                         # outgoing方向（to_caster/to_primary_target）：源目标回退HP（伤害转移）
                         # is_sharing=True时：伤害共享，源目标不回退HP（如110071/210114）
@@ -4595,28 +4692,12 @@ class SkillService:
                                           target_unit.name, source_hp_restored, dl.value,
                                           target_unit.current_hp - source_hp_restored, target_unit.current_hp, remaining_dmg)
 
-                        linker_hp_before = linker.current_hp
-                        # 対応するシールドで吸収（物理=physical_shield, EN=en_shield）
-                        shield_absorbed = 0
-                        if _is_en_attack and linker.en_shield > 0:
-                            shield_absorbed = min(linker.en_shield, transfer_dmg)
-                            linker.en_shield -= shield_absorbed
-                        elif not _is_en_attack and linker.physical_shield > 0:
-                            shield_absorbed = min(linker.physical_shield, transfer_dmg)
-                            linker.physical_shield -= shield_absorbed
-                        elif linker.shield > 0:
-                            # 汎用シールド（属性指定なし）でも吸収可能
-                            shield_absorbed = min(linker.shield, transfer_dmg)
-                            linker.shield -= shield_absorbed
-                        hp_damage = transfer_dmg - shield_absorbed
-                        if hp_damage > 0:
-                            linker.current_hp = max(0, linker.current_hp - hp_damage)
                         linker.damage_taken_total += transfer_dmg
                         total_damage += transfer_dmg
-                        _log.info("[DAMAGE_LINK] %s -> %s: transferred %d dmg (%s, %.0f%% of %d [hp:%d+shield:%d]), shield_absorbed=%d, linker hp %d->%d",
+                        _log.info("[DAMAGE_LINK] %s -> %s: transferred %d dmg (%s, %.0f%% of %d, %d hits), shield_absorbed=%d, linker hp %d->%d",
                                   target_unit.name, linker.name, transfer_dmg,
                                   "EN" if _is_en_attack else "物理", dl.value,
-                                  source_total_dmg, target["actual_damage"], target["shield_absorbed"],
+                                  source_total_dmg, transfer_hit_count,
                                   shield_absorbed, linker_hp_before, linker.current_hp)
                         # 累计伤害更新（用于触发on_cumulative_damage类PS）
                         link_hp_loss = linker_hp_before - linker.current_hp
@@ -4634,7 +4715,7 @@ class SkillService:
                                 target_id=linker.unit_id, target_name=linker.name, target_side=_linker_side,
                                 actual_damage=transfer_dmg, shield_absorbed=shield_absorbed,
                             )
-                        # 收集叙事日志信息
+                        # 收集叙事日志信息（含hit_count，供execute_skill中attack_limited per-hit消耗）
                         damage_link_transfers.append({
                             "source_target_id": target["target_id"],
                             "source_target_name": target_unit.name,
@@ -4642,6 +4723,7 @@ class SkillService:
                             "linker_name": linker.name,
                             "transfer_dmg": transfer_dmg,
                             "shield_absorbed": shield_absorbed,
+                            "hit_count": transfer_hit_count,
                             "hp_before": linker_hp_before,
                             "hp_after": linker.current_hp,
                             "max_hp": linker.max_hp,
@@ -5152,6 +5234,7 @@ class SkillService:
                 "hp_after": target.current_hp,
                 "actual_damage": extra_dmg,
                 "damage": extra_dmg,
+                "shield_absorbed": 0,
                 "crit": is_add_crit,
                 "hits": [extra_dmg],
                 "hit_crits": [is_add_crit],
@@ -5298,6 +5381,7 @@ class SkillService:
                     "hp_after": target.current_hp,
                     "actual_damage": extra_dmg,
                     "damage": extra_dmg,
+                    "shield_absorbed": 0,
                     "crit": is_enchant_crit,
                     "hits": [extra_dmg],
                     "hit_crits": [is_enchant_crit],
@@ -5645,11 +5729,17 @@ class SkillService:
                       [(t.get('target_id'), t.get('target'), t.get('actual_damage')) for t in enchant_targets],
                       [(t.get('target_id'), t.get('target'), t.get('actual_damage')) for t in splash_targets],
                       total_damage + damage_delta)
+            # damage_link 转送（附魔/子单位伤害也应触发链接，与常规伤害一致）
+            _enchant_total = total_damage + damage_delta
+            _enchant_flags = {'is_en_attack': getattr(caster, 'character_type', 1) == 2}
+            _enchant_total, _enchant_link_transfers = self._apply_damage_process_damage_links(
+                caster, _enchant_flags, all_damage_targets, battlefield, _enchant_total)
             results.append({
                 "effect_type": "damage",
                 "targets": all_damage_targets,
-                "total_damage": total_damage + damage_delta,
+                "total_damage": _enchant_total,
                 "damage": damage_delta,
+                "damage_link_transfers": _enchant_link_transfers,
                 "caster_hp": caster.current_hp,
                 "caster_max_hp": caster.max_hp,
             })
@@ -11101,6 +11191,13 @@ class SkillService:
         self._finalize_enchant_buffs_after_damage_effect(
             caster, _add_damage_buffs, _enchant_buffs, _carried_debuff_buffs)
 
+        # damage_link 转送（hp_ratio_damage 也应触发链接，与常规伤害一致）
+        # is_en_attack: 若 flags 未显式配置，则根据 caster.character_type 推断
+        _link_flags = dict(flags)
+        _link_flags.setdefault('is_en_attack', getattr(caster, 'character_type', 1) == 2)
+        total_damage, damage_link_transfers = self._apply_damage_process_damage_links(
+            caster, _link_flags, targets_hit, battlefield, total_damage)
+
         self._most_recent_damage += total_damage
         if value_source != "target_lost_hp":
             self._hp_consumed = 0
@@ -11110,6 +11207,7 @@ class SkillService:
             "targets": targets_hit,
             "total_damage": total_damage,
             "damage": total_damage,
+            "damage_link_transfers": damage_link_transfers,
             "caster_hp": caster.current_hp,
             "caster_max_hp": caster.max_hp,
         }
@@ -11353,11 +11451,18 @@ class SkillService:
         self._finalize_enchant_buffs_after_damage_effect(
             caster, _add_damage_buffs, _enchant_buffs, _carried_debuff_buffs)
 
+        # damage_link 转送（damage_special 也应触发链接，与常规伤害一致）
+        _link_flags = dict(flags)
+        _link_flags.setdefault('is_en_attack', getattr(caster, 'character_type', 1) == 2)
+        total_damage, damage_link_transfers = self._apply_damage_process_damage_links(
+            caster, _link_flags, targets_hit, battlefield, total_damage)
+
         return {
             "effect_type": "damage_special",
             "targets": targets_hit,
             "total_damage": total_damage,
             "damage": total_damage,
+            "damage_link_transfers": damage_link_transfers,
             "caster_hp": caster.current_hp,
             "caster_max_hp": caster.max_hp,
         }
