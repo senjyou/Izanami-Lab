@@ -89,6 +89,7 @@ class DamageLinkEntry:
     source_unit_id: str  # 施法者ID（用于追溯）
     direction: str = "outgoing"  # "outgoing"/"incoming"/"bidirectional"
     is_unremovable: bool = False  # 解除不可（仍可被remove_damage_links清除）
+    is_sharing: bool = False  # 伤害共享（源目标不回退HP，如110071/210114）vs 伤害转移（默认）
     duration: int = -1  # 持续时间，-1=永久
     duration_type: str = ""  # "action"/"turn"/""，空=永久
     just_applied: bool = False  # 当次行动新施加标记，process_maneuver_end跳过递减

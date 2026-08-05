@@ -103,4 +103,7 @@ The simulator currently supports a limited set of characters. More will be added
 | エレーナ・パステルコワ |
 | タチアナ・ドロズドヴァ |
 | 大賀真桜        |
+| 姜小花         |
+| 生駒葵         |
+| アニス・ベネット    |
 

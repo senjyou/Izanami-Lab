@@ -749,7 +749,8 @@ class TriggerService:
                         continue
                     if sub.get('type') == 'ally_cumulative_damage_percent':
                         _threshold_pct = float(sub.get('value', 0))
-                    elif sub.get('type') == 'check_other_allies_with_mark':
+                    elif sub.get('type') in ('check_other_allies_with_mark',
+                                             'check_allies_with_mark'):
                         _mark_name = sub.get('mark_name', '')
                 if _threshold_pct is None:
                     continue
@@ -974,6 +975,21 @@ class TriggerService:
                     _log.info("[TRIGGER_MATCH] %s: BEFORE_AS_ATTACKED blocked (attacker %s is same side)",
                               owner.name, context.actor.name)
                     return False
+            # before_as_attacked仅限AS技能(skill_type=1)触发，EX/PS技能不触发
+            # （针对性修复：技能「油断は禁物ですよ」等防御反应型PS不应在EX技能前触发）
+            # 除非PS配置了allow_ex_trigger: true（保留扩展性）
+            allow_ex = parsed.get('allow_ex_trigger', False) if parsed else False
+            if context.skill is not None and self.data_loader:
+                skill_data = self.data_loader.get_skill_by_id(context.skill)
+                if skill_data:
+                    if skill_data.skill_type == SkillType.AS.value:
+                        pass  # AS always allowed
+                    elif skill_data.skill_type == SkillType.EX.value and allow_ex:
+                        pass  # EX allowed when flag set
+                    else:
+                        _log.info("[TRIGGER_MATCH] %s: BEFORE_AS_ATTACKED blocked (skill %d is not AS type=%d, allow_ex=%s)",
+                                  owner.name, context.skill, skill_data.skill_type, allow_ex)
+                        return False
             # 援护类PS技能：如果攻击目标只有PS持有者本人，没有其他友方可保护，则不触发
             if self._is_cover_ps(parsed):
                 has_other_ally = any(t.unit_id != owner.unit_id and t.side == owner.side
@@ -1971,6 +1987,32 @@ class TriggerService:
             _log.info("[TRIGGER_COND] %s: check_other_allies_with_mark '%s' => %s",
                       owner.name, mark_name, has_other)
             return has_other
+
+        # 230427 アクア・セービング+ (enemy 242305): 检查同阵营（含自身）持有指定mark的友方是否存在
+        # 与check_other_allies_with_mark的区别：不排除owner自身（敌方版230428将汐風赋予自身）
+        if cond_type == "check_allies_with_mark":
+            mark_name = condition.get('mark_name', '')
+            from ...entities_v2.enums import Side as _SideAM
+            ally_team = (context.battlefield.friend_team
+                         if owner.side == _SideAM.ALLY
+                         else context.battlefield.enemy_team)
+            has_ally = False
+            for ally in ally_team:
+                if not ally.is_alive:
+                    continue
+                ally_has = any(
+                    b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                    for b in ally.buffs
+                ) or any(
+                    d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                    for d in ally.debuffs
+                )
+                if ally_has:
+                    has_ally = True
+                    break
+            _log.info("[TRIGGER_COND] %s: check_allies_with_mark '%s' => %s",
+                      owner.name, mark_name, has_ally)
+            return has_ally
 
         # 130159 アクア・セービング: 检查triggered_by(持有mark的友方)的累计伤害>=max_hp的value%
         if cond_type == "ally_cumulative_damage_percent":

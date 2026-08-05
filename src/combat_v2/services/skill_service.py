@@ -868,8 +868,8 @@ class SkillService:
             for e in _pre_block.effects
         )
         self._pre_scanned_non_damage_enemy_targets = []  # 非伤害敌方效果目标（如spd_down的enemy_all）
+        self._pre_scanned_cover_candidates = []  # 按block顺序排列的被攻击友方候选（纯效果技能为空）
         if _has_damage_effects:
-            self._pre_scanned_cover_candidates = []  # 按block顺序排列的被攻击友方候选
             _seen_ids = set()
             _prescan_primary_target = None  # 用于adjacent_enemies等依赖主目标的目标类型
             # 获取技能元数据中的目标范围（优先使用，而非从effect target_type推导）
@@ -1107,6 +1107,45 @@ class SkillService:
             _log.info("[BRANCH_SELECT] %s: group=%d members=%s weights=%s selected=%s (override=%s)",
                       caster.name, gid, ids, weights, selected,
                       self._branch_override_func is not None)
+
+        # 纯效果AS技能（无damage）也触发 before_as_attacked 等触发器
+        # 如「夏のせいです」Block1(shield+dmg_dealt_down)应触发「代助一避」的闪避
+        # 原逻辑仅在 _apply_damage 中调用 _apply_damage_fire_before_attack_triggers，
+        # 纯效果技能不执行 damage，因此不会触发 before_as_attacked。
+        # 注意：技能可能有damage效果但condition不满足(如120159 Block2 self_has_mark)，
+        # 实际执行的是纯效果block，也需要在效果施加前触发before_as_attacked。
+        if meta.skill_type == SkillType.AS.value and self.trigger_service:
+            # 对于纯效果技能（无damage），预扫描敌方效果目标
+            if not _has_damage_effects:
+                _seen_nd_ids = set()
+                for _nd_block in resolved.effect_blocks:
+                    for _nd_effect in _nd_block.effects:
+                        _nd_et = getattr(_nd_effect, 'effect_type', None)
+                        _nd_tt = getattr(_nd_effect, 'target_type', None)
+                        if _nd_et != 'damage' and _nd_tt and _nd_tt.startswith('enemy'):
+                            _nd_range = self._resolve_target_range(_nd_tt)
+                            _nd_tso = type('obj', (object,), {
+                                'display_target_type': self._resolve_target_type(_nd_tt),
+                                'display_target_range': _nd_range,
+                                'display_target_priority': self._current_skill_priority,
+                            })()
+                            _nd_targets = self.target_service.select_targets(_nd_tso, caster, battlefield)
+                            for _pt in _nd_targets:
+                                if _pt.unit_id not in _seen_nd_ids and _pt.is_alive and _pt.side != caster.side:
+                                    _seen_nd_ids.add(_pt.unit_id)
+                                    self._pre_scanned_non_damage_enemy_targets.append(_pt)
+                if self._pre_scanned_non_damage_enemy_targets:
+                    _log.info("[NON_DMG_ENEMY_TARGETS] %s: pure-effect AS skill pre-scanned enemy targets: %s",
+                              caster.name, [t.name for t in self._pre_scanned_non_damage_enemy_targets])
+            # 在effect_blocks执行前触发before_as_attacked（如果还没触发过）
+            # _before_attack_triggers_fired 标志会防止后续 damage 效果重复触发
+            # 场景：技能有damage block但condition不满足，实际执行纯效果block，
+            # 原逻辑依赖damage效果调用_apply_damage_fire_before_attack_triggers，
+            # 但damage block未执行，导致before_as_attacked未被触发。
+            if not self._before_attack_triggers_fired and (
+                self._pre_scanned_non_damage_enemy_targets or self._pre_scanned_cover_candidates
+            ):
+                self._apply_damage_fire_before_attack_triggers(caster, [], battlefield)
 
         for block_idx, block in enumerate(resolved.effect_blocks):
             block_condition = getattr(block, 'condition', None)
@@ -2438,7 +2477,9 @@ class SkillService:
         # Collect units that fully evaded all hits (attack_limited debuffs should NOT be consumed)
         fully_evaded_unit_ids = set()
         for applied in result.get("effects_applied", []):
-            if applied.get("effect_type") == "damage":
+            # hp_ratio_damage/damage_special 同样会触发盾吸收，需要消耗 attack_limited
+            # （修复：技能210114「少しお行儀悪いですが……」用 hp_ratio_damage 打盾时未消耗盾次数，导致次数盾多抗一次伤害）
+            if applied.get("effect_type") in ("damage", "hp_ratio_damage", "damage_special"):
                 for t in applied.get("targets", []):
                     tid = t.get("target_id")
                     if tid:
@@ -2448,6 +2489,14 @@ class SkillService:
                         if hit_evades and all(hit_evades):
                             fully_evaded_unit_ids.add(tid)
                             _log.info("[ATTACK_LIMITED] %s fully evaded, attack_limited debuffs will NOT be consumed", tid)
+                # 伤害链接转送的linker也算作被攻击（消耗shield等attack_limited buff）
+                # 但不触发任何PS，仅影响attack_limited计数（针对性修复：技能110071/210114「少しお行儀悪いですが……」的is_sharing=true伤害共享）
+                # damage_link_transfers中的linker承受了转送伤害，应让如「ドリルミルキィパンチ」(110030)的盾attack_limited-1
+                for lt in applied.get("damage_link_transfers", []):
+                    linker_id = lt.get("linker_id")
+                    if linker_id and linker_id not in attacked_unit_ids:
+                        attacked_unit_ids.add(linker_id)
+                        _log.info("[ATTACK_LIMITED] %s added via damage_link transfer (shield attack_limited will be consumed)", linker_id)
         if attacked_unit_ids:
             # Buffs with attack_limited on the caster should also be consumed
             # (e.g. 怒髪衝天's dmg_dealt_up only lasts for the current skill)
@@ -3029,6 +3078,8 @@ class SkillService:
             "damage_link_transfers": damage_link_transfers,
             "reflect_transfers": reflect_transfers,
             "lifesteal": lifesteal_result,
+            "caster_hp": caster.current_hp,
+            "caster_max_hp": caster.max_hp,
         }
 
     def _apply_damage_select_and_filter_targets(
@@ -4499,11 +4550,12 @@ class SkillService:
                         if transfer_dmg <= 0:
                             continue
 
-                        # outgoing方向（to_caster/to_primary_target）：源目标回退HP
+                        # outgoing方向（to_caster/to_primary_target）：源目标回退HP（伤害转移）
+                        # is_sharing=True时：伤害共享，源目标不回退HP（如110071/210114）
                         # bidirectional方向（「共有」）：伤害复制，源目标不回退
                         source_hp_restored = 0
                         source_hp_before_for_log = target["hp_before"]
-                        if dl.direction == "outgoing":
+                        if dl.direction == "outgoing" and not dl.is_sharing:
                             source_hp_loss = target["hp_before"] - target["hp_after"]
                             # 剩余伤害 = 原始伤害 - 转移伤害
                             remaining_dmg = source_total_dmg - transfer_dmg
@@ -4601,6 +4653,7 @@ class SkillService:
                             "source_hp_after": target_unit.current_hp,
                             "source_max_hp": target_unit.max_hp,
                             "direction": dl.direction,
+                            "is_sharing": dl.is_sharing,
                         })
 
         return total_damage, damage_link_transfers
@@ -5597,6 +5650,8 @@ class SkillService:
                 "targets": all_damage_targets,
                 "total_damage": total_damage + damage_delta,
                 "damage": damage_delta,
+                "caster_hp": caster.current_hp,
+                "caster_max_hp": caster.max_hp,
             })
         else:
             _log.info("[ENCHANT_BLOCK] %s: NO enchant_targets returned, skipping", caster.name)
@@ -5907,6 +5962,8 @@ class SkillService:
                             "total_damage": sum(t["actual_damage"] for t in on_crit_targets_hit),
                             "damage": sum(t["actual_damage"] for t in on_crit_targets_hit),
                             "bonus_crit_applied": 0,
+                            "caster_hp": caster.current_hp,
+                            "caster_max_hp": caster.max_hp,
                         })
                 elif effect_type in ("dmg_taken_up", "crit_rate_down", "atk_down", "def_down",
                                       "spd_down", "dmg_dealt_down", "stun"):
@@ -6236,7 +6293,8 @@ class SkillService:
                 )
 
         return {"effect_type": "heal", "total_heal": total_heal, "heals": heal_details,
-                "heal_link_transfers": heal_link_transfers}
+                "heal_link_transfers": heal_link_transfers,
+                "caster_hp": caster.current_hp, "caster_max_hp": caster.max_hp}
 
     def _apply_aura(self, caster: UnitState, effect, battlefield: BattlefieldState, is_debuff: bool) -> Optional[Dict]:
         if not self.aura_service or not self.target_service:
@@ -6630,7 +6688,8 @@ class SkillService:
         - 基于原始base max_hp计算增量（_base_max_hp_for_calc）
         - percent: hp_increase = int(base_max_hp * value / 100)
         - fixed: hp_increase = int(value)
-        - 直接修改target.max_hp，不增加current_hp，不添加buff
+        - 直接修改target.max_hp，并同步提升current_hp（按增量），不添加buff
+        - 同步提升current_hp确保HP比例不被max_hp提升稀释（如PS2 max_hp_up后PS1 hp_ratio_dynamic_direct应按满血计算）
 
         Args:
             caster: 施法者
@@ -6648,10 +6707,13 @@ class SkillService:
         else:  # fixed
             hp_increase = int(value)
         old_max_hp = target.max_hp
+        old_current_hp = target.current_hp
         target.max_hp += hp_increase
-        _log.info("[MAX_HP_UP] %s -> %s: max_hp %d -> %d (+%d), current_hp %d (unchanged), base_max_hp_for_calc=%d",
+        # 同步提升current_hp（按增量），确保HP比例不被max_hp提升稀释
+        target.current_hp = min(target.current_hp + hp_increase, target.max_hp)
+        _log.info("[MAX_HP_UP] %s -> %s: max_hp %d -> %d (+%d), current_hp %d -> %d (+%d), base_max_hp_for_calc=%d",
                   caster.name, target.name, old_max_hp, target.max_hp, hp_increase,
-                  target.current_hp, base_max_hp)
+                  old_current_hp, target.current_hp, hp_increase, base_max_hp)
         aura_detail_dict = {
             "target": target.name,
             "target_id": target.unit_id,
@@ -8086,12 +8148,15 @@ class SkillService:
             _log.info("[AURA_APPLY] %s: hp_ratio_dynamic on %s (dynamic reduction based on holder HP ratio)",
                       caster.name, mapped_effect_type)
 
-        # hp_ratio_dynamic_direct: 动态减伤（如130156），减伤值随持有者实时HP比例线性变化
+        # hp_ratio_dynamic_direct: 增益值基于施法时HP比例（如130156 油断は禁物ですよ）
         # HP100%→最大值, HP0%→0%, 公式: effective = val * (current_hp / max_hp)
+        # 在buff施加时一次性计算并冻结value，后续不再随HP变化重新计算
         if effect_flags_aura.get('hp_ratio_dynamic_direct'):
-            aura.hp_ratio_dynamic_direct = True
-            _log.info("[AURA_APPLY] %s: hp_ratio_dynamic_direct on %s (dynamic reduction linear with holder HP ratio)",
-                      caster.name, mapped_effect_type)
+            hp_ratio = target.current_hp / target.max_hp if target.max_hp > 0 else 0
+            original_value = aura.value
+            aura.value = aura.value * hp_ratio
+            _log.info("[AURA_APPLY] %s: hp_ratio_dynamic_direct on %s (frozen at application: value %.4f -> %.4f, hp_ratio=%.4f)",
+                      caster.name, mapped_effect_type, original_value, aura.value, hp_ratio)
 
         # hp_ratio_dynamic_inverse: 动态增益（如130059），增益值随持有者实时HP比例反比变化
         # HP=100%→0%, HP=0%→max, 线性插值
@@ -8185,6 +8250,7 @@ class SkillService:
         effect_flags = getattr(effect, 'flags', {}) or {}
         link_mode = effect_flags.get('link_mode', 'to_caster')
         unremovable = effect_flags.get('unremovable', False)
+        is_sharing = effect_flags.get('is_sharing', False)
         duration = getattr(effect, 'duration', -1)
         if duration is None:
             duration = -1
@@ -8275,6 +8341,7 @@ class SkillService:
                 source_unit_id=caster.unit_id,
                 direction="outgoing",
                 is_unremovable=unremovable,
+                is_sharing=is_sharing,
                 duration=duration,
                 duration_type=duration_type,
                 just_applied=True,
@@ -8323,6 +8390,7 @@ class SkillService:
                     source_unit_id=caster.unit_id,
                     direction="outgoing",
                     is_unremovable=unremovable,
+                    is_sharing=is_sharing,
                     duration=duration,
                     duration_type=duration_type,
                     just_applied=True,
@@ -11042,6 +11110,8 @@ class SkillService:
             "targets": targets_hit,
             "total_damage": total_damage,
             "damage": total_damage,
+            "caster_hp": caster.current_hp,
+            "caster_max_hp": caster.max_hp,
         }
 
     def _apply_damage_special(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
@@ -11288,6 +11358,8 @@ class SkillService:
             "targets": targets_hit,
             "total_damage": total_damage,
             "damage": total_damage,
+            "caster_hp": caster.current_hp,
+            "caster_max_hp": caster.max_hp,
         }
 
     def _apply_sub_unit(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:

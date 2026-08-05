@@ -2526,10 +2526,33 @@
   },
   "20070": {
     "memory_id": 20070,
-    "name": "裏アカ男子とツナガリタイ♡ver1",
-    "description": "#着てる？ #着てない？",
+    "name": "違反者の自撮り",
+    "description": "こちらの資料はマル秘資料です！",
     "rarity": 2,
-    "highlights": []
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400056
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400154
+      }
+    ]
   },
   "20071": {
     "memory_id": 20071,
@@ -3901,6 +3924,66 @@
         "is_targeting_friendly_party": true,
         "party_position": null,
         "skill_master_id": 400223
+      }
+    ]
+  },
+  "20081": {
+    "memory_id": 20081,
+    "name": "トラブル続きの一日でも",
+    "description": "わわわ、わたし……どうすれば……！？ あっあっ……えっ！？　あああぁぁ～～～！？",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 106,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400224
+      },
+      {
+        "character_attribute": 5,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400225
+      }
+    ]
+  },
+  "30035": {
+    "memory_id": 30035,
+    "name": "友達みたいなこと",
+    "description": "「ほらこっちだよめるちゃん！　行こ行こー！」\\n「わわっ！　ユリアさん、落ち着いて……！」",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": 6,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400226
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 56,
+        "skill_master_id": 400227
       }
     ]
   }

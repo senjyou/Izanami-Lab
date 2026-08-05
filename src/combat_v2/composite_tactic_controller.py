@@ -475,7 +475,20 @@ class CompositeTacticController(BattleFlowController):
         spd_pct = 0.05 * n
 
         stat_multiplier = 1.0 + atk_def_pct
-        new_hp = math.floor(base["hp"] * stat_multiplier)
+
+        # 保留死亡前的永久 max_hp_up 增量（如 PS2 的 unremovable max_hp_up）
+        # max_hp_up 直接修改 max_hp（加算 flat 增量，不创建 buff）
+        # 阶段增量也以 base 为基准加算，因此：
+        #   死亡前 max_hp = base["hp"] * old_stage_mult + permanent_flat
+        #   新 max_hp = base["hp"] * new_stage_mult + permanent_flat
+        death_max_hp = boss.max_hp
+        old_n = n - 1
+        old_n_for_hp_atk_def = min(old_n, 20)
+        old_atk_def_pct = 0.2 * old_n_for_hp_atk_def + 0.005 * max(0, old_n_for_hp_atk_def - 3) * max(0, old_n_for_hp_atk_def - 2)
+        old_stage_mult = 1.0 + old_atk_def_pct
+        permanent_flat = death_max_hp - base["hp"] * old_stage_mult
+
+        new_hp = math.floor(base["hp"] * stat_multiplier + permanent_flat)
         new_attack = math.floor(base["attack"] * stat_multiplier)
         new_defense = math.floor(base["defense"] * stat_multiplier)
         new_speed = math.floor(base["speed"] * (1.0 + spd_pct))
@@ -549,7 +562,8 @@ class CompositeTacticController(BattleFlowController):
 
         _log.info("[COMPOSITE_TACTIC] ==================================================")
         _log.info("[COMPOSITE_TACTIC] BOSS %s 进入阶段 %d！", boss.name, n)
-        _log.info("[COMPOSITE_TACTIC] HP: %d → %d (x%.4f)", old_hp, new_hp, stat_multiplier)
+        _log.info("[COMPOSITE_TACTIC] HP: %d → %d (x%.4f, permanent_flat=%d)",
+                  old_hp, new_hp, stat_multiplier, permanent_flat)
         _log.info("[COMPOSITE_TACTIC] ATK: %d → %d [base=%d + buff=%.1f%%]",
                   old_atk, new_attack, int(base["attack"]), atk_def_pct * 100)
         _log.info("[COMPOSITE_TACTIC] DEF: %d → %d [base=%d + buff=%.1f%%]",

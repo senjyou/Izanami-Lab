@@ -234,12 +234,13 @@ class BattleNarrativeWriter:
                               shield_absorbed: int = 0,
                               source_hp_restored: int = 0, source_hp_before: int = 0,
                               source_hp_after: int = 0, source_max_hp: int = 0,
-                              direction: str = "outgoing"):
+                              direction: str = "outgoing", is_sharing: bool = False):
         """ダメージリンク転送の叙事ログ出力
 
         source_total_damage: 源目标承受的总伤害（HP损失+盾吸收+子单位吸收）
         source_hp_restored: 伤害转移模式下源目标回退的HP量（outgoing方向）
         direction: "outgoing"(伤害转移) / "bidirectional"(伤害复制)
+        is_sharing: True=伤害共享（源目标不回退HP，承受全部伤害）
         """
         shield_info = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         line = (f"  [链接伤害] {source_target_name} → {linker_name} (HP:{hp_after}/{max_hp}): "
@@ -248,6 +249,8 @@ class BattleNarrativeWriter:
         if direction == "outgoing" and source_hp_restored > 0:
             line += (f" [伤害转移] {source_target_name} HP回复{source_hp_restored} "
                      f"(HP:{source_hp_after}/{source_max_hp})")
+        elif is_sharing:
+            line += f" [伤害共享] {source_target_name} 承受全部伤害"
         self._add(line)
 
     def damage_link_applied(self, source_name: str, target_name: str, partner_name: str,

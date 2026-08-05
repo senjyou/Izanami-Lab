@@ -11303,7 +11303,8 @@
     "display_target_type": 2,
     "parse_status": "success",
     "parse_notes": [],
-    "simultaneous_limit": true
+    "simultaneous_limit": true,
+    "allow_ex_trigger": true
   },
   "130014": {
     "skill_id": 130014,
@@ -38334,8 +38335,9 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: before_as_attacked (自身被攻撃直前), cooldown=1. Block1 reflect_damage(self, value_tag=reflect, duration=1, duration_type=attack) その行動の間反射ダメージ。参考 130088 ネガティブヘイト (cover+reflect, before_any_attacked) 但本技能仅反射无 cover，且触发时机为自身被攻击时"
-    ]
+      "PS: before_as_attacked (自身被攻撃直前), cooldown=1. Block1 reflect_damage(self, value_tag=reflect, duration=1, duration_type=attack) その行動の間反射ダメージ。参考 130088 ネガティブヘイト (cover+reflect, before_any_attacked) 但本技能仅反射无 cover，且触发时机为自身被攻击时。描述「自身が攻撃される直前に発動」未限定アクティブスキル，故 allow_ex_trigger=true 允许EX技能也触发"
+    ],
+    "allow_ex_trigger": true
   },
   "230180": {
     "skill_id": 230180,
@@ -75277,9 +75279,10 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: 他の味方が後列敵からの攻撃直前 当該敵威力-50% (attacker_action, 同時発動制限)"
+      "PS: 他の味方が後列敵からの攻撃直前 当該敵威力-50% (attacker_action, 同時発動制限)。描述「他の味方が後列の敵から攻撃される直前に発動」未限定アクティブスキル，故 allow_ex_trigger=true 允许EX技能也触发"
     ],
-    "simultaneous_limit": true
+    "simultaneous_limit": true,
+    "allow_ex_trigger": true
   },
   "110069": {
     "skill_id": 110069,
@@ -78638,7 +78641,8 @@
             "condition": null,
             "flags": {
               "unremovable": true,
-              "value_type": "percent"
+              "value_type": "percent",
+              "is_sharing": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -78651,7 +78655,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "EX: hp_ratio_damage(enemy_single_highest_hp_ratio, target_current_hp*35%, cap=ATK*75% fixed) + AP分支(self_has_ap: remove_ap 2 from target + remove_ap 1 from self; self_no_ap: atk_down 2action stackable) + Lv11+: damage_link(self_and_primary_target, dmg%, 1action, unremovable). Note: damage_cap_atk_pct_tag='max'原配置错误（110071无max tag），修正为damage_cap_atk_pct=75固定值"
+      "EX: hp_ratio_damage(enemy_single_highest_hp_ratio, target_current_hp*35%, cap=ATK*75% fixed) + AP分支(self_has_ap: remove_ap 2 from target + remove_ap 1 from self; self_no_ap: atk_down 2action stackable) + Lv11+: damage_link(self_and_primary_target, dmg%, 1action, unremovable, is_sharing=true 伤害共享非转移). Note: damage_cap_atk_pct_tag='max'原配置错误（110071无max tag），修正为damage_cap_atk_pct=75固定值"
     ]
   },
   "120158": {
@@ -82959,6 +82963,1479 @@
     "parse_status": "manual",
     "parse_notes": [
       "PS3: on_turn_start触发, 前列時 perfect_evasion(kaihi%概率, hit_limited:3, 永続) + cheat_death(hit_limited:1, 永続); 後列時 dmg_dealt_up(dmg%, 永続, 重複可) + crit_dmg_up(15%, 永続, 不可叠加)"
+    ]
+  },
+  "210114": {
+    "skill_id": 210114,
+    "name": "少しお行儀悪いですが……",
+    "skill_type": 3,
+    "resource_cost": 9,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "hp_ratio_damage",
+            "target_type": "enemy_single_highest_hp_ratio",
+            "target_identifier": null,
+            "value": 35,
+            "value_tag": null,
+            "value_source": "target_current_hp",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "damage_cap_atk_pct": 75
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_has_ap"
+        },
+        "effects": [
+          {
+            "effect_type": "remove_ap",
+            "target_type": "enemy_single_highest_hp_ratio",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ap",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "self_no_ap"
+        },
+        "effects": [
+          {
+            "effect_type": "atk_down",
+            "target_type": "enemy_single_highest_hp_ratio",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "condition": {
+          "type": "active_level_min",
+          "value": 5
+        },
+        "effects": [
+          {
+            "effect_type": "damage_link",
+            "target_type": "self_and_primary_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "unremovable": true,
+              "value_type": "percent",
+              "is_sharing": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: hp_ratio_damage(enemy_single_highest_hp_ratio, target_current_hp*35%, cap=ATK*75% fixed) + AP分支(self_has_ap: remove_ap 2 from target + remove_ap 1 from self; self_no_ap: atk_down 2action stackable) + Lv11+: damage_link(self_and_primary_target, dmg%, 1action, unremovable). Note: damage_cap_atk_pct_tag='max'原配置错误（110071无max tag），修正为damage_cap_atk_pct=75固定值"
+    ]
+  },
+  "220405": {
+    "skill_id": 220405,
+    "name": "たまには子供っぽく+",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "self_hp_below",
+          "value": 50
+        },
+        {
+          "type": "self_lacks_mark",
+          "mark_name": "暑気"
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_damage_links",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_buff_mark": true,
+              "mark_name": "暑気"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS1: global_condition=(self_hp<50% AND self_lacks_mark 暑気). remove_damage_links(self, all) + atk_up(self, atk%, permanent) + mark(self, 暑気, permanent, is_buff_mark). 敌方版暑気可解除（描述无'解除不可'），己方版120158为unremovable"
+    ]
+  },
+  "220406": {
+    "skill_id": 220406,
+    "name": "夏のせいです",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_lacks_mark",
+          "mark_name": "暑気"
+        },
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "shield",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_down",
+            "target_type": "enemy_front",
+            "target_identifier": null,
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_has_mark",
+          "mark_name": "暑気"
+        },
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 5,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "lifesteal": 40
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.38,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_killed"
+            },
+            "flags": {
+              "heal_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS2 (敌方削弱版): Block1(self_lacks_mark 暑気): shield(self, max_hp*shield%, 1action, shield_base=max_hp) + dmg_dealt_down(enemy_front, 5%, 1action, stackable); Block2(self_has_mark 暑気): damage(enemy_single, 威力, 5hit, is_en_attack, lifesteal=40%) + heal(self, 0.38, condition:target_killed, heal_base=max_hp). 注意敌方版shield值大幅削弱(0.25%~0.5% vs 己方5%~7.5%)，heal值0.38% vs 己方7.5%"
+    ]
+  },
+  "230420": {
+    "skill_id": 230420,
+    "name": "油断は禁物ですよ",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_as_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "def_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "def",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1,
+              "hp_ratio_dynamic_direct": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS1: before_as_attacked -> def_up(self, def%, attack_limited=1, hp_ratio_dynamic_direct=true). Buff lasts for the triggering AS action only, value scales linearly with holder current HP (HP100%->max, HP0%->0%)."
+    ]
+  },
+  "230421": {
+    "skill_id": 230421,
+    "name": "わたくしがしっかりしないと+",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 99,
+    "cooldown_update_timing": 1,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "max_hp_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 0.0,
+            "value_tag": "hp",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS2 (敌方削弱版): on_turn_start, once per battle (cooldown=99). max_hp_up(self, hp%, permanent, unremovable) only. 敌方版无 damage_link（己方版有 friends damage_link to_caster），仅提升自身最大HP。hp tag数值与己方相同 Lv1=60/Lv10=80。"
+    ]
+  },
+  "210115": {
+    "skill_id": 210115,
+    "name": "規律遵守の精神",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "max_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 50.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "block_specific_aura",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "block_status": [
+                "knockout"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "level_min": 5,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "shield",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "atk"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "success",
+    "parse_notes": []
+  },
+  "220407": {
+    "skill_id": 220407,
+    "name": "旱天の慈雨",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "ally_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "shield",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "atk",
+              "lowest_hp_priority": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "level_min": 5,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal_over_time",
+            "target_type": "ally_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "max_hp",
+              "lowest_hp_priority": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 2,
+    "parse_status": "success",
+    "parse_notes": []
+  },
+  "220408": {
+    "skill_id": 220408,
+    "name": "一閃",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": []
+  },
+  "230422": {
+    "skill_id": 230422,
+    "name": "腹が減っては戦ができぬ",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_skill_use",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "lost_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "success",
+    "parse_notes": []
+  },
+  "230423": {
+    "skill_id": 230423,
+    "name": "捲土重来+",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "stun",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "PP",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "hp_threshold_cross",
+              "value": 30
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "level_min": 10,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "hp_threshold_cross",
+              "value": 30
+            },
+            "flags": {
+              "remove_all_pp": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": []
+  },
+  "210116": {
+    "skill_id": 210116,
+    "name": "ミッドサマー・ラブ",
+    "skill_type": 3,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "random_draw",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "candidate_types": [
+                "ally_single_exclude_self",
+                "enemy_single_nearest"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "drawn_target_is_enemy"
+        },
+        "effects": [
+          {
+            "effect_type": "def_down",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "def",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "drawn_target_is_ally"
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "drawn_target",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 5
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 5
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "Copied from ally 110072 and adjusted for enemy version.",
+      "Level threshold: ally Lv11 -> enemy Lv5 (per enemy 210116 description).",
+      "Threshold values use enemy original descriptions."
+    ]
+  },
+  "220411": {
+    "skill_id": 220411,
+    "name": "サマー・スプラッシュ",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 4,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_ep_above_or_equal",
+              "value": 1
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "target_ep_above_or_equal",
+              "value": 1
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "Copied from ally 120160 and adjusted for enemy version.",
+      "No level-graded effects (AS skill has fixed hit_count=4 and EX steal).",
+      "Threshold values use enemy original descriptions."
+    ]
+  },
+  "230426": {
+    "skill_id": 230426,
+    "name": "ヒートアップ・ラブ+",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_as_attacked",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "target_is_self"
+        },
+        {
+          "type": "damage_taken_in_action_percent",
+          "operator": ">=",
+          "value": 0.75
+        },
+        {
+          "type": "self_ep_above_or_equal",
+          "value": 1
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_ep_above_or_equal",
+          "value": 3
+        },
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure2",
+            "value_source": "damage_taken_in_action",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "self_ep_below",
+              "value": 3
+            },
+            {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure1",
+            "value_source": "damage_taken_in_action",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "ep_gain_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "ex",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "level_min": 10
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "Copied from ally 130158 and adjusted for enemy version.",
+      "Level thresholds: ally Lv11 -> enemy Lv10 (per enemy 230426 description).",
+      "Threshold values use enemy original descriptions."
+    ]
+  },
+  "230427": {
+    "skill_id": 230427,
+    "name": "アクア・セービング+",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_cumulative_damage",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "check_allies_with_mark",
+          "mark_name": "汐風"
+        },
+        {
+          "type": "ally_cumulative_damage_percent",
+          "operator": ">=",
+          "value": 1.5
+        },
+        {
+          "type": "self_ps_lower_priority_than",
+          "value": 230426
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "heal",
+            "target_type": "triggered_by",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": "max_hp",
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_mark",
+            "target_type": "triggered_by",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "汐風"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": {
+              "type": "self_ep_above_or_equal",
+              "value": 2
+            },
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "Copied from ally 130159 and adjusted for enemy version.",
+      "Key differences from ally 130159:",
+      "1. check_allies_with_mark (includes owner) instead of check_other_allies_with_mark (excludes owner),",
+      "   because enemy 230428 gives 汐風 to SELF (not adjacent allies).",
+      "2. self_ps_lower_priority_than references 230426 (enemy PS1) instead of 130158 (ally PS1).",
+      "3. Threshold: ally 30% -> enemy 1.5% (per enemy 230427 description)."
+    ]
+  },
+  "230428": {
+    "skill_id": 230428,
+    "name": "サマータイム・ロマンス+",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 99,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 3,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "汐風",
+              "is_buff_mark": true,
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 2,
+              "threshold_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 2,
+              "threshold_base": "current_hp",
+              "level_min": 5
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ep",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "ex",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 10
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": null,
+    "parse_status": "manual",
+    "parse_notes": [
+      "Copied from ally 130160 and adjusted for enemy version.",
+      "Key differences from ally 130160:",
+      "1. mark target: ally_adjacent -> self (enemy 230428 gives 汐風 to SELF per description).",
+      "2. threshold_pct: 20 -> 2 (per enemy description).",
+      "3. hit_count tiers: ally 1[Lv1-10]/2[Lv11]/3[Lv12+] -> enemy 1[Lv1-4]/3[Lv5+] (enemy skips hit_count=2).",
+      "4. add_ep: ally Lv13+ -> enemy Lv10+ (per enemy description)."
     ]
   }
 }

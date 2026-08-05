@@ -1500,6 +1500,7 @@ class BattleFlowController:
         仅处理direction="outgoing"或"bidirectional"的entry。
 
         【伤害转移】outgoing方向（to_caster/to_primary_target）：源目标回退HP
+        is_sharing=True时：伤害共享，源目标不回退HP（如110071/210114）
         bidirectional方向（「共有」）：伤害复制，源目标不回退
         """
         if dot_damage <= 0:
@@ -1517,13 +1518,14 @@ class BattleFlowController:
                 if transfer_dmg <= 0:
                     continue
 
-                # 【伤害转移】outgoing方向：源目标回退HP（DoT伤害转移）
+                # 【伤害转移】outgoing方向且非共享模式：源目标回退HP（DoT伤害转移）
+                # is_sharing=True时：伤害共享，源目标不回退HP
                 # 回退量 = 实际HP损失 - 应该HP损失
                 #   实际HP损失 = dot_damage（DoT造成的HP损失）
                 #   应该HP损失 = min(剩余伤害, hp_before)（转移后源目标应承受的HP损失）
                 #   剩余伤害 = dot_damage - transfer_dmg
                 source_hp_restored = 0
-                if dl.direction == "outgoing":
+                if dl.direction == "outgoing" and not dl.is_sharing:
                     remaining_dot_dmg = dot_damage - transfer_dmg
                     source_expected_hp_loss = min(remaining_dot_dmg, unit.current_hp + dot_damage)
                     source_hp_restored = dot_damage - source_expected_hp_loss
@@ -1553,6 +1555,8 @@ class BattleFlowController:
                     if source_hp_restored > 0:
                         line += (f" [伤害转移] {source_dname} HP回复{source_hp_restored} "
                                  f"(HP:{unit.current_hp}/{unit.max_hp})")
+                    elif dl.is_sharing:
+                        line += f" [伤害共享] {source_dname} 承受全部伤害"
                     self.narrative._add(line)
 
     def _on_death_narrative_complete(self, newly_dead: list) -> None:
@@ -2583,6 +2587,10 @@ class BattleFlowController:
                                                s.get('duration', 0), s.get('dur_type', 'turn'), detail)
     def _log_narrative_damage(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
         """输出 damage 效果的叙事日志（含sub_unit/enchant/add_damage/genwaku/常规伤害/damage_link/reflect）"""
+        # 使用伤害发生时的caster HP（而非叙事输出时的current_hp，避免后续consume_hp等效果导致HP不一致）
+        _caster_hp = applied.get("caster_hp", caster.current_hp)
+        _caster_max_hp = applied.get("caster_max_hp", caster.max_hp)
+        _caster_hp_str = f"HP:{_caster_hp}/{_caster_max_hp}"
         # 输出条件暴击率上升信息
         bonus_crit = applied.get("bonus_crit_applied", 0)
         if bonus_crit > 0:
@@ -2614,7 +2622,7 @@ class BattleFlowController:
                     modifiers.append("Critical")
                 self.narrative.enchant_damage(
                     attacker_name=caster_dname,
-                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    attacker_hp=_caster_hp_str,
                     target_name=target_dname,
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
@@ -2634,7 +2642,7 @@ class BattleFlowController:
                 target_dname = self._get_display_name(t.get('target_id', t['target']))
                 self.narrative.add_damage(
                     attacker_name=caster_dname,
-                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    attacker_hp=_caster_hp_str,
                     target_name=target_dname,
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
@@ -2682,7 +2690,7 @@ class BattleFlowController:
                                 modifiers.append("Effective")
                         self.narrative.genwaku_heal(
                             attacker_name=caster_dname,
-                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                            attacker_hp=_caster_hp_str,
                             target_name=target_dname,
                             hp_before=hp_before_hit,
                             hp_after=running_hp,
@@ -2702,7 +2710,7 @@ class BattleFlowController:
                             modifiers.append("Effective")
                     self.narrative.genwaku_heal(
                         attacker_name=caster_dname,
-                        attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                        attacker_hp=_caster_hp_str,
                         target_name=target_dname,
                         hp_before=t['hp_before'],
                         hp_after=t['hp_after'],
@@ -2742,7 +2750,7 @@ class BattleFlowController:
                                 modifiers.append("Effective")
                     self.narrative.damage(
                         attacker_name=caster_dname,
-                        attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                        attacker_hp=_caster_hp_str,
                         target_name=self._get_display_name(t.get('target_id', t['target'])),
                         hp_before=hp_before_hit,
                         hp_after=running_hp,
@@ -2768,7 +2776,7 @@ class BattleFlowController:
                 hit_shield = hit_shield_list[0] if hit_shield_list else t.get('shield_absorbed', 0)
                 self.narrative.damage(
                     attacker_name=caster_dname,
-                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    attacker_hp=_caster_hp_str,
                     target_name=self._get_display_name(t.get('target_id', t['target'])),
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
@@ -2810,6 +2818,7 @@ class BattleFlowController:
                 source_hp_after=dl_transfer.get("source_hp_after", 0),
                 source_max_hp=dl_transfer.get("source_max_hp", 0),
                 direction=dl_transfer.get("direction", "outgoing"),
+                is_sharing=dl_transfer.get("is_sharing", False),
             )
         # 反射ダメージ叙事ログ出力
         for r_transfer in applied.get("reflect_transfers", []):
@@ -2828,6 +2837,7 @@ class BattleFlowController:
 
     def _log_narrative_heal(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
         """输出 heal/split_heal_by_damage/heal_link 效果的叙事日志"""
+        _caster_hp_str = f"HP:{applied.get('caster_hp', caster.current_hp)}/{applied.get('caster_max_hp', caster.max_hp)}"
         etype = applied.get("effect_type")
         if etype == "heal" or etype == "split_heal_by_damage":
             for h in applied.get("heals", []):
@@ -2839,7 +2849,7 @@ class BattleFlowController:
                     hp_before_heal = h.get('hp_before', h.get('hp_after', 0) - h.get('amount', 0))
                 self.narrative.heal(
                     source_name=caster_dname,
-                    source_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    source_hp=_caster_hp_str,
                     target_name=self._get_display_name(h.get('target_id', h['target'])),
                     hp_before=hp_before_heal,
                     amount=h.get('amount', 0),
@@ -2911,6 +2921,8 @@ class BattleFlowController:
 
     def _log_narrative_damage_variants(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
         """输出 hp_ratio_damage/damage_special/lifesteal/add_fury/consume_hp 效果的叙事日志"""
+        # 使用效果发生时的caster HP（避免后续效果导致HP不一致）
+        _caster_hp_str = f"HP:{applied.get('caster_hp', caster.current_hp)}/{applied.get('caster_max_hp', caster.max_hp)}"
         etype = applied.get("effect_type")
         if etype == "hp_ratio_damage":
             for t in applied.get("targets", []):
@@ -2919,7 +2931,7 @@ class BattleFlowController:
                 target_dname = self._get_display_name(t.get('target_id', t['target']))
                 self.narrative.hp_ratio_damage(
                     attacker_name=caster_dname,
-                    attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                    attacker_hp=_caster_hp_str,
                     target_name=target_dname,
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
@@ -2940,7 +2952,7 @@ class BattleFlowController:
                     else:
                         self.narrative.damage(
                             attacker_name=caster_dname,
-                            attacker_hp=f"HP:{caster.current_hp}/{caster.max_hp}",
+                            attacker_hp=_caster_hp_str,
                             target_name=target_dname,
                             hp_before=t['hp_before'],
                             hp_after=t['hp_after'],

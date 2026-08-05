@@ -24602,6 +24602,127 @@
       ]
     }
   },
+  "210114": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 5,
+          "value": 1.5
+        },
+        {
+          "level": 10,
+          "value": 2.5
+        }
+      ]
+    },
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 15.0
+        },
+        {
+          "level": 3,
+          "value": 25.0
+        }
+      ]
+    }
+  },
+  "220405": {
+    "atk": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 5.0
+        },
+        {
+          "level": 5,
+          "value": 10.0
+        },
+        {
+          "level": 10,
+          "value": 15.0
+        }
+      ]
+    }
+  },
+  "220406": {
+    "shield": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.25
+        },
+        {
+          "level": 3,
+          "value": 0.38
+        },
+        {
+          "level": 10,
+          "value": 0.5
+        }
+      ]
+    },
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 15.0
+        },
+        {
+          "level": 3,
+          "value": 23.399999618530273
+        },
+        {
+          "level": 10,
+          "value": 31.799999237060547
+        }
+      ]
+    }
+  },
+  "230420": {
+    "def": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 10.0
+        },
+        {
+          "level": 3,
+          "value": 13.5
+        },
+        {
+          "level": 10,
+          "value": 17.0
+        }
+      ]
+    }
+  },
+  "230421": {
+    "hp": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 60.0
+        },
+        {
+          "level": 10,
+          "value": 80.0
+        }
+      ]
+    }
+  },
   "110072": {
     "atk": {
       "interpolation_mode": 2,

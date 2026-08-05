@@ -5944,5 +5944,110 @@
         ]
       }
     ]
+  },
+  "400224": {
+    "skill_id": 400224,
+    "name": "攻撃上昇【うるう】",
+    "description": "戦闘開始時に発動。波瀬うるうの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400225": {
+    "skill_id": 400225,
+    "name": "攻撃上昇【コミカル】",
+    "description": "戦闘開始時に発動。コミカル属性の味方全員の攻撃力を250上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400226": {
+    "skill_id": 400226,
+    "name": "攻撃上昇毎T開始【コミ・クレ】",
+    "description": "ターン開始時に発動。コミカル属性とクレバー属性の味方の攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400227": {
+    "skill_id": 400227,
+    "name": "与ダメージ上昇【後衛】",
+    "description": "戦闘開始時に発動。味方後衛の与えるダメージを1.25%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_back_row",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 1.25,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
   }
 }
