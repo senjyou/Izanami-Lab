@@ -68,15 +68,16 @@ class BranchCandidate:
 
 @dataclass
 class BranchDecisionPoint:
-    """分支决策点（random_choice / probability 分支选择）"""
+    """分支决策点（random_choice / probability 分支选择 / random_draw 目标抽取）"""
     index: int                         # 决策点序号（从1开始）
     caster_name: str                   # 施法者名称
     caster_id: str                     # 施法者unit_id
     skill_name: str                    # 技能名称
     skill_id: int                      # 技能ID
-    group_id: int                      # 分组ID
+    group_id: int                      # 分组ID（random_draw 时为 draw_index）
     candidates: List[BranchCandidate] = field(default_factory=list)  # 候选分支列表
-    selected_block_id: Optional[int] = None  # 选中的block_id（事后填充）
+    selected_block_id: Optional[int] = None  # 选中的block_id（random_draw 时为候选索引）
+    decision_type: str = "branch"      # 决策类型: "branch" / "random_draw"
 
 
 class StepCritSimulator:
@@ -537,6 +538,138 @@ class StepCritSimulator:
         """从GUI线程提供交互式分支决策"""
         self._branch_decision_queue.put(block_id)
 
+    # ─── random_draw 覆盖函数（由SkillService调用） ───
+
+    def create_random_draw_override_func(self, mode: str = "interactive") -> Callable[[Dict], int]:
+        """
+        创建random_draw覆盖函数，供SkillService使用
+
+        Args:
+            mode: "sequence" - 预填序列模式（无暂停，按预填序列或随机）
+                  "interactive" - 交互式模式（暂停等待用户决策）
+
+        Returns:
+            覆盖函数，接收context dict，返回选中的候选索引
+        """
+        if mode == "sequence":
+            return self._sequence_random_draw_override
+        elif mode == "interactive":
+            return self._interactive_random_draw_override
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+    def _sequence_random_draw_override(self, context: Dict) -> int:
+        """预填序列模式的random_draw覆盖（无暂停，按预填序列或随机）"""
+        self._branch_decision_index += 1
+
+        candidates_raw = context.get('candidates', [])
+        # random_draw 候选等概率
+        total_weight = len(candidates_raw) or 1
+        candidates = [
+            BranchCandidate(
+                block_id=c.get('index', i),
+                weight=1,
+                probability=1.0 / total_weight,
+                description=c.get('description', ''),
+            )
+            for i, c in enumerate(candidates_raw)
+        ]
+
+        point = BranchDecisionPoint(
+            index=self._branch_decision_index,
+            caster_name=context.get('caster_name', ''),
+            caster_id=context.get('caster_id', ''),
+            skill_name=context.get('skill_name', ''),
+            skill_id=context.get('skill_id', 0),
+            group_id=context.get('draw_index', 0),
+            candidates=candidates,
+            decision_type="random_draw",
+        )
+
+        # 从预填序列获取决策
+        if self._interactive_branch_prefill_index < len(self._interactive_branch_prefill):
+            selected = self._interactive_branch_prefill[self._interactive_branch_prefill_index]
+            self._interactive_branch_prefill_index += 1
+            valid_ids = {c.block_id for c in candidates}
+            if selected not in valid_ids:
+                selected = random.choice(candidates).block_id
+        else:
+            selected = random.choice(candidates).block_id
+
+        point.selected_block_id = selected
+        self._branch_decision_points.append(point)
+        return selected
+
+    def _interactive_random_draw_override(self, context: Dict) -> int:
+        """交互式模式的random_draw覆盖（暂停等待用户决策）"""
+        # 如果已停止，直接返回随机结果
+        if not self._running:
+            candidates_raw = context.get('candidates', [])
+            if candidates_raw:
+                return random.randrange(len(candidates_raw))
+            return 0
+
+        self._branch_decision_index += 1
+
+        candidates_raw = context.get('candidates', [])
+        total_weight = len(candidates_raw) or 1
+        candidates = [
+            BranchCandidate(
+                block_id=c.get('index', i),
+                weight=1,
+                probability=1.0 / total_weight,
+                description=c.get('description', ''),
+            )
+            for i, c in enumerate(candidates_raw)
+        ]
+
+        draw_index = context.get('draw_index', 0)
+        draw_count = context.get('draw_count', 1)
+        point = BranchDecisionPoint(
+            index=self._branch_decision_index,
+            caster_name=context.get('caster_name', ''),
+            caster_id=context.get('caster_id', ''),
+            skill_name=context.get('skill_name', ''),
+            skill_id=context.get('skill_id', 0),
+            group_id=draw_index,
+            candidates=candidates,
+            decision_type="random_draw",
+        )
+
+        # 优先使用预填序列（自动应用，不暂停）
+        if self._interactive_branch_prefill_index < len(self._interactive_branch_prefill):
+            selected = self._interactive_branch_prefill[self._interactive_branch_prefill_index]
+            self._interactive_branch_prefill_index += 1
+            valid_ids = {c.block_id for c in candidates}
+            if selected not in valid_ids:
+                selected = random.choice(candidates).block_id
+            point.selected_block_id = selected
+            self._branch_decision_points.append(point)
+            self._branch_info_queue.put(("branch_prefill_step", point))
+            return selected
+
+        # 预填序列用完，切换为交互式（暂停等待用户决策）
+        self._branch_info_queue.put(("branch_decision", point))
+
+        # 等待用户决策（带超时循环，可被stop中断）
+        selected = -1
+        while self._running:
+            try:
+                selected = self._branch_decision_queue.get(timeout=0.2)
+                break
+            except queue.Empty:
+                continue
+
+        if not self._running or selected == -1:
+            if candidates:
+                selected = random.choice(candidates).block_id
+            else:
+                selected = 0
+
+        point.selected_block_id = selected
+        self._branch_decision_points.append(point)
+        return selected
+
     def poll_branch_interactive_info(self) -> List[Tuple[str, Any]]:
         """
         从GUI线程轮询分支交互信息
@@ -640,19 +773,25 @@ class StepCritSimulator:
         if self._branch_decision_points:
             lines.append("")
             lines.append("=" * 70)
-            lines.append("  分支决策记录（random_choice / probability）")
+            lines.append("  分支决策记录（random_choice / probability / random_draw）")
             lines.append("=" * 70)
             lines.append("")
 
             for bp in self._branch_decision_points:
-                lines.append(f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})")
-                lines.append(f"      分组: group={bp.group_id}")
+                dt = getattr(bp, 'decision_type', 'branch')
+                type_label = "随机抽取" if dt == "random_draw" else "分支选择"
+                lines.append(f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id}) [{type_label}]")
+                if dt == "random_draw":
+                    lines.append(f"      抽取: 第{bp.group_id + 1}次")
+                else:
+                    lines.append(f"      分组: group={bp.group_id}")
                 for i, cand in enumerate(bp.candidates):
                     marker = " ★" if cand.block_id == bp.selected_block_id else ""
-                    lines.append(f"      候选[{i+1}] block={cand.block_id} "
+                    id_label = f"索引={cand.block_id}" if dt == "random_draw" else f"block={cand.block_id}"
+                    lines.append(f"      候选[{i+1}] {id_label} "
                                  f"概率={cand.probability * 100:.1f}% "
                                  f"权重={cand.weight}{marker} {cand.description}")
-                lines.append(f"      → 选择: block {bp.selected_block_id}")
+                lines.append(f"      → 选择: {('索引' if dt == 'random_draw' else 'block')} {bp.selected_block_id}")
                 lines.append("")
 
             lines.append("-" * 70)

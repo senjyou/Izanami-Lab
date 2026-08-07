@@ -2032,16 +2032,75 @@ class TriggerService:
                       owner.name, dmg_pct, op, val, result, triggered_by.name, triggered_by.cumulative_hp_damage)
             return result
 
-        # 130159 アクア・セービング: PS互斥，检查指定PS是否已在当前phase触发
+        # 130159 アクア・セービング: PS互斥，检查指定PS是否已触发
+        # 230427 アクア・セービング+ (on_cumulative_damage) vs 230426 ヒートアップ・ラブ+ (after_as_attacked)
+        # 两者在同一action内互斥，230426优先级更高(id靠前)
+        # 问题: CUMULATIVE_DAMAGE阶段在AFTER_AS_ATTACKED之前执行，
+        #        检查230427时230426尚未触发，_triggered_ps_ids_in_phase中无230426
+        # 修复: 若高优先级PS尚未触发，预测其是否将在后续阶段触发(检查冷却+评估global_condition)
         if cond_type == "self_ps_lower_priority_than":
             higher_ps_id = int(val)
             already_triggered = higher_ps_id in self._triggered_ps_ids_in_phase
-            _log.info("[TRIGGER_COND] %s: self_ps_lower_priority_than PS[%d] triggered=%s => %s",
-                      owner.name, higher_ps_id, already_triggered, not already_triggered)
-            return not already_triggered
+            if already_triggered:
+                _log.info("[TRIGGER_COND] %s: self_ps_lower_priority_than PS[%d] triggered=True => False (mutex)",
+                          owner.name, higher_ps_id)
+                return False
+            # 高优先级PS尚未触发，预测其是否将在后续阶段触发
+            _will_trigger = self._predict_ps_will_trigger(higher_ps_id, owner, context)
+            if _will_trigger:
+                _log.info("[TRIGGER_COND] %s: self_ps_lower_priority_than PS[%d] not yet triggered but WILL trigger => False (mutex)",
+                          owner.name, higher_ps_id)
+                return False
+            _log.info("[TRIGGER_COND] %s: self_ps_lower_priority_than PS[%d] will NOT trigger => True (fallback)",
+                      owner.name, higher_ps_id)
+            return True
 
         _log.info("[TRIGGER_COND] %s: unknown condition type=%s → PASS (allow)", owner.name, cond_type)
         return True
+
+    def _predict_ps_will_trigger(self, skill_id: int, owner: UnitState,
+                                 context: TriggerContext) -> bool:
+        """预测指定PS是否将在当前action的后续阶段触发
+
+        用于self_ps_lower_priority_than互斥判断：
+        当高优先级PS(如230426 after_as_attacked)尚未执行(在后续阶段)时，
+        预测其触发条件是否满足，以决定是否阻止低优先级PS(如230427)触发。
+
+        检查项：
+        1. 冷却中 → 不会触发
+        2. global_condition评估 → 条件是否满足
+           使用当前context评估，但将triggered_by作为targets，
+           模拟后续阶段(如AFTER_AS_ATTACKED)的上下文，使target_is_self等条件正确判断
+        """
+        if not self.data_loader:
+            return False
+        parsed = self.data_loader.get_parsed_skill_data(skill_id)
+        if not parsed:
+            return False
+        # 冷却中 → 不会触发
+        if owner.skill_cooldowns.get(skill_id, 0) > 0:
+            _log.info("[TRIGGER_COND] %s: predict PS[%d] on cooldown => will NOT trigger",
+                      owner.name, skill_id)
+            return False
+        gc = parsed.get('global_condition')
+        if gc is None:
+            return True
+        # 构造预测上下文：将triggered_by放入targets，模拟后续阶段的上下文
+        # 这样 target_is_self 等依赖context.targets的条件能正确判断
+        predict_ctx = context
+        if context.triggered_by and not context.targets:
+            predict_ctx = TriggerContext(
+                timing=context.timing,
+                battlefield=context.battlefield,
+                actor=context.actor,
+                targets=[context.triggered_by],
+                triggered_by=context.triggered_by,
+                primary_target=context.primary_target,
+            )
+        result = self._check_condition(parsed, owner, context.timing, predict_ctx)
+        _log.info("[TRIGGER_COND] %s: predict PS[%d] global_condition => %s",
+                  owner.name, skill_id, result)
+        return result
 
     def _process_candidates(self, candidates: List[TriggerInstance],
                              context: TriggerContext) -> List[TriggerAction]:

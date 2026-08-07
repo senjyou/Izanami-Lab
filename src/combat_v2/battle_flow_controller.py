@@ -671,6 +671,13 @@ class BattleFlowController:
                     )
                     self._execute_trigger_actions(after_self, unit)
 
+                    # after_as_attacked: 被AS/EX技能攻击后触发 (如 ヒートアップ・ラブ+ 230426)
+                    # 非AS技能(EX)路径原缺少此调用, 导致EX技能攻击后 after_as_attacked 类型PS不触发
+                    after_as_attacked = self.trigger_service.trigger_after_as_attacked(
+                        damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
+                    )
+                    self._execute_trigger_actions(after_as_attacked, unit)
+
                     # 非AS技能的累计伤害触发器检查（保持原路径）
                     _per_hit_resets = self._compute_per_hit_reset_values(unique_damaged)
                     cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(

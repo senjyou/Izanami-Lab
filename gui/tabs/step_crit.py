@@ -54,6 +54,7 @@ class StepCritTab(ttk.Frame):
         # 分支决策状态
         self._branch_btns = []  # 动态生成的分支候选按钮列表
         self._branch_candidate_block_ids = []  # 当前分支决策点的候选 block_id 列表
+        self._current_branch_decision_type = "branch"  # 当前分支决策点类型: "branch" / "random_draw"
         # Canvas 引用（用于滚动）
         self._left_canvas = None
         # 命令台日志内存捕获 handler（交互式模式中途导出用）
@@ -447,7 +448,16 @@ class StepCritTab(ttk.Frame):
         """用户选择分支"""
         if self._simulator and self._simulator.is_interactive_running():
             self._simulator.make_interactive_branch_decision(block_id)
-            self._append_output(f"\n  → 用户选择分支: block {block_id}\n")
+            if self._current_branch_decision_type == "random_draw":
+                # 找到候选索引对应的描述
+                cand_desc = ""
+                for i, bid in enumerate(self._branch_candidate_block_ids):
+                    if bid == block_id and i < len(self._branch_btns):
+                        cand_desc = self._branch_btns[i].cget('text')
+                        break
+                self._append_output(f"\n  → 用户选择抽取: {cand_desc}\n")
+            else:
+                self._append_output(f"\n  → 用户选择分支: block {block_id}\n")
             # 禁用分支按钮
             for btn in self._branch_btns:
                 btn.config(state="disabled")
@@ -471,6 +481,7 @@ class StepCritTab(ttk.Frame):
             widget.destroy()
         self._branch_btns = []
         self._branch_candidate_block_ids = []
+        self._current_branch_decision_type = getattr(point, 'decision_type', 'branch')
 
         # 动态生成候选按钮
         for i, cand in enumerate(point.candidates):
@@ -488,6 +499,7 @@ class StepCritTab(ttk.Frame):
             widget.destroy()
         self._branch_btns = []
         self._branch_candidate_block_ids = []
+        self._current_branch_decision_type = "branch"
         self.branch_decision_label.config(text="等待分支决策点...")
 
     def _undo_step(self):
@@ -684,6 +696,10 @@ class StepCritTab(ttk.Frame):
             branch_override_func = self._simulator.create_branch_override_func("interactive")
             controller.skill_service.set_branch_override(branch_override_func)
 
+            # 设置random_draw覆盖（概率技能目标抽取，如ミッドサマー・ラブ）
+            random_draw_override_func = self._simulator.create_random_draw_override_func("interactive")
+            controller.skill_service.set_random_draw_override(random_draw_override_func)
+
             self._interactive_controller = controller
             self._interactive_narrative = narrative
 
@@ -692,6 +708,7 @@ class StepCritTab(ttk.Frame):
             # 清除覆盖
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
+            controller.skill_service.clear_random_draw_override()
 
             return result
 
@@ -1165,11 +1182,16 @@ class StepCritTab(ttk.Frame):
             branch_override_func = self._simulator.create_branch_override_func("sequence")
             controller.skill_service.set_branch_override(branch_override_func)
 
+            # 设置random_draw覆盖（概率技能目标抽取）
+            random_draw_override_func = self._simulator.create_random_draw_override_func("sequence")
+            controller.skill_service.set_random_draw_override(random_draw_override_func)
+
             result = controller.execute_battle()
 
             # 清除覆盖
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
+            controller.skill_service.clear_random_draw_override()
 
             # 输出结果
             self._append_output(self._simulator.generate_report())
@@ -1308,6 +1330,10 @@ class StepCritTab(ttk.Frame):
             branch_override_func = self._simulator.create_branch_override_func("interactive")
             controller.skill_service.set_branch_override(branch_override_func)
 
+            # 设置random_draw覆盖（概率技能目标抽取，如ミッドサマー・ラブ）
+            random_draw_override_func = self._simulator.create_random_draw_override_func("interactive")
+            controller.skill_service.set_random_draw_override(random_draw_override_func)
+
             self._interactive_controller = controller
             self._interactive_narrative = narrative
 
@@ -1316,6 +1342,7 @@ class StepCritTab(ttk.Frame):
             # 清除覆盖
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
+            controller.skill_service.clear_random_draw_override()
 
             return result
 
@@ -1495,13 +1522,21 @@ class StepCritTab(ttk.Frame):
                 if event_type == "branch_decision":
                     # 需要用户选择分支
                     bp = data
-                    info_text = (
-                        f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})\n"
-                        f"  分组: group={bp.group_id}"
-                    )
+                    if getattr(bp, 'decision_type', 'branch') == 'random_draw':
+                        info_text = (
+                            f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})\n"
+                            f"  随机抽取: 第{bp.group_id + 1}次"
+                        )
+                        label = "随机抽取"
+                    else:
+                        info_text = (
+                            f"[#{bp.index:03d}] {bp.caster_name} - {bp.skill_name} (ID:{bp.skill_id})\n"
+                            f"  分组: group={bp.group_id}"
+                        )
+                        label = "分支决策"
                     self.branch_decision_label.config(text=info_text)
                     self._show_branch_candidates(bp)
-                    self._append_output(f"\n[#{bp.index:03d}] 分支决策: {bp.caster_name} - {bp.skill_name} "
+                    self._append_output(f"\n[#{bp.index:03d}] {label}: {bp.caster_name} - {bp.skill_name} "
                                         f"(group={bp.group_id}, {len(bp.candidates)}个候选)\n", scroll=False)
                     # 禁用暴击按钮，强制用户先完成分支选择
                     self.crit_btn.config(state="disabled")
@@ -1510,7 +1545,10 @@ class StepCritTab(ttk.Frame):
                 elif event_type == "branch_prefill_step":
                     # 预填分支选择已执行
                     bp = data
-                    self._append_output(f"  [预填] 分支选择: block {bp.selected_block_id}\n", scroll=False)
+                    if getattr(bp, 'decision_type', 'branch') == 'random_draw':
+                        self._append_output(f"  [预填] 随机抽取: 候选索引 {bp.selected_block_id}\n", scroll=False)
+                    else:
+                        self._append_output(f"  [预填] 分支选择: block {bp.selected_block_id}\n", scroll=False)
 
         # 不自动滚动，让用户自由查看历史日志
 

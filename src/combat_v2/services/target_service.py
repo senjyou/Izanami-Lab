@@ -882,9 +882,15 @@ class TargetService:
         return [u for u in same_side_units if u.position in adj_positions]
 
     def get_nearest_enemy(self, caster: UnitState, enemies: List[UnitState]) -> Optional[UnitState]:
-        """获取距离施法者最近的敌方单位（基于列参考点的欧几里得平方距离）"""
+        """获取距离施法者最近的敌方单位（基于 _NEAREST_PRIORITY_MAP 优先级）"""
         if not enemies:
             return None
+        priority = _NEAREST_PRIORITY_MAP.get(caster.position)
+        if priority:
+            # 按优先级顺序查找第一个存活的敌方
+            pos_rank = {p: i for i, p in enumerate(priority)}
+            return min(enemies, key=lambda e: pos_rank.get(e.position, len(priority)))
+        # 回退: 欧几里得距离
         cr, cc = _POS_RC[caster.position]
         def _dist(e):
             er, ec = _POS_RC[e.position]
@@ -892,9 +898,14 @@ class TargetService:
         return min(enemies, key=_dist)
 
     def get_nearest_ally(self, caster: UnitState, allies: List[UnitState]) -> Optional[UnitState]:
-        """获取距离施法者最近的友方单位（基于列参考点的欧几里得平方距离）"""
+        """获取距离施法者最近的友方单位（基于 _NEAREST_PRIORITY_MAP 优先级）"""
         if not allies:
             return None
+        priority = _NEAREST_PRIORITY_MAP.get(caster.position)
+        if priority:
+            pos_rank = {p: i for i, p in enumerate(priority)}
+            return min(allies, key=lambda a: pos_rank.get(a.position, len(priority)))
+        # 回退: 欧几里得距离
         cr, cc = _POS_RC[caster.position]
         def _dist(a):
             ar, ac = _POS_RC[a.position]

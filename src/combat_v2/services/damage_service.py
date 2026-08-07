@@ -467,8 +467,9 @@ class DamageService:
             final_hit_damage = max(1, final_hit_damage)
 
             # 130160 サマータイム・ロマンス: HP阈值减伤 (dmg_taken_down_threshold)
-            # 仅超过 threshold (current_hp × threshold_pct%) 的伤害部分按 value% 减免
-            # 公式: actual = min(dmg, threshold) + max(0, dmg - threshold) × (1 - value/100)
+            # 描述「自身の現在HPのX%を超えるダメージのみ{dmg}%減少させる」:
+            # 若单次伤害 > threshold (current_hp × threshold_pct%) 则整个伤害按 value% 减免,
+            # 否则不减伤。公式: actual = dmg × (1 - value/100) if dmg > threshold else dmg
             # hit_limited 控制可生效的hit次数 (1/2/3)，每次被击中消耗1次
             for _dtd_buff in defender.buffs:
                 if _dtd_buff.effect_type != "dmg_taken_down_threshold":
@@ -484,11 +485,9 @@ class DamageService:
                 _reduction_val = DamageService._normalize_buff_value(_dtd_buff)
                 if final_hit_damage > _threshold and _threshold > 0:
                     _orig_dtd = final_hit_damage
-                    _excess = final_hit_damage - _threshold
-                    _reduced_excess = int(_excess * (1.0 - _reduction_val))
-                    final_hit_damage = max(1, int(_threshold) + _reduced_excess)
-                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, excess=%d, reduction=%.1f%%)",
-                              defender.name, _orig_dtd, final_hit_damage, _threshold, _excess, _reduction_val * 100)
+                    final_hit_damage = max(1, int(final_hit_damage * (1.0 - _reduction_val)))
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
+                              defender.name, _orig_dtd, final_hit_damage, _threshold, _reduction_val * 100)
                 else:
                     _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d <= threshold %.0f, no reduction",
                               defender.name, final_hit_damage, _threshold)

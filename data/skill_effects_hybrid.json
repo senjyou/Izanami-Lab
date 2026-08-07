@@ -81447,6 +81447,7 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "after_as_attacked",
+    "allow_ex_trigger": true,
     "global_condition": {
       "type": "and",
       "conditions": [
@@ -84036,11 +84037,12 @@
     "name": "ヒートアップ・ラブ+",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": 1,
+    "cooldown": 2,
     "cooldown_update_timing": 2,
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": "after_as_attacked",
+    "allow_ex_trigger": true,
     "global_condition": {
       "type": "and",
       "conditions": [

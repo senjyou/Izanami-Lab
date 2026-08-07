@@ -151,6 +151,7 @@ class SkillService:
         self._tactical_exercise_mode: bool = False  # 战术演习模式：敌人会复活，target_survived使用is_alive判断
         self._skill_name_cache: Dict[int, str] = {}  # skill_id -> name cache
         self._branch_override_func: Optional[Callable[[Dict], int]] = None  # 分支选择覆盖函数
+        self._random_draw_override_func: Optional[Callable[[Dict], int]] = None  # random_draw覆盖函数（逐步暴击分支决策）
         self._pending_crit_triggers: list = []  # 待处理的暴击触发器（_execute_trigger_actions_inline 直接调用时使用）
         self._ps_received_targets: list = []  # PS技能の非damage効果対象unitリスト(after_ps_receivedトリガー用)
         self._current_skill_is_ps: bool = False  # 現在実行中の技能がPSかどうか
@@ -195,6 +196,14 @@ class SkillService:
     def clear_branch_override(self):
         """清除分支选择覆盖函数，恢复随机选择"""
         self._branch_override_func = None
+
+    def set_random_draw_override(self, func: Optional[Callable[[Dict], int]]):
+        """设置random_draw覆盖函数。func接收context dict，返回选中的候选索引"""
+        self._random_draw_override_func = func
+
+    def clear_random_draw_override(self):
+        """清除random_draw覆盖函数，恢复随机选择"""
+        self._random_draw_override_func = None
 
     def _generate_branch_description(self, block) -> str:
         """从 block.effects 生成分支效果描述（简洁版）"""
@@ -1147,6 +1156,10 @@ class SkillService:
             ):
                 self._apply_damage_fire_before_attack_triggers(caster, [], battlefield)
 
+        # 快照技能执行前的EP，用于block条件评估（如self_ep_above_or_equal/self_ep_below）
+        # 避免前序block的remove_ep改变实时EP后，后续互斥block条件又满足导致重复触发
+        _block_cond_ep_snapshot = caster.current_ep
+
         for block_idx, block in enumerate(resolved.effect_blocks):
             block_condition = getattr(block, 'condition', None)
             self._target_element_filter = None
@@ -1217,6 +1230,20 @@ class SkillService:
                         elif st == 'target_killed':
                             # target_killed as sub-condition in 'and': skip if no kills occurred
                             if not kills_occurred:
+                                skip_block = True
+                                break
+                        elif st == 'self_ep_above_or_equal':
+                            # 230426 ヒートアップ・ラブ+: EP阈值分支条件
+                            # 使用技能执行前的EP快照, 确保互斥block基于初始EP判断
+                            _ep_val = sub_cond.get('value', 0)
+                            if not (_block_cond_ep_snapshot >= _ep_val):
+                                skip_block = True
+                                break
+                        elif st == 'self_ep_below':
+                            # 230426 ヒートアップ・ラブ+: EP阈值分支条件
+                            # 使用技能执行前的EP快照, 确保互斥block基于初始EP判断
+                            _ep_val = sub_cond.get('value', 0)
+                            if not (_block_cond_ep_snapshot < _ep_val):
                                 skip_block = True
                                 break
                     if skip_block:
@@ -1404,8 +1431,8 @@ class SkillService:
 
                 elif cond_type == 'drawn_target_is_enemy':
                     # 110072 ミッドサマー・ラブ: 仅对随机抽取的敌方目标执行该 block
-                    # 过滤 _current_drawn_targets 为敌方目标
-                    drawn = getattr(self, '_current_drawn_targets', None)
+                    # 从原始抽取列表筛选敌方目标 (不使用被前序Block过滤后的_current_drawn_targets)
+                    drawn = getattr(self, '_original_drawn_targets', None) or getattr(self, '_current_drawn_targets', None)
                     if not drawn:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (drawn_target_is_enemy: no drawn targets)",
                                   caster.name, block.block_id)
@@ -1415,14 +1442,27 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (drawn_target_is_enemy: no enemy in drawn)",
                                   caster.name, block.block_id)
                         continue
-                    # 更新 _current_drawn_targets 为匹配项，供 drawn_target aura effect 使用
-                    self._current_drawn_targets = matched
-                    _log.info("[SKILL_EXEC] %s: block %d drawn_target_is_enemy matched=%s",
-                              caster.name, block.block_id, [u.name for u, _ in matched])
+                    # 对每个 matched 独立执行 block effects (每次抽取独立结算)
+                    # 210116 ミッドサマー・ラブ: 每次抽取独立执行, 如3次抽到敌方则 def_down 独立施加3次
+                    for matched_unit, matched_type in matched:
+                        self._current_drawn_targets = [(matched_unit, matched_type)]
+                        _log.info("[SKILL_EXEC] %s: block %d drawn_target_is_enemy iterating target=%s",
+                                  caster.name, block.block_id, matched_unit.name)
+                        for effect in block.effects:
+                            if getattr(effect, 'condition', None) and isinstance(effect.condition, dict):
+                                if effect.condition.get('type') == 'target_killed':
+                                    continue
+                            applied = self._apply_effect(caster, effect, battlefield)
+                            if applied:
+                                result["effects_applied"].append(applied)
+                                if "damage" in applied:
+                                    result["total_damage"] += applied["damage"]
+                    continue
 
                 elif cond_type == 'drawn_target_is_ally':
                     # 110072 ミッドサマー・ラブ: 仅对随机抽取的友方目标执行该 block
-                    drawn = getattr(self, '_current_drawn_targets', None)
+                    # 从原始抽取列表筛选友方目标 (不使用被前序Block过滤后的_current_drawn_targets)
+                    drawn = getattr(self, '_original_drawn_targets', None) or getattr(self, '_current_drawn_targets', None)
                     if not drawn:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (drawn_target_is_ally: no drawn targets)",
                                   caster.name, block.block_id)
@@ -1432,9 +1472,22 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (drawn_target_is_ally: no ally in drawn)",
                                   caster.name, block.block_id)
                         continue
-                    self._current_drawn_targets = matched
-                    _log.info("[SKILL_EXEC] %s: block %d drawn_target_is_ally matched=%s",
-                              caster.name, block.block_id, [u.name for u, _ in matched])
+                    # 对每个 matched 独立执行 block effects (每次抽取独立结算)
+                    # 210116 ミッドサマー・ラブ: 每次抽取独立执行, 如3次抽到友方则 add_ep 恢复 (1+1)*3=6 EP
+                    for matched_unit, matched_type in matched:
+                        self._current_drawn_targets = [(matched_unit, matched_type)]
+                        _log.info("[SKILL_EXEC] %s: block %d drawn_target_is_ally iterating target=%s",
+                                  caster.name, block.block_id, matched_unit.name)
+                        for effect in block.effects:
+                            if getattr(effect, 'condition', None) and isinstance(effect.condition, dict):
+                                if effect.condition.get('type') == 'target_killed':
+                                    continue
+                            applied = self._apply_effect(caster, effect, battlefield)
+                            if applied:
+                                result["effects_applied"].append(applied)
+                                if "damage" in applied:
+                                    result["total_damage"] += applied["damage"]
+                    continue
 
                 elif cond_type == 'has_mark_at_start':
                     # 检查技能执行前是否有指定mark
@@ -1529,20 +1582,20 @@ class SkillService:
 
                 elif cond_type == 'self_ep_above_or_equal':
                     # 130158 ヒートアップ・ラブ: 检查自身EP是否>=value
+                    # 使用技能执行前的EP快照, 确保互斥block基于初始EP判断
                     _ep_val = block_condition.get('value', 0)
-                    _self_ep = getattr(caster, 'current_ep', 0)
-                    if not (_self_ep >= _ep_val):
+                    if not (_block_cond_ep_snapshot >= _ep_val):
                         _log.info("[SKILL_EXEC] %s: skipping block %d (self_ep_above_or_equal: ep=%.1f < %s)",
-                                  caster.name, block.block_id, _self_ep, _ep_val)
+                                  caster.name, block.block_id, _block_cond_ep_snapshot, _ep_val)
                         continue
 
                 elif cond_type == 'self_ep_below':
                     # 130158 ヒートアップ・ラブ: 检查自身EP是否<value
+                    # 使用技能执行前的EP快照, 确保互斥block基于初始EP判断
                     _ep_val = block_condition.get('value', 0)
-                    _self_ep = getattr(caster, 'current_ep', 0)
-                    if not (_self_ep < _ep_val):
+                    if not (_block_cond_ep_snapshot < _ep_val):
                         _log.info("[SKILL_EXEC] %s: skipping block %d (self_ep_below: ep=%.1f >= %s)",
-                                  caster.name, block.block_id, _self_ep, _ep_val)
+                                  caster.name, block.block_id, _block_cond_ep_snapshot, _ep_val)
                         continue
 
 
@@ -4521,6 +4574,11 @@ class SkillService:
                     continue
                 if b.attack_limited > 0:
                     continue
+                # dmg_taken_down_threshold 是防御性buff (被攻击时减伤),
+                # 由 damage_service 在防御者被击中时消耗, 不应在 caster 攻击时消耗.
+                # 否则会导致 caster 自身的减伤buff在攻击时被错误消耗 (如 230428 サマータイム・ロマンス+)
+                if b.effect_type == "dmg_taken_down_threshold":
+                    continue
                 b.hit_limited -= 1
                 _log.info("[HIT_LIMITED] %s: caster buff %s hit_limited %d->%d",
                           caster.name, b.effect_type, b.hit_limited + 1, b.hit_limited)
@@ -6112,7 +6170,17 @@ class SkillService:
 
         # target_identifier resolution for heal effects
         target_identifier = getattr(effect, 'target_identifier', None)
-        if target_identifier == "trigger_attacker":
+        # 130159/230427 アクア・セービング(+): target_type="triggered_by" (配置在target_type而非target_identifier)
+        # 与 _apply_aura 中 target_identifier=="triggered_by" 对称，使用 _primary_target
+        if effect.target_type == "triggered_by":
+            primary = getattr(self, '_primary_target', None)
+            if primary and primary.is_alive:
+                targets = [primary]
+                _log.info("[HEAL] %s: triggered_by -> %s", caster.name, primary.name)
+            else:
+                _log.info("[HEAL] %s: triggered_by target not available, skip heal", caster.name)
+                return None
+        elif target_identifier == "trigger_attacker":
             # after_ally_attacked 等 PS: trigger_attacker 可能是敌方攻击者，
             # 若雷 230383 需治疗受击友方 → 回退到 _primary_target / _damaged_targets
             ta = getattr(self, '_trigger_attacker', None)
@@ -9833,6 +9901,28 @@ class SkillService:
                     _log.info("[RESOURCE_EFFECT] %s -> %s: add_ep +%d (EP=%d/%d)",
                               caster.name, target.name, actual_gain, target.current_ep, target.max_extra_point)
             else:
+                # condition 检查 (如 120160 サマー・スプラッシュ: target_ep_above_or_equal 检查敌方目标EP>=1)
+                # target_type=self 但 condition 检查的是被攻击的敌方目标, 从 _block_damage_targets 获取
+                effect_condition = getattr(effect, 'condition', None)
+                if effect_condition and isinstance(effect_condition, dict):
+                    cond_type = effect_condition.get('type')
+                    if cond_type == 'target_ep_above_or_equal':
+                        # 从 _block_damage_targets 获取敌方目标检查EP
+                        cached_targets = getattr(self, '_block_damage_targets', None)
+                        cond_target = None
+                        if cached_targets and isinstance(cached_targets, dict):
+                            for _tk, _tv in cached_targets.items():
+                                if _tv and isinstance(_tv, list):
+                                    cond_target = _tv[0]
+                                    break
+                        if cond_target is None:
+                            _log.info("[RESOURCE_EFFECT] %s: add_ep self skipped (condition %s: no damage target found)",
+                                      caster.name, cond_type)
+                            return {"effect_type": "add_ep", "targets": [], "skipped": True}
+                        if not self._check_target_condition(cond_target, effect_condition):
+                            _log.info("[RESOURCE_EFFECT] %s: add_ep self skipped (condition %s not met for %s, ep=%d)",
+                                      caster.name, cond_type, cond_target.name, cond_target.current_ep)
+                            return {"effect_type": "add_ep", "targets": [], "skipped": True}
                 old_ep = caster.current_ep
                 self.resource_service.generate_ep(caster, value)
                 actual_gain = caster.current_ep - old_ep
@@ -10022,6 +10112,13 @@ class SkillService:
                             actual_t = replaced[0] if replaced else _t
                             if actual_t is None or not actual_t.is_alive:
                                 continue
+                            # condition 检查 (如 target_ep_above_or_equal: 目标EP>=1才削减)
+                            effect_condition = getattr(effect, 'condition', None)
+                            if effect_condition and isinstance(effect_condition, dict):
+                                if not self._check_target_condition(actual_t, effect_condition):
+                                    _log.info("[RESOURCE_EFFECT] %s: remove_ep skipped (condition %s not met for %s, ep=%d)",
+                                              caster.name, effect_condition.get('type'), actual_t.name, actual_t.current_ep)
+                                    continue
                             amount = value if value else 1
                             self.resource_service.consume_ep(actual_t, amount)
                             _log.info("[RESOURCE_EFFECT] %s: remove_ep from %s: value=%d ep_after=%d/%d",
@@ -10073,6 +10170,13 @@ class SkillService:
                 replaced = self._apply_cover_debuff_replacement(caster, [target], battlefield)
                 target = replaced[0] if replaced else None
             if target is not None and target.is_alive:
+                # condition 检查 (如 target_ep_above_or_equal: 目标EP>=1才削减)
+                effect_condition = getattr(effect, 'condition', None)
+                if effect_condition and isinstance(effect_condition, dict):
+                    if not self._check_target_condition(target, effect_condition):
+                        _log.info("[RESOURCE_EFFECT] %s: remove_ep skipped (condition %s not met for %s, ep=%d)",
+                                  caster.name, effect_condition.get('type'), target.name, target.current_ep)
+                        return {"effect_type": "remove_ep", "targets": [], "skipped": True}
                 amount = value if value else 1
                 self.resource_service.consume_ep(target, amount)
                 _log.info("[RESOURCE_EFFECT] %s: remove_ep from %s: value=%d ep_after=%d/%d",
@@ -10110,9 +10214,15 @@ class SkillService:
             if ct == 'ally_single_exclude_self':
                 from src.entities_v2.enums import Side as _Side
                 team = battlefield.friend_team if caster.side == _Side.ALLY else battlefield.enemy_team
-                for u in team:
-                    if u.is_alive and u.unit_id != caster.unit_id:
+                # 优先自身以外的友方；若没有其他友方，则允许自身
+                others = [u for u in team if u.is_alive and u.unit_id != caster.unit_id]
+                if others:
+                    for u in others:
                         candidates.append((u, 'ally'))
+                else:
+                    self_unit = next((u for u in team if u.is_alive and u.unit_id == caster.unit_id), None)
+                    if self_unit:
+                        candidates.append((self_unit, 'ally'))
             elif ct == 'enemy_single_nearest':
                 from src.entities_v2.enums import Side as _Side
                 opposing = battlefield.enemy_team if caster.side == _Side.ALLY else battlefield.friend_team
@@ -10130,14 +10240,52 @@ class SkillService:
         # 执行 N 次独立抽取
         drawn_list = []  # list of (unit, type)
         for i in range(draw_count):
-            # 每次从所有候选中随机选一个
-            pick = random.choice(candidates)
+            # 如果有random_draw覆盖函数（逐步暴击分支决策），调用它让用户选择
+            if self._random_draw_override_func is not None:
+                candidates_ctx = []
+                for idx, (u, t) in enumerate(candidates):
+                    type_label = "友方" if t == 'ally' else "敌方"
+                    candidates_ctx.append({
+                        'index': idx,
+                        'target_name': u.name,
+                        'target_id': u.unit_id,
+                        'type': t,
+                        'description': f"{type_label} {u.name}",
+                    })
+                ctx = {
+                    'caster_name': caster.name,
+                    'caster_id': caster.unit_id,
+                    'skill_name': self._get_skill_name(getattr(self, '_current_skill_id', 0)),
+                    'skill_id': getattr(self, '_current_skill_id', 0),
+                    'draw_index': i,
+                    'draw_count': draw_count,
+                    'candidates': candidates_ctx,
+                    'decision_type': 'random_draw',
+                }
+                try:
+                    selected_idx = self._random_draw_override_func(ctx)
+                    if not isinstance(selected_idx, int) or selected_idx < 0 or selected_idx >= len(candidates):
+                        _log.warning("[RANDOM_DRAW_OVERRIDE] %s: invalid index %s, fallback to random",
+                                     caster.name, selected_idx)
+                        pick = random.choice(candidates)
+                    else:
+                        pick = candidates[selected_idx]
+                except Exception as e:
+                    _log.warning("[RANDOM_DRAW_OVERRIDE] %s: override error %s, fallback to random",
+                                 caster.name, e)
+                    pick = random.choice(candidates)
+            else:
+                # 每次从所有候选中随机选一个
+                pick = random.choice(candidates)
             drawn_list.append(pick)
             _log.info("[RANDOM_DRAW] %s: draw %d/%d -> %s (%s)",
                       caster.name, i+1, draw_count, pick[0].name, pick[1])
 
         # 存储抽取结果供后续 block 使用
         self._current_drawn_targets = drawn_list  # list of (unit, type_str)
+        # 保存原始抽取列表，供 drawn_target_is_enemy / drawn_target_is_ally 条件筛选
+        # (Block条件检查从原始列表筛选，而非被前序Block过滤后的_current_drawn_targets)
+        self._original_drawn_targets = drawn_list
 
         return {
             "effect_type": "random_draw",
@@ -10345,6 +10493,10 @@ class SkillService:
         if t in ("self",): return DisplayTargetType.SELF.value
         # drawn_target: 来自 random_draw 结果的目标，占位为 SELF，实际目标在 _apply_aura 内部解析
         if t in ("drawn_target",):
+            return DisplayTargetType.SELF.value
+        # triggered_by: トリガー発火元(被攻撃者等)，占位为 SELF，实际目标在各 _apply_* 中解析
+        # （与 _apply_aura/_apply_heal/_apply_remove_mark 中的 target_type=="triggered_by" 分支配合）
+        if t in ("triggered_by",):
             return DisplayTargetType.SELF.value
         if t in ("enemies", "enemy", "enemy_single", "enemy_all",
                  "enemy_column", "enemy_row", "enemy_front", "enemy_random",
@@ -11766,6 +11918,15 @@ class SkillService:
         cached_targets = getattr(self, '_block_damage_targets', None)
         if cached_targets is not None and isinstance(cached_targets, dict) and effect.target_type in cached_targets:
             targets = list(cached_targets[effect.target_type])
+        elif effect.target_type == "triggered_by":
+            # 130159/230427 アクア・セービング(+): target_type="triggered_by" 使用 _primary_target
+            primary = getattr(self, '_primary_target', None)
+            if primary and primary.is_alive:
+                targets = [primary]
+                _log.info("[REMOVE_MARK] %s: triggered_by -> %s", caster.name, primary.name)
+            else:
+                _log.info("[REMOVE_MARK] %s: triggered_by target not available, skip", caster.name)
+                return None
         elif getattr(effect, 'target_identifier', None) == "primary_target" and getattr(self, '_primary_target', None):
             # on_hp_below等触发器：primary_target为触发HP阈值的敌方单位
             primary = self._primary_target

@@ -141,6 +141,13 @@ class AuraService:
                     old_aura.duration = aura.duration
                     _log.info("[AURA] %s: non-stackable %s duration refreshed %.1f (value kept, same buff_id)",
                               unit.name, aura.effect_type, aura.value)
+                elif getattr(aura, 'hit_limited', 0) > getattr(old_aura, 'hit_limited', 0):
+                    # 230428 サマータイム・ロマンス+: 同源同effect_type的dmg_taken_down_threshold
+                    # hit_count=1(Lv1-4) → hit_count=3(Lv5+) 升级覆盖
+                    target_list[existing_index] = aura
+                    _log.info("[AURA] %s: non-stackable %s hit_limited updated %d -> %d (same buff_id)",
+                              unit.name, aura.effect_type,
+                              getattr(old_aura, 'hit_limited', 0), getattr(aura, 'hit_limited', 0))
         else:
             # 不同源（不同技能）但同effect_type的不可叠加buff
             control_types = [SkillEffectType.KNOCKOUT.value, SkillEffectType.FREEZE.value,
