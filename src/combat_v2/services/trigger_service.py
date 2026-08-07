@@ -236,11 +236,15 @@ class TriggerService:
                                     battlefield: BattlefieldState,
                                     actor: Optional[UnitState] = None,
                                     primary_target: Optional[UnitState] = None) -> List[TriggerAction]:
+        # triggered_by=primary_target: 被AS攻击的主目标（受伤单位）
+        # 供 damage_taken_in_action_percent 条件读取 _damage_taken_in_action
+        # (130158 ヒートアップ・ラブ / 230426 ヒートアップ・ラブ+)
         ctx = TriggerContext(
             TriggerTiming.AFTER_AS_ATTACKED, battlefield,
             targets=targets,
             actor=actor,
             primary_target=primary_target,
+            triggered_by=primary_target,
         )
         return self.check_triggers(TriggerTiming.AFTER_AS_ATTACKED, ctx)
 
