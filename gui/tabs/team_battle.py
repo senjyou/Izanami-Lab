@@ -39,6 +39,7 @@ from gui.widgets.rdps import (
     _build_rdps_tables,
     _export_rdps_tracking_log,
 )
+from gui.utils import _format_special_notes_single, _format_special_notes_multi
 
 from gui.tabs.base import BattleTabMixin
 
@@ -656,6 +657,7 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
             "all_enemy_healed": result.all_enemy_healed,
             "all_enemy_healing_received": result.all_enemy_healing_received,
             "rdps_avg": result.rdps_avg,
+            "special_notes_list": result.special_notes_list,
         }
 
     @staticmethod
@@ -740,6 +742,12 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         rdps_avg = w.get("rdps_avg")
         if rdps_avg:
             out.append(_build_rdps_summary(rdps_avg))
+
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_multi(w.get("special_notes_list", []), total)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
 
         self._result_panel.set_summary("\n".join(out))
 
@@ -923,6 +931,12 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         if rdps_data:
             out.append(_build_rdps_summary(rdps_data))
             tables.extend(_build_rdps_tables(rdps_data))
+
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_single(result.get("special_notes"))
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
 
         self._result_panel.set_summary("\n".join(out))
         if tables:

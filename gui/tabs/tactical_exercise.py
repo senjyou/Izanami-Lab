@@ -35,7 +35,7 @@ from gui.constants import (
     GRID_ALLY_POSITIONS,
     TACTICAL_PRESET_DIR,
 )
-from gui.utils import _cjk_fit
+from gui.utils import _cjk_fit, _format_special_notes_single, _format_special_notes_multi
 from gui.widgets.result_table import ResultTablePanel
 from gui.widgets.rdps import (
     _build_rdps_summary,
@@ -514,6 +514,7 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
                 score_stats["elapsed"] = result.get("elapsed", 0)
                 score_stats["all_unit_stats"] = result.get("all_unit_stats", [])
                 score_stats["rdps_avg"] = result.get("rdps_avg")
+                score_stats["special_notes_list"] = result.get("special_notes_list", [])
 
             self.app.root.after(0, lambda: self._display_results(
                 sim_count, total_stages, total_turns, max_stages, losses, timeouts, score_stats))
@@ -622,6 +623,26 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
             out.append(_build_rdps_summary(rdps_avg))
             tables.extend(_build_rdps_tables(rdps_avg))
 
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        if score_stats:
+            all_scores = score_stats.get("all_scores", [])
+            n = len(all_scores) if all_scores else 0
+            if n == 1:
+                # 单场：从 score_records 提取 special_notes
+                rec = score_stats.get("score_records", [])
+                if rec:
+                    _, _, _, single_result = rec[0]
+                    notes_lines = _format_special_notes_single(single_result.get("special_notes"))
+                else:
+                    notes_lines = []
+            else:
+                # 多场：使用 special_notes_list
+                notes_lines = _format_special_notes_multi(
+                    score_stats.get("special_notes_list", []), n)
+            if notes_lines:
+                out.append("")
+                out.extend(notes_lines)
+
         self._result_panel.set_summary("\n".join(out))
         if tables:
             self._result_panel.set_tables(tables)
@@ -698,15 +719,16 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
             score_data = result.get("score")
             rdps_data = result.get("rdps")
             tracking_log = result.get("rdps_tracking_log") or []
+            special_notes = result.get("special_notes")
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, stages, turns, str(log_path), score_data, rdps_data, tracking_log))
+                winner_text, stages, turns, str(log_path), score_data, rdps_data, tracking_log, special_notes))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None, rdps_data=None, tracking_log=None):
+    def _display_single_result(self, winner_text, stages, turns, log_path, score_data=None, rdps_data=None, tracking_log=None, special_notes=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         if tracking_log is not None:
@@ -729,6 +751,12 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
         if rdps_data:
             out.append(_build_rdps_summary(rdps_data))
             tables.extend(_build_rdps_tables(rdps_data))
+
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_single(special_notes)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
 
         self._result_panel.set_summary("\n".join(out))
         if tables:

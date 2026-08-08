@@ -39,6 +39,7 @@ from gui.widgets.rdps import (
     _export_rdps_tracking_log,
 )
 from gui.dialogs.enemy_detail import EnemyDetailDialog
+from gui.utils import _format_special_notes_single, _format_special_notes_multi
 
 from gui.tabs.base import BattleTabMixin
 
@@ -776,6 +777,12 @@ class CircleBattleTab(BattleTabMixin, ttk.Frame):
         if rdps_avg:
             out.append(_build_rdps_summary(rdps_avg))
 
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_multi(result.get("special_notes_list", []), sim_count)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
+
         self._result_panel.set_summary("\n".join(out))
 
         # 单位统计（取所有场次的平均值）→ 表格化
@@ -959,15 +966,16 @@ class CircleBattleTab(BattleTabMixin, ttk.Frame):
             score_data = result.get("score")
             rdps_data = result.get("rdps")
             tracking_log = result.get("rdps_tracking_log") or []
+            special_notes = result.get("special_notes")
 
             self.app.root.after(0, lambda: self._display_single_result(
-                winner_text, turns, str(log_path), score_data, sel, stage_data, rdps_data, tracking_log))
+                winner_text, turns, str(log_path), score_data, sel, stage_data, rdps_data, tracking_log, special_notes))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data, rdps_data=None, tracking_log=None):
+    def _display_single_result(self, winner_text, turns, log_path, score_data, sel, stage_data, rdps_data=None, tracking_log=None, special_notes=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         if tracking_log is not None:
@@ -1043,6 +1051,12 @@ class CircleBattleTab(BattleTabMixin, ttk.Frame):
         if rdps_data:
             out.append(_build_rdps_summary(rdps_data))
             tables.extend(_build_rdps_tables(rdps_data))
+
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_single(special_notes)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
 
         self._result_panel.set_summary("\n".join(out))
         if tables:

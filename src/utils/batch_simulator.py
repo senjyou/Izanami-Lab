@@ -174,6 +174,7 @@ def _worker_run_batch(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_total_hp_healed': score_data.get("enemy_total_hp_healed", 0) if score_data else 0,
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
             'rdps': result.get("rdps"),
+            'special_notes': result.get("special_notes"),
         })
 
     return results
@@ -391,6 +392,7 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
             'unit_stats': score_data.get("unit_stats", {}) if score_data else {},
             'rdps': result.get("rdps"),
+            'special_notes': result.get("special_notes"),
         })
 
     return results
@@ -660,6 +662,7 @@ def _worker_run_batch_circle(seeds: List[int]) -> List[Dict[str, Any]]:
             'alive_enemy_count': alive_enemy_count,
             'enemy_damage_received': enemy_damage_received,
             'rdps': result.get("rdps"),
+            'special_notes': result.get("special_notes"),
         })
 
     return results
@@ -692,6 +695,7 @@ class BatchResult:
     all_enemy_healed: list = field(default_factory=list)
     all_enemy_healing_received: list = field(default_factory=list)
     rdps_avg: dict = field(default_factory=dict)  # 场均 RDPS 统计
+    special_notes_list: list = field(default_factory=list)
 
     @property
     def win_rate(self) -> float:
@@ -960,6 +964,7 @@ class BatchSimulator:
         t0 = time.time()
         all_rdps = []
         all_rdps = []
+        all_special_notes = []
 
         try:
             # imap_unordered: 流式处理，哪个worker先完成就返回哪个结果
@@ -995,6 +1000,7 @@ class BatchSimulator:
                     all_enemy_healed.append(stats.get('enemy_total_hp_healed', 0))
                     all_enemy_healing_received.append(stats.get('enemy_healing_received', 0))
                     all_rdps.append(stats)
+                    all_special_notes.append(stats.get('special_notes'))
 
                 # 进度回调
                 if progress_callback:
@@ -1027,6 +1033,7 @@ class BatchSimulator:
             all_enemy_received=all_enemy_received,
             all_enemy_healed=all_enemy_healed,
             all_enemy_healing_received=all_enemy_healing_received,
+            special_notes_list=all_special_notes,
             rdps_avg=self._aggregate_rdps(all_rdps),
         )
 
@@ -1070,6 +1077,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1140,6 +1148,7 @@ class BatchSimulator:
                 all_enemy_healed.append(score_data.get("enemy_total_hp_healed", 0))
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                 all_rdps.append({'rdps': result.get("rdps")})
+                all_special_notes.append(result.get("special_notes"))
 
             if progress_callback:
                 progress_callback(completed, total_runs)
@@ -1167,6 +1176,7 @@ class BatchSimulator:
             all_enemy_received=all_enemy_received,
             all_enemy_healed=all_enemy_healed,
             all_enemy_healing_received=all_enemy_healing_received,
+            special_notes_list=all_special_notes,
             rdps_avg=self._aggregate_rdps(all_rdps),
         )
 
@@ -1272,6 +1282,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1302,6 +1313,7 @@ class BatchSimulator:
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
                     all_rdps.append(stats)
+                    all_special_notes.append(stats.get('special_notes'))
 
                     score_records.append((stats['score'], completed - 1, stats['seed'], stats))
 
@@ -1333,6 +1345,7 @@ class BatchSimulator:
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
             "rdps_avg": self._aggregate_rdps(all_rdps),
+            "special_notes_list": all_special_notes,
         }
 
     def _run_single_process_tactical(
@@ -1375,6 +1388,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1428,6 +1442,7 @@ class BatchSimulator:
                     all_unit_stats.append(score_data.get("unit_stats", {}))
                     score_records.append((score_data.get("total_score", 0), completed - 1, seed, result))
                 all_rdps.append({'rdps': result.get("rdps")})
+                all_special_notes.append(result.get("special_notes"))
 
             if progress_callback:
                 progress_callback(completed, total_runs)
@@ -1453,6 +1468,7 @@ class BatchSimulator:
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
             "rdps_avg": self._aggregate_rdps(all_rdps),
+            "special_notes_list": all_special_notes,
         }
 
     # ============ 对抗压制战批量模拟 ============
@@ -1563,6 +1579,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1592,6 +1609,7 @@ class BatchSimulator:
                     all_enemy_healing_received.append(stats['enemy_healing_received'])
                     all_unit_stats.append(stats.get('unit_stats', {}))
                     all_rdps.append(stats)
+                    all_special_notes.append(stats.get('special_notes'))
 
                     score_records.append((ally_dmg, run_idx, stats['seed'], stats))
 
@@ -1623,6 +1641,7 @@ class BatchSimulator:
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
             "rdps_avg": self._aggregate_rdps(all_rdps),
+            "special_notes_list": all_special_notes,
         }
 
     def _run_single_process_circle(
@@ -1663,6 +1682,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1724,6 +1744,7 @@ class BatchSimulator:
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                 all_unit_stats.append(unit_stats)
                 all_rdps.append({'rdps': result.get("rdps")})
+                all_special_notes.append(result.get("special_notes"))
 
                 stats = {
                     'seed': seed,
@@ -1765,6 +1786,7 @@ class BatchSimulator:
             "elapsed": elapsed,
             "rate": total_runs / elapsed if elapsed > 0 else 0,
             "rdps_avg": self._aggregate_rdps(all_rdps),
+            "special_notes_list": all_special_notes,
         }
 
     # ============ 联合战术演习 ============
@@ -1859,6 +1881,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         try:
             for batch_results in pool.imap_unordered(
@@ -1873,6 +1896,7 @@ class BatchSimulator:
                     all_unit_stats.append(stats.get('unit_stats', {}))
                     total_turns_sum += stats['total_turns']
                     all_rdps.append(stats)
+                    all_special_notes.append(stats.get('special_notes'))
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
@@ -1888,6 +1912,7 @@ class BatchSimulator:
             total_runs, elapsed,
         )
         result["rdps_avg"] = self._aggregate_rdps(all_rdps)
+        result["special_notes_list"] = all_special_notes
         return result
 
     def _run_single_process_composite(
@@ -1920,6 +1945,7 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
+        all_special_notes = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -2039,6 +2065,7 @@ class BatchSimulator:
                     }
                 all_unit_stats.append(unit_stats)
                 all_rdps.append({'rdps': result.get("rdps")})
+                all_special_notes.append(result.get("special_notes"))
 
                 if progress_callback:
                     progress_callback(completed, total_runs)
@@ -2051,6 +2078,7 @@ class BatchSimulator:
             total_runs, elapsed,
         )
         result["rdps_avg"] = self._aggregate_rdps(all_rdps)
+        result["special_notes_list"] = all_special_notes
         return result
 
     @staticmethod
@@ -2404,6 +2432,7 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
             'team_damages': team_damages,
             'unit_stats': unit_stats,
             'rdps': result.get("rdps"),
+            'special_notes': result.get("special_notes"),
         })
 
     return results

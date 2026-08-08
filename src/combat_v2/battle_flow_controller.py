@@ -32,6 +32,10 @@ from .battle_narrative import BattleNarrativeWriter
 
 _log = battle_logger()
 
+# 心色見つめるムードメーカー 的 EX技能 ID
+_MOODMAKER_EX_SKILL_ID = 110069
+_MOODMAKER_CHAR_BASE_ID = 145  # character_id // 1000 == 145
+
 
 class BattleConfig:
     def __init__(self, max_turns: int = 15, enable_rdps: bool = True,
@@ -99,6 +103,9 @@ class BattleFlowController:
         self._unit_display_names: Dict[str, UnitState] = {}
         self._unit_id_map: Dict[str, UnitState] = {}
         self._deferred_crit_triggers: list = []
+
+        # 追踪 心色見つめるムードメーカー EX技能110069「あったかいの、どうぞ♪」的目标选择
+        self._ex_target_notes: list = []
 
         # 为 RDPS 追踪器注入 damage_service 和 battlefield 引用
         if self._rdps_tracker is not None:
@@ -210,6 +217,9 @@ class BattleFlowController:
             "score": score_result.to_dict(),
         }
 
+        # 构建特殊备注信息（心色見つめるムードメーカー EX技能追踪）
+        result_dict["special_notes"] = self._build_special_notes()
+
         # 构建 RDPS 结果（若启用）
         if self._rdps_tracker is not None:
             rdps_result = self._rdps_tracker.build_result(
@@ -221,6 +231,60 @@ class BattleFlowController:
                 result_dict["rdps_tracking_log"] = self._rdps_tracker.get_tracking_log()
 
         return result_dict
+
+    def _track_moodmaker_ex_targets(self, skill_result: Dict[str, Any]):
+        """追踪心色見つめるムードメーカー EX技能110069 的友方目标选择。
+
+        从 skill_result 的 effects_applied 中提取 aura 效果的目标名（去重），
+        记录到 _ex_target_notes 列表。
+        """
+        targets = []
+        seen_ids = set()
+        for applied in skill_result.get("effects_applied", []):
+            if applied.get("effect_type") != "aura":
+                continue
+            for aura in applied.get("auras", []):
+                tid = aura.get("target_id")
+                tname = aura.get("target")
+                if tname and tid not in seen_ids:
+                    seen_ids.add(tid)
+                    targets.append(tname)
+        if targets:
+            self._ex_target_notes.append({
+                "targets": targets,
+            })
+
+    def _find_moodmaker(self) -> Optional[UnitState]:
+        """查找己方阵容中的心色見つめるムードメーカー（character_id // 1000 == 145）。"""
+        for u in self.battlefield.friend_team:
+            cid = getattr(u, 'character_id', 0)
+            if cid and cid // 1000 == _MOODMAKER_CHAR_BASE_ID:
+                return u
+        return None
+
+    def _build_special_notes(self) -> Optional[Dict[str, Any]]:
+        """构建特殊备注信息：心色見つめるムードメーカー EX技能追踪。
+
+        返回结构:
+            {
+                "char_name": str,
+                "ex_skill_name": str,
+                "ex_uses": [{"targets": [str, ...]}, ...],  # 每次EX使用的目标列表
+                "died": bool,        # 角色是否阵亡
+                "used_ex": bool,     # 是否使用过EX
+            }
+        若角色不在己方阵容则返回 None。
+        """
+        moodmaker = self._find_moodmaker()
+        if not moodmaker:
+            return None
+        return {
+            "char_name": moodmaker.name,
+            "ex_skill_name": "あったかいの、どうぞ♪",
+            "ex_uses": list(self._ex_target_notes),
+            "died": not moodmaker.is_alive,
+            "used_ex": len(self._ex_target_notes) > 0,
+        }
 
     def _execute_turn(self, turn_number: int) -> bool:
         _log.info("[TURN] ==================================================")
@@ -516,6 +580,10 @@ class BattleFlowController:
             skip_cost=True,
             defer_crit_triggers=True,
         )
+
+        # 追踪 心色見つめるムードメーカー EX技能110069 的目标选择
+        if selected_skill == _MOODMAKER_EX_SKILL_ID and skill_result.get("success"):
+            self._track_moodmaker_ex_targets(skill_result)
 
         # Guard cleanup: AS技能执行完毕后立即清理由该攻击者触发的Guard buff
         # Guard效果只在触发它的那次技能攻击中生效，后续PS技能不应享受Guard减伤

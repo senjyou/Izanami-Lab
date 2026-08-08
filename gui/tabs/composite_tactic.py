@@ -47,6 +47,7 @@ from gui.widgets.rdps import (
     _export_rdps_tracking_log,
 )
 from gui.dialogs.enemy_detail import EnemyDetailDialog
+from gui.utils import _format_special_notes_single, _format_special_notes_multi
 
 from gui.tabs.base import BattleTabMixin
 
@@ -838,6 +839,12 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
         if rdps_avg:
             out.append(_build_rdps_summary(rdps_avg))
 
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_multi(result.get("special_notes_list", []), sim_count)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
+
         self._result_panel.set_summary("\n".join(out))
 
         # 按队伍分组的单位统计
@@ -989,13 +996,14 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
             narrative.write(str(log_path))
 
             tracking_log = result.get("rdps_tracking_log") or []
-            self.app.root.after(0, lambda: self._display_single_result(result, str(log_path), tracking_log))
+            special_notes = result.get("special_notes")
+            self.app.root.after(0, lambda: self._display_single_result(result, str(log_path), tracking_log, special_notes))
         except Exception as e:
             import traceback
             err_msg = str(e) + "\n" + traceback.format_exc()
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
-    def _display_single_result(self, result, log_path, tracking_log=None):
+    def _display_single_result(self, result, log_path, tracking_log=None, special_notes=None):
         self._start_btn.config(state="normal")
         self._log_btn.config(state="normal")
         if tracking_log is not None:
@@ -1099,6 +1107,12 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
         if rdps_data:
             out.append(_build_rdps_summary(rdps_data))
             tables.extend(_build_rdps_tables(rdps_data))
+
+        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        notes_lines = _format_special_notes_single(special_notes)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
 
         self._result_panel.set_summary("\n".join(out))
         if tables:

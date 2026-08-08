@@ -175,3 +175,83 @@ def get_max_rarity_for(default_rarity: int) -> int:
 def get_module_type_ids(char_type):
     """根据角色类型生成模块ID列表"""
     return [int(f"{char_type}1"), int(f"{char_type}2"), int(f"{char_type}3")]
+
+
+# ─────────────────── 特殊备注信息（心色見つめるムードメーカー EX追踪） ───────────────────
+
+def _format_special_notes_single(notes) -> list:
+    """格式化单次模拟的特殊备注信息，返回行列表。
+
+    notes 结构:
+        {
+            "char_name": str,
+            "ex_skill_name": str,
+            "ex_uses": [{"targets": [str, ...]}, ...],
+            "died": bool,
+            "used_ex": bool,
+        }
+    若 notes 为 None（角色不在己方阵容）则返回空列表。
+    """
+    if not notes:
+        return []
+    lines = []
+    char_name = notes.get("char_name", "心色見つめるムードメーカー")
+    ex_name = notes.get("ex_skill_name", "あったかいの、どうぞ♪")
+    lines.append(f"  【备注信息】")
+    if notes.get("used_ex"):
+        ex_uses = notes.get("ex_uses", [])
+        lines.append(f"    {char_name} EX「{ex_name}」目标选择:")
+        for i, use in enumerate(ex_uses, 1):
+            targets = use.get("targets", [])
+            lines.append(f"      第{i}次: {targets}")
+    else:
+        lines.append(f"    {char_name}未使用EX。")
+    return lines
+
+
+def _format_special_notes_multi(notes_list, n_battles) -> list:
+    """格式化多次模拟的特殊备注信息，返回行列表。
+
+    notes_list: 每场战斗的 special_notes（可能为 None）
+    n_battles: 总场次数
+    """
+    # 收集所有非 None 的 notes
+    valid_notes = [n for n in notes_list if n]
+    if not valid_notes:
+        return []
+
+    lines = []
+    char_name = valid_notes[0].get("char_name", "心色見つめるムードメーカー")
+    ex_name = valid_notes[0].get("ex_skill_name", "あったかいの、どうぞ♪")
+
+    # 统计
+    total_ex_uses = 0
+    target_counts = {}  # target_name -> selection count
+    no_ex_battles = 0    # 角色在场但未使用EX的场次数
+
+    for notes in valid_notes:
+        ex_uses = notes.get("ex_uses", [])
+        if ex_uses:
+            total_ex_uses += len(ex_uses)
+            for use in ex_uses:
+                for t in use.get("targets", []):
+                    target_counts[t] = target_counts.get(t, 0) + 1
+        else:
+            no_ex_battles += 1
+
+    lines.append(f"  【备注信息】")
+    if total_ex_uses > 0:
+        lines.append(f"    {char_name} EX「{ex_name}」目标选择概率 (共{total_ex_uses}次EX):")
+        # 按概率降序排列，只输出非0概率
+        sorted_targets = sorted(target_counts.items(), key=lambda x: -x[1])
+        for tname, count in sorted_targets:
+            pct = count / total_ex_uses * 100
+            lines.append(f"      {tname}: {pct:.1f}% ({count}/{total_ex_uses})")
+    else:
+        lines.append(f"    {char_name}未使用EX。")
+
+    if no_ex_battles > 0:
+        lines.append(f"    (其中{no_ex_battles}场未使用EX)")
+
+    return lines
+
