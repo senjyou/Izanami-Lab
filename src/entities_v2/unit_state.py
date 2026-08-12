@@ -10,7 +10,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from enum import Enum
 
 
@@ -198,6 +198,10 @@ class UnitState:
 
     # ========== 累计伤害计数（用于on_cumulative_damage触发）==========
     cumulative_hp_damage: int = 0  # 累计受到的HP伤害（仅HP部分，不含盾吸收），成功触发PS后清除
+
+    # ========== once_per_battle PS触发记录 ==========
+    # 记录已成功触发的once_per_battle PS skill_id，确保整个战斗中只触发一次
+    once_per_battle_triggered: Set[int] = field(default_factory=set)
 
     # ========== 最近受到的伤害（用于反撃系PS，如ストイックリコイル）==========
     last_received_damage: int = 0  # 最近一次受到的伤害（包括被盾吸收的部分，不含溢出）

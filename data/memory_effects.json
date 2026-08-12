@@ -6049,5 +6049,58 @@
         ]
       }
     ]
+  },
+  "400228": {
+    "skill_id": 400228,
+    "name": "攻撃上昇【リディア】",
+    "description": "戦闘開始時に発動。リディア・エルドリッジの攻撃力を1000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400229": {
+    "skill_id": 400229,
+    "name": "物理ダメージ上昇【シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の味方全員に対し、物理攻撃で与えるダメージを2.1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
   }
 }

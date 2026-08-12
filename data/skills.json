@@ -78119,5 +78119,407 @@
         ]
       }
     }
+  },
+  "400228": {
+    "skill_id": 400228,
+    "name": "攻撃上昇【リディア】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。リディア・エルドリッジの攻撃力を1000上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400229": {
+    "skill_id": 400229,
+    "name": "物理ダメージ上昇【シャイ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。シャイ属性の味方全員に対し、物理攻撃で与えるダメージを2.1%上昇させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "110074": {
+    "skill_id": 110074,
+    "name": "リディアのおしろだいさくせん",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に対しサブユニット「うみのともだちⅡ」を3つ付与する。\n「うみのともだちⅡ」は自身の最大HP×50%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を7.5%低下させ（重複可）、被ダメージを{dmg}%増加させる（重複可）"
+      },
+      {
+        "min_level": 15,
+        "template": "自身に対しサブユニット「うみのともだちⅡ」を3つ付与する。\n「うみのともだちⅡ」は自身の最大HP×50%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を7.5%低下させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 18.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 19.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 21.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 22.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "120162": {
+    "skill_id": 120162,
+    "name": "にげちゃ、めっ……だよ？",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も最大HPが高い敵単体、および対象に隣接する2体に対し、威力{威力}で攻撃する（回避不可）。\n攻撃対象が後列に編成されていた場合、追加で対象の現在HP×7.5%のダメージを与える。追加ダメージは自身の攻撃力×15%を上限とする。"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.4900016784668
+          },
+          {
+            "level": 4,
+            "value": 47.470001220703125
+          },
+          {
+            "level": 6,
+            "value": 49.959999084472656
+          },
+          {
+            "level": 7,
+            "value": 54.93000030517578
+          },
+          {
+            "level": 9,
+            "value": 57.41999816894531
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 15,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "120163": {
+    "skill_id": 120163,
+    "name": "いっぱいおしおき",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "後列中央の敵単体に威力{威力}、その他の全ての敵に威力{威力2}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.9800033569336
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.87000274658203
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 15,
+            "value": 169.60000610351562
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.619999885559082
+          },
+          {
+            "level": 4,
+            "value": 11.869999885559082
+          },
+          {
+            "level": 6,
+            "value": 12.489999771118164
+          },
+          {
+            "level": 7,
+            "value": 13.729999542236328
+          },
+          {
+            "level": 9,
+            "value": 14.359999656677246
+          },
+          {
+            "level": 10,
+            "value": 15.600000381469727
+          }
+        ]
+      }
+    }
+  },
+  "130164": {
+    "skill_id": 130164,
+    "name": "おたすけもとむ",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に敵からデバフが付与された際に発動。付与されているデバフを1つ解除し、自身にサブユニット「うみのともだちⅠ」を1つ付与する。\n「うみのともだちⅠ」は自身の最大HP×50%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を7.5%低下させ（重複可）、被ダメージを{dmg}%増加させる（重複可）。\nこのスキルは戦闘開始時・ターン開始時・ターン終了時には発動しない"
+      },
+      {
+        "min_level": 15,
+        "template": "自身に敵からデバフが付与された際に発動。付与されているデバフを1つ解除し、自身にサブユニット「うみのともだちⅠ」を1つ付与する。\n「うみのともだちⅠ」は自身の最大HP×50%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を7.5%低下させる（重複可）。\nこのスキルは戦闘開始時・ターン開始時・ターン終了時には発動しない"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 18.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 19.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 21.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 22.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "130165": {
+    "skill_id": 130165,
+    "name": "いっしょにがんばる",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身にサブユニット「うみのともだちⅢ」を1つ付与する。\n「うみのともだちⅢ」は自身の最大HP×15%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を2.5%低下させる（重複可）。このスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。自身および自身と同じ横一列にいる他の味方にサブユニット「うみのともだちⅢ」を1つ付与する。\n「うみのともだちⅢ」は自身の最大HP×15%のHPを持ち、攻撃時に攻撃力×{atk}%のダメージを追加するが、同時に付与された対象の攻撃力を2.5%低下させる（重複可）。\nこのスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 5.260000228881836
+          },
+          {
+            "level": 4,
+            "value": 5.78000020980835
+          },
+          {
+            "level": 6,
+            "value": 6.039999961853027
+          },
+          {
+            "level": 7,
+            "value": 6.559999942779541
+          },
+          {
+            "level": 9,
+            "value": 6.820000171661377
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          },
+          {
+            "level": 11,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 8.5
+          }
+        ]
+      }
+    }
   }
 }

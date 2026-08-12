@@ -277,6 +277,12 @@
       "name_ruby": "たいがまお",
       "team_id": 701,
       "team_name": "風紀委員会"
+    },
+    "140": {
+      "name": "リディア・エルドリッジ",
+      "name_ruby": "りでぃあえるどりっじ",
+      "team_id": 402,
+      "team_name": "トリニティ・ジュエル"
     }
   },
   "character_variants": {
@@ -605,6 +611,12 @@
     "142": [
       {
         "character_id": 142302,
+        "rarity": "N/A"
+      }
+    ],
+    "140": [
+      {
+        "character_id": 140302,
         "rarity": "N/A"
       }
     ]

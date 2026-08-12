@@ -365,6 +365,12 @@ class SkillService:
                         _log.info("[CRIT_RESET] %s: crit_counter reset to 0 after inline PS[%s] executed successfully",
                                   owner.name, skill_name)
 
+                    # once_per_battle: PS成功执行后标记，确保整个战斗中只触发一次（如130165 いっしょにがんばる）
+                    if parsed.get('once_per_battle'):
+                        owner.once_per_battle_triggered.add(action.skill_id)
+                        _log.info("[ONCE_PER_BATTLE] %s: PS[%s](id=%d) marked as triggered, will not trigger again this battle",
+                                  owner.name, skill_name, action.skill_id)
+
             # 恢复外层技能的_current_skill_id
             self._current_skill_id = saved_current_skill_id
 
@@ -1956,6 +1962,32 @@ class SkillService:
                             _log.info("[SKILL_EXEC] %s: enemy_all_except_last: all=%d exclude=%s filtered=%d",
                                       caster.name, len(all_targets), exclude_ids,
                                       len(self._block_damage_targets[effect.target_type]))
+                        elif effect.target_type == "enemy_back_center_single":
+                            # 120163 いっぱいおしおき Block1: 後列中央の敵単体
+                            from ...entities_v2.enums import Position as _PosBCS, Side as _SideBCS
+                            enemy_side_enum = _SideBCS.ENEMY if caster.side == _SideBCS.ALLY else _SideBCS.ALLY
+                            center_back_pos = (_PosBCS.ENEMY_CENTER_BACK if caster.side == _SideBCS.ALLY
+                                               else _PosBCS.ALLY_CENTER_BACK)
+                            center_back_enemies = [u for u in battlefield.get_alive_units(enemy_side_enum)
+                                                   if u.position == center_back_pos]
+                            self._block_damage_targets[effect.target_type] = center_back_enemies
+                            _log.info("[SKILL_EXEC] %s: enemy_back_center_single -> %s",
+                                      caster.name, [t.name for t in center_back_enemies])
+                        elif effect.target_type == "enemy_all_exclude_primary":
+                            # 120163 いっぱいおしおき Block2: その他の全ての敵（主目標除外）
+                            primary_target = getattr(self, '_last_primary_target', None)
+                            from ...entities_v2.enums import Side as _SideAEP
+                            enemy_side_enum_aep = _SideAEP.ENEMY if caster.side == _SideAEP.ALLY else _SideAEP.ALLY
+                            all_enemies_aep = [u for u in battlefield.get_alive_units(enemy_side_enum_aep)]
+                            if primary_target and primary_target.is_alive:
+                                filtered = [u for u in all_enemies_aep if u.unit_id != primary_target.unit_id]
+                                self._block_damage_targets[effect.target_type] = filtered
+                                _log.info("[SKILL_EXEC] %s: enemy_all_exclude_primary -> %d targets (excluded primary=%s): %s",
+                                          caster.name, len(filtered), primary_target.name, [t.name for t in filtered])
+                            else:
+                                self._block_damage_targets[effect.target_type] = all_enemies_aep
+                                _log.info("[SKILL_EXEC] %s: enemy_all_exclude_primary -> %d targets (no primary to exclude): %s",
+                                          caster.name, len(all_enemies_aep), [t.name for t in all_enemies_aep])
                         elif effect.target_type == "adjacent_enemies":
                             # 基于主目标(enemy_single等)的位置选择邻接敌方单位
                             # 注意：必须在target_count>1分支之前检查，否则adjacent_enemies+target_count>1会被错误地用通用多目标逻辑处理
@@ -2389,8 +2421,9 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: column_highest_atk filter -> col=%d targets=%s",
                                   caster.name, anchor_col, [t.name for t in dmg_targets])
 
-                    # 记录enemy_single的主目标，供后续block的adjacent_enemies引用
-                    if effect.target_type in ("enemy_single", "enemy_single_highest_atk") and effect.target_type in self._block_damage_targets:
+                    # 记录enemy_single的主目标，供后续block的adjacent_enemies/enemy_all_exclude_primary引用
+                    if effect.target_type in ("enemy_single", "enemy_single_highest_atk",
+                                              "enemy_back_center_single") and effect.target_type in self._block_damage_targets:
                         es_list = self._block_damage_targets[effect.target_type]
                         if es_list:
                             self._last_primary_target = es_list[0]
@@ -10512,6 +10545,8 @@ class SkillService:
                  "enemy_single_lowest_def_x2",
                  "enemy_row_highest_atk",
                  "enemy_row_others",
+                 "enemy_back_center_single",
+                 "enemy_all_exclude_primary",
                  "attacker_row",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
@@ -10524,7 +10559,8 @@ class SkillService:
         if t in ("ally_single_chained_nearest",):
             return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("ally_front", "ally_front_row", "ally_back", "ally_column", "ally_row",
-                 "ally_highest_atk", "ally_lowest_atk", "ally_adjacent"):
+                 "ally_highest_atk", "ally_lowest_atk", "ally_adjacent",
+                 "self_and_same_row_allies"):
             return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("ally_all", "self_and_friends"): return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("all",): return DisplayTargetType.SELF_AND_FRIENDS_AND_ENEMIES.value
@@ -10546,7 +10582,8 @@ class SkillService:
                  "enemy_single_highest_max_hp",
                  "enemy_single_lowest_max_hp",
                  "enemy_single_highest_hp_ratio_back_priority",
-                 "enemy_single_lowest_hp_ratio"): return DisplayTargetRange.ONE_PAWN.value
+                 "enemy_single_lowest_hp_ratio",
+                 "enemy_back_center_single"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
                  "enemy_back_row", "enemy_front_row",
                  "enemy_row_of_lowest_def",
@@ -10569,6 +10606,8 @@ class SkillService:
                  "ally_lowest_atk",
                  "ally_adjacent",
                  "enemy_side_columns",
+                 "enemy_all_exclude_primary",
+                 "self_and_same_row_allies",
                  "attacked_targets"):
             return DisplayTargetRange.ALL_PAWNS.value
         return DisplayTargetRange.ONE_PAWN.value
@@ -11098,12 +11137,26 @@ class SkillService:
             if not target.is_alive:
                 continue
 
+            # per-target condition check (如120162 後列追加ダメージ的 target_is_back_row 条件)
+            effect_condition = getattr(effect, 'condition', None)
+            if effect_condition and isinstance(effect_condition, dict):
+                cond_type = effect_condition.get('type', '')
+                if cond_type == 'target_is_back_row':
+                    if not self.target_service._is_back_row(target):
+                        _log.info("[HP_RATIO_DMG] %s -> %s: SKIPPED (target_is_back_row condition not met)",
+                                  caster.name, target.name)
+                        continue
+
             # 根据value_source确定基础值
             calc_detail = {"value_source": value_source or "consumed_hp", "dmg_pct": dmg_pct}
+            # 应用受击方增减伤乘区（received_mult），公式: min(raw * received_mult, cap)
+            damage_received_mult = self.damage_service._get_damage_received_multiplier(target, attacker=caster)
+            calc_detail["received_mult"] = damage_received_mult
+            _log.info("[HP_RATIO_DMG] %s -> %s: received_mult=%.4f", caster.name, target.name, damage_received_mult)
             if value_source == "target_lost_hp":
                 # 基于目标已损HP（max_hp - current_hp）
                 base_value = target.max_hp - target.current_hp
-                raw_power = base_value * dmg_pct / 100.0
+                raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
                 # 应用ATK上限
@@ -11122,7 +11175,7 @@ class SkillService:
             elif value_source == "target_current_hp":
                 # 基于目标当前HP
                 base_value = target.current_hp
-                raw_power = base_value * dmg_pct / 100.0
+                raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
                 # 应用ATK上限
@@ -11141,7 +11194,7 @@ class SkillService:
             elif value_source == "caster_current_hp":
                 # 基于施法者当前HP（如技能110053 RAY OF HERO）
                 base_value = caster.current_hp
-                raw_power = base_value * dmg_pct / 100.0
+                raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
                 # 应用ATK上限
@@ -11160,7 +11213,7 @@ class SkillService:
             else:
                 # 原有逻辑：基于自身消耗的HP
                 consumed = getattr(self, '_hp_consumed', 0)
-                raw_power = consumed * dmg_pct / 100.0
+                raw_power = consumed * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = consumed
                 calc_detail["raw_power"] = raw_power
                 _log.info("[HP_RATIO_DMG] %s: consumed=%d dmg_pct=%.0f raw_power=%.1f",
@@ -11705,6 +11758,19 @@ class SkillService:
             _log.info("[SUB_UNIT] %s: no valid target for sub_unit", caster.name)
             return None
 
+        # self_and_same_row_allies: 自身+同じ横一列の他の味方（如130165 Block2 Lv11+）
+        # 筛选出与施法者同排（前排或后排）的存活友方（含自身）
+        if effect.target_type == "self_and_same_row_allies" and self.target_service:
+            caster_is_front = self.target_service._is_front_row(caster)
+            target_list = [t for t in target_list
+                            if self.target_service._is_front_row(t) == caster_is_front]
+            _log.info("[SUB_UNIT] %s: self_and_same_row_allies filter (%s row) -> %s",
+                      caster.name, "FRONT" if caster_is_front else "BACK",
+                      [t.name for t in target_list])
+            if not target_list:
+                _log.info("[SUB_UNIT] %s: no same-row allies for self_and_same_row_allies", caster.name)
+                return None
+
         # Determine duration
         dur_type = getattr(effect, 'duration_type', None) or "action"
         duration = getattr(effect, 'duration', None) or 1
@@ -11755,6 +11821,42 @@ class SkillService:
         linked_expiry = bool(effect_flags.get('linked_expiry', False))
         link_group_id = f"linked_subunit_{uuid.uuid4().hex[:8]}" if linked_expiry else ""
 
+        # sub_unit_target_debuffs: 子单位创建后施加给持有者的debuff（如atk_down/dmg_taken_up）
+        # 重要: debuff在sub_unit创建后施加，确保sub_unit的快照攻击力是减攻前的值
+        # 参考 角色140302 リディア・エルドリッジ おたすけさんぽ・イン・サマー
+        holder_debuffs_config = effect_flags.get('sub_unit_target_debuffs', [])
+        processed_holder_debuffs = []
+        for hd in holder_debuffs_config:
+            hd_etype = hd.get('effect_type', '')
+            hd_value = hd.get('value')
+            hd_value_tag = hd.get('value_tag')
+            # 解析value_tag（如"dmg"）为实际数值
+            if hd_value is None and hd_value_tag:
+                hd_value = self._resolve_tag_value_for_caster(caster, effect, hd_value_tag)
+                _log.info("[SUB_UNIT] %s: resolved holder_debuff value_tag '%s' -> %.1f",
+                          caster.name, hd_value_tag, hd_value or 0)
+            # value=0时跳过该debuff（如Lv15 dmg%=0）
+            if hd_value is None or hd_value == 0:
+                _log.info("[SUB_UNIT] %s: skip holder_debuff %s (value=%s)",
+                          caster.name, hd_etype, hd_value)
+                continue
+            hd_flags = hd.get('flags', {}) or {}
+            hd_mapped = _JSON_EFFECT_TO_ENUM.get(hd_etype, hd_etype)
+            hd_duration = hd.get('duration', -1)
+            # 永续(duration=-1)使用TARGET_MANEUVER_END，与_apply_aura的默认action timing一致
+            hd_timing = AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value
+            hd_value_type = hd_flags.get('value_type', 'percent')
+            hd_resolved_value_tag = 0 if hd_value_type == 'percent' else 1
+            processed_holder_debuffs.append({
+                'effect_type': hd_mapped,
+                'value': float(hd_value),
+                'duration': hd_duration,
+                'timing': hd_timing,
+                'value_tag': hd_resolved_value_tag,
+                'is_stackable': hd_flags.get('stackable', False),
+                'original_etype': hd_etype,
+            })
+
         applied_targets = []
         for target in target_list:
             for _ in range(apply_count):
@@ -11789,6 +11891,29 @@ class SkillService:
                           caster.name, target.name, sub_unit_name,
                           sub_unit_max_hp, sub_unit_max_hp, atk_pct, duration, dur_type, buff_id,
                           add_status_info.get('status') if add_status_info else 'none')
+
+                # 施加holder_debuffs（减攻/被伤害增加等，在sub_unit创建后施加）
+                # 确保：先创建sub_unit（快照为减攻前攻击力），再施加减攻debuff
+                for hd_info in processed_holder_debuffs:
+                    hd_buff_id = f"{caster.unit_id}_HolderDebuff_{target.unit_id}_{uuid.uuid4().hex[:8]}"
+                    hd_buff = BuffState(
+                        buff_id=hd_buff_id,
+                        name=hd_info['effect_type'],
+                        effect_type=hd_info['effect_type'],
+                        value=hd_info['value'],
+                        duration=hd_info['duration'],
+                        timing_type=hd_info['timing'],
+                        source_unit_id=caster.unit_id,
+                        source_skill_id=self._current_skill_id,
+                        caster_attack=0,
+                        is_debuff=True,
+                        is_stackable=hd_info['is_stackable'],
+                        value_tag=hd_info['value_tag'],
+                    )
+                    self.aura_service.add_aura(target, hd_buff)
+                    _log.info("[SUB_UNIT] %s -> %s: holder_debuff %s applied, value=%.1f, dur=%d, stackable=%s",
+                              caster.name, target.name, hd_info['original_etype'],
+                              hd_info['value'], hd_info['duration'], hd_info['is_stackable'])
                 # 每个独立 sub_unit 实例作为单独条目，叙事层按实例输出日志
                 applied_targets.append({
                     "target": target.name,

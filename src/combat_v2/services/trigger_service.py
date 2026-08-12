@@ -869,6 +869,12 @@ class TriggerService:
                               unit.name, skill.name, skill.skill_id, dict(unit.skill_cooldowns))
                     continue
 
+                # once_per_battle: 整个战斗中只触发一次的PS（如130165 いっしょにがんばる）
+                if parsed.get('once_per_battle') and skill.skill_id in unit.once_per_battle_triggered:
+                    _log.info("[TRIGGER_ONCE_PER_BATTLE] %s PS[%s](id=%d) already triggered this battle, skip",
+                              unit.name, skill.name, skill.skill_id)
+                    continue
+
                 if not self._match_trigger_timing(parsed, timing, context, unit):
                     continue
 
@@ -1280,6 +1286,18 @@ class TriggerService:
                     if gc and isinstance(gc, dict) and gc.get('type') == 'target_is_self':
                         # triggers when a debuff is applied to SELF (e.g. 明鏡止水)
                         return owner.unit_id in [t.unit_id for t in context.targets]
+                    elif gc and isinstance(gc, dict) and gc.get('type') == 'and':
+                        # 'and' type global_condition: 检查是否含target_is_self子条件
+                        # 如 130164 おたすけもとむ: target_is_self + exclude_timing
+                        sub_conds = gc.get('conditions', [])
+                        has_target_is_self = any(
+                            isinstance(sc, dict) and sc.get('type') == 'target_is_self'
+                            for sc in sub_conds
+                        )
+                        if has_target_is_self:
+                            return owner.unit_id in [t.unit_id for t in context.targets]
+                        # 不含target_is_self的and类型，回退到默认ENEMY判断
+                        return any(t.side != owner.side for t in context.targets)
                     elif gc and isinstance(gc, dict) and gc.get('type') == 'is_status_ailment':
                         ally_filter = gc.get('ally_filter', 'ally')
                         if ally_filter == 'enemy':

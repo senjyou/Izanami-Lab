@@ -89,6 +89,7 @@ The simulator currently supports a limited set of characters. More will be added
 | ポンコツいいんちょ      | 大賀真桜         |
 | 渚のスイートデビル      | アニス・ベネット     |
 | 夏色シャイガール       | 波瀬うるう        |
+| おたすけさんぽ・イン・サマー | リディア・エルドリッジ  |
 
 ## Tactical Exercise Enemies
 

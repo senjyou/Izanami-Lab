@@ -2078,6 +2078,12 @@ class BattleFlowController:
                         _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 after PS[%s] executed successfully",
                                   owner.name, skill_name)
 
+                    # once_per_battle: PS成功执行后标记，确保整个战斗中只触发一次（如130165 いっしょにがんばる）
+                    if parsed.get('once_per_battle'):
+                        owner.once_per_battle_triggered.add(action.skill_id)
+                        _log.info("[ONCE_PER_BATTLE] %s: PS[%s](id=%d) marked as triggered, will not trigger again this battle",
+                                  owner.name, skill_name, action.skill_id)
+
                 # Update skill_use_count for PS skills (needed for skill_use_count_modulo triggers)
                 owner.skill_use_count[action.skill_id] = owner.skill_use_count.get(action.skill_id, 0) + 1
                 _log.info("[SKILL_COUNT] PS skill_use_count updated (_execute_trigger_actions): %s skill[%d] -> count=%d, full=%s",

@@ -3997,5 +3997,35 @@
         "skill_master_id": 400227
       }
     ]
+  },
+  "20082": {
+    "memory_id": 20082,
+    "name": "おたすけさんぽと夏のおたから",
+    "description": "レイヴェル、ルナ、おにいちゃん……リディア。 みんなといっしょが、きっといちばんのおたから。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": 0,
+        "character_base_master_id": 140,
+        "character_master_id": null,
+        "character_role": 0,
+        "character_team_master_id": null,
+        "character_type": 0,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400228
+      },
+      {
+        "character_attribute": 4,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 0,
+        "character_team_master_id": null,
+        "character_type": 0,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400229
+      }
+    ]
   }
 }
