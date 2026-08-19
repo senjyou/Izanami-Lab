@@ -90,6 +90,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 渚のスイートデビル      | アニス・ベネット     |
 | 夏色シャイガール       | 波瀬うるう        |
 | おたすけさんぽ・イン・サマー | リディア・エルドリッジ  |
+| 蠱惑のキャンペーンガール   | ロージー・ヒューズ    |
 
 ## Tactical Exercise Enemies
 

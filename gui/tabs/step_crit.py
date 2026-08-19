@@ -721,7 +721,9 @@ class StepCritTab(ttk.Frame):
             return
 
         seq_str = self._simulator.generate_sequence_string()
-        if not seq_str:
+        # 分支决策序列（random_choice/probability分支/random_draw抽取选择，如 ミッドサマー・ラブ）
+        branch_seq_str = self._simulator.generate_branch_sequence_string()
+        if not seq_str and not branch_seq_str:
             messagebox.showinfo("保存序列", "当前没有决策记录")
             return
 
@@ -739,8 +741,10 @@ class StepCritTab(ttk.Frame):
         # 同时保存编队信息（如果有）
         save_data = {
             "sequence": seq_str,
+            "branch_sequence": branch_seq_str,
             "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "decision_count": len(self._simulator.get_decision_points()),
+            "branch_decision_count": len(self._simulator.get_branch_decision_points()),
         }
         if self._last_battle_sel:
             save_data["preset_type"] = self._last_battle_preset_type
@@ -766,7 +770,10 @@ class StepCritTab(ttk.Frame):
             json.dump(save_data, fp, ensure_ascii=False, indent=2)
 
         self._append_output(f"序列已保存: {seq_path}\n")
-        messagebox.showinfo("保存序列", f"序列已保存到: {name}\n序列: {seq_str}")
+        save_info = f"序列已保存到: {name}\n暴击序列: {seq_str or '(无)'}"
+        if branch_seq_str:
+            save_info += f"\n分支序列: {branch_seq_str}"
+        messagebox.showinfo("保存序列", save_info)
 
     def _load_sequence(self):
         """从文件加载暴击序列"""
@@ -815,7 +822,14 @@ class StepCritTab(ttk.Frame):
         # 同时设置预填序列输入框（预填序列模式也可用）
         self.seq_var.set(seq_str)
 
-        info = f"已加载序列: {selected_file.stem}\n序列: {seq_str}"
+        # 加载分支决策序列（random_choice/probability分支/random_draw抽取选择，如 ミッドサマー・ラブ）
+        branch_seq_str = data.get("branch_sequence", "")
+        if branch_seq_str:
+            self.branch_prefill_var.set(branch_seq_str)
+
+        info = f"已加载序列: {selected_file.stem}\n序列: {seq_str or '(无)'}"
+        if branch_seq_str:
+            info += f"\n分支序列: {branch_seq_str}"
         if "friends" in data:
             info += f"\n己方: {data['friends']}"
         self._append_output(info + "\n")

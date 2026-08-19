@@ -78521,5 +78521,474 @@
         ]
       }
     }
+  },
+  "110075": {
+    "skill_id": 110075,
+    "name": "特別サービス♪",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の現在HPの50%を消費し、消費HP×100%分のシールドと、最大HP×{shield}%分のシールドを自身に付与する。\n加えて自身に対し4行動の間「アイデア」を付与する。\n自身が「創作」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 41.65999984741211
+          },
+          {
+            "level": 4,
+            "value": 44.97999954223633
+          },
+          {
+            "level": 6,
+            "value": 46.63999938964844
+          },
+          {
+            "level": 7,
+            "value": 49.959999084472656
+          },
+          {
+            "level": 9,
+            "value": 51.619998931884766
+          },
+          {
+            "level": 10,
+            "value": 55.0
+          },
+          {
+            "level": 15,
+            "value": 70.0
+          }
+        ]
+      }
+    }
+  },
+  "120164": {
+    "skill_id": 120164,
+    "name": "プロモーション・バースト",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「創作」状態ではない場合、敵単体に威力{威力}で攻撃する。「アイデア」を所持している場合、さらに威力{威力2}で追加攻撃を行う。\n「創作」状態の場合、自身のHPを最大HPの30%回復する"
+      },
+      {
+        "min_level": 11,
+        "template": "「創作」状態ではない場合、敵単体に威力{威力}で攻撃する。「アイデア」を所持している場合、さらに威力{威力2}で追加攻撃を行う。\n加えて総ダメージの{cure}%分自身のHPを回復する。\n「創作」状態の場合、自身のHPを最大HPの30%回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 31.860000610351562
+          },
+          {
+            "level": 4,
+            "value": 35.599998474121094
+          },
+          {
+            "level": 6,
+            "value": 37.459999084472656
+          },
+          {
+            "level": 7,
+            "value": 41.20000076293945
+          },
+          {
+            "level": 9,
+            "value": 43.060001373291016
+          },
+          {
+            "level": 10,
+            "value": 46.79999923706055
+          }
+        ]
+      },
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 30.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "130166": {
+    "skill_id": 130166,
+    "name": "スマイル・ファンサービス",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×15%のダメージを受けるたびに発動。HP割合が低い順に味方2体のHPを威力{威力}で回復し、自身のPPを1回復する。\n自身が「創作」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.0
+          },
+          {
+            "level": 4,
+            "value": 18.0
+          },
+          {
+            "level": 6,
+            "value": 19.0
+          },
+          {
+            "level": 7,
+            "value": 21.0
+          },
+          {
+            "level": 9,
+            "value": 22.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          },
+          {
+            "level": 15,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "130167": {
+    "skill_id": 130167,
+    "name": "ボルテージ・マックス",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPが20%未満の状態で敵から攻撃される直前に発動。自身に対し、一度だけ致死ダメージを耐え、HPを最大HP×{cure}%回復するバフを付与する。さらに自身に対し2行動の間「創作」を付与する（解除不可）。\n自身が「創作」状態の場合、このスキルは発動しない。\n生存している味方が自身のみの場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "自身のHPが20%未満の状態で敵から攻撃される直前に発動。自身に対し、一度だけ致死ダメージを耐え、HPを最大HP×{cure}%回復するバフを付与する。さらに自身の攻撃力を{atk}%、防御力を{def}%上昇させ（重複可）、自身に対し2行動の間「創作」を付与する（解除不可）。\n自身が「創作」状態の場合、このスキルは発動しない。\n生存している味方が自身のみの場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 16.65999984741211
+          },
+          {
+            "level": 4,
+            "value": 19.979999542236328
+          },
+          {
+            "level": 6,
+            "value": 21.639999389648438
+          },
+          {
+            "level": 7,
+            "value": 24.959999084472656
+          },
+          {
+            "level": 9,
+            "value": 26.6200008392334
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 3.0
+          },
+          {
+            "level": 15,
+            "value": 6.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 3.0
+          },
+          {
+            "level": 15,
+            "value": 6.0
+          }
+        ]
+      }
+    }
+  },
+  "130168": {
+    "skill_id": 130168,
+    "name": "スペシャル・アピール",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵から攻撃される直前に発動。自身に対しこの行動内で受けるダメージを{dmg}%減少させる効果を付与する。\n自身が「創作」状態ではない場合、このスキルは発動しない。\n生存している味方が自身のみの場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 45.0
+          },
+          {
+            "level": 3,
+            "value": 46.65999984741211
+          },
+          {
+            "level": 4,
+            "value": 49.970001220703125
+          },
+          {
+            "level": 6,
+            "value": 51.630001068115234
+          },
+          {
+            "level": 7,
+            "value": 54.95000076293945
+          },
+          {
+            "level": 9,
+            "value": 56.61000061035156
+          },
+          {
+            "level": 10,
+            "value": 60.0
+          },
+          {
+            "level": 15,
+            "value": 75.0
+          }
+        ]
+      }
+    }
+  },
+  "400230": {
+    "skill_id": 400230,
+    "name": "HP上昇【右列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列前衛の味方のHPを{hp}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1050.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400231": {
+    "skill_id": 400231,
+    "name": "攻撃上昇【ロージー】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。ロージー・ヒューズの攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400232": {
+    "skill_id": 400232,
+    "name": "アイデア毎T開始【ロージー(指定)】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。ロージー・ヒューズ[蠱惑のキャンペーンガール]に1行動の「アイデア」を付与する（解除可）"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
   }
 }

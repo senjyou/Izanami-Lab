@@ -447,13 +447,6 @@
       }
     ]
   },
-  "10024": {
-    "memory_id": 10024,
-    "name": "重要指名手配犯「ダークドラッグ」",
-    "description": "大賀「カリナ！こちらが似顔絵です！」 カリナ「...さすがいいんちょ～！」",
-    "rarity": 1,
-    "highlights": []
-  },
   "20001": {
     "memory_id": 20001,
     "name": "ふたりきりの勉強会",
@@ -2554,66 +2547,6 @@
       }
     ]
   },
-  "20071": {
-    "memory_id": 20071,
-    "name": "裏アカ男子とツナガリタイ♡ver3",
-    "description": "#大きい？ #大きくない？",
-    "rarity": 2,
-    "highlights": [
-      {
-        "character_attribute": 3,
-        "character_base_master_id": null,
-        "character_master_id": null,
-        "character_role": null,
-        "character_team_master_id": null,
-        "character_type": null,
-        "is_targeting_friendly_party": true,
-        "party_position": null,
-        "skill_master_id": 400086
-      },
-      {
-        "character_attribute": 4,
-        "character_base_master_id": null,
-        "character_master_id": null,
-        "character_role": null,
-        "character_team_master_id": null,
-        "character_type": null,
-        "is_targeting_friendly_party": true,
-        "party_position": null,
-        "skill_master_id": 4000198
-      }
-    ]
-  },
-  "20072": {
-    "memory_id": 20072,
-    "name": "さすがボクですね！マスター！",
-    "description": "もうすぐ夏なのでスイカ割りなんていかがでしょうか！ 夏らしいアマネさん素敵ですね！",
-    "rarity": 2,
-    "highlights": [
-      {
-        "character_attribute": 1,
-        "character_base_master_id": null,
-        "character_master_id": null,
-        "character_role": null,
-        "character_team_master_id": null,
-        "character_type": null,
-        "is_targeting_friendly_party": true,
-        "party_position": null,
-        "skill_master_id": 400182
-      },
-      {
-        "character_attribute": 2,
-        "character_base_master_id": null,
-        "character_master_id": null,
-        "character_role": null,
-        "character_team_master_id": null,
-        "character_type": null,
-        "is_targeting_friendly_party": true,
-        "party_position": null,
-        "skill_master_id": 400027
-      }
-    ]
-  },
   "30001": {
     "memory_id": 30001,
     "name": "Sirius Sugar",
@@ -3484,13 +3417,6 @@
       }
     ]
   },
-  "30030": {
-    "memory_id": 30030,
-    "name": "裏アカ男子とツナガリタイ♡ver2",
-    "description": "#破けてる？ #破けてない？",
-    "rarity": 3,
-    "highlights": []
-  },
   "20073": {
     "memory_id": 20073,
     "name": "知らない姿に目を奪われて",
@@ -4005,12 +3931,12 @@
     "rarity": 2,
     "highlights": [
       {
-        "character_attribute": 0,
+        "character_attribute": null,
         "character_base_master_id": 140,
         "character_master_id": null,
-        "character_role": 0,
+        "character_role": null,
         "character_team_master_id": null,
-        "character_type": 0,
+        "character_type": null,
         "is_targeting_friendly_party": true,
         "party_position": null,
         "skill_master_id": 400228
@@ -4019,12 +3945,61 @@
         "character_attribute": 4,
         "character_base_master_id": null,
         "character_master_id": null,
-        "character_role": 0,
+        "character_role": null,
         "character_team_master_id": null,
-        "character_type": 0,
+        "character_type": null,
         "is_targeting_friendly_party": true,
         "party_position": null,
         "skill_master_id": 400229
+      }
+    ]
+  },
+  "10029": {
+    "memory_id": 10029,
+    "name": "かつて子どもだった私から",
+    "description": "わっ、わあっ！？　ちょっと、同時に引っ張っちゃダメだよ！？\n先生、千切れちゃうから！",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 4,
+        "skill_master_id": 400230
+      }
+    ]
+  },
+  "20083": {
+    "memory_id": 20083,
+    "name": "コーヒーと、思い出と……",
+    "description": "ここが盛り上がって続いてほしいっていうのは、\nあたしにとっては恩返しの意味もあるのよ♪",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 120,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400231
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": 120302,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400232
       }
     ]
   }

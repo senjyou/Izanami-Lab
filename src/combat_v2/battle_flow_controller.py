@@ -698,10 +698,10 @@ class BattleFlowController:
             if skill_type == 1:
                 # AS技能：调用统一的5阶段post-skill trigger流程
                 # _collect_and_run_post_as_triggers 内部根据 damaged_targets 自动分支：
-                # - 伤害型路径：执行 hp_below + Phase1a-pre(累計傷害) + Phase1a(被攻撃反応+自身行動後発動+暴撃)
-                #   + Phase1b(技能使用次数) + Phase2(AS攻撃後追撃) + Phase3(主动技能结束后)
-                # - 非伤害型路径：跳过被攻撃反応/追撃，仅处理 Phase1a-pre(自傷累計) + Phase1a(自身行動後+暴撃)
-                #   + Phase1b(技能使用次数) + Phase2(空) + Phase3(主动技能结束后)
+                # - 伤害型路径：执行 hp_below + Phase1a-pre(累計傷害) + Phase1a(被攻撃反応+自身行動後発動)
+                #   + Phase1a-crit(暴撃) + Phase1b(技能使用次数) + Phase2(AS攻撃後追撃) + Phase3(主动技能结束后)
+                # - 非伤害型路径：跳过被攻撃反応/追撃，仅处理 Phase1a-pre(自傷累計) + Phase1a(自身行動後)
+                #   + Phase1a-crit(暴撃) + Phase1b(技能使用次数) + Phase2(空) + Phase3(主动技能结束后)
                 # 同时内部处理 skill_use_count 清理逻辑
                 self._collect_and_run_post_as_triggers(
                     unit, selected_skill, skill_result, damaged_targets,
@@ -857,7 +857,8 @@ class BattleFlowController:
         self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
 
         # Guard cleanup: remove guard buffs triggered by this unit's action
-        self._cleanup_guard_buffs(unit)
+        # action_ended=True: 行动结束，清除行動級attacker_action buff（如130168 dmg_taken_down）
+        self._cleanup_guard_buffs(unit, action_ended=True)
 
     def _handle_dot_deaths(self) -> None:
         """检测DOT（炎上/毒/行動時ダメージ）导致的死亡并触发击杀触发器。
@@ -1138,7 +1139,11 @@ class BattleFlowController:
                 per_hit_reset_values=_per_hit_resets) if cumulative_check_units else []
 
             # ===== 收集 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
+            # 暴击触发器（PAWN_CAUSED_CRITICAL，如 ラッキー4！）单独收集为 Phase1a-crit：
+            # 根据实战验证，被攻撃反応（如 ヒートアップ・ラブ+ 230426）无视速度快慢，
+            # 必须先于暴击触发器执行，因此暴击类PS从Phase1a主批次分离，延后执行
             phase1_actions = []
+            phase1_crit_actions = []
 
             after_ally = self.trigger_service.trigger_after_ally_attacked(
                 damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
@@ -1176,7 +1181,7 @@ class BattleFlowController:
                     crit_tgt = entry[3] if len(entry) > 3 else None
                     crit_actions = self.trigger_service.trigger_pawn_caused_critical(
                         c, bf, count=crit_count, crit_target=crit_tgt)
-                    phase1_actions.extend(crit_actions)
+                    phase1_crit_actions.extend(crit_actions)
                 self._deferred_crit_triggers = []
 
             # ===== 收集 Phase 1b: 技能使用次数 =====
@@ -1200,6 +1205,7 @@ class BattleFlowController:
 
             # 记录PP快照（所有阶段合并）
             all_for_snapshot = (phase1_cumulative_actions + phase1_actions
+                                + phase1_crit_actions
                                 + phase1b_actions + phase2_actions + phase3_actions)
             self._pp_snapshot_before_as_triggers = {}
             for a in all_for_snapshot:
@@ -1216,7 +1222,7 @@ class BattleFlowController:
             self._execute_trigger_actions(phase1_cumulative_actions, unit)
             self._flush_deferred_crit_triggers(unit)
 
-            # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 + 暴撃 =====
+            # ===== 执行 Phase 1a: 被攻撃反応 + 自身行動後発動 =====
             if phase1_actions:
                 phase1_actions.sort(
                     key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
@@ -1224,6 +1230,15 @@ class BattleFlowController:
                 _log.info("[POST_AS_TRIGGERS] %s Phase1a: %d actions",
                           _log_prefix, len(phase1_actions))
             self._execute_trigger_actions(phase1_actions, unit)
+
+            # ===== 执行 Phase 1a-crit: 暴击触发器（被攻撃反応之后执行，无视速度快慢） =====
+            if phase1_crit_actions:
+                phase1_crit_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a-crit (暴撃): %d actions",
+                          _log_prefix, len(phase1_crit_actions))
+            self._execute_trigger_actions(phase1_crit_actions, unit)
             self._flush_deferred_crit_triggers(unit)
 
             # ===== 执行 Phase 1b: 技能使用次数 =====
@@ -1305,11 +1320,13 @@ class BattleFlowController:
                     self.battlefield, [unit],
                     per_hit_reset_values=_per_hit_resets)
 
-            # Phase 1a: 自身行動後発動 + 暴击
+            # Phase 1a: 自身行動後発動 + 暴击（暴击类PS延后到Phase1a-crit执行，
+            # 与伤害型路径一致：被攻撃反応/自身行動後発動先于暴击触发器，无视速度）
             phase1_actions = self.trigger_service.trigger_after_own_action(
                 unit, skill_id, skill_result, self.battlefield,
                 primary_target=_as_primary_target
             )
+            phase1_crit_actions = []
             if self._deferred_crit_triggers:
                 for entry in list(self._deferred_crit_triggers):
                     c, bf = entry[0], entry[1]
@@ -1317,7 +1334,7 @@ class BattleFlowController:
                     crit_tgt = entry[3] if len(entry) > 3 else None
                     crit_actions = self.trigger_service.trigger_pawn_caused_critical(
                         c, bf, count=crit_count, crit_target=crit_tgt)
-                    phase1_actions.extend(crit_actions)
+                    phase1_crit_actions.extend(crit_actions)
                 self._deferred_crit_triggers = []
 
             # Phase 1b: 技能使用次数
@@ -1335,6 +1352,7 @@ class BattleFlowController:
 
             # 记录PP快照
             all_for_snapshot = (phase1_cumulative_actions + phase1_actions
+                                + phase1_crit_actions
                                 + phase1b_actions + phase2_actions + phase3_actions)
             self._pp_snapshot_before_as_triggers = {}
             for a in all_for_snapshot:
@@ -1354,6 +1372,15 @@ class BattleFlowController:
                     key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                 )
             self._execute_trigger_actions(phase1_actions, unit)
+
+            # Phase 1a-crit: 暴击触发器（自身行動後発動之后执行，无视速度）
+            if phase1_crit_actions:
+                phase1_crit_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a-crit (暴撃): %d actions",
+                          _log_prefix, len(phase1_crit_actions))
+            self._execute_trigger_actions(phase1_crit_actions, unit)
             self._flush_deferred_crit_triggers(unit)
 
             if phase1b_actions:
@@ -1373,12 +1400,17 @@ class BattleFlowController:
             self._execute_trigger_actions(phase3_actions, unit)
             self._flush_deferred_crit_triggers(unit)
 
-    def _cleanup_guard_buffs(self, attacker: UnitState) -> None:
+    def _cleanup_guard_buffs(self, attacker: UnitState, action_ended: bool = False) -> None:
         """清理由指定攻击者触发的guard buff和attacker_action类型的debuff/buff。
 
         Guard效果只在触发它的那次技能攻击中生效，技能执行完毕后立即清理。
         attacker_action类型的debuff/buff持续到攻击发起者的该次行动结束。
         同时清理新版cover/guard特殊机制状态。
+
+        action_ended=True 时额外清理「行動級」attacker_action buff（duration==-1，
+        生命周期完全由triggered_by_attacker控制，如130168 スペシャル・アピール的
+        dmg_taken_down——防御方PS持有者施加给自己，覆盖攻击者行动内全部技能的
+        全部hit，仅在攻击者行动结束时清除，不能在单次技能结束后清除）。
         """
         for unit in self.battlefield.get_all_units():
             if not unit.is_alive:
@@ -1401,6 +1433,19 @@ class BattleFlowController:
                     _log.info("[ATTACKER_ACTION_CLEANUP] %s: %s %s removed (attacker %s action ended)",
                               unit.name, 'debuff' if buff.is_debuff else 'buff',
                               buff.effect_type, attacker.name)
+            # 行動級attacker_action cleanup（仅行动结束调用）: 防御方PS持有者施加的
+            # attacker_action buff（duration==-1, triggered_by_attacker记录攻击者），
+            # 持续整个攻击者行动（含后续PS追击连动的全部hit），行动结束时统一清除
+            if action_ended:
+                for buff in unit.buffs + unit.debuffs:
+                    if (getattr(buff, 'triggered_by_attacker', '') == attacker.unit_id
+                            and getattr(buff, 'original_duration_type', '') == 'attacker_action'
+                            and buff.duration == -1
+                            and buff.buff_id not in to_remove):
+                        to_remove.append(buff.buff_id)
+                        _log.info("[ATTACKER_ACTION_CLEANUP] %s: %s %s removed (attacker %s ACTION ended)",
+                                  unit.name, 'debuff' if buff.is_debuff else 'buff',
+                                  buff.effect_type, attacker.name)
             # block_buff_by_type with triggered_by_attacker cleanup:
             # PS触发的block_debuffs(buff_block)在攻击者行动结束时清除（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
             # 这些buff的source_unit_id是PS持有者而非攻击者，通过triggered_by_attacker匹配
@@ -2003,6 +2048,14 @@ class BattleFlowController:
                     owner.cumulative_hp_damage = _reset_val
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
+                # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
+                # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
+                if _parsed_fail:
+                    _gc_fail = _parsed_fail.get('global_condition', {})
+                    if _gc_fail and _gc_fail.get('type') == 'crit_count_mod':
+                        owner.crit_counter = 0
+                        _log.info("[CRIT_RESET] %s: crit_counter reset to 0 (PP insufficient, PS[%s] cannot execute)",
+                                  owner.name, skill_name)
                 continue
 
             if self.narrative:
@@ -2340,6 +2393,14 @@ class BattleFlowController:
                     owner.cumulative_hp_damage = _reset_val
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, global PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
+                # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
+                # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
+                if _parsed_fail:
+                    _gc_fail = _parsed_fail.get('global_condition', {})
+                    if _gc_fail and _gc_fail.get('type') == 'crit_count_mod':
+                        owner.crit_counter = 0
+                        _log.info("[CRIT_RESET] %s: crit_counter reset to 0 (PP insufficient, global PS[%s] cannot execute)",
+                                  owner.name, skill_name)
                 continue
 
             if self.narrative:
@@ -3668,6 +3729,9 @@ class BattleFlowController:
         attack_limited = effect.get("attack_limited", 0)
 
         # AcquireMark 类型：获得mark标记
+        # duration支持：默认-1（永続，如400205「三ツ星」）；带duration/duration_type时为行動制mark
+        # （如400232「1行動の『アイデア』を付与する」→ duration=1, duration_type="action"，
+        #   timing_type=3 + source=self，目标自身行动结束时递减并过期）
         if effect_type == "AcquireMark":
             mark_name = effect.get("mark_name", "")
             if not mark_name:
@@ -3678,8 +3742,8 @@ class BattleFlowController:
                 name=mark_name,
                 effect_type=SkillEffectType.MARK.value,
                 value=0,
-                duration=-1,
-                timing_type=3,
+                duration=duration,
+                timing_type=timing_type,
                 stack_count=1,
                 source_unit_id=target_unit.unit_id,
                 source_skill_id=skill_id,

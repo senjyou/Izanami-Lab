@@ -5286,6 +5286,31 @@ class SkillService:
                     _log.info("[ADD_DMG] CONFUSION reduction: %d -> %d (-%.1f%%)",
                               orig_extra, extra_dmg, confusion_buff.confusion_dmg_reduction)
             hp_before = target.current_hp
+            # dmg_taken_down_threshold: HP阈值减伤（与damage/hp_ratio_damage路径一致，实战验证）
+            # 若单次伤害 > threshold (current_hp × threshold_pct%) 则整个伤害按 value% 减免
+            # 仅在减伤实际生效时消耗hit_limited（实战验证：低于阈值未减伤不消耗次数）
+            _dtd_reduced_ids = set()
+            for _dtd_buff in target.buffs:
+                if _dtd_buff.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
+                    continue
+                _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
+                _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
+                if _thr_base == 'max_hp':
+                    _threshold = target.max_hp * _thr_pct / 100.0
+                else:
+                    _threshold = hp_before * _thr_pct / 100.0
+                _reduction_val = self.damage_service._normalize_buff_value(_dtd_buff)
+                if extra_dmg > _threshold and _threshold > 0:
+                    _orig_dtd = extra_dmg
+                    extra_dmg = max(1, int(extra_dmg * (1.0 - _reduction_val)))
+                    _dtd_reduced_ids.add(_dtd_buff.buff_id)
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
+                              target.name, _orig_dtd, extra_dmg, _threshold, _reduction_val * 100)
+                else:
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d <= threshold %.0f, no reduction",
+                              target.name, extra_dmg, _threshold)
             target.current_hp = max(0, target.current_hp - extra_dmg)
             hp_loss = hp_before - target.current_hp
             if hp_loss > 0:
@@ -5296,6 +5321,27 @@ class SkillService:
             total_damage_delta += extra_dmg
             caster.damage_dealt_total += extra_dmg
             target.damage_taken_total += extra_dmg
+
+            # dmg_taken_down_threshold buff hit_limited 消耗（与damage/hp_ratio_damage路径一致：
+            # 仅在减伤实际生效的受击消耗1次，实战验证：低于阈值未减伤不消耗次数；
+            # 同一技能的hp_ratio_damage+add_damage若均触发减伤则各消耗1次）
+            _dtd_expired = []
+            for _dtd_b in target.buffs:
+                if _dtd_b.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_b, 'hit_limited', 0) <= 0:
+                    continue
+                if _dtd_b.buff_id not in _dtd_reduced_ids:
+                    continue
+                _dtd_b.hit_limited -= 1
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: hit_limited %d->%d (add_damage)",
+                          target.name, _dtd_b.hit_limited + 1, _dtd_b.hit_limited)
+                if _dtd_b.hit_limited <= 0:
+                    _dtd_expired.append(_dtd_b.buff_id)
+            if _dtd_expired:
+                target.buffs = [b for b in target.buffs if b.buff_id not in _dtd_expired]
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: %d buff(s) expired (hit_limited reached 0)",
+                          target.name, len(_dtd_expired))
 
             tracker = getattr(battlefield, 'scoring_tracker', None)
             if tracker is not None:
@@ -6282,6 +6328,8 @@ class SkillService:
 
         # lowest_hp_priority: 选择HP比例最低的友方作为治疗目标
         # 两层优先：1.自身以外优先 2.HP比例最低（第一层优先级 > 第二层）
+        # include_self: 含自身的纯HP比例排序（如130166 スマイル・ファンサービス
+        # 「HP割合が低い順に味方2体」——描述无「自身以外を優先」字样，含施法者自身排序）
         if heal_flags.get('lowest_hp_priority') and targets:
             from src.entities_v2.enums import Side as _SideH
             ally_team = battlefield.friend_team if caster.side == _SideH.ALLY else battlefield.enemy_team
@@ -6295,22 +6343,36 @@ class SkillService:
                     _skill_level_h = caster.skill_levels.get(_skill_id_h, 1)
                     if _skill_level_h >= 15:
                         _heal_count = _tc_lv15
-                # 先取自身以外的友方按HP比例升序排序
-                # tiebreaker: HP比例相同时（如全员满血）按距离施法者最近排序
-                others = [u for u in all_allies if u.unit_id != caster.unit_id]
-                others.sort(key=lambda u: (u.current_hp / max(u.max_hp, 1),
-                                           self.target_service._get_sort_key(caster, u)))
-                if others:
-                    selected = others[:_heal_count]
-                    # 非自身友方不足时用自身补位
-                    if len(selected) < _heal_count and caster.is_alive:
-                        selected.append(caster)
-                    targets = selected
+                # target_count: 指定治疗目标数（如130166 味方2体）
+                _tc_flag = heal_flags.get('target_count')
+                if _tc_flag and _tc_flag > 0:
+                    _heal_count = _tc_flag
+                if heal_flags.get('include_self'):
+                    # 含自身的纯HP比例排序：全部存活友方按HP比例升序取前N体
+                    # tiebreaker: HP比例相同时按距离施法者最近排序
+                    all_allies.sort(key=lambda u: (u.current_hp / max(u.max_hp, 1),
+                                                   self.target_service._get_sort_key(caster, u)))
+                    targets = all_allies[:_heal_count]
+                    _log.info("[HEAL] %s: lowest_hp_priority(include_self) -> %s (count=%d, hp_pct=%.1f%%)",
+                              caster.name, [t.name for t in targets], _heal_count,
+                              targets[0].current_hp / max(targets[0].max_hp, 1) * 100 if targets else 0)
                 else:
-                    targets = [caster] if caster.is_alive else []
-                _log.info("[HEAL] %s: lowest_hp_priority -> %s (count=%d, hp_pct=%.1f%%)",
-                          caster.name, [t.name for t in targets], _heal_count,
-                          targets[0].current_hp / max(targets[0].max_hp, 1) * 100 if targets else 0)
+                    # 先取自身以外的友方按HP比例升序排序
+                    # tiebreaker: HP比例相同时（如全员满血）按距离施法者最近排序
+                    others = [u for u in all_allies if u.unit_id != caster.unit_id]
+                    others.sort(key=lambda u: (u.current_hp / max(u.max_hp, 1),
+                                               self.target_service._get_sort_key(caster, u)))
+                    if others:
+                        selected = others[:_heal_count]
+                        # 非自身友方不足时用自身补位
+                        if len(selected) < _heal_count and caster.is_alive:
+                            selected.append(caster)
+                        targets = selected
+                    else:
+                        targets = [caster] if caster.is_alive else []
+                    _log.info("[HEAL] %s: lowest_hp_priority -> %s (count=%d, hp_pct=%.1f%%)",
+                              caster.name, [t.name for t in targets], _heal_count,
+                              targets[0].current_hp / max(targets[0].max_hp, 1) * 100 if targets else 0)
 
         # 记录heal主目标，供后续block的lowest_hp_row_only引用
         if targets:
@@ -8386,11 +8448,14 @@ class SkillService:
         # 保存原始duration_type（如"attacker_action"），用于攻击者行动结束时精确清理
         if original_dur_type:
             aura.original_duration_type = original_dur_type
-            # attacker_action + trigger_attacker target: 记录触发攻击者unit_id用于cleanup
-            # （如141301 風紀委員会の管轄だよ～ atk_down on trigger_attacker, この行動内）
+            # attacker_action: PS触发上下文中记录触发攻击者unit_id用于cleanup
+            # （如141301 風紀委員会の管轄だよ～ atk_down on trigger_attacker, この行動内；
+            #   130168 スペシャル・アピール dmg_taken_down on self, 創作中の防御側buff, この行動内）
+            # 参考 _apply_block_buff_by_type 的记录模式：不限于 target_identifier=='trigger_attacker'，
+            # 防御方PS持有者施加给自己的attacker_action buff同样需要按攻击者行动结束清理
             if original_dur_type == 'attacker_action':
                 _ta = getattr(self, '_trigger_attacker', None)
-                if _ta and getattr(effect, 'target_identifier', None) == 'trigger_attacker':
+                if _ta:
                     aura.triggered_by_attacker = _ta.unit_id
                     _log.info("[AURA_APPLY] %s -> %s: attacker_action triggered_by_attacker=%s for cleanup",
                               caster.name, target.name, _ta.unit_id)
@@ -10821,9 +10886,34 @@ class SkillService:
         支持的condition类型：
         - {"type": "self_hp_above", "value": 60}: 自身HP百分比>=value
         - {"type": "self_hp_below", "value": 60}: 自身HP百分比<value
+        - {"type": "self_lacks_mark", "mark_name": "創作"}: 自身不持有指定mark
+        - {"type": "self_has_mark", "mark_name": "アイデア"}: 自身持有指定mark
         """
         cond_type = condition.get('type', '')
         cond_val = condition.get('value', 0)
+        if cond_type == 'self_lacks_mark':
+            mark_name = condition.get('mark_name', '')
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in caster.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in caster.debuffs
+            )
+            result = not has_mark
+            _log.info("[EXEC_COND] %s: self_lacks_mark '%s' => %s", caster.name, mark_name, result)
+            return result
+        elif cond_type == 'self_has_mark':
+            mark_name = condition.get('mark_name', '')
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in caster.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in caster.debuffs
+            )
+            _log.info("[EXEC_COND] %s: self_has_mark '%s' => %s", caster.name, mark_name, has_mark)
+            return has_mark
         if caster.max_hp <= 0:
             return False
         hp_pct = (caster.current_hp / caster.max_hp) * 100.0
@@ -11149,6 +11239,9 @@ class SkillService:
 
             # 根据value_source确定基础值
             calc_detail = {"value_source": value_source or "consumed_hp", "dmg_pct": dmg_pct}
+            # ATK上限延迟应用（pending_cap）：实战验证顺序为 阈值减伤 → cap，
+            # 若先cap后减伤，减伤作用在被cap削小的值上导致伤害偏低（如120155 期望61999实际37079）
+            pending_cap = None
             # 应用受击方增减伤乘区（received_mult），公式: min(raw * received_mult, cap)
             damage_received_mult = self.damage_service._get_damage_received_multiplier(target, attacker=caster)
             calc_detail["received_mult"] = damage_received_mult
@@ -11159,11 +11252,11 @@ class SkillService:
                 raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
-                # 应用ATK上限
+                # 计算ATK上限（延迟应用：在阈值减伤之后，见循环开头pending_cap说明）
                 if cap_atk_pct > 0:
                     effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
                     cap = effective_atk * cap_atk_pct / 100.0
-                    raw_power = min(raw_power, cap)
+                    pending_cap = cap
                     calc_detail["cap"] = cap
                     calc_detail["effective_atk"] = effective_atk
                     calc_detail["cap_atk_pct"] = cap_atk_pct
@@ -11178,11 +11271,11 @@ class SkillService:
                 raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
-                # 应用ATK上限
+                # 计算ATK上限（延迟应用：在阈值减伤之后，见循环开头pending_cap说明）
                 if cap_atk_pct > 0:
                     effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
                     cap = effective_atk * cap_atk_pct / 100.0
-                    raw_power = min(raw_power, cap)
+                    pending_cap = cap
                     calc_detail["cap"] = cap
                     calc_detail["effective_atk"] = effective_atk
                     calc_detail["cap_atk_pct"] = cap_atk_pct
@@ -11197,11 +11290,11 @@ class SkillService:
                 raw_power = base_value * dmg_pct / 100.0 * damage_received_mult
                 calc_detail["base_value"] = base_value
                 calc_detail["raw_power"] = raw_power
-                # 应用ATK上限
+                # 计算ATK上限（延迟应用：在阈值减伤之后，见循环开头pending_cap说明）
                 if cap_atk_pct > 0:
                     effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
                     cap = effective_atk * cap_atk_pct / 100.0
-                    raw_power = min(raw_power, cap)
+                    pending_cap = cap
                     calc_detail["cap"] = cap
                     calc_detail["effective_atk"] = effective_atk
                     calc_detail["cap_atk_pct"] = cap_atk_pct
@@ -11221,6 +11314,36 @@ class SkillService:
 
             hp_before = target.current_hp
             actual_damage = int(raw_power)
+            # dmg_taken_down_threshold: HP阈值减伤 buff（与damage路径 calculate_damage 一致）
+            # 若单次伤害 > threshold (current_hp × threshold_pct%) 则整个伤害按 value% 减免
+            # 仅在减伤实际生效时消耗hit_limited（实战验证：低于阈值未减伤不消耗次数）
+            _dtd_reduced_ids = set()
+            for _dtd_buff in target.buffs:
+                if _dtd_buff.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
+                    continue
+                _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
+                _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
+                if _thr_base == 'max_hp':
+                    _threshold = target.max_hp * _thr_pct / 100.0
+                else:
+                    _threshold = hp_before * _thr_pct / 100.0
+                _reduction_val = self.damage_service._normalize_buff_value(_dtd_buff)
+                if actual_damage > _threshold and _threshold > 0:
+                    _orig_dtd = actual_damage
+                    actual_damage = max(1, int(actual_damage * (1.0 - _reduction_val)))
+                    _dtd_reduced_ids.add(_dtd_buff.buff_id)
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
+                              target.name, _orig_dtd, actual_damage, _threshold, _reduction_val * 100)
+                else:
+                    _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d <= threshold %.0f, no reduction",
+                              target.name, actual_damage, _threshold)
+            # 应用ATK上限（在阈值减伤之后，实战验证顺序：减伤 → cap）
+            if pending_cap is not None and actual_damage > pending_cap:
+                actual_damage = int(pending_cap)
+                _log.info("[HP_RATIO_DMG] %s -> %s: ATK cap applied after threshold reduction: %d (cap=%.1f)",
+                          caster.name, target.name, actual_damage, pending_cap)
             # 混乱减免（仅减免，不应用代理数值——代理数值仅在ATK-DEF模式适用）
             if getattr(caster, 'is_confused', False):
                 confusion_buff = self.damage_service._get_confusion_buff(caster) if self.damage_service else None
@@ -11363,6 +11486,26 @@ class SkillService:
                     damage_type="hp_ratio", calc_detail=calc_detail,
                     battlefield=battlefield, damage_service=self.damage_service,
                 )
+
+            # dmg_taken_down_threshold buff hit_limited 消耗（与damage路径一致：
+            # 仅在减伤实际生效的受击消耗1次，实战验证：低于阈值未减伤不消耗次数）
+            _dtd_expired = []
+            for _dtd_b in target.buffs:
+                if _dtd_b.effect_type != "dmg_taken_down_threshold":
+                    continue
+                if getattr(_dtd_b, 'hit_limited', 0) <= 0:
+                    continue
+                if _dtd_b.buff_id not in _dtd_reduced_ids:
+                    continue
+                _dtd_b.hit_limited -= 1
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: hit_limited %d->%d (hp_ratio_damage)",
+                          target.name, _dtd_b.hit_limited + 1, _dtd_b.hit_limited)
+                if _dtd_b.hit_limited <= 0:
+                    _dtd_expired.append(_dtd_b.buff_id)
+            if _dtd_expired:
+                target.buffs = [b for b in target.buffs if b.buff_id not in _dtd_expired]
+                _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: %d buff(s) expired (hit_limited reached 0)",
+                          target.name, len(_dtd_expired))
 
             targets_hit.append({
                 "target": target.name,

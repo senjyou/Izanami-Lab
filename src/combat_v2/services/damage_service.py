@@ -470,7 +470,10 @@ class DamageService:
             # 描述「自身の現在HPのX%を超えるダメージのみ{dmg}%減少させる」:
             # 若单次伤害 > threshold (current_hp × threshold_pct%) 则整个伤害按 value% 减免,
             # 否则不减伤。公式: actual = dmg × (1 - value/100) if dmg > threshold else dmg
-            # hit_limited 控制可生效的hit次数 (1/2/3)，每次被击中消耗1次
+            # hit_limited 控制可生效的hit次数 (1/2/3)，仅在减伤实际生效的hit消耗1次
+            # （实战验证：低于阈值未减伤的受击不消耗次数，否则buff提前耗尽，
+            #   后续超阈值伤害吃不到减伤）
+            _dtd_reduced_ids = set()
             for _dtd_buff in defender.buffs:
                 if _dtd_buff.effect_type != "dmg_taken_down_threshold":
                     continue
@@ -486,6 +489,7 @@ class DamageService:
                 if final_hit_damage > _threshold and _threshold > 0:
                     _orig_dtd = final_hit_damage
                     final_hit_damage = max(1, int(final_hit_damage * (1.0 - _reduction_val)))
+                    _dtd_reduced_ids.add(_dtd_buff.buff_id)
                     _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
                               defender.name, _orig_dtd, final_hit_damage, _threshold, _reduction_val * 100)
                 else:
@@ -533,12 +537,15 @@ class DamageService:
                           attacker.name, damage_dealt_mult)
 
             # 130160 サマータイム・ロマンス: dmg_taken_down_threshold buff hit_limited消耗
-            # 每次被击中消耗1次，hit_limited归零时移除buff
+            # 仅在减伤实际生效的hit消耗1次（_dtd_reduced_ids），hit_limited归零时移除buff
+            # 实战验证：低于阈值未减伤的受击不消耗次数
             _dtd_expired = []
             for _dtd_b in defender.buffs:
                 if _dtd_b.effect_type != "dmg_taken_down_threshold":
                     continue
                 if getattr(_dtd_b, 'hit_limited', 0) <= 0:
+                    continue
+                if _dtd_b.buff_id not in _dtd_reduced_ids:
                     continue
                 _dtd_b.hit_limited -= 1
                 _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: hit_limited %d->%d (after hit[%d])",
