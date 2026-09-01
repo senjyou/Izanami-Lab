@@ -520,6 +520,23 @@ class SkillService:
                 _log.info("[SKILL_GC] %s: [%s] self_lacks_mark '%s': mark found, blocked",
                           caster.name, skill_name, gc_mark_name)
                 return False
+        elif gc_type == 'self_mark_count':
+            # 自身持有的指定mark数量比较（如120167「ネクサスエッジオーバーロード」
+            # 自身「呼応」>=10时技能不发动）
+            gc_mark_name = gc.get('mark_name', '')
+            gc_op = gc.get('operator', '>=') or '>='
+            gc_val = gc.get('value', gc.get('pct', 0)) or 0
+            gc_count = sum(
+                1 for b in caster.buffs
+                if b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == gc_mark_name
+            ) + sum(
+                1 for d in caster.debuffs
+                if d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == gc_mark_name
+            )
+            if not _eval_block_condition(gc_count, gc_op, gc_val):
+                _log.info("[SKILL_GC] %s: [%s] self_mark_count '%s' = %d %s %d not met, blocked",
+                          caster.name, skill_name, gc_mark_name, gc_count, gc_op, gc_val)
+                return False
         elif gc_type == 'ally_hp_below_exists':
             # 存在HP%低于pct的友方（含自身）时条件满足（如120154「HPが70%未満の味方がいる」）
             pct = gc.get('pct', 0)
@@ -939,7 +956,9 @@ class SkillService:
                                     "enemy_single_highest_hp_ratio_back_priority",
                                     "enemy_single_lowest_hp_ratio",
                                     "enemy_single_lowest_max_hp",
+                                    "enemy_single_lowest_def",
                                     "enemy_single_highest_mark_count",
+                                    "enemy_single_lowest_mark_count",
                                     "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
                                     "enemy_column_lowest_mark_count",
@@ -1586,6 +1605,23 @@ class SkillService:
                                   caster.name, block.block_id, mark_name)
                         continue
 
+                elif cond_type == 'self_mark_count':
+                    # 自身持有的指定mark数量比较（如130175「呼応」>=10、120167「呼応」>=10不发动）
+                    mark_name = block_condition.get('mark_name', '')
+                    s_op = block_condition.get('operator', '>=') or '>='
+                    s_val = block_condition.get('value', block_condition.get('pct', 0)) or 0
+                    s_count = sum(
+                        1 for b in caster.buffs
+                        if b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                    ) + sum(
+                        1 for d in caster.debuffs
+                        if d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                    )
+                    if not _eval_block_condition(s_count, s_op, s_val):
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (self_mark_count '%s' = %d %s %d not met)",
+                                  caster.name, block.block_id, mark_name, s_count, s_op, s_val)
+                        continue
+
                 elif cond_type == 'self_ep_above_or_equal':
                     # 130158 ヒートアップ・ラブ: 检查自身EP是否>=value
                     # 使用技能执行前的EP快照, 确保互斥block基于初始EP判断
@@ -2129,7 +2165,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_lowest_mark_count"):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_single_lowest_mark_count" or effect.target_type == "enemy_single_lowest_def" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_lowest_mark_count"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -2304,6 +2340,19 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         _log.info("[SKILL_EXEC] %s: lowest_max_hp filter -> %s (max_hp=%d)",
                                   caster.name, best.name, best.max_hp)
+                    elif effect.target_type == "enemy_single_lowest_def" and dmg_targets:
+                        # 防御力最低の敵単体（アブセンストリガー 130175）
+                        best = self.target_service.select_min_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (self.damage_service._calculate_final_stat(u, "defense") if self.damage_service else u.defense,
+                                                self.target_service._get_sort_key(caster, u)),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: lowest_def filter -> %s (def=%d)",
+                                  caster.name, best.name if best else 'N/A',
+                                  self.damage_service._calculate_final_stat(best, "defense") if best and self.damage_service else (best.defense if best else 0))
                     elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
                         # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
                         pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
@@ -2339,6 +2388,28 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: highest_mark_count filter -> %s (mark_name='%s', count=%d)",
                                   caster.name, best.name if best else 'N/A', _hmc_mark_name,
                                   _count_mark(best) if best else 0)
+                    elif effect.target_type == "enemy_single_lowest_mark_count" and dmg_targets:
+                        # 按 mark 数量升序选取目标（mark_count 相同时按距离升序，最近优先）
+                        # 用于 ネクサスエッジオーバーロード/トリプルカオスキャノン「「呼応」が最も少ない敵を優先」
+                        _lmc_mark_name = effect_flags_block.get('mark_name', '') if effect_flags_block else ''
+                        def _count_mark_min(u):
+                            cnt = sum(1 for d in u.debuffs
+                                      if d.effect_type == SkillEffectType.MARK.value
+                                      and getattr(d, 'name', '') == _lmc_mark_name)
+                            cnt += sum(1 for b in u.buffs
+                                       if b.effect_type == SkillEffectType.MARK.value
+                                       and getattr(b, 'name', '') == _lmc_mark_name)
+                            return cnt
+                        best = self.target_service.select_min_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (_count_mark_min(u), self.target_service._get_sort_key(caster, u)),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: lowest_mark_count filter -> %s (mark_name='%s', count=%d)",
+                                  caster.name, best.name if best else 'N/A', _lmc_mark_name,
+                                  _count_mark_min(best) if best else 0)
                     elif effect.target_type == "enemy_column_furthest" and dmg_targets:
                         # 先找最远的敌方，然后选其所在的列（前后列/纵列）
                         # ステルス重定向应用于锚点选择
@@ -3072,6 +3143,55 @@ class SkillService:
                 target.debuffs.append(temp_def_down)
                 _log.info("[HP_SCALING_DEF_PENETRATE] %s: target %s HP ratio=%.2f, def_down=%.1f%%",
                           caster.name, target.name, hp_ratio, penetrate_pct)
+
+            # mark_count_def_penetrate: 目标持有指定mark（如「呼応」）时，
+            # 每个mark临时降低目标防御X%（重複可・最大N個）后攻击（110078/120167/120168）
+            # 参考 hp_scaling_def_penetrate：创建临时def_down debuff，
+            # duration=1 + DURABLE_SOURCE_MANEUVER_END（施法者行动结束时清除）
+            _mcdp = effect_flags.get('mark_count_def_penetrate')
+            if _mcdp and target:
+                if isinstance(_mcdp, dict):
+                    _mcdp_mark_name = _mcdp.get('mark_name', '')
+                    _mcdp_max_marks = int(_mcdp.get('max_marks', 10))
+                    _mcdp_def_per_mark = _mcdp.get('def_per_mark')
+                    _mcdp_def_per_mark_tag = _mcdp.get('def_per_mark_tag')
+                else:
+                    _mcdp_mark_name = effect_flags.get('mark_name', '')
+                    _mcdp_max_marks = 10
+                    _mcdp_def_per_mark = None
+                    _mcdp_def_per_mark_tag = None
+                if _mcdp_def_per_mark is None and _mcdp_def_per_mark_tag:
+                    _mcdp_def_per_mark = self._resolve_tag_value_for_caster(caster, effect, _mcdp_def_per_mark_tag)
+                if _mcdp_mark_name and _mcdp_def_per_mark is not None:
+                    _mcdp_mark_count = sum(
+                        1 for b in target.buffs
+                        if b.effect_type == SkillEffectType.MARK.value
+                        and getattr(b, 'name', '') == _mcdp_mark_name
+                    )
+                    _mcdp_mark_count += sum(
+                        1 for d in target.debuffs
+                        if d.effect_type == SkillEffectType.MARK.value
+                        and getattr(d, 'name', '') == _mcdp_mark_name
+                    )
+                    _mcdp_effective = min(_mcdp_mark_count, _mcdp_max_marks) if _mcdp_max_marks > 0 else _mcdp_mark_count
+                    _mcdp_def_down = float(_mcdp_def_per_mark) * _mcdp_effective
+                    if _mcdp_def_down > 0:
+                        temp_mcdp_def_down = BuffState(
+                            buff_id=f"mark_count_def_penetrate_{caster.unit_id}_{target.unit_id}",
+                            name="呼応降防",
+                            effect_type=SkillEffectType.STATUS_DEFENSE.value,
+                            value=_mcdp_def_down,
+                            duration=1,
+                            timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+                            stack_count=1,
+                            value_tag=0,  # percent
+                            source_unit_id=caster.unit_id,
+                            is_debuff=True,
+                        )
+                        target.debuffs.append(temp_mcdp_def_down)
+                        _log.info("[MARK_COUNT_DEF_PENETRATE] %s: target %s mark '%s' count=%d (max=%d), def_down=%.1f%%",
+                                  caster.name, target.name, _mcdp_mark_name,
+                                  _mcdp_mark_count, _mcdp_max_marks, _mcdp_def_down)
 
             target_was_dead = not target.is_alive
             if target_was_dead and not is_using_cached:
@@ -7082,7 +7202,9 @@ class SkillService:
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_single_lowest_max_hp",
+            "enemy_single_lowest_def",
             "enemy_single_highest_mark_count",
+            "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
         }
@@ -7484,6 +7606,19 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s: lowest_max_hp filter -> %s (max_hp=%d)",
                           caster.name, best.name, best.max_hp)
 
+        if effect.target_type == "enemy_single_lowest_def":
+            # 防御力最低の敵単体（アブセンストリガー 130175）
+            if targets:
+                best = self.target_service.select_min_with_stealth(
+                    targets,
+                    key_func=lambda u: (self.damage_service._calculate_final_stat(u, "defense") if self.damage_service else u.defense,
+                                        self.target_service._get_sort_key(caster, u)),
+                    consume=True
+                )
+                targets = [best] if best else []
+                _log.info("[AURA_APPLY] %s: lowest_def filter -> %s",
+                          caster.name, best.name if best else 'N/A')
+
         if effect.target_type == "enemy_single_lowest_hp_ratio":
             if targets:
                 best = self.target_service.select_min_with_stealth(
@@ -7521,6 +7656,32 @@ class SkillService:
                 if best:
                     _log.info("[AURA_APPLY] %s: highest_mark_count filter -> %s (mark_name='%s', count=%d)",
                               caster.name, best.name, _amc_mark_name, _count_mark_aura(best))
+
+        if effect.target_type == "enemy_single_lowest_mark_count":
+            # 按 mark 数量升序选取目标（aura 路径，与 damage 路径保持一致）
+            if targets:
+                _almc_flags = getattr(effect, 'flags', None) or {}
+                if isinstance(_almc_flags, dict):
+                    _almc_mark_name = _almc_flags.get('mark_name', '')
+                else:
+                    _almc_mark_name = getattr(_almc_flags, 'mark_name', '')
+                def _count_mark_aura_min(u):
+                    cnt = sum(1 for d in u.debuffs
+                              if d.effect_type == SkillEffectType.MARK.value
+                              and getattr(d, 'name', '') == _almc_mark_name)
+                    cnt += sum(1 for b in u.buffs
+                               if b.effect_type == SkillEffectType.MARK.value
+                               and getattr(b, 'name', '') == _almc_mark_name)
+                    return cnt
+                best = self.target_service.select_min_with_stealth(
+                    targets,
+                    key_func=lambda u: (_count_mark_aura_min(u), self.target_service._get_sort_key(caster, u)),
+                    consume=True
+                )
+                targets = [best] if best else []
+                if best:
+                    _log.info("[AURA_APPLY] %s: lowest_mark_count filter -> %s (mark_name='%s', count=%d)",
+                              caster.name, best.name, _almc_mark_name, _count_mark_aura_min(best))
 
         if effect.target_type and "furthest" in effect.target_type:
             # furthest filter for aura effects (e.g. dmg_taken_up on enemy_single_furthest)
@@ -8708,6 +8869,9 @@ class SkillService:
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_single_lowest_max_hp",
+            "enemy_single_lowest_def",
+            "enemy_single_highest_mark_count",
+            "enemy_single_lowest_mark_count",
         }
         if target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
             _resolved_range = DisplayTargetRange.ALL_PAWNS.value
@@ -8812,7 +8976,9 @@ class SkillService:
             "enemy_single_highest_hp_ratio_back_priority",
             "enemy_single_lowest_hp_ratio",
             "enemy_single_lowest_max_hp",
+            "enemy_single_lowest_def",
             "enemy_single_highest_mark_count",
+            "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
         }
@@ -10646,8 +10812,11 @@ class SkillService:
                  "enemy_single_highest_current_hp",
                  "enemy_single_highest_max_hp",
                  "enemy_single_lowest_max_hp",
+                 "enemy_single_lowest_def",
                  "enemy_single_highest_hp_ratio_back_priority",
                  "enemy_single_lowest_hp_ratio",
+                 "enemy_single_highest_mark_count",
+                 "enemy_single_lowest_mark_count",
                  "enemy_back_center_single"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
                  "enemy_back_row", "enemy_front_row",
@@ -10718,6 +10887,15 @@ class SkillService:
             best = self.target_service.select_min_with_stealth(
                 dmg_targets,
                 key_func=lambda u: self.damage_service._calculate_final_stat(u, "speed") if self.damage_service else u.speed,
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_lowest_def":
+            # 防御力最低の敵単体（130175 アブセンストリガー）
+            best = self.target_service.select_min_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (self.damage_service._calculate_final_stat(u, "defense") if self.damage_service else u.defense,
+                                    self.target_service._get_sort_key(caster, u)),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
@@ -10795,6 +10973,23 @@ class SkillService:
             best = self.target_service.select_max_with_stealth(
                 dmg_targets,
                 key_func=lambda u: (_count_mark_pre(u), -self.target_service._get_sort_key(caster, u)),
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_lowest_mark_count":
+            # 按 mark 数量升序选取（prescan 路径，与 damage 路径 L2343 分支保持一致）
+            _lmc_mark_name = effect_flags.get('mark_name', '') if effect_flags else ''
+            def _count_mark_pre_min(u):
+                cnt = sum(1 for d in u.debuffs
+                          if d.effect_type == SkillEffectType.MARK.value
+                          and getattr(d, 'name', '') == _lmc_mark_name)
+                cnt += sum(1 for b in u.buffs
+                           if b.effect_type == SkillEffectType.MARK.value
+                           and getattr(b, 'name', '') == _lmc_mark_name)
+                return cnt
+            best = self.target_service.select_min_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (_count_mark_pre_min(u), self.target_service._get_sort_key(caster, u)),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []

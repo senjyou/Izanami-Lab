@@ -4002,5 +4002,155 @@
         "skill_master_id": 400232
       }
     ]
+  },
+  "20085": {
+    "memory_id": 20085,
+    "name": "皆で勝つために",
+    "description": "え、ええと……多分、使用中の札をかけていたはずですが……",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 101,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400237
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 4,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400238
+      }
+    ]
+  },
+  "20086": {
+    "memory_id": 20086,
+    "name": "はじめてのきもち",
+    "description": "あははっ♪　ここからは、私も本気出すってこと！\n皆、ライバルとしてよろしくねっ！",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 110,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400239
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 2,
+        "skill_master_id": 400240
+      }
+    ]
+  },
+  "20087": {
+    "memory_id": 20087,
+    "name": "未来の光景",
+    "description": "任せて。こっちが今まで頼りにしてきた分、\nこっちも頑張らせてもらうよ。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 102,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400241
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 32,
+        "skill_master_id": 400242
+      }
+    ]
+  },
+  "20088": {
+    "memory_id": 20088,
+    "name": "マブガルコラボカフェ開催記念！",
+    "description": "める「いらっしゃいませ、指揮官さん！　たくさん食べてくださいね！」\nラミ「ラミ達に接客してもらえるとか超ラッキーじゃん。泣いて喜べよ～？」",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 7,
+        "skill_master_id": 400243
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400244
+      }
+    ]
+  },
+  "30037": {
+    "memory_id": 30037,
+    "name": "未来を勝ち取るために",
+    "description": "紡いだ絆が、決戦の地に集う。\\n定められた運命を覆し、『箱庭』を壊す時が来た。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400245
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400117
+      }
+    ]
   }
 }

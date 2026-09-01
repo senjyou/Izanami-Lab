@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 
 from ..entities_v2.battlefield_state import BattlefieldState
 from ..entities_v2.unit_state import UnitState, BuffState
-from ..entities_v2.enums import UnitActionPhase, TriggerTiming, Position, SkillEffectType, AuraUpdateTiming
+from ..entities_v2.enums import UnitActionPhase, TriggerTiming, Position, SkillEffectType, AuraUpdateTiming, Side
 
 from .services.resource_service import ResourceService
 from .services.skill_service import SkillService
@@ -746,6 +746,9 @@ class BattleFlowController:
                     )
                     self._execute_trigger_actions(after_as_attacked, unit)
 
+                    # 回忆卡受击触发（trigger=after_ally_attacked，如400244 回復被ダメ時）
+                    self._apply_memory_card_effects_on_ally_attacked(damaged_targets)
+
                     # 非AS技能的累计伤害触发器检查（保持原路径）
                     _per_hit_resets = self._compute_per_hit_reset_values(unique_damaged)
                     cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
@@ -1166,6 +1169,9 @@ class BattleFlowController:
                 damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
             )
             phase1_actions.extend(after_as_ally)
+
+            # 回忆卡受击触发（trigger=after_ally_attacked，如400244 回復被ダメ時）
+            self._apply_memory_card_effects_on_ally_attacked(damaged_targets)
 
             _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
             after_own_action = self.trigger_service.trigger_after_own_action(
@@ -3321,8 +3327,9 @@ class BattleFlowController:
                 effect_data = self.data_loader.get_memory_effect(skill_id)
                 if effect_data:
                     other_trigger = effect_data.get("trigger", {}).get("type", "")
-                    if other_trigger in ("turn_start", "turn_end", "periodic_start", "periodic_end"):
-                        continue  # 由回合开始/结束逻辑处理，不走旧路径
+                    if other_trigger in ("turn_start", "turn_end", "periodic_start", "periodic_end",
+                                         "after_ally_attacked"):
+                        continue  # 由回合开始/结束或受击逻辑处理，不走旧路径
 
                 # 回退到旧路径（正则解析 + execute_skill）
                 matched_units = self._resolve_memory_card_targets(highlight)
@@ -3388,6 +3395,82 @@ class BattleFlowController:
                 )
 
         _log.info("[MEMORY] ============ 回忆卡效果处理完成 (trigger=%s) ============", trigger_type)
+
+    def _apply_memory_card_effects_on_ally_attacked(self, damaged_targets: list) -> None:
+        """友方单位受到攻击后触发回忆卡受击效果（trigger=after_ally_attacked）
+
+        对应描述「味方が攻撃を受けた直後に発動」的回忆卡技能（如400244 回復被ダメ時）。
+        目标为实际受到攻击的友方单位；支持「戦闘中に1度しか発動しない」限制。
+
+        Args:
+            damaged_targets: 本次攻击中受到伤害的友方单位列表
+        """
+        if not self.battlefield.memory_cards or not damaged_targets:
+            return
+
+        # 仅保留存活且仍受击的友方目标
+        ally_hit = [u for u in damaged_targets
+                    if u.is_alive and u.side == Side.ALLY]
+        if not ally_hit:
+            return
+
+        _log.info("[MEMORY] ============ 回忆卡受击效果处理 (trigger=after_ally_attacked) ============")
+
+        for card in self.battlefield.memory_cards:
+            card_name = getattr(card, 'name', f"回忆卡#{getattr(card, 'card_id', '?')}")
+
+            for highlight in card.highlights:
+                skill_id = highlight.skill_master_id
+                if not skill_id:
+                    continue
+
+                effect_data = self.data_loader.get_memory_effect(skill_id)
+                if not effect_data:
+                    continue  # 无结构化数据不处理（不走旧路径，避免误触发）
+
+                trigger = effect_data.get("trigger", {})
+                if trigger.get("type") != "after_ally_attacked":
+                    continue
+
+                skill_name = self.data_loader.get_skill_name(skill_id)
+
+                if not effect_data.get("once_per_battle", False):
+                    _log.info("[MEMORY]   skill=%d [%s] 非once_per_battle受击技能，跳过", skill_id, skill_name)
+                    continue
+
+                # 战斗内仅1次：已触发过则跳过
+                if skill_id in self.battlefield.memory_card_once_triggered:
+                    continue
+
+                blocks = effect_data.get("blocks", [])
+                if not blocks:
+                    continue
+
+                _log.info("[MEMORY]   skill=%d [%s] -> 受击触发 (once_per_battle)", skill_id, skill_name)
+
+                applied_any = False
+                for block in blocks:
+                    target_type = block.get("target_type", "highlight_targets")
+                    effects = block.get("effects", [])
+
+                    # 受击目标：命中但未死亡的友方单位（依次对每个受击单位施加）
+                    for target_unit in ally_hit:
+                        # 若block要求highlight过滤，则校验受击单位是否匹配
+                        if target_type == "highlight_targets":
+                            if not self._match_memory_card_unit(target_unit, highlight):
+                                continue
+                        _log.info("[MEMORY]     -> %s (position=%s)", target_unit.name, target_unit.position)
+                        for effect in effects:
+                            self._apply_structured_effect_to_unit(
+                                card_name, target_unit, skill_id, skill_name, effect
+                            )
+                            applied_any = True
+
+                # 标记已触发（战斗内仅1次）：仅在实际施加效果后才标记
+                if applied_any:
+                    self.battlefield.memory_card_once_triggered.add(skill_id)
+
+        _log.info("[MEMORY] ============ 回忆卡受击效果处理完成 ============")
 
     def _resolve_memory_card_targets(self, highlight) -> list:
         targets = []
@@ -3815,6 +3898,10 @@ class BattleFlowController:
         if value_source == "target_max_hp":
             # 基于目标最大HP的百分比治疗（如"最大HPの10.5%回復"）
             return int(target_unit.max_hp * value / 100)
+        if value_source == "target_lost_hp":
+            # 基于目标已损失HP的百分比治疗（如400244「失ったHPの15%分回復」）
+            lost_hp = max(0, target_unit.max_hp - target_unit.current_hp)
+            return int(lost_hp * value / 100)
         if value_tag == 0:
             # 百分比治疗（基于最大HP）
             return int(target_unit.max_hp * value / 100)

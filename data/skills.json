@@ -78990,5 +78990,647 @@
     ],
     "template_tags": {},
     "display_info": {}
+  },
+  "110078": {
+    "skill_id": 110078,
+    "name": "自由な未来へ！",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}でEN攻撃する。\n対象が「呼応」状態の場合、「呼応」1つにつき一時的に防御力を{def}%低下させてから攻撃する（重複可・最大10個まで）"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          },
+          {
+            "level": 10,
+            "value": 3.5
+          },
+          {
+            "level": 15,
+            "value": 7.5
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      }
+    }
+  },
+  "120167": {
+    "skill_id": 120167,
+    "name": "ネクサスエッジオーバーロード",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「呼応」が最も少ない敵を優先して敵単体に威力{威力}でEN攻撃し、対象と自身に「呼応」を1つずつ付与する（解除不可）。\n対象が「呼応」状態の場合、「呼応」1つにつき一時的に防御力を3.5%低下させてから攻撃する（重複可・最大10個まで）。\n自身が所持している「呼応」が10個以上の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 120.0
+          },
+          {
+            "level": 3,
+            "value": 127.45999908447266
+          },
+          {
+            "level": 4,
+            "value": 142.39999389648438
+          },
+          {
+            "level": 6,
+            "value": 149.86000061035156
+          },
+          {
+            "level": 7,
+            "value": 164.8000030517578
+          },
+          {
+            "level": 9,
+            "value": 172.25999450683594
+          },
+          {
+            "level": 10,
+            "value": 187.1999969482422
+          },
+          {
+            "level": 15,
+            "value": 254.39999389648438
+          }
+        ]
+      }
+    }
+  },
+  "120168": {
+    "skill_id": 120168,
+    "name": "トリプルカオスキャノン",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「呼応」が最も少ない敵を優先し、敵単体に威力{威力}で3ヒットEN攻撃する。\n対象が「呼応」状態の場合、「呼応」1つにつき一時的に防御力を3.5%低下させてから攻撃する（重複可・最大10個まで）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 45.0
+          },
+          {
+            "level": 3,
+            "value": 47.79999923706055
+          },
+          {
+            "level": 4,
+            "value": 53.400001525878906
+          },
+          {
+            "level": 6,
+            "value": 56.20000076293945
+          },
+          {
+            "level": 7,
+            "value": 61.79999923706055
+          },
+          {
+            "level": 9,
+            "value": 64.58999633789062
+          },
+          {
+            "level": 10,
+            "value": 70.19999694824219
+          },
+          {
+            "level": 15,
+            "value": 95.4000015258789
+          }
+        ]
+      }
+    }
+  },
+  "130175": {
+    "skill_id": 130175,
+    "name": "アブセンストリガー",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "アクティブスキルを3回使用するたびに発動。最も防御力の低い敵単体に威力{威力}でEN攻撃する。\nさらに自身が所持している「呼応」が10個以上の場合、自身のAPを1加算し、自身の攻撃力を{atk}%上昇させる（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "アクティブスキルを3回使用するたびに発動。最も防御力の低い敵単体に威力{威力}でEN攻撃し、対象が次に受ける攻撃での被ダメージを{dmg}%増加させるデバフを付与する（重複可）。\nさらに自身が所持している「呼応」が10個以上の場合、自身のAPを1加算し、自身の攻撃力を{atk}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 20.0
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          }
+        ]
+      }
+    }
+  },
+  "130176": {
+    "skill_id": 130176,
+    "name": "ジョーカーカード",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×10%のダメージを受けるたびに発動。自身にかけられているバフを2つ解除し、1行動の間、自身の攻撃力を{atk}%上昇させる（重複可）。\n解除可能なバフを2つ以上所持していない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 15.539999961853027
+          },
+          {
+            "level": 4,
+            "value": 16.610000610351562
+          },
+          {
+            "level": 6,
+            "value": 17.139999389648438
+          },
+          {
+            "level": 7,
+            "value": 18.219999313354492
+          },
+          {
+            "level": 9,
+            "value": 18.75
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "400237": {
+    "skill_id": 400237,
+    "name": "HP上昇【七彩】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。鳴滝七彩のHPを{hp}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400238": {
+    "skill_id": 400238,
+    "name": "防御上昇【タンク】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。タンクの防御力を{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 140.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400239": {
+    "skill_id": 400239,
+    "name": "攻撃上昇【ユリア】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。ユリア・バーンズの攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400240": {
+    "skill_id": 400240,
+    "name": "ENダメージ上昇【中央列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。中央列前衛の味方に対し、EN攻撃で与えるダメージを{dmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 8.399999618530273
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400241": {
+    "skill_id": 400241,
+    "name": "会心率上昇【ちゆる】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。月ヶ瀬ちゆるの会心率を{crt}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400242": {
+    "skill_id": 400242,
+    "name": "HP上昇【右列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列後衛の味方のHPを{hp}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1050.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400243": {
+    "skill_id": 400243,
+    "name": "回復量上昇【前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方前衛のHP回復量を{buff}%上昇させる。"
+      }
+    ],
+    "template_tags": {
+      "buff": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400244": {
+    "skill_id": 400244,
+    "name": "回復被ダメ時【味方単体】",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 128,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方が攻撃を受けた直後に発動。攻撃を受けた味方単体に対し、対象の失ったHPの{cure}%分回復する。このスキルは戦闘開始時・ターン開始時・ターン終了時には発動しない。このスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400245": {
+    "skill_id": 400245,
+    "name": "物理ダメージ上昇【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方全体の物理攻撃で与えるダメージを{dmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.75
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

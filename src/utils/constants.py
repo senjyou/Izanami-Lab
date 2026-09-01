@@ -204,22 +204,22 @@ class ModuleType(IntEnum):
 
 # 模块阶段和等级
 MIN_MODULE_TIER = 1
-MAX_MODULE_TIER = 8
-MAX_MODULE_LEVEL_PER_TIER = 45  # Tier8最高45级
+MAX_MODULE_TIER = 10
+MAX_MODULE_LEVEL_PER_TIER = 55  # Tier10最高55级
 
-# 模块Tier8满级数值 (Tier8, Level 45)
-MODULE_TIER8_MAX_STATS = {
+# 模块Tier10满级数值 (Tier10, Level 55)
+MODULE_TIER10_MAX_STATS = {
     ModuleType.HP: {
-        'base': 3028,      # HpBase=2500, HpPerLevel=12, 45级=2500+12*44
-        'percentage': 0.08  # 8%
+        'base': 4288,      # HpBase=3640, HpPerLevel=12, 55级=3640+12*54
+        'percentage': 0.10  # 10%
     },
     ModuleType.ATTACK: {
-        'base': 2271,      # AttackBase=1875, AttackPerLevel=9, 45级=1875+9*44
-        'percentage': 0.08  # 8%
+        'base': 3216,      # AttackBase=2730, AttackPerLevel=9, 55级=2730+9*54
+        'percentage': 0.10  # 10%
     },
     ModuleType.DEFENSE: {
-        'base': 1265,      # DefenseBase=1045, DefensePerLevel=5, 45级=1045+5*44
-        'percentage': 0.08  # 8%
+        'base': 1790,      # DefenseBase=1520, DefensePerLevel=5, 55级=1520+5*54
+        'percentage': 0.10  # 10%
     }
 }
 

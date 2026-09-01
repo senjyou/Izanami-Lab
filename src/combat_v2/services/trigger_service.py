@@ -1713,6 +1713,36 @@ class TriggerService:
             _log.info("[TRIGGER_COND] %s: self_lacks_mark '%s' => %s", owner.name, mark_name, result)
             return result
 
+        if cond_type == "self_mark_count":
+            # 检查PS持有者自身持有的指定mark数量（如130175「呼応」>=10时触发额外效果）
+            mark_name = condition.get('mark_name', '')
+            op = condition.get('operator', '>=') or '>='
+            val = condition.get('value', condition.get('pct', 0)) or 0
+            count = sum(
+                1 for b in owner.buffs
+                if b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+            ) + sum(
+                1 for d in owner.debuffs
+                if d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+            )
+            result = _eval_condition(count, op, val)
+            _log.info("[TRIGGER_COND] %s: self_mark_count '%s' = %d %s %d => %s",
+                      owner.name, mark_name, count, op, val, result)
+            return result
+
+        if cond_type == "self_removable_buff_count":
+            # 检查PS持有者自身可解除buff数量（如130176「ジョーカーカード」
+            # 可解除buff<2时不发动）。排除记忆卡buff和unremovable。
+            op = condition.get('operator', '>=') or '>='
+            val = condition.get('value', condition.get('pct', 0)) or 0
+            removable = [b for b in owner.buffs
+                         if not b.is_memory_buff and not b.unremovable]
+            count = len(removable)
+            result = _eval_condition(count, op, val)
+            _log.info("[TRIGGER_COND] %s: self_removable_buff_count = %d %s %d => %s",
+                      owner.name, count, op, val, result)
+            return result
+
         if cond_type == "target_has_mark":
             # 检查触发目标是否持有指定mark（用于PS2的乱調检查）
             mark_name = condition.get('mark_name', '')

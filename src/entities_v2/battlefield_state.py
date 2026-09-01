@@ -43,6 +43,10 @@ class BattlefieldState:
 
     # ========== RDPS 统计系统 ==========
     rdps_tracker: Optional['RDPSTracker'] = None
+
+    # ========== 回忆卡一次性触发记录 ==========
+    # 记录已成功触发的"战斗内仅1次"回忆卡 skill_id（如400244 回復被ダメ時），确保整个战斗只触发一次
+    memory_card_once_triggered: set = field(default_factory=set)
     
     def add_unit(self, unit: UnitState):
         """添加单位到战场（自动确保 unit_id 唯一）"""

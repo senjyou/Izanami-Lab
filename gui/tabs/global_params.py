@@ -112,12 +112,12 @@ class GlobalParamsTab(ttk.Frame):
         ttk.Label(mod_tl_frame, text="等级", width=5).grid(row=0, column=2, padx=2)
 
         # HP / 攻击 / 防御 三行
-        self.var_mod_tier_hp = tk.IntVar(value=9)
-        self.var_mod_level_hp = tk.IntVar(value=50)
-        self.var_mod_tier_atk = tk.IntVar(value=9)
-        self.var_mod_level_atk = tk.IntVar(value=50)
-        self.var_mod_tier_def = tk.IntVar(value=9)
-        self.var_mod_level_def = tk.IntVar(value=50)
+        self.var_mod_tier_hp = tk.IntVar(value=10)
+        self.var_mod_level_hp = tk.IntVar(value=55)
+        self.var_mod_tier_atk = tk.IntVar(value=10)
+        self.var_mod_level_atk = tk.IntVar(value=55)
+        self.var_mod_tier_def = tk.IntVar(value=10)
+        self.var_mod_level_def = tk.IntVar(value=55)
 
         mod_stat_rows = [
             ("HP",   self.var_mod_tier_hp,   self.var_mod_level_hp),
@@ -126,9 +126,9 @@ class GlobalParamsTab(ttk.Frame):
         ]
         for idx, (stat_label, tier_var, lv_var) in enumerate(mod_stat_rows, start=1):
             ttk.Label(mod_tl_frame, text=stat_label, width=5).grid(row=idx, column=0, padx=2, pady=1, sticky="e")
-            ttk.Combobox(mod_tl_frame, textvariable=tier_var, values=list(range(1, 10)),
+            ttk.Combobox(mod_tl_frame, textvariable=tier_var, values=list(range(1, 11)),
                          state="readonly", width=5).grid(row=idx, column=1, padx=2, pady=1, sticky="w")
-            ttk.Spinbox(mod_tl_frame, from_=1, to=50, textvariable=lv_var,
+            ttk.Spinbox(mod_tl_frame, from_=1, to=55, textvariable=lv_var,
                         width=5).grid(row=idx, column=2, padx=2, pady=1, sticky="w")
 
         self._build_gear_defaults(lf)
@@ -262,8 +262,8 @@ class GlobalParamsTab(ttk.Frame):
             raw_skill_lv = values.get("default_skill_level", 15)
             self.var_skill_lv.set(min(raw_skill_lv, skill_max))
             # 模块Tier/等级 (向后兼容: 旧单值 → 三模块统一)
-            old_tier = values.get("default_mod_tier", 9)
-            old_level = values.get("default_mod_level", 50)
+            old_tier = values.get("default_mod_tier", 10)
+            old_level = values.get("default_mod_level", 55)
             self.var_mod_tier_hp.set(values.get("default_mod_tier_hp", old_tier))
             self.var_mod_level_hp.set(values.get("default_mod_level_hp", old_level))
             self.var_mod_tier_atk.set(values.get("default_mod_tier_atk", old_tier))
@@ -297,12 +297,12 @@ class GlobalParamsTab(ttk.Frame):
         self.var_affection.set(40)
         self.skill_lv_spinbox.config(to=15)
         self.var_skill_lv.set(15)
-        self.var_mod_tier_hp.set(9)
-        self.var_mod_level_hp.set(50)
-        self.var_mod_tier_atk.set(9)
-        self.var_mod_level_atk.set(50)
-        self.var_mod_tier_def.set(9)
-        self.var_mod_level_def.set(50)
+        self.var_mod_tier_hp.set(10)
+        self.var_mod_level_hp.set(55)
+        self.var_mod_tier_atk.set(10)
+        self.var_mod_level_atk.set(55)
+        self.var_mod_tier_def.set(10)
+        self.var_mod_level_def.set(55)
         for gv in self.gear_vars:
             gv["et"].set("无效果")
             gv["val"].set(0.0)

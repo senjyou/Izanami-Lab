@@ -48,9 +48,9 @@ class CharacterStatsCache:
         "rarity": None,  # 将使用角色最高稀有度
         "affection_level": 40,
         "modules": [
-            {"module_id": 0, "tier": 8, "level": 45, "gear_effects": []},
-            {"module_id": 0, "tier": 8, "level": 45, "gear_effects": []},
-            {"module_id": 0, "tier": 8, "level": 45, "gear_effects": []}
+            {"module_id": 0, "tier": 10, "level": 55, "gear_effects": []},
+            {"module_id": 0, "tier": 10, "level": 55, "gear_effects": []},
+            {"module_id": 0, "tier": 10, "level": 55, "gear_effects": []}
         ],
         "default_skill_level": 15
     }

@@ -85428,5 +85428,408 @@
     "parse_notes": [
       "PS: before_any_attacked + global_condition(target_is_self + 創作中 + 生存友方含自身>=2) -> dmg_taken_down(self, dmg%, duration_type=attacker_action: この行動内=攻击者行动内全部技能全部hit减伤, 攻击者行动结束时清除)"
     ]
+  },
+  "110078": {
+    "skill_id": 110078,
+    "name": "自由な未来へ！",
+    "skill_type": 3,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "mark_count_def_penetrate": {
+                "mark_name": "呼応",
+                "def_per_mark_tag": "def",
+                "max_marks": 10
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "EX: 敵全体EN攻撃。対象が「呼応」状態の場合、「呼応」1つにつき一時的に防御力をdef%低下させてから攻撃（重複可・最大10個まで）。mark_count_def_penetrate機制：攻击时按目标呼応数量创建临时def_down，施法者行动结束时清除"
+    ]
+  },
+  "120167": {
+    "skill_id": 120167,
+    "name": "ネクサスエッジオーバーロード",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": {
+      "type": "self_mark_count",
+      "mark_name": "呼応",
+      "operator": "<",
+      "value": 10
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "mark_name": "呼応",
+              "mark_count_def_penetrate": {
+                "mark_name": "呼応",
+                "def_per_mark": 3.5,
+                "max_marks": 10
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": "primary_target",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "呼応",
+              "stackable": true,
+              "max_stacks": 10,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "呼応",
+              "is_buff_mark": true,
+              "stackable": true,
+              "max_stacks": 10,
+              "unremovable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS1: 「呼応」が最も少ない敵を優先して敵単体にEN攻撃し、対象と自身に「呼応」を1つずつ付与（解除不可）。対象が呼応状態の場合、呼応1つにつき一時的に防御力3.5%低下（重複可・最大10個）。自身の呼応>=10の場合は発動しない（global_condition self_mark_count <10）"
+    ]
+  },
+  "120168": {
+    "skill_id": 120168,
+    "name": "トリプルカオスキャノン",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "mark_name": "呼応",
+              "mark_count_def_penetrate": {
+                "mark_name": "呼応",
+                "def_per_mark": 3.5,
+                "max_marks": 10
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "AS2: 「呼応」が最も少ない敵を優先し、敵単体に威力{威力}で3ヒットEN攻撃。対象が呼応状態の場合、呼応1つにつき一時的に防御力3.5%低下（重複可・最大10個）"
+    ]
+  },
+  "130175": {
+    "skill_id": 130175,
+    "name": "アブセンストリガー",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_skill_use_count",
+    "global_condition": {
+      "type": "skill_use_count_modulo",
+      "value": 3
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_lowest_def",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_single_lowest_def",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attack",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "attack_limited": 1,
+              "level_min": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_mark_count",
+          "mark_name": "呼応",
+          "operator": ">=",
+          "value": 10
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_ap",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: ASを3回使用するたびに発動。最も防御力の低い敵単体に威力{威力}でEN攻撃。Lv11+は対象が次に受ける攻撃での被ダメージをdmg%増加（attack_limited=1, stackable）。自身の呼応>=10の場合AP+1 + atk_up(5%, 重複可, 永続)"
+    ]
+  },
+  "130176": {
+    "skill_id": 130176,
+    "name": "ジョーカーカード",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_cumulative_damage",
+    "global_condition": {
+      "type": "condition_list",
+      "mode": "all",
+      "conditions": [
+        {
+          "type": "cumulative_damage_percent",
+          "operator": ">=",
+          "value": 10
+        },
+        {
+          "type": "self_removable_buff_count",
+          "operator": ">=",
+          "value": 2
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "remove_buff",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 2,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "PS: 累計で最大HP×10%のダメージを受けるたびに発動（on_cumulative_damage + cumulative_damage_percent>=10）。自身のバフを2つ解除し（count=2, LIFO）、1行動の間atk%上昇（stackable）。解除可能なバフを2つ以上所持していない場合発動しない（self_removable_buff_count>=2）"
+    ]
   }
 }

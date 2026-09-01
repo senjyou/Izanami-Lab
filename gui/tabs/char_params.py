@@ -517,8 +517,8 @@ class CharacterParamsTab(ttk.Frame):
 
         gv = self.app.global_tab.get_values()
         if cfg.get("override"):
-            old_tier = cfg.get("mod_tier", 9)
-            old_level = cfg.get("mod_level", 50)
+            old_tier = cfg.get("mod_tier", 10)
+            old_level = cfg.get("mod_level", 55)
             init_tier_hp = cfg.get("mod_tier_hp", old_tier)
             init_lv_hp = cfg.get("mod_level_hp", old_level)
             init_tier_atk = cfg.get("mod_tier_atk", old_tier)
@@ -547,9 +547,9 @@ class CharacterParamsTab(ttk.Frame):
         ]
         for idx, (stat_label, tier_var, lv_var) in enumerate(mod_stat_rows, start=1):
             ttk.Label(mod_tl_grid, text=stat_label, width=4).grid(row=idx, column=0, padx=2, pady=1, sticky="e")
-            ttk.Combobox(mod_tl_grid, textvariable=tier_var, values=list(range(1, 10)),
+            ttk.Combobox(mod_tl_grid, textvariable=tier_var, values=list(range(1, 11)),
                          state="readonly", width=5).grid(row=idx, column=1, padx=2, pady=1, sticky="w")
-            ttk.Spinbox(mod_tl_grid, from_=1, to=50, textvariable=lv_var,
+            ttk.Spinbox(mod_tl_grid, from_=1, to=55, textvariable=lv_var,
                         width=5).grid(row=idx, column=2, padx=2, pady=1, sticky="w")
 
         # 右3/4：9个模块词条（与"模块设置"同行高度）
@@ -1047,8 +1047,8 @@ class CharacterParamsTab(ttk.Frame):
             tid = get_module_type_ids(char.character_type)
             if cfg.get("override"):
                 # 向后兼容: 旧单值 mod_tier/mod_level 作为三模块统一回退
-                old_tier = cfg.get("mod_tier", 9)
-                old_level = cfg.get("mod_level", 50)
+                old_tier = cfg.get("mod_tier", 10)
+                old_level = cfg.get("mod_level", 55)
                 per_stat_tiers = [
                     cfg.get("mod_tier_hp", old_tier),
                     cfg.get("mod_tier_atk", old_tier),
@@ -1244,12 +1244,12 @@ class CharacterParamsTab(ttk.Frame):
             "skill_level": cfg.get("skill_level", 15),
             "skill_levels": cfg.get("skill_levels", {}),
             # 向后兼容: 旧单值 mod_tier/mod_level 作为三模块统一回退
-            "mod_tier_hp": cfg.get("mod_tier_hp", cfg.get("mod_tier", 9)),
-            "mod_tier_atk": cfg.get("mod_tier_atk", cfg.get("mod_tier", 9)),
-            "mod_tier_def": cfg.get("mod_tier_def", cfg.get("mod_tier", 9)),
-            "mod_level_hp": cfg.get("mod_level_hp", cfg.get("mod_level", 50)),
-            "mod_level_atk": cfg.get("mod_level_atk", cfg.get("mod_level", 50)),
-            "mod_level_def": cfg.get("mod_level_def", cfg.get("mod_level", 50)),
+            "mod_tier_hp": cfg.get("mod_tier_hp", cfg.get("mod_tier", 10)),
+            "mod_tier_atk": cfg.get("mod_tier_atk", cfg.get("mod_tier", 10)),
+            "mod_tier_def": cfg.get("mod_tier_def", cfg.get("mod_tier", 10)),
+            "mod_level_hp": cfg.get("mod_level_hp", cfg.get("mod_level", 55)),
+            "mod_level_atk": cfg.get("mod_level_atk", cfg.get("mod_level", 55)),
+            "mod_level_def": cfg.get("mod_level_def", cfg.get("mod_level", 55)),
             "gear": cfg.get("gear", []),
         }
 

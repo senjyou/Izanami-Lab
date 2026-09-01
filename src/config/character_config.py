@@ -5,8 +5,8 @@ from typing import List, Dict, Optional
 class ModuleConfig:
     """模块配置"""
     module_id: int          # 模块ID
-    tier: int               # Tier (1-8)
-    level: int              # 等级 (1-45)
+    tier: int               # Tier (1-10)
+    level: int              # 等级 (1-55)
     gear_effects: List[Dict] = field(default_factory=list)  # 词条效果列表，每项为 {'effect_type': int, 'value': float}
 
 @dataclass

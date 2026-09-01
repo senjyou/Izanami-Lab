@@ -116,6 +116,19 @@
       "defense_base": 0,
       "defense_per_level": 0,
       "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 11,
+      "tier": 10,
+      "hp_base": 3640,
+      "hp_per_level": 12,
+      "hp_rate": 0.10000000149011612,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
     }
   },
   "12": {
@@ -232,6 +245,19 @@
       "attack_base": 2280,
       "attack_per_level": 9,
       "attack_rate": 0.09000000357627869,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 12,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 2730,
+      "attack_per_level": 9,
+      "attack_rate": 0.10000000149011612,
       "defense_base": 0,
       "defense_per_level": 0,
       "defense_rate": 0.0
@@ -354,6 +380,19 @@
       "defense_base": 1270,
       "defense_per_level": 5,
       "defense_rate": 0.09000000357627869
+    },
+    "10": {
+      "module_id": 13,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 1520,
+      "defense_per_level": 5,
+      "defense_rate": 0.10000000149011612
     }
   },
   "21": {
@@ -467,6 +506,19 @@
       "hp_base": 3040,
       "hp_per_level": 12,
       "hp_rate": 0.09000000357627869,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 21,
+      "tier": 10,
+      "hp_base": 3640,
+      "hp_per_level": 12,
+      "hp_rate": 0.10000000149011612,
       "attack_base": 0,
       "attack_per_level": 0,
       "attack_rate": 0.0,
@@ -592,6 +644,19 @@
       "defense_base": 0,
       "defense_per_level": 0,
       "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 22,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 2730,
+      "attack_per_level": 9,
+      "attack_rate": 0.10000000149011612,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
     }
   },
   "23": {
@@ -711,6 +776,19 @@
       "defense_base": 1270,
       "defense_per_level": 5,
       "defense_rate": 0.09000000357627869
+    },
+    "10": {
+      "module_id": 23,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 1520,
+      "defense_per_level": 5,
+      "defense_rate": 0.10000000149011612
     }
   },
   "31": {
@@ -824,6 +902,19 @@
       "hp_base": 3040,
       "hp_per_level": 12,
       "hp_rate": 0.09000000357627869,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 31,
+      "tier": 10,
+      "hp_base": 3640,
+      "hp_per_level": 12,
+      "hp_rate": 0.10000000149011612,
       "attack_base": 0,
       "attack_per_level": 0,
       "attack_rate": 0.0,
@@ -949,6 +1040,19 @@
       "defense_base": 0,
       "defense_per_level": 0,
       "defense_rate": 0.0
+    },
+    "10": {
+      "module_id": 32,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 2730,
+      "attack_per_level": 9,
+      "attack_rate": 0.10000000149011612,
+      "defense_base": 0,
+      "defense_per_level": 0,
+      "defense_rate": 0.0
     }
   },
   "33": {
@@ -1068,6 +1172,19 @@
       "defense_base": 1270,
       "defense_per_level": 5,
       "defense_rate": 0.09000000357627869
+    },
+    "10": {
+      "module_id": 33,
+      "tier": 10,
+      "hp_base": 0,
+      "hp_per_level": 0,
+      "hp_rate": 0.0,
+      "attack_base": 0,
+      "attack_per_level": 0,
+      "attack_rate": 0.0,
+      "defense_base": 1520,
+      "defense_per_level": 5,
+      "defense_rate": 0.10000000149011612
     }
   }
 }
