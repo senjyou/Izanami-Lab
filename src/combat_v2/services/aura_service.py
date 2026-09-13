@@ -224,6 +224,21 @@ class AuraService:
         if newly_expired:
             _log.info("[AURA] %s expired: %s", unit.name, list(newly_expired))
 
+        # decay_per_action: 「1行動ごとに1つずつ消滅」的mark（回忆卡400246 闘志等）
+        # 每行动结束递减1层（stack_count），归零后移除。仅is_memory_buff的MARK使用。
+        for b in unit.buffs + unit.debuffs:
+            if getattr(b, 'decay_per_action', 0) > 0:
+                b.stack_count -= 1
+                _log.info("[DECAY_PER_ACTION] %s: %s stack_count -> %d (decay 1/行动)",
+                          unit.name, getattr(b, 'name', '?'), b.stack_count)
+                if b.stack_count <= 0:
+                    if b in unit.buffs:
+                        unit.buffs.remove(b)
+                    elif b in unit.debuffs:
+                        unit.debuffs.remove(b)
+                    _log.info("[DECAY_PER_ACTION] %s: %s 消滅 (stack_count reached 0)",
+                              unit.name, getattr(b, 'name', '?'))
+
         # ダメージリンク（独立存储）の行動制持续时间递减
         # duration_type="action"のlinkを递减し、duration=0のlinkを削除
         # just_applied=Trueのlinkは当次行动新施加のため递减スキップ

@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260912T115514570Z-40764-03d310a0207d",
+  "runId": "20260912T115514570Z-40764-03d310a0207d",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/battle_flow_controller.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/damage_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/entities_v2/unit_state.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/aura_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "tests/test_actor_115302.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/battle_flow_controller.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/damage_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/entities_v2/unit_state.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/aura_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "tests/test_actor_115302.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "e0374fd57fcea6b6d664aa2451130e2de23f266e",
+  "diffHash": "c99ef3129bdecfb7b3b2dc157ef265709ae6f5a90cc1d0b57693a03d01f56d1f",
+  "rulesVersion": "unavailable",
+  "sessionHash": "411e341463158e26dcd942df02ce75af935cca259c1d047fa1cc36d58054ac5c",
+  "reportRef": ".mimosa/reports/task-review-sess_8c9a54b2-7ee6-41af-8d72-a87c40237631-20260912T115514570Z-40764-03d310a0207d.json",
+  "events": [
+    {
+      "eventId": "hook-ba5dc2ed8db2ed3a9687464c0b25ab2e",
+      "findingId": "mimosa-0518eade52ad5c4d726a60cb",
+      "type": "finding_blocked",
+      "at": "2026-09-12T10:47:45.422Z",
+      "identity": {
+        "projectRelativeFile": "scripts/_tmp_write_115302.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "0a1396730da41f67c0c60611e556646477dbe069a1ba3b8965d12a0d87c41cf0",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 130,
+      "endLine": 130,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "0a1396730da41f67c0c60611e556646477dbe069a1ba3b8965d12a0d87c41cf0"
+      },
+      "sequence": 0
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-09-12T11:55:14.885Z"
+}

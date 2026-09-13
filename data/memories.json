@@ -4152,5 +4152,125 @@
         "skill_master_id": 400117
       }
     ]
+  },
+  "20089": {
+    "memory_id": 20089,
+    "name": "父さんの、そして私の願い",
+    "description": "……さっき、父さんの話をしたでしょ。\nそうしたら、なんだか人恋しくなっちゃって。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": 115302,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400246
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": 115302,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400247
+      }
+    ]
+  },
+  "30036": {
+    "memory_id": 30036,
+    "name": "世界は今、新たな道を描いて",
+    "description": "終わった後に笑顔で、気持ちよかったって言ってもらえると、\nそれだけですごく嬉しいの。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400235
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400236
+      }
+    ]
+  },
+  "20084": {
+    "memory_id": 20084,
+    "name": "私の望むビジネスの輪",
+    "description": "その輪が広がっていく中で、最後に皆が笑顔になる……\nそんなビジネスの形が、私の夢なんだよね。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 119,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400233
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400234
+      }
+    ]
+  },
+  "20090": {
+    "memory_id": 20090,
+    "name": "お守り",
+    "description": "わ、わわわっ！？\nおい！　急に何すんの、髪ぐっちゃぐちゃになるじゃんか！",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 103,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400248
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400249
+      }
+    ]
   }
 }

@@ -291,6 +291,17 @@ class DamageService:
             skill_factor = skill_factor * max(0.0, 1.0 - _sp_down_pct / 100.0)
             _log.info("[DMG_CALC] SKILL_POWER_DOWN: %.1f%% reduction -> factor %.4f -> %.4f",
                       _sp_down_pct, _orig_factor, skill_factor)
+        # skill_power_up buff: 攻击者持有的スキル威力上昇buff（102303 イントロダクションライド130178）
+        # 多个buff叠加（取和），按百分比提升skill_factor
+        _sp_up_pct = 0.0
+        for _bb in attacker.buffs:
+            if _bb.effect_type == SkillEffectType.MODIFY_SKILL_POWER.value:
+                _sp_up_pct += float(getattr(_bb, 'value', 0) or 0)
+        if _sp_up_pct > 0:
+            _orig_factor = skill_factor
+            skill_factor = skill_factor * (1.0 + _sp_up_pct / 100.0)
+            _log.info("[DMG_CALC] SKILL_POWER_UP: +%.1f%% -> factor %.4f -> %.4f",
+                      _sp_up_pct, _orig_factor, skill_factor)
         _log.info("[DMG_CALC] step2_skill_factor: power=%.1f => factor=%.4f (after sp_down=%.1f%%)",
                   skill_power_val, skill_factor, _sp_down_pct)
         
@@ -477,8 +488,9 @@ class DamageService:
             for _dtd_buff in defender.buffs:
                 if _dtd_buff.effect_type != "dmg_taken_down_threshold":
                     continue
-                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
-                    continue
+                # hit_limited>0: 次数消耗型(130160「Nヒットまで」)
+                # hit_limited<=0: 时限型(130171「1ターンの間」无hit次数限制，
+                #                 减伤不消耗次数、随duration到期由通用aura机制移除)
                 _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
                 _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
                 if _thr_base == 'max_hp':
@@ -623,8 +635,62 @@ class DamageService:
 
         # 公式: Base * (1 + Sum(Percent)) + Sum(Fixed)
         final_val = base_val * (1.0 + multiplier) + fixed_add
+        # mark_stat_bonus: 「闘志1つにつき攻撃力4%」类按mark数实时属性加成
+        # （115302 ブレイブバレット120171/オーバーバースト120172「闘志」）
+        # stat: 该buff适用的属性名（attack/defense/speed/max_hp）；per_mark_pct: 每枚加成%；
+        # max_marks: 计入上限（0=不限）。mark数按持有者当前buffs+debuffs中同名MARK实时统计。
+        final_val += self._calc_mark_stat_bonus(unit, stat_name)
         # ATK/DEF/SPD等属性最低为0，不允许负数
         return max(0, int(final_val))
+
+    def _calc_mark_stat_bonus(self, unit: UnitState, stat_name: str) -> float:
+        """mark_stat_bonus实时加成（按持有mark数×每枚加成，受max_marks钳制）
+
+        「闘志」等mark体系技能：mark被移除/耗尽时，属性加成立即按当前数重新计算
+        （区别于申请时快照的 value_scales_with_self_mark_count）。
+        规则由持有mark_stat_bonus的carrier buff提供（120171的atk_up/crit_dmg_up），
+        mark的「个数」由同名MARK统计：
+        - stackable的mark：每个独立实例算1层
+        - 回忆卡 count=N 的mark：stack_count=N 算N层
+        stat语义差异：
+        - attack/defense/speed/max_hp: 每枚per_mark_pct%加成（乘基础值）
+        - crit_damage: 会心ダメージは絶対値ポイント加算（per_mark_pctをポイントとみなす）
+        """
+        total_pct = 0.0
+        seen_rules = set()  # 同名mark_stat_bonusのcarrierが複数あっても1回だけ適用
+        for b in unit.buffs + unit.debuffs:
+            msb = getattr(b, 'mark_stat_bonus', None)
+            if not msb or not isinstance(msb, dict):
+                continue
+            if msb.get('stat', 'attack') != stat_name:
+                continue
+            mark_name = msb.get('mark_name', '')
+            per_pct = float(msb.get('per_mark_pct', 0) or 0)
+            max_marks = int(msb.get('max_marks', 0) or 0)
+            if not mark_name or per_pct == 0:
+                continue
+            rule_key = (mark_name, stat_name, per_pct, max_marks)
+            if rule_key in seen_rules:
+                continue
+            seen_rules.add(rule_key)
+            cnt = 0
+            for m in unit.buffs + unit.debuffs:
+                if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
+                    cnt += int(getattr(m, 'stack_count', 1) or 1)
+            if max_marks > 0:
+                cnt = min(cnt, max_marks)
+            total_pct += per_pct * cnt
+        if total_pct == 0:
+            return 0.0
+        # crit_damage は絶対ポイントとして加算（per_mark_pct をポイントとみなす）
+        if stat_name == "crit_damage":
+            _log.info("[DMG_CALC] %s mark_stat_bonus crit_damage: +%.1f pts", unit.name, total_pct)
+            return total_pct
+        base_val = getattr(unit, stat_name, 0)
+        _log.info("[DMG_CALC] %s mark_stat_bonus %s: +%.1f%% (base=%d -> +%.0f)",
+                  unit.name, stat_name, total_pct, base_val, base_val * total_pct / 100.0)
+        return base_val * total_pct / 100.0
+
 
     def _get_attribute_factor(self, atk_attr: int, def_attr: int, attacker: UnitState) -> float:
         """
@@ -851,8 +917,11 @@ class DamageService:
         """暴击伤害倍率修正（三类buff规则）"""
         bonus = 0.0
         bonus += getattr(unit, "crit_damage", 0.0)
-        
+        # mark_stat_bonus: 「闘志1つにつき会心ダメージ3%」实时加成
+        if unit.is_alive:
+            bonus += self._calc_mark_stat_bonus(unit, 'crit_damage')
+
         t_type = SkillEffectType.CRITICAL_BONUS_MODIFICATION.value
         bonus += self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, t_type)
-        
+
         return bonus

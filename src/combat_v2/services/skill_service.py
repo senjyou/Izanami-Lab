@@ -65,6 +65,7 @@ _JSON_EFFECT_TO_ENUM: Dict[str, str] = {
     "heal_efficacy_up": SkillEffectType.RECEIVED_HEALING.value,
     "received_healing": SkillEffectType.RECEIVED_HEALING.value,
     "heal_efficacy_down": SkillEffectType.RECEIVED_HEALING.value,
+    "skill_power_up": SkillEffectType.MODIFY_SKILL_POWER.value,
     "max_hp_up": SkillEffectType.STATUS_MAX_HP.value,
     "add_max_ap": SkillEffectType.STATUS_MAX_AP.value,
     "shield": SkillEffectType.SHIELD.value,
@@ -371,6 +372,10 @@ class SkillService:
                         _log.info("[ONCE_PER_BATTLE] %s: PS[%s](id=%d) marked as triggered, will not trigger again this battle",
                                   owner.name, skill_name, action.skill_id)
 
+                # after_ps_use钩子（101302 セントリフレイン130173）:
+                # 自身PS执行成功后收集并执行「パッシブスキルを使用した後に発動」类PS
+                self._run_after_ps_use_hook(owner, action.skill_id, battlefield)
+
             # 恢复外层技能的_current_skill_id
             self._current_skill_id = saved_current_skill_id
 
@@ -446,6 +451,25 @@ class SkillService:
                 self._trigger_attacker = None
             if primary_target:
                 self._primary_target = None
+
+    def _run_after_ps_use_hook(self, owner: UnitState, executed_skill_id: int,
+                                battlefield: BattlefieldState) -> None:
+        """after_ps_use钩子（101302 セントリフレイン130173）。
+
+        「パッシブスキルを使用した後に発動」类PS：自身PS执行成功后收集并执行。
+        防递归：刚执行的PS自身不再触发自身（filtered），
+        后续链式触发由 _execute_trigger_actions_inline 内的钩子自然接力，
+        深度受 PP/EP 资源约束有界。
+        """
+        if not self.trigger_service:
+            return
+        actions = self.trigger_service.trigger_after_ps_use(owner, executed_skill_id, battlefield)
+        filtered = [a for a in actions if a.skill_id != executed_skill_id]
+        if not filtered:
+            return
+        _log.info("[AFTER_PS_USE] %s: %d after_ps_use action(s) after PS[%d]",
+                  owner.name, len(filtered), executed_skill_id)
+        self._execute_trigger_actions_inline(filtered, battlefield, trigger_timing='after_ps_use')
 
     def check_skill_cost(self, unit: UnitState, skill_id: int) -> bool:
         skill_data = self.data_loader.get_skill_by_id(skill_id)
@@ -620,6 +644,21 @@ class SkillService:
                 return False
             _log.info("[SKILL_GC] %s: [%s] targets_exist: target_type=%s has %d candidates, allow",
                       caster.name, skill_name, first_damage_target_type, len(_candidates))
+        elif gc_type == 'enemy_alive_count':
+            # 生存している敵がN体未満の場合、このスキルは発動しない
+            # （102303 コンクルージョン・ブラスト120169: 敵存活>=3才可发动）
+            from ...entities_v2.enums import Side as _SideGC
+            _enemy_units = (battlefield.enemy_team if caster.side == _SideGC.ALLY
+                            else battlefield.friend_team)
+            _alive_count = sum(1 for u in _enemy_units if u.is_alive)
+            _gc_op = gc.get('operator', '>=')
+            _gc_val = gc.get('value', 0)
+            if not _eval_block_condition(_alive_count, _gc_op, _gc_val):
+                _log.info("[SKILL_GC] %s: [%s] enemy_alive_count %d %s %s not met, blocked",
+                          caster.name, skill_name, _alive_count, _gc_op, _gc_val)
+                return False
+            _log.info("[SKILL_GC] %s: [%s] enemy_alive_count %d %s %s, allow",
+                      caster.name, skill_name, _alive_count, _gc_op, _gc_val)
         return True
 
     def _check_skill_global_condition(self, resolved, caster: UnitState,
@@ -1523,6 +1562,16 @@ class SkillService:
                                   caster.name, block.block_id, mark_name)
                         continue
 
+                elif cond_type == 'lacks_mark_at_start':
+                    # 检查技能执行前是否没有指定mark（110077 新しき一歩を 攻勢互斥block）
+                    # 与has_mark_at_start配对，保证同一技能内施加的mark不会让互斥block双双执行
+                    mark_name = block_condition.get('mark_name', '')
+                    marks_at_start = getattr(self, '_marks_at_start', {})
+                    if marks_at_start.get(mark_name, 0) > 0:
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (lacks_mark_at_start: '%s' present at start)",
+                                  caster.name, block.block_id, mark_name)
+                        continue
+
                 elif cond_type == 'target_has_buff':
                     # 检查之前伤害块的目标是否有任意buff（不包括debuff）
                     bdt = self._block_damage_targets if hasattr(self, '_block_damage_targets') and self._block_damage_targets else {}
@@ -1611,10 +1660,12 @@ class SkillService:
                     s_op = block_condition.get('operator', '>=') or '>='
                     s_val = block_condition.get('value', block_condition.get('pct', 0)) or 0
                     s_count = sum(
-                        1 for b in caster.buffs
+                        getattr(b, 'stack_count', 1) or 1
+                        for b in caster.buffs
                         if b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
                     ) + sum(
-                        1 for d in caster.debuffs
+                        getattr(d, 'stack_count', 1) or 1
+                        for d in caster.debuffs
                         if d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
                     )
                     if not _eval_block_condition(s_count, s_op, s_val):
@@ -1638,6 +1689,19 @@ class SkillService:
                     if not (_block_cond_ep_snapshot < _ep_val):
                         _log.info("[SKILL_EXEC] %s: skipping block %d (self_ep_below: ep=%.1f >= %s)",
                                   caster.name, block.block_id, _block_cond_ep_snapshot, _ep_val)
+                        continue
+
+                elif cond_type == 'triggered_by_character_type':
+                    # 101302 リベンジスタンス(130174): 参照受伤友方（triggered_by）的character_type分支
+                    # 1=物理 2=EN 3=敏捷。triggered_by 通过 _process_candidates 的 primary_target
+                    # fallback 传入（CUMULATIVE_DAMAGE 上下文 targets 为空），执行时读 _primary_target
+                    _tb_unit = getattr(self, '_primary_target', None)
+                    _tb_type = getattr(_tb_unit, 'character_type', None) if _tb_unit else None
+                    _tt_op = block_condition.get('operator', '==') or '=='
+                    _tt_val = block_condition.get('value', 0)
+                    if _tb_type is None or not _eval_block_condition(_tb_type, _tt_op, _tt_val):
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (triggered_by_character_type: %s %s %s not met)",
+                                  caster.name, block.block_id, _tb_type, _tt_op, _tt_val)
                         continue
 
 
@@ -2080,6 +2144,21 @@ class SkillService:
                             self._block_damage_targets[effect.target_type] = adj_targets[:target_count]
                             _log.info("[SKILL_EXEC] %s: adjacent_to_nearest_enemy target select: count=%d targets=%s",
                                       caster.name, target_count, [t.name for t in self._block_damage_targets[effect.target_type]])
+                        elif effect.target_type == "enemy_single_random":
+                            # ランダムな敵単体（102303 推測通り……だね♪110079 / コンクルージョン・ブラスト120169）
+                            # 随机池 = 全体存活敌方（等概率）
+                            # cache 优先：同一block内同target_type的后续effect复用首次随机结果
+                            # （EX「5ヒット、さらに威力{威力2}で1ヒット」的第6hit与前5hit同一目标；
+                            #   120169 的remove_ap/remove_pp复用damage的随机目标）
+                            _cached_random = self._block_damage_targets.get(effect.target_type)
+                            if not _cached_random:
+                                import random as _random_mod
+                                enemy_side = battlefield.enemy_team if caster.side == battlefield.friend_team[0].side else battlefield.friend_team
+                                _rand_candidates = [u for u in enemy_side if u.is_alive]
+                                _rand_best = _random_mod.choice(_rand_candidates) if _rand_candidates else None
+                                self._block_damage_targets[effect.target_type] = [_rand_best] if _rand_best else []
+                                _log.info("[SKILL_EXEC] %s: enemy_single_random select: %s (pool=%d)",
+                                          caster.name, _rand_best.name if _rand_best else None, len(_rand_candidates))
                         elif target_count > 1 or effect_flags_block.get('lowest_hp_priority'):
                             enemy_side = battlefield.enemy_team if caster.side == battlefield.friend_team[0].side else battlefield.friend_team
                             enemies = [u for u in enemy_side if u.is_alive]
@@ -2124,6 +2203,26 @@ class SkillService:
                                               lowest_hp_enemy.current_hp / max(lowest_hp_enemy.max_hp, 1) * 100,
                                               "front" if is_front else "back",
                                               [t.name for t in row_enemies])
+                                elif lowest_hp_enemy and effect.target_type == "enemy_column":
+                                    # 対象が含まれる敵前後列: 最低HP比例敌方所在纵列（前后2人）
+                                    # （110076 チクっとするよ～？）
+                                    # HP比例索敌精度: 截断万分之一 + 位置距离tiebreaker（project_rules HP比例精度规则）
+                                    enemies.sort(key=lambda u: (
+                                        int(u.current_hp / max(u.max_hp, 1) * 10000) / 10000,
+                                        self.target_service._get_sort_key(caster, u)
+                                    ))
+                                    _lowest_col_enemy = enemies[0] if enemies else None
+                                    if _lowest_col_enemy:
+                                        _col_idx = self.target_service._get_column_index(_lowest_col_enemy)
+                                        col_enemies = [u for u in enemies
+                                                       if self.target_service._get_column_index(u) == _col_idx]
+                                        self._block_damage_targets[effect.target_type] = col_enemies
+                                        _log.info("[SKILL_EXEC] %s: custom target select: lowest_hp=%s (hp_pct=%.1f%%) column=%d targets=%s",
+                                                  caster.name, _lowest_col_enemy.name,
+                                                  _lowest_col_enemy.current_hp / max(_lowest_col_enemy.max_hp, 1) * 100,
+                                                  _col_idx, [t.name for t in col_enemies])
+                                    else:
+                                        self._block_damage_targets[effect.target_type] = []
                                 else:
                                     self._block_damage_targets[effect.target_type] = enemies[:target_count]
                                 _log.info("[SKILL_EXEC] %s: custom target select: lowest_hp=%s count=%d targets=%s",
@@ -2224,9 +2323,31 @@ class SkillService:
                                                   caster.name, _fewest_mark_pre,
                                                   [t.name for t in self._block_damage_targets[effect.target_type]])
                                     else:
-                                        self._block_damage_targets[effect.target_type] = self.target_service.select_targets(
-                                            target_skill_obj, caster, battlefield
-                                        )
+                                        # mark_first_priority: 「X」状態の敵を優先し、敵単体に攻撃
+                                        # （120165 トリアージ・スラスト）
+                                        # 持有指定mark的敌人优先（其中距离最近优先），
+                                        # 无持有者时回退最近敌人
+                                        _mark_first_pre = effect_flags_block.get('mark_first_priority')
+                                        if _mark_first_pre and effect.target_type in ("enemy_single", "enemies", "enemy"):
+                                            enemy_side = battlefield.enemy_team if caster.side == battlefield.friend_team[0].side else battlefield.friend_team
+                                            _all_candidates = [u for u in enemy_side if u.is_alive]
+                                            _marked = [u for u in _all_candidates
+                                                       if self.target_service._count_mark(u, _mark_first_pre) > 0]
+                                            if _marked:
+                                                _marked.sort(key=lambda u: self.target_service._get_sort_key(caster, u))
+                                                _best = _marked[0]
+                                            else:
+                                                _sorted_all = sorted(_all_candidates,
+                                                                     key=lambda u: self.target_service._get_sort_key(caster, u))
+                                                _best = _sorted_all[0] if _sorted_all else None
+                                            self._block_damage_targets[effect.target_type] = [_best] if _best else []
+                                            _log.info("[SKILL_EXEC] %s: mark_first_priority='%s' pre-populate -> %s",
+                                                      caster.name, _mark_first_pre,
+                                                      [t.name for t in self._block_damage_targets[effect.target_type]])
+                                        else:
+                                            self._block_damage_targets[effect.target_type] = self.target_service.select_targets(
+                                                target_skill_obj, caster, battlefield
+                                            )
 
                     # Post-filter for highest_atk/highest_spd target types
                     # ステルス消費：特殊索敌类型的第一優先対象がステルス所持時、末尾に移動してステルス消費
@@ -2371,10 +2492,11 @@ class SkillService:
                         # 用于 EX あわあわふー「最も「ほてり」を多く持っている敵を優先」
                         _hmc_mark_name = effect_flags_block.get('mark_name', '') if effect_flags_block else ''
                         def _count_mark(u):
-                            cnt = sum(1 for d in u.debuffs
+                            # 层数按stack_count加总（兼容回忆卡count=N单实例与多次stackable实例）
+                            cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                                       if d.effect_type == SkillEffectType.MARK.value
                                       and getattr(d, 'name', '') == _hmc_mark_name)
-                            cnt += sum(1 for b in u.buffs
+                            cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                                        if b.effect_type == SkillEffectType.MARK.value
                                        and getattr(b, 'name', '') == _hmc_mark_name)
                             return cnt
@@ -2393,10 +2515,10 @@ class SkillService:
                         # 用于 ネクサスエッジオーバーロード/トリプルカオスキャノン「「呼応」が最も少ない敵を優先」
                         _lmc_mark_name = effect_flags_block.get('mark_name', '') if effect_flags_block else ''
                         def _count_mark_min(u):
-                            cnt = sum(1 for d in u.debuffs
+                            cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                                       if d.effect_type == SkillEffectType.MARK.value
                                       and getattr(d, 'name', '') == _lmc_mark_name)
-                            cnt += sum(1 for b in u.buffs
+                            cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                                        if b.effect_type == SkillEffectType.MARK.value
                                        and getattr(b, 'name', '') == _lmc_mark_name)
                             return cnt
@@ -2889,6 +3011,15 @@ class SkillService:
             if skill_level < level_min:
                 _log.info("[SKILL_EXEC] %s: skipping effect %s (level %d < level_min %d)",
                           caster.name, etype, skill_level, level_min)
+                return None
+        # level_max: 效果等级上限（level > value 时跳过，与block级active_level_max语义一致）
+        # （103303 助けてあげよっか？120174: L1-12/L13/L14/L15四段效果组合）
+        level_max = effect_flags.get('level_max')
+        if level_max is not None:
+            skill_level = caster.skill_levels.get(self._current_skill_id, 1)
+            if skill_level > level_max:
+                _log.info("[SKILL_EXEC] %s: skipping effect %s (level %d > level_max %d)",
+                          caster.name, etype, skill_level, level_max)
                 return None
 
         # 混乱/幻惑过滤：仅允许伤害类效果和consume_hp执行，其他效果FAIL
@@ -4457,6 +4588,19 @@ class SkillService:
             elif _cond_type == 'target_has_poison':
                 _first_target = targets[0]
                 _cond_met = any(d.effect_type == SkillEffectType.POISON.value for d in _first_target.debuffs)
+            elif _cond_type == 'target_has_mark':
+                # 対象が指定markを所持する場合のみ穿防穿盾（120165 トリアージ・スラスト:
+                # 対象が「観察」状態の場合、この攻撃は防御力を30%無視する）
+                _first_target = targets[0]
+                _mark_name = _ignore_cond.get('mark_name', '')
+                _cond_met = (
+                    any(d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
+                        for d in _first_target.debuffs)
+                    or any(b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
+                           for b in _first_target.buffs)
+                )
+                _log.info("[DAMAGE_APPLY] %s: ignore_condition target_has_mark '%s' (target=%s) => %s",
+                          caster.name, _mark_name, _first_target.name, _cond_met)
             if not _cond_met:
                 _ignore_def = 0
                 _ignore_shld = 0
@@ -5413,8 +5557,7 @@ class SkillService:
             for _dtd_buff in target.buffs:
                 if _dtd_buff.effect_type != "dmg_taken_down_threshold":
                     continue
-                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
-                    continue
+                # hit_limited>0: 次数消耗型(130160)；hit_limited<=0: 时限型(130171)不消耗次数
                 _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
                 _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
                 if _thr_base == 'max_hp':
@@ -5425,7 +5568,8 @@ class SkillService:
                 if extra_dmg > _threshold and _threshold > 0:
                     _orig_dtd = extra_dmg
                     extra_dmg = max(1, int(extra_dmg * (1.0 - _reduction_val)))
-                    _dtd_reduced_ids.add(_dtd_buff.buff_id)
+                    if getattr(_dtd_buff, 'hit_limited', 0) > 0:
+                        _dtd_reduced_ids.add(_dtd_buff.buff_id)
                     _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
                               target.name, _orig_dtd, extra_dmg, _threshold, _reduction_val * 100)
                 else:
@@ -7640,10 +7784,10 @@ class SkillService:
                 else:
                     _amc_mark_name = getattr(_amc_flags, 'mark_name', '')
                 def _count_mark_aura(u):
-                    cnt = sum(1 for d in u.debuffs
+                    cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                               if d.effect_type == SkillEffectType.MARK.value
                               and getattr(d, 'name', '') == _amc_mark_name)
-                    cnt += sum(1 for b in u.buffs
+                    cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                                if b.effect_type == SkillEffectType.MARK.value
                                and getattr(b, 'name', '') == _amc_mark_name)
                     return cnt
@@ -7666,10 +7810,10 @@ class SkillService:
                 else:
                     _almc_mark_name = getattr(_almc_flags, 'mark_name', '')
                 def _count_mark_aura_min(u):
-                    cnt = sum(1 for d in u.debuffs
+                    cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                               if d.effect_type == SkillEffectType.MARK.value
                               and getattr(d, 'name', '') == _almc_mark_name)
-                    cnt += sum(1 for b in u.buffs
+                    cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                                if b.effect_type == SkillEffectType.MARK.value
                                and getattr(b, 'name', '') == _almc_mark_name)
                     return cnt
@@ -8384,6 +8528,7 @@ class SkillService:
                       caster.name, target.name, _mochi_mark_name, _mochi_count,
                       _effective_count, _mochi_max_count, value, final_value)
         # double_for_character_type: 指定character_typeの対象はvalueが2倍
+
         # （130024 ヒール・アクティブ「物理タイプの味方の場合、バフ効果が2倍になる」）
         # 適用: aura value確定後(final_value)に2倍を掛ける
         if effect_flags_aura and effect_flags_aura.get('double_for_character_type'):
@@ -8465,6 +8610,12 @@ class SkillService:
                 aura.initial_shield_value = shield_value_for_buff
                 _log.info("[AURA_APPLY] %s -> %s: shield_decay_pct=%d initial_shield_value=%d",
                           caster.name, target.name, decay_pct, shield_value_for_buff)
+        # mark_stat_bonus: 实时属性加成（如120171「ブレイブバレット」的atk_up/crit_dmg_up）
+        # 由 buff_stat_bonus字段在damage_service._calc_mark_stat_bonus 中读取聚合
+        if effect_flags_aura and effect_flags_aura.get('mark_stat_bonus'):
+            aura.mark_stat_bonus = effect_flags_aura['mark_stat_bonus']
+            _log.info("[AURA_APPLY] %s -> %s: mark_stat_bonus=%s",
+                      caster.name, target.name, effect_flags_aura['mark_stat_bonus'])
         if getattr(effect, 'flags', None) and effect.flags.get('stackable'):
             import uuid
             aura.buff_id = f"{caster.unit_id}_{mapped_effect_type}_{target.unit_id}_{uuid.uuid4().hex[:8]}"
@@ -8990,6 +9141,8 @@ class SkillService:
             'display_target_range': _st_range,
             'display_target_priority': None,
             'target_type_name': effect.target_type,
+            # mark_priority: 行/列锚定按mark数（103303 よわよわすぎ～♪ 失勢横列暗闇）
+            'mark_priority': (effect.flags or {}).get('mark_priority') if getattr(effect, 'flags', None) else None,
         })()
 
         # Use cached damage targets if available (ensures add_status effects target the same unit as damage)
@@ -9321,18 +9474,27 @@ class SkillService:
         for target in targets:
             if not target.is_alive:
                 continue
-            if max_count and max_count > 0 and len(target.debuffs) > max_count:
+            # mark联动debuff（linked_buff_id非空，如130169的攻撃デバフ/回復無効/回復リンク）
+            # 不被直接驱散，仅随所属mark一同消失（解除不可だが「観察」と同時に解除される）
+            removable = [d for d in target.debuffs if not getattr(d, 'linked_buff_id', '')]
+            removed_auras = []
+            if max_count and max_count > 0 and len(removable) > max_count:
                 # LIFO：从列表末尾（最近施加）开始移除max_count个
-                to_remove = target.debuffs[-max_count:]
-                removed_names = [d.name for d in to_remove]
+                to_remove = removable[-max_count:]
                 for d in to_remove:
                     target.debuffs.remove(d)
+                removed_auras = list(to_remove)
+                removed_names = [d.name for d in to_remove]
                 count = len(removed_names)
             else:
-                removed_names = [d.name for d in target.debuffs]
-                count = len(target.debuffs)
-                target.debuffs.clear()
+                removed_names = [d.name for d in removable]
+                count = len(removable)
+                for d in removable:
+                    target.debuffs.remove(d)
+                removed_auras = list(removable)
             total_removed += count
+            # 被驱散的mark触发联动移除（linked_buff_id == mark名 的buff/debuff一同消失）
+            self._cascade_linked_on_marks_removed(target, removed_auras)
             if count > 0:
                 removed_details.append({
                     "target_id": target.unit_id,
@@ -9349,6 +9511,34 @@ class SkillService:
             "total_removed": total_removed,
             "removed_details": removed_details,
         }
+
+    def _cascade_linked_on_marks_removed(self, unit: UnitState, removed_auras: list) -> None:
+        """被驱散/移除的mark触发联动移除：同单位上linked_buff_id == mark名的buff/debuff一同消失。
+
+        与aura_service.check_expiration的mark过期级联对应，覆盖驱散路径
+        （remove_debuff/remove_all_debuffs），使130169的「観察」被驱散时
+        攻撃デバフ/回復無効/回復リンク同时消失（「観察」と同時に解除される）。
+        """
+        if not removed_auras:
+            return
+        removed_marks = [r for r in removed_auras
+                         if getattr(r, 'effect_type', '') == SkillEffectType.MARK.value]
+        for mark in removed_marks:
+            mark_name = getattr(mark, 'name', '')
+            if not mark_name:
+                continue
+            linked_buffs = [b for b in unit.buffs
+                            if getattr(b, 'linked_buff_id', '') == mark_name]
+            linked_debuffs = [d for d in unit.debuffs
+                              if getattr(d, 'linked_buff_id', '') == mark_name]
+            for lb in linked_buffs:
+                unit.buffs.remove(lb)
+                _log.info("[LINKED_MARK_DISPEL] %s: buff %s removed (mark %s dispelled)",
+                          unit.name, lb.name, mark_name)
+            for ld in linked_debuffs:
+                unit.debuffs.remove(ld)
+                _log.info("[LINKED_MARK_DISPEL] %s: debuff %s removed (mark %s dispelled)",
+                          unit.name, ld.name, mark_name)
 
     def _apply_remove_all_buffs(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         """解除目标所有buff，排除回忆卡buff和不可解除buff"""
@@ -9425,6 +9615,8 @@ class SkillService:
                 target.debuffs.remove(d)
             count = len(to_remove)
             total_removed += count
+            # 被解除的mark触发联动移除（linked_buff_id == mark名 的buff/debuff一同消失）
+            self._cascade_linked_on_marks_removed(target, to_remove)
             if count > 0:
                 removed_details.append({
                     "target_id": target.unit_id,
@@ -10023,6 +10215,15 @@ class SkillService:
             "was_on_cd": was_on_cd,
         }
 
+    def reset_skill_cooldown(self, unit: UnitState, skill_id: int) -> None:
+        """重置指定技能的冷却（用于回忆卡/触发器效果）"""
+        if skill_id in unit.skill_cooldowns:
+            _log.info("[RESET_CD] %s: reset cooldown for skill_id=%d (was %d)",
+                      unit.name, skill_id, unit.skill_cooldowns[skill_id])
+            del unit.skill_cooldowns[skill_id]
+        else:
+            _log.info("[RESET_CD] %s: skill_id=%d not on cooldown", unit.name, skill_id)
+
     def _apply_resource(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         if not self.resource_service:
             _log.info("[RESOURCE_EFFECT] %s: resource_service unavailable", caster.name)
@@ -10213,7 +10414,8 @@ class SkillService:
                                       "enemy_single_highest_hp_ratio_back_priority",
                                       "enemy_single_lowest_hp_ratio",
                                       "enemy_single_highest_max_hp",
-                                      "enemy_single_highest_current_hp"):
+                                      "enemy_single_highest_current_hp",
+                                      "enemy_single_random"):
                 if self.target_service:
                     # 优先从_block_damage_targets缓存获取目标（确保与damage效果目标一致）
                     cached_targets = getattr(self, '_block_damage_targets', None)
@@ -10288,7 +10490,7 @@ class SkillService:
                     _log.info("[RESOURCE_EFFECT] %s: remove_ap skipped, no valid target", caster.name)
         elif etype == "remove_pp":
             all_pp_targets = []
-            if effect.target_type in ("enemy_single", "enemies", "enemy", "enemy_all", "enemy_row", "enemy_column", "enemy_single_highest_atk", "enemy_column_highest_atk", "enemy_single_furthest"):
+            if effect.target_type in ("enemy_single", "enemies", "enemy", "enemy_all", "enemy_row", "enemy_column", "enemy_single_highest_atk", "enemy_column_highest_atk", "enemy_single_furthest", "enemy_single_random"):
                 if self.target_service:
                     cached_targets = getattr(self, '_block_damage_targets', None)
                     if cached_targets is not None and isinstance(cached_targets, dict) and effect.target_type in cached_targets:
@@ -10586,6 +10788,7 @@ class SkillService:
             "debuff_immune",
             "heal_efficacy_up", "add_max_ap",
             "perfect_evasion", "add_damage_to_attack", "add_damage",
+            "skill_power_up",
             "ignore_defense", "ignore_shield",
             "add_fury",
             "card_buff",
@@ -10963,10 +11166,10 @@ class SkillService:
             # 按 mark 数量降序选取（prescan 路径，与 damage 路径 L2024 分支保持一致）
             _hmc_mark_name = effect_flags.get('mark_name', '') if effect_flags else ''
             def _count_mark_pre(u):
-                cnt = sum(1 for d in u.debuffs
+                cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                           if d.effect_type == SkillEffectType.MARK.value
                           and getattr(d, 'name', '') == _hmc_mark_name)
-                cnt += sum(1 for b in u.buffs
+                cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                            if b.effect_type == SkillEffectType.MARK.value
                            and getattr(b, 'name', '') == _hmc_mark_name)
                 return cnt
@@ -10980,10 +11183,10 @@ class SkillService:
             # 按 mark 数量升序选取（prescan 路径，与 damage 路径 L2343 分支保持一致）
             _lmc_mark_name = effect_flags.get('mark_name', '') if effect_flags else ''
             def _count_mark_pre_min(u):
-                cnt = sum(1 for d in u.debuffs
+                cnt = sum(getattr(d, 'stack_count', 1) or 1 for d in u.debuffs
                           if d.effect_type == SkillEffectType.MARK.value
                           and getattr(d, 'name', '') == _lmc_mark_name)
-                cnt += sum(1 for b in u.buffs
+                cnt += sum(getattr(b, 'stack_count', 1) or 1 for b in u.buffs
                            if b.effect_type == SkillEffectType.MARK.value
                            and getattr(b, 'name', '') == _lmc_mark_name)
                 return cnt
@@ -11325,9 +11528,19 @@ class SkillService:
                 timing_type=timing,
                 source_unit_id=caster.unit_id,
                 source_skill_id=self._current_skill_id,
-                is_debuff=False,
+                is_debuff=bool(flags.get('is_debuff', False)),
                 original_duration_type=duration_type,
             )
+            # 拡張flags（130169 アナライザ・フォーカス Lv15）:
+            # linked_buff_id: 随所属mark一同消失（「観察」と同時に解除される）
+            # unremovable: 不可驱散（「回復リンクは解除不可」）
+            # source_death_remove: 付与者死亡時消失（「付与者が倒れると解除される」）
+            if flags.get('linked_buff_id'):
+                aura.linked_buff_id = flags['linked_buff_id']
+            if flags.get('unremovable'):
+                aura.unremovable = True
+            if flags.get('source_death_remove'):
+                aura.source_death_remove = True
             self.aura_service.add_aura(target, aura)
             applied_targets.append(target.name)
             applied_auras.append({
@@ -11516,8 +11729,7 @@ class SkillService:
             for _dtd_buff in target.buffs:
                 if _dtd_buff.effect_type != "dmg_taken_down_threshold":
                     continue
-                if getattr(_dtd_buff, 'hit_limited', 0) <= 0:
-                    continue
+                # hit_limited>0: 次数消耗型(130160)；hit_limited<=0: 时限型(130171)不消耗次数
                 _thr_pct = getattr(_dtd_buff, 'threshold_pct', 0) or 0
                 _thr_base = getattr(_dtd_buff, 'threshold_base', 'current_hp') or 'current_hp'
                 if _thr_base == 'max_hp':
@@ -11528,7 +11740,8 @@ class SkillService:
                 if actual_damage > _threshold and _threshold > 0:
                     _orig_dtd = actual_damage
                     actual_damage = max(1, int(actual_damage * (1.0 - _reduction_val)))
-                    _dtd_reduced_ids.add(_dtd_buff.buff_id)
+                    if getattr(_dtd_buff, 'hit_limited', 0) > 0:
+                        _dtd_reduced_ids.add(_dtd_buff.buff_id)
                     _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: dmg %d -> %d (threshold=%.0f, reduction=%.1f%%)",
                               target.name, _orig_dtd, actual_damage, _threshold, _reduction_val * 100)
                 else:

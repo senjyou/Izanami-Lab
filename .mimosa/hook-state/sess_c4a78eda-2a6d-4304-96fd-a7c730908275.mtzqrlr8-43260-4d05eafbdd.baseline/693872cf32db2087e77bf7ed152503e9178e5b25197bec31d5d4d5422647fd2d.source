@@ -3817,13 +3817,6 @@ class BattleFlowController:
                 return []
             return [min(allies, key=lambda u: u.max_hp)]
 
-        if target_type == "ally_single_lowest_spd":
-            # 400236 行動速度が最も低い味方単体
-            allies = [u for u in self.battlefield.friend_team if u.is_alive]
-            if not allies:
-                return []
-            return [min(allies, key=lambda u: u.speed)]
-
         if target_type == "enemy_front_row":
             front = {Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT}
             return [u for u in self.battlefield.enemy_team if u.is_alive and u.position in front]

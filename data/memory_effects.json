@@ -6180,6 +6180,128 @@
       }
     ]
   },
+  "400233": {
+    "skill_id": 400233,
+    "name": "HP上昇【レイラ】",
+    "description": "戦闘開始時に発動。レイラ・ジェンキンスのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400234": {
+    "skill_id": 400234,
+    "name": "速度変動【中央列前・後衛】",
+    "description": "戦闘開始時に発動。中央列後衛の味方の行動速度を25低下させる。さらに中央列前衛の味方の行動速度を25上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 16,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_position",
+        "party_position": 2,
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 25,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400235": {
+    "skill_id": 400235,
+    "name": "速度減少【敵最高速度】",
+    "description": "戦闘開始時に発動。行動速度が最も高い敵単体の行動速度を150低下させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_spd",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 150,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400236": {
+    "skill_id": 400236,
+    "name": "速度上昇【最低速度】",
+    "description": "戦闘開始時に発動。行動速度が最も低い味方単体の行動速度を150上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_single_lowest_spd",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 150,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
   "400237": {
     "skill_id": 400237,
     "name": "HP上昇【七彩】",
@@ -6411,6 +6533,129 @@
             "timing_type": 3,
             "is_memory_buff": true,
             "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400246": {
+    "skill_id": 400246,
+    "name": "闘志【ALL】",
+    "description": "戦闘開始時に発動。榊野ヒイロ[疾走する自由の孤狼]に「闘志」を4つ、他の味方全体に「闘志」を2つ付与する。「闘志」は1行動ごとに1つずつ消滅する。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "闘志",
+            "count": 4,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1,
+            "is_buff": true,
+            "value": 0,
+            "value_tag": 1,
+            "decay_per_action": 1
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_all_exclude_self",
+        "effects": [
+          {
+            "effect_type": "AcquireMark",
+            "mark_name": "闘志",
+            "count": 2,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1,
+            "is_buff": true,
+            "value": 0,
+            "value_tag": 1,
+            "decay_per_action": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400247": {
+    "skill_id": 400247,
+    "name": "CT解除敵撃破時【ヒイロ(指定)】",
+    "description": "「烙印」状態の敵が倒された際に発動。榊野ヒイロ[疾走する自由の孤狼]のスキル「ファーストブランド」のクールタイムを解除し、再び使用できるようにする",
+    "trigger": {
+      "type": "on_any_kill",
+      "required_mark_on_target": "烙印"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "RecoverSkillCooldown",
+            "recover_skill_id": 130180
+          }
+        ]
+      }
+    ]
+  },
+  "400248": {
+    "skill_id": 400248,
+    "name": "HP上昇【ラミ】",
+    "description": "戦闘開始時に発動。朽葉ラミのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400249": {
+    "skill_id": 400249,
+    "name": "速度減少【敵後衛】",
+    "description": "戦闘開始時に発動。敵後衛の行動速度を7下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_back_row",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 7,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
           }
         ]
       }

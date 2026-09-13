@@ -304,6 +304,10 @@
       {
         "character_id": 101301,
         "rarity": "N/A"
+      },
+      {
+        "character_id": 101302,
+        "rarity": "N/A"
       }
     ],
     "102": [
@@ -314,6 +318,10 @@
       {
         "character_id": 102301,
         "rarity": "N/A"
+      },
+      {
+        "character_id": 102303,
+        "rarity": "N/A"
       }
     ],
     "103": [
@@ -323,6 +331,10 @@
       },
       {
         "character_id": 103301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 103303,
         "rarity": "N/A"
       }
     ],
@@ -428,6 +440,10 @@
       {
         "character_id": 115301,
         "rarity": "N/A"
+      },
+      {
+        "character_id": 115302,
+        "rarity": "N/A"
       }
     ],
     "116": [
@@ -459,6 +475,10 @@
     "119": [
       {
         "character_id": 119301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 119302,
         "rarity": "N/A"
       }
     ],

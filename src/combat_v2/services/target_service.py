@@ -553,8 +553,16 @@ class TargetService:
             # LINE 主目标 = 那一排中距离 caster 最近的单位（ordered[0]）
             # 若主目标持ステルス → 触发，重定向到次选主目标（新 ordered[0]）
             # 重定向后副目标范围仍包含 stealth 单位时，stealth 单位会被攻击到
-            self.apply_stealth_redirection(ordered, consume=True)
-            anchor = ordered[0]
+            # mark_priority 优先于 stealth（mark 是强制标记选择，不走优先级排序）
+            # （103303 よわよわすぎ～♪: 「失勢」が最も多い敵を優先し、敵横一列に…）
+            if mark_priority:
+                anchor = self._select_anchor_by_mark(candidates, mark_priority)
+                if anchor is None:
+                    self.apply_stealth_redirection(ordered, consume=True)
+                    anchor = ordered[0]
+            else:
+                self.apply_stealth_redirection(ordered, consume=True)
+                anchor = ordered[0]
             anchor_is_front = self._is_front_row(anchor)
             return [u for u in candidates if self._is_front_row(u) == anchor_is_front]
 
@@ -830,9 +838,10 @@ class TargetService:
 
     def _count_mark(self, unit: UnitState, mark_name: str) -> int:
         """统计单位身上持有指定 mark_name 的数量（同时检查 debuffs 和 buffs）"""
-        count = sum(1 for b in unit.debuffs
+        # 层数按stack_count加总（兼容回忆卡count=N单实例与多次stackable实例）
+        count = sum(getattr(b, 'stack_count', 1) or 1 for b in unit.debuffs
                     if b.effect_type == SkillEffectType.MARK.value and b.name == mark_name)
-        count += sum(1 for b in unit.buffs
+        count += sum(getattr(b, 'stack_count', 1) or 1 for b in unit.buffs
                      if b.effect_type == SkillEffectType.MARK.value and b.name == mark_name)
         return count
 

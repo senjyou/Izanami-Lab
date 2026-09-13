@@ -34,6 +34,18 @@ _worker_cfg = {}                  # 其他配置字典
 _worker_mem_cards = []            # 记忆卡列表（常规模式）
 
 
+def _silence_worker_battle_logging():
+    """批量worker进程内关闭战斗INFO日志。
+
+    战斗日志的格式化（stack caller定位 + asctime时间戳）在批量场景占耗时
+    相当大的比重（实测约3倍），批量worker只关心统计结果，不需要逐场日志。
+    仅在每个worker进程初始化时调用（spawn进程专用，不影响主进程GUI日志）。
+    """
+    import logging
+    from src.combat_v2.battle_logger import battle_logger
+    battle_logger().setLevel(logging.WARNING)
+
+
 def _worker_init(data_dir: str,
                  panel_config: Any,
                  friends_chars: List[int],
@@ -44,10 +56,12 @@ def _worker_init(data_dir: str,
                  positions_ally: List[Any],
                  positions_enemy: List[Any],
                  mem_cards_data: list = None,
-                 enable_rdps: bool = True):
+        enable_rdps: bool = True):
     """Worker进程初始化——每个worker调用一次"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
+
+    _silence_worker_battle_logging()
 
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg, _worker_mem_cards
@@ -290,6 +304,8 @@ def _worker_init_tactical(data_dir: str,
     """战术演习 worker 初始化——每个 worker 调用一次"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
+
+    _silence_worker_battle_logging()
 
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg, _worker_tactical_cfg, _worker_mem_cards
@@ -537,6 +553,8 @@ def _worker_init_circle(data_dir: str,
     """对抗压制战 worker 初始化"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
+
+    _silence_worker_battle_logging()
 
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg, _worker_mem_cards
@@ -2228,10 +2246,10 @@ def _worker_init_composite(data_dir: str,
                             panel_config: Any,
                             teams_positions: List[List[Any]],
                             enemies_data: List[Dict[str, Any]],
-                            max_turns: int,
-                            positions_ally: List[Any],
-                            mem_cards_data: List[List[Any]] = None,
-                            enable_rdps: bool = True):
+        max_turns: int,
+        positions_ally: List[Any],
+        mem_cards_data: List[List[Any]] = None,
+        enable_rdps: bool = True):
     """联合战术演习 worker 初始化
 
     Args:
@@ -2240,6 +2258,8 @@ def _worker_init_composite(data_dir: str,
     """
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
+
+    _silence_worker_battle_logging()
 
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg

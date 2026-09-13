@@ -20,6 +20,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 省エネ主義の天才ハッカ―   | エヴィ・レーナルト    |
 | キョンシーハッカー      | エヴィ・レーナルト    |
 | 戦うアントレプレナー     | レイラ・ジェンキンス   |
+| 商売上手のエンジェルナース  | レイラ・ジェンキンス   |
 | ノーブル・グレイス      | ドロテア・カークランド  |
 | 唯一無二の幼なじみ      | 鑑純夏          |
 | 天命を受けし剣術乙女     | 御剣冥夜         |
@@ -57,6 +58,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 真夏の風紀委員長       | 大賀真桜         |
 | 純真無垢なるジーニアス    | リディア・エルドリッジ  |
 | 緋色の一匹狼         | 榊野ヒイロ        |
+| 疾走する自由の孤狼      | 榊野ヒイロ        |
 | スタチュービューティー    | ステラ・ブレーメル    |
 | 爆走お転婆少女        | ジュリー・ステイシー   |
 | プレ・クラス－Ａのお姉さん  | 黒森ラウラ        |
@@ -70,6 +72,7 @@ The simulator currently supports a limited set of characters. More will be added
 | お金大好きな生意気娘     | 朽葉ラミ         |
 | ミステリアスガール      | 一条白奈         |
 | オールラウンダーな統率者   | 鳴滝七彩         |
+| 穹を統べる虹色の号令     | 鳴滝七彩         |
 | 負けず嫌いな不屈少女     | 朽葉ラミ         |
 | 舞台を降りた元歌姫      | シエナ・クラーク     |
 | 空想造形アーティスト     | ロージー・ヒューズ    |
@@ -81,6 +84,8 @@ The simulator currently supports a limited set of characters. More will be added
 | クリスマスコーデの参謀    | 姫川泉花         |
 | 大吉ハッピーニューイヤー   | 朽葉ラミ         |
 | 新春のメイズ研究者      | 月ヶ瀬ちゆる       |
+| 穹を駆ける不屈の翼      | 朽葉ラミ         |
+| 穹に閃く探求の学識      | 月ヶ瀬ちゆる       |
 | 雪山もこもこ少女       | ジュリー・ステイシー   |
 | みんなを見守る山ガール    | 黒森ラウラ        |
 | 連れ添い歩む傍らの友     | リュシー・ムーアクロフト |
@@ -92,6 +97,11 @@ The simulator currently supports a limited set of characters. More will be added
 | おたすけさんぽ・イン・サマー | リディア・エルドリッジ  |
 | 蠱惑のキャンペーンガール   | ロージー・ヒューズ    |
 | 自由に煌めくジョーカーカード | ユリア・バーンズ     |
+| 商売上手のエンジェルナース  | レイラ・ジェンキンス   |
+| 穹を統べる虹色の号令     | 鳴滝七彩         |
+| 穹に閃く探求の学識      | 月ヶ瀬ちゆる       |
+| 疾走する自由の孤狼      | 榊野ヒイロ        |
+| 穹を駆ける不屈の翼      | 朽葉ラミ         |
 
 ## Tactical Exercise Enemies
 

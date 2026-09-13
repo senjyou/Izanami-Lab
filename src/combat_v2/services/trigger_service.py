@@ -12,6 +12,8 @@ TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "before_skill_use": TriggerTiming.BEFORE_SKILL_USE,
     "after_as_attack": TriggerTiming.AFTER_SKILL_USE,
     "after_own_action": TriggerTiming.AFTER_SKILL_USE,
+    "after_enemy_skill_use": TriggerTiming.AFTER_SKILL_USE,
+    "after_ps_use": TriggerTiming.AFTER_SKILL_USE,
     "before_as_attacked": TriggerTiming.BEFORE_AS_ATTACKED,
     "before_any_attacked": TriggerTiming.BEFORE_ANY_ATTACKED,
     "before_enemy_as_attack": TriggerTiming.BEFORE_ENEMY_AS_ATTACK,
@@ -191,7 +193,21 @@ class TriggerService:
             total_damage=total_damage,
         )
         return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx,
-                                    trigger_type_filter={'after_as_attack'})
+                                    trigger_type_filter={'after_as_attack', 'after_enemy_skill_use'})
+
+    def trigger_after_ps_use(self, actor: UnitState, skill_id: int,
+                              battlefield: BattlefieldState) -> List[TriggerAction]:
+        """after_ps_use（101302 セントリフレイン130173）:「パッシブスキルを使用した後に発動」。
+
+        自身がPSを実行した直後に触发（owner==actor、仅skill_type=2）。
+        调用方（skill_service._run_after_ps_use_hook）负责排除刚执行的PS自身（防递归）。
+        """
+        ctx = TriggerContext(
+            TriggerTiming.AFTER_SKILL_USE, battlefield,
+            actor=actor, skill=skill_id,
+        )
+        return self.check_triggers(TriggerTiming.AFTER_SKILL_USE, ctx,
+                                    trigger_type_filter={'after_ps_use'})
 
     def trigger_before_as_attacked(self, targets: List[UnitState],
                                      battlefield: BattlefieldState,
@@ -945,15 +961,28 @@ class TriggerService:
         if timing == TriggerTiming.AFTER_SKILL_USE:
             if context.actor is None:
                 return False
-            if owner.unit_id != context.actor.unit_id:
+            # after_enemy_skill_use: 「観察」状態の敵がアクティブスキルを使用した後に発動
+            # （130170 コーリングナース）: ownerの逆阵营单位がASを使用した直後に触发
+            if parsed.get('trigger_type') == 'after_enemy_skill_use':
+                if context.actor.side == owner.side:
+                    _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (after_enemy_skill_use but actor %s is same side)",
+                              owner.name, context.actor.name)
+                    return False
+            elif owner.unit_id != context.actor.unit_id:
                 return False
             # after_as_attack仅限AS技能(skill_type=1)触发，EX/PS技能不触发
             # 除非PS配置了allow_ex_trigger: true（如「徹底的にやってやろうじゃん！」）
+            # after_ps_use（101302 セントリフレイン）仅限PS技能(skill_type=2)触发
             allow_ex = parsed.get('allow_ex_trigger', False) if parsed else False
             if context.skill is not None and self.data_loader:
                 skill_data = self.data_loader.get_skill_by_id(context.skill)
                 if skill_data:
-                    if skill_data.skill_type == SkillType.AS.value:
+                    if parsed.get('trigger_type') == 'after_ps_use':
+                        if skill_data.skill_type != SkillType.PS.value:
+                            _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (after_ps_use but skill %d is not PS type=%d)",
+                                      owner.name, context.skill, skill_data.skill_type)
+                            return False
+                    elif skill_data.skill_type == SkillType.AS.value:
                         pass  # AS always allowed
                     elif skill_data.skill_type == SkillType.EX.value and allow_ex:
                         pass  # EX allowed when flag set
@@ -1785,6 +1814,38 @@ class TriggerService:
                 result = getattr(actor, 'character_type', 0) == val
             _log.info("[TRIGGER_COND] %s: actor_character_type=%s need=%s => %s",
                       owner.name, getattr(actor, 'character_type', 0), val, result)
+            return result
+
+        if cond_type == "actor_has_mark":
+            # 检查AS使用者（context.actor）是否持有指定mark
+            # （130170 コーリングナース: 「観察」状態の敵がアクティブスキルを使用した後に発動）
+            mark_name = condition.get('mark_name', '')
+            actor = context.actor
+            if actor is None:
+                _log.info("[TRIGGER_COND] %s: actor_has_mark '%s' -> no actor => False", owner.name, mark_name)
+                return False
+            has_mark = any(
+                b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == mark_name
+                for b in actor.buffs
+            ) or any(
+                d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == mark_name
+                for d in actor.debuffs
+            )
+            _log.info("[TRIGGER_COND] %s: actor_has_mark '%s' (actor=%s) => %s",
+                      owner.name, mark_name, actor.name, has_mark)
+            return has_mark
+
+        if cond_type == "triggered_by_is_other_ally":
+            # 检查triggered_by（伤害/事件的承受者）是否为owner以外的同阵营单位
+            # （101302 リベンジスタンス130174: 「他の味方が累計で最大HP×20%のダメージを受けるたび」
+            #  —— 排除自身累计伤害达标时触发）
+            tb = context.triggered_by
+            if tb is None:
+                _log.info("[TRIGGER_COND] %s: triggered_by_is_other_ally -> no triggered_by => False", owner.name)
+                return False
+            result = (tb.side == owner.side and tb.unit_id != owner.unit_id)
+            _log.info("[TRIGGER_COND] %s: triggered_by_is_other_ally (triggered_by=%s) => %s",
+                      owner.name, tb.name, result)
             return result
 
         if cond_type == "target_is_front_ally":

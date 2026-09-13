@@ -1,3 +1,20 @@
+## v1.0.9.0 (2026-09-13)
+
+- 新增近期新角色与回忆卡适配
+
+- 优化算法，提高批量模拟效率
+## v1.0.9.0 (Unreleased)
+
+- 新增可用角色【穹を統べる虹色の号令】鳴滝七彩（101302，「攻勢」状态切换体系）、【穹に閃く探求の学識】月ヶ瀬ちゆる（102303，随机索敌EN连击）
+- 新增可用角色【商売上手のエンジェルナース】レイラ・ジェンキンス（119302，含「観察」mark体系5技能）
+- 新增机制：敌方AS使用后触发器（after_enemy_skill_use）+ actor_has_mark 条件
+- 新增机制：mark_linked debuff 驱散保护与「観察」驱散/到期级联移除
+- dmg_taken_down_threshold 支持时限型（无hit次数限制，「1ターンの間」）
+- 新增机制：after_ps_use触发器（自身PS使用后）/ 随机索敌enemy_single_random / enemy_alive_count AS条件 / skill_power_up威力up乘区 / mark_at_start互斥block条件 / triggered_by类型分支block条件
+- 新增可用角色【疾走する自由の孤狼】榊野ヒイロ（115302，「闘志」mark按层实时加成体系 + 专属回忆卡20089）
+- 新增可用角色【穹を駆ける不屈の翼】朽葉ラミ（103303，「失勢」mark锚定集火体系 + 暗闇失手体系）
+- 新增机制：横列索敌mark锚定（LINE分支mark_priority）/ mark计数统一按stack_count加总 / effect级level_max等级上限
+- 新增机制：mark_stat_bonus 实时属性加成（mark数实时驱动atk/crit_dmg）/ mark逐行动衰减(decay_per_action) / 回忆卡on_any_kill触发器+RecoverSkillCooldown / ally_all_exclude_self目标
 ## v1.0.8.9 (2026-09-01)
 
 - 新增可用角色【自由に煌めくジョーカーカード】ユリア・バーンズ

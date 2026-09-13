@@ -1,0 +1,407 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20260912T115514570Z-40764-03d310a0207d",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "scan",
+      "target": "src/combat_v2/battle_flow_controller.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "src/combat_v2/services/damage_service.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "src/combat_v2/services/skill_service.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "src/entities_v2/unit_state.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "src/combat_v2/services/aura_service.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "tests/test_actor_115302.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 456,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 6
+    },
+    "change_tracking": {
+      "touched_observed": 6,
+      "touched_retained": 6,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 6,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 6,
+      "selected_files": 6,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 6,
+      "scanned_files": 0,
+      "skipped_files": 0,
+      "failed_files": 6,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "scanner_failed": 6,
+      "project_check_failed": 6
+    },
+    "reasons": [
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/battle_flow_controller.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/damage_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/entities_v2/unit_state.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/aura_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "tests/test_actor_115302.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/battle_flow_controller.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/damage_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/entities_v2/unit_state.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/aura_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "tests/test_actor_115302.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-09-12T11:55:14.570Z",
+  "session_id": "sess_8c9a54b2-7ee6-41af-8d72-a87c40237631",
+  "target": ".",
+  "revision": "e0374fd57fcea6b6d664aa2451130e2de23f266e",
+  "rules_version": "unavailable",
+  "diff_hash": "c99ef3129bdecfb7b3b2dc157ef265709ae6f5a90cc1d0b57693a03d01f56d1f",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 6,
+    "changed_files": [
+      {
+        "file": "src/combat_v2/battle_flow_controller.py",
+        "ranges": [
+          {
+            "start": 643,
+            "end": 646
+          },
+          {
+            "start": 1026,
+            "end": 1029
+          },
+          {
+            "start": 3339,
+            "end": 3340
+          },
+          {
+            "start": 3377,
+            "end": 3378
+          },
+          {
+            "start": 3381,
+            "end": 3383
+          },
+          {
+            "start": 3404,
+            "end": 3404
+          },
+          {
+            "start": 3687,
+            "end": 3688
+          },
+          {
+            "start": 3695,
+            "end": 3696
+          },
+          {
+            "start": 3718,
+            "end": 3732
+          },
+          {
+            "start": 3745,
+            "end": 3749
+          },
+          {
+            "start": 3789,
+            "end": 3805
+          },
+          {
+            "start": 3872,
+            "end": 3879
+          },
+          {
+            "start": 3886,
+            "end": 3889
+          },
+          {
+            "start": 3895,
+            "end": 3895
+          },
+          {
+            "start": 3897,
+            "end": 3915
+          },
+          {
+            "start": 3918,
+            "end": 3918
+          }
+        ],
+        "before_hash": "d2ce9ada4df4472cf631084e410c43f469cc0de470bf481bc4dcfad9c47442cd",
+        "after_hash": "3c6511b343f6c4ec39c3156f9a1ae56ce7a6712eb7f0c60d239d6911da9a8e63"
+      },
+      {
+        "file": "src/combat_v2/services/aura_service.py",
+        "ranges": [
+          {
+            "start": 227,
+            "end": 241
+          }
+        ],
+        "before_hash": "aeeb33dd3b470b4637e52c2b9aa88e7ca1af5feae22b1aec834535bee4157ebd",
+        "after_hash": "327e1b0bfe695724ec14ace73b1c6628e195c7ab34e111b609dd310082ae37cb"
+      },
+      {
+        "file": "src/combat_v2/services/damage_service.py",
+        "ranges": [
+          {
+            "start": 638,
+            "end": 642
+          },
+          {
+            "start": 646,
+            "end": 694
+          },
+          {
+            "start": 920,
+            "end": 923
+          },
+          {
+            "start": 926,
+            "end": 926
+          }
+        ],
+        "before_hash": "c62052bd79f28954b9a96fa72b1e424d94cc481e3a1fc7781cbb355ee37b51b6",
+        "after_hash": "713cdb7f6ea800661fc7f7197ad5370b4b5922e15bd0ad3962a1e9664733e7a7"
+      },
+      {
+        "file": "src/combat_v2/services/skill_service.py",
+        "ranges": [
+          {
+            "start": 1663,
+            "end": 1664
+          },
+          {
+            "start": 1667,
+            "end": 1668
+          },
+          {
+            "start": 8521,
+            "end": 8521
+          },
+          {
+            "start": 8603,
+            "end": 8608
+          },
+          {
+            "start": 10206,
+            "end": 10214
+          }
+        ],
+        "before_hash": "fe7e0f4c0b2f41d8adb88d3b9e7659aa4926a2156a287d92226863905c29b642",
+        "after_hash": "4d80e6df1499dbb4884a82e649afc7375afad6ab514be8f1535a12eb2ef8062e"
+      },
+      {
+        "file": "src/entities_v2/unit_state.py",
+        "ranges": [
+          {
+            "start": 36,
+            "end": 37
+          }
+        ],
+        "before_hash": "f2081dcd5229fa0908922481cae15be1724b6f9425976182995cb00f1eeb9857",
+        "after_hash": "0326f3b8956f68491b4f21172a1a093f9ace22a78fdb1bbf0a7df4cc013bde64"
+      },
+      {
+        "file": "tests/test_actor_115302.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 482
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "fdb88e04fd86476740f15a4e7490f46829e2fb69462e94f68ee20171ba360c93"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-09-12T11:55:12.193Z",
+    "completed_at": "2026-09-12T11:55:14.570Z",
+    "duration_ms": 2377,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 2377,
+    "peakMemoryBytes": 106807296,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 0,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [
+    {
+      "finding_id": "mimosa-0518eade52ad5c4d726a60cb",
+      "file": "scripts/_tmp_write_115302.py",
+      "line": 130,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "路径穿越",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-09-12T10:47:45.422Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "0a1396730da41f67c0c60611e556646477dbe069a1ba3b8965d12a0d87c41cf0",
+        "runtime_oracle": false
+      }
+    }
+  ],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_8c9a54b2-7ee6-41af-8d72-a87c40237631-20260912T115514570Z-40764-03d310a0207d.json",
+    "latest_report": ".mimosa/reports/task-review-sess_8c9a54b2-7ee6-41af-8d72-a87c40237631.json",
+    "history_summary": ".mimosa/history/run-20260912T115514570Z-40764-03d310a0207d.json"
+  }
+}

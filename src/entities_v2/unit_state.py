@@ -33,6 +33,8 @@ class BuffState:
     is_debuff: bool = False
     hit_limited: int = 0  # 受击次数限制，0=无限制，>0=命中N次后消失
     attack_limited: int = 0  # 被攻击次数限制，0=无限制，>0=被攻击N次后消失（每次攻击全部hit都生效）
+    decay_per_action: int = 0  # 每行动结束递减1，归0后消失（用于「1行動ごとに1つずつ消滅」的mark）
+    mark_stat_bonus: dict = None  # mark按层实时属性加成 {mark_name, stat, per_mark_pct, max_marks}（闘志等）
     hit_limited_flags: dict = field(default_factory=dict)  # hit_limited相关flags
     sub_unit_hp: int = 0  # 辅助单元当前HP
     sub_unit_max_hp: int = 0  # 辅助单元最大HP
