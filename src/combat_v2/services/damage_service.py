@@ -653,8 +653,11 @@ class DamageService:
         - stackable的mark：每个独立实例算1层
         - 回忆卡 count=N 的mark：stack_count=N 算N层
         stat语义差异：
-        - attack/defense/speed/max_hp: 每枚per_mark_pct%加成（乘基础值）
-        - crit_damage: 会心ダメージは絶対値ポイント加算（per_mark_pctをポイントとみなす）
+        - attack/defense/speed/max_hp: 每枚per_mark_pct%加成（乘基础值，返回绝对值加数）
+        - crit_damage: 会心ダメージは絶対値ポイント加算（per_mark_pctをポイントとみなす）。
+          返回值为「1.0=100%」单位的小数（如4枚×3=12ポイント=0.12），
+          由 _get_crit_damage_bonus 直接加进暴击倍率（1.5+bonus）。
+          不能返回 total_pct 原始值（会把12ポイント误当+1200%翻倍暴击伤害，fix: 3x bug）
         """
         total_pct = 0.0
         seen_rules = set()  # 同名mark_stat_bonusのcarrierが複数あっても1回だけ適用
@@ -683,9 +686,10 @@ class DamageService:
         if total_pct == 0:
             return 0.0
         # crit_damage は絶対ポイントとして加算（per_mark_pct をポイントとみなす）
+        # 但返回值必须是「1.0=100%」单位（/100），与attack路径返回绝对值加数的语义对齐。
         if stat_name == "crit_damage":
             _log.info("[DMG_CALC] %s mark_stat_bonus crit_damage: +%.1f pts", unit.name, total_pct)
-            return total_pct
+            return total_pct / 100.0
         base_val = getattr(unit, stat_name, 0)
         _log.info("[DMG_CALC] %s mark_stat_bonus %s: +%.1f%% (base=%d -> +%.0f)",
                   unit.name, stat_name, total_pct, base_val, base_val * total_pct / 100.0)

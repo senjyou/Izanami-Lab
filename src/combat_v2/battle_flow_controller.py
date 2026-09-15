@@ -3918,6 +3918,13 @@ class BattleFlowController:
                 return
             # 释放目标的该技能冷却
             self.skill_service.reset_skill_cooldown(target_unit, skill_id_to_recover)
+            # once_per_battle技能（如130180ファーストブランド）：描述「戦闘中に1度しか発動できないが、
+            # 条件を満たした場合再び使用できる」。回忆卡条件的冷却解除必须同时清除once标志，
+            # 否则触发器仍被 once_per_battle_triggered 拦截，冷却解除成为空操作。
+            if skill_id_to_recover in target_unit.once_per_battle_triggered:
+                target_unit.once_per_battle_triggered.discard(skill_id_to_recover)
+                _log.info("[MEMORY]       RecoverSkillCooldown: 清除 skill=%d 的 once_per_battle 标记，允许再次发动",
+                          skill_id_to_recover)
             _log.info("[MEMORY]       recover_cooldown: %s -> %s skill_id=%d",
                       card_name, target_unit.name, skill_id_to_recover)
             if self.narrative:

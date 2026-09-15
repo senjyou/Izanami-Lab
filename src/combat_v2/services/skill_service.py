@@ -2828,6 +2828,13 @@ class SkillService:
                     if is_attacked or is_caster_only:
                         for buff in list(unit.buffs):
                             if buff.attack_limited > 0:
+                                # 标记类buff（MARK）不参与通用的attack_limited消耗：
+                                # 闘志等mark按「1行動ごとに1つずつ消滅」由aura_service的decay_per_action统一衰减，
+                                # 不随施法者攻击/被攻击被整组清除（回忆卡400246的闘志曾因首攻被整体移除）
+                                if buff.effect_type == SkillEffectType.MARK.value:
+                                    _log.info("[ATTACK_LIMITED] %s: mark buff '%s' SKIPPED (marks decay by action, not attack_limited)",
+                                              unit.name, getattr(buff, 'name', '?'))
+                                    continue
                                 # Shield buffs only consume attack_limited when actually attacked
                                 # (not when the unit as caster attacks others, and not when fully evaded)
                                 if buff.effect_type in ("shield", "Shield"):
