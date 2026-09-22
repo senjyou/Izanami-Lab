@@ -81657,5 +81657,690 @@
       }
     },
     "display_info": {}
+  },
+  "110083": {
+    "skill_id": 110083,
+    "name": "母娘の絆",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 10,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHPの多い敵を対象として敵単体に威力{威力}、対象に隣接する敵に威力{威力2}でEN攻撃を行い、自身が1回行動を終えるまでの間、対象全ての防御力を{def}%低下させる（重複可）。防御デバフは自身が倒れると解除される"
+      },
+      {
+        "min_level": 11,
+        "template": "最もHPの多い敵を対象として敵単体に威力{威力}でEN攻撃し、1行動の気絶を付与する。また対象に隣接する敵に威力{威力2}でEN攻撃を行う。さらに自身が1回行動を終えるまでの間、対象全ての防御力を{def}%低下させる（重複可）。防御デバフは自身が倒れると解除される"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 150.0
+          },
+          {
+            "level": 3,
+            "value": 159.3300018310547
+          },
+          {
+            "level": 4,
+            "value": 177.99000549316406
+          },
+          {
+            "level": 6,
+            "value": 187.3300018310547
+          },
+          {
+            "level": 7,
+            "value": 205.99000549316406
+          },
+          {
+            "level": 9,
+            "value": 215.3300018310547
+          },
+          {
+            "level": 10,
+            "value": 234.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 11,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 30.0
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 120.0
+          },
+          {
+            "level": 3,
+            "value": 127.45999908447266
+          },
+          {
+            "level": 4,
+            "value": 142.39999389648438
+          },
+          {
+            "level": 6,
+            "value": 149.86000061035156
+          },
+          {
+            "level": 7,
+            "value": 164.8000030517578
+          },
+          {
+            "level": 9,
+            "value": 172.25999450683594
+          },
+          {
+            "level": 10,
+            "value": 187.1999969482422
+          }
+        ]
+      }
+    }
+  },
+  "120178": {
+    "skill_id": 120178,
+    "name": "ヴォルコワの血脈∞",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に攻撃力×{shield}%のシールドを付与し、HPを威力{威力}で回復する。\nシールド値は自身のHPが多いほど増加し(+20%まで)、HP10%時点を最小値とし、HP40%時点で最高値となる。\n回復量は自身のHPが少ないほど増加し（+30%まで）、HP40%時点を最小値とし、HP10%時点で最高値となる。\n自身のHPが40%以上の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 3,
+            "value": 21.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 23.299999237060547
+          },
+          {
+            "level": 6,
+            "value": 24.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 26.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 27.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 41.0
+          },
+          {
+            "level": 4,
+            "value": 43.0
+          },
+          {
+            "level": 6,
+            "value": 44.0
+          },
+          {
+            "level": 7,
+            "value": 46.0
+          },
+          {
+            "level": 9,
+            "value": 47.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "120179": {
+    "skill_id": 120179,
+    "name": "システマ・ヴラシェーニヤ∞",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}でEN攻撃する。\n自身のHPが40%以上の場合、このスキル中のみ自身の攻撃力を20%、与ダメージを5%増加させてから攻撃する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 95.5999984741211
+          },
+          {
+            "level": 4,
+            "value": 106.80000305175781
+          },
+          {
+            "level": 6,
+            "value": 112.4000015258789
+          },
+          {
+            "level": 7,
+            "value": 123.5999984741211
+          },
+          {
+            "level": 9,
+            "value": 129.19000244140625
+          },
+          {
+            "level": 10,
+            "value": 140.39999389648438
+          },
+          {
+            "level": 15,
+            "value": 190.8000030517578
+          }
+        ]
+      }
+    }
+  },
+  "130184": {
+    "skill_id": 130184,
+    "name": "ストレラ",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方がアクティブスキルで攻撃した後に発動。味方が攻撃した敵単体に威力{威力}でEN追撃する。\n攻撃した味方がキュート属性またはアグレッシブ属性だった場合、自身のPPを1回復し、このスキル中のみ自身の攻撃力を{atk}%上昇させてから攻撃する（重複可）。ただし自身が状態異常の場合、回復したPPは削除される。\n自身のHPが40%未満の場合、このスキルは発動しない。\n自身のAPが2未満の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 35.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66000366210938
+          },
+          {
+            "level": 9,
+            "value": 71.7699966430664
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          }
+        ]
+      }
+    }
+  },
+  "130185": {
+    "skill_id": 130185,
+    "name": "鉄壁の母娘",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が攻撃される直前に発動。敵の攻撃を{guard}%ガードする。\n攻撃してくる敵がシャイ属性またはスマート属性の場合、ガード率は{guard2}%になる"
+      }
+    ],
+    "template_tags": {
+      "guard": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 11.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 13.300000190734863
+          },
+          {
+            "level": 6,
+            "value": 14.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 16.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 17.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 30.0
+          }
+        ]
+      },
+      "guard2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 27.760000228881836
+          },
+          {
+            "level": 4,
+            "value": 33.279998779296875
+          },
+          {
+            "level": 6,
+            "value": 36.040000915527344
+          },
+          {
+            "level": 7,
+            "value": 41.560001373291016
+          },
+          {
+            "level": 9,
+            "value": 44.31999969482422
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 75.0
+          }
+        ]
+      }
+    }
+  },
+  "210118": {
+    "skill_id": 210118,
+    "name": "薄暮の宵火",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 22,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 3
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "後列優先で、敵横一列に威力{威力}で攻撃する。さらに自身に対し、最大HP×2.8%のダメージを防ぐシールドを付与する。シールドは1行動に付き最大値の25%減少する"
+      },
+      {
+        "min_level": 5,
+        "template": "後列優先で、敵横一列に威力{威力}で攻撃する。さらに自身に対し、最大HP×4%のダメージを防ぐシールドを付与する。シールドは1行動に付き最大値の25%減少する"
+      },
+      {
+        "min_level": 10,
+        "template": "後列優先で、敵横一列に威力{威力}で攻撃する。さらに自身に対し、最大HP×5%のダメージを防ぐシールドを付与する。シールドは1行動に付き最大値の25%減少する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 3,
+            "value": 117.0
+          }
+        ]
+      },
+      "shield_pct": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.8
+          },
+          {
+            "level": 5,
+            "value": 4.0
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          }
+        ]
+      }
+    }
+  },
+  "220414": {
+    "skill_id": 220414,
+    "name": "クールスラッシュ・トリプル",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "後列優先で、敵単体に威力{威力}で3ヒット攻撃する。さらに自身が次に行動を終えるまでの間、対象の与ダメージを25%減少させ、被ダメージを25%増加させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 5,
+            "value": 78.0
+          },
+          {
+            "level": 10,
+            "value": 106.0
+          }
+        ]
+      }
+    }
+  },
+  "220415": {
+    "skill_id": 220415,
+    "name": "バックエイムファイア+",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      },
+      {
+        "level": 5,
+        "value": 3
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "後列優先で、敵単体に威力{威力}で攻撃する"
+      },
+      {
+        "min_level": 5,
+        "template": "後列優先で、敵単体に威力{威力}で攻撃する。さらに自身に対し、攻撃力×{value}%までのダメージを防ぐシールドを付与する。シールドは対象の3行動後に消滅する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 156.0
+          }
+        ]
+      },
+      "value": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 100.0
+          }
+        ]
+      }
+    }
+  },
+  "230435": {
+    "skill_id": 230435,
+    "name": "スマートバリア+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPが50%以下になった際に発動。自身を含むスマート属性の味方に対し、被ダメージを{dmg}%減少させる効果を付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 5,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "230436": {
+    "skill_id": 230436,
+    "name": "セカンドライン・セーブ+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      },
+      {
+        "level": 5,
+        "value": 6
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身に対し、2回攻撃を受けるまで物理攻撃による被ダメージを{value}%減少させる効果を付与する（重複可）"
+      },
+      {
+        "min_level": 5,
+        "template": "ターン開始時に発動。自身に対し、2回攻撃を受けるまで物理攻撃による被ダメージを{value}%減少させる効果を付与する（重複可）。さらに自身から最も遠い敵単体に対し、3行動分の炎上を付与する"
+      }
+    ],
+    "template_tags": {
+      "value": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 20.0
+          },
+          {
+            "level": 5,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 30.0
+          }
+        ]
+      }
+    }
   }
 }

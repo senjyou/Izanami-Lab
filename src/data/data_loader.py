@@ -148,6 +148,7 @@ class DataLoader:
                     crit_rate_grade=gr["crit_rate_grade"],
                 ),
                 raw_data=data,
+                sub_attribute=data.get("sub_attribute", 0),
             )
         self._characters = characters
         print(f"[OK] 已加载 {len(characters)} 个角色数据")

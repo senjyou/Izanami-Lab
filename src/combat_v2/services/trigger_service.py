@@ -1797,7 +1797,11 @@ class TriggerService:
             if actor is None:
                 _log.info("[TRIGGER_COND] %s: actor_element -> no actor => False", owner.name)
                 return False
-            result = getattr(actor, 'element', 0) == val
+            # Support int (single element) or list (multiple elements, e.g. [1,4] for fire/earth)
+            if isinstance(val, list):
+                result = getattr(actor, 'element', 0) in val
+            else:
+                result = getattr(actor, 'element', 0) == val
             _log.info("[TRIGGER_COND] %s: actor_element=%s need=%s => %s",
                       owner.name, getattr(actor, 'element', 0), val, result)
             return result
@@ -2074,6 +2078,14 @@ class TriggerService:
             result = _self_ep >= val
             _log.info("[TRIGGER_COND] %s: self_ep_above_or_equal ep=%.1f >= %s => %s",
                       owner.name, _self_ep, val, result)
+            return result
+
+        # 500301 ストレラ: 检查自身AP是否>=value（130184「自身のAPが2未満の場合、このスキルは発動しない」）
+        if cond_type == "self_ap_above_or_equal":
+            _self_ap = getattr(owner, 'current_ap', 0)
+            result = _self_ap >= val
+            _log.info("[TRIGGER_COND] %s: self_ap_above_or_equal ap=%d >= %s => %s",
+                      owner.name, _self_ap, val, result)
             return result
 
         # 130159 アクア・セービング: 检查自身以外持有指定mark的友方是否存在

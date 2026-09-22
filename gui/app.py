@@ -896,6 +896,7 @@ class MGGBattleSimulatorGUI:
             character_id=char_id,
             level=char_config.level,
             element=char.attribute,
+            sub_element=getattr(char, 'sub_attribute', 0),
             character_type=char.character_type,
             max_hp=hp,
             current_hp=hp,

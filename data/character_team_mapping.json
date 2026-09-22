@@ -283,6 +283,12 @@
       "name_ruby": "りでぃあえるどりっじ",
       "team_id": 402,
       "team_name": "トリニティ・ジュエル"
+    },
+    "500": {
+      "name": "オルガ＆ナージャ",
+      "name_ruby": "おるが&なーじゃ",
+      "team_id": 601,
+      "team_name": "クラスナ"
     }
   },
   "character_variants": {
@@ -645,6 +651,12 @@
     "140": [
       {
         "character_id": 140302,
+        "rarity": "N/A"
+      }
+    ],
+    "500": [
+      {
+        "character_id": 500301,
         "rarity": "N/A"
       }
     ]

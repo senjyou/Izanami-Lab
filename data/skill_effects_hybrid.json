@@ -88604,5 +88604,898 @@
       "manual: 正前方味方被攻击前→攻击者skill_power_down+失勢mark（同時発動制限）"
     ],
     "simultaneous_limit": true
+  },
+  "110083": {
+    "skill_id": 110083,
+    "name": "母娘の絆",
+    "skill_type": 3,
+    "resource_cost": 10,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single_highest_max_hp",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "damage",
+            "target_type": "adjacent_enemies",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single_highest_max_hp",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "status_type": "knockout",
+              "duration_note": "Lv11+",
+              "level_min": 11
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "def_down",
+            "target_type": "enemy_single_highest_max_hp",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "def",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "def_down",
+            "target_type": "adjacent_enemies",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "def",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "source_death_remove": true,
+              "target_count": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 最高HP敌单体EN伤害 + 邻接2体EN伤害 + Lv11+主目标气绝 + 全て对象def_down(施法者行动结束清除/死亡解除)"
+    ]
+  },
+  "120178": {
+    "skill_id": 120178,
+    "name": "ヴォルコワの血脈∞",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": {
+      "type": "self_hp_below",
+      "value": 40
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "shield",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "atk",
+              "scale_by_self_hp_range": {
+                "min_pct": 10,
+                "max_pct": 40,
+                "max_bonus": 0.2,
+                "reverse": false
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "scale_by_self_hp_range": {
+                "min_pct": 10,
+                "max_pct": 40,
+                "max_bonus": 0.3,
+                "reverse": true
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 自身ATK×shield%盾(HP10%最小/40%最大+20%) + 威力治愈(HP40%最小/10%最大+30%)，HP>=40%不发动"
+    ]
+  },
+  "120179": {
+    "skill_id": 120179,
+    "name": "システマ・ヴラシェーニヤ∞",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "self_hp_above",
+          "value": 40
+        },
+        "effects": [
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 20.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "skill",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 5.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "skill",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 敌单体EN攻击；自身HP>=40%时本技能内atk_up20%+dmg_dealt_up5%(stackable, attack时生效)"
+    ]
+  },
+  "130184": {
+    "skill_id": 130184,
+    "name": "ストレラ",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_ally_as_attack",
+    "global_condition": {
+      "type": "and",
+      "conditions": [
+        {
+          "type": "self_hp_percent",
+          "operator": ">=",
+          "value": 40
+        },
+        {
+          "type": "self_ap_above_or_equal",
+          "value": 2
+        }
+      ]
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "actor_element_in",
+          "values": [
+            1,
+            4
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_up",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "skill",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_en_attack": true,
+              "is_follow_up": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "and",
+          "conditions": [
+            {
+              "type": "actor_element_in",
+              "values": [
+                1,
+                4
+              ]
+            },
+            {
+              "type": "self_has_status_ailment"
+            }
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "modify_pp",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": -1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 其它友方AS后追撃(EN,is_follow_up)；攻击友方为アグレッシブ(1)/キュート(4)时PP+1+本技能atk_up；自身状态异常时PP-1"
+    ]
+  },
+  "130185": {
+    "skill_id": 130185,
+    "name": "鉄壁の母娘",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_any_attacked",
+    "global_condition": {
+      "type": "target_is_self"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "actor_element_in",
+          "values": [
+            2,
+            3
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "guard",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "guard2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "actor_element_not_in",
+          "values": [
+            2,
+            3
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "guard",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "guard",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "attack_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 受击前guard；攻击者シャイ(风=3)/スマート(水=2)时guard2否则guard (互斥block)"
+    ]
+  },
+  "210118": {
+    "skill_id": 210118,
+    "name": "薄暮の宵火",
+    "skill_type": 3,
+    "resource_cost": 7,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "shield_pct",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "max_hp",
+              "shield_decay_pct": 25
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": 2,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 110012.",
+      "Enemy shield is max_hp x2.8%/4%/5% (ally x50%~100%); value provided by shield_pct tag in skills.json."
+    ]
+  },
+  "220414": {
+    "skill_id": 220414,
+    "name": "クールスラッシュ・トリプル",
+    "skill_type": 1,
+    "resource_cost": 2,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 3,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_dealt_down",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 25.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "duration_owner": "caster"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_up",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": 25.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "duration_owner": "caster"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": 2,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 120055; identical mechanic, only power tag differs (enemy Lv10=106)."
+    ]
+  },
+  "220415": {
+    "skill_id": 220415,
+    "name": "バックエイムファイア+",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 5
+        },
+        "effects": [
+          {
+            "effect_type": "shield",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "value",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "shield_base": "atk"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": 2,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 120056.",
+      "1. Shield target: self (ally = nearest ally).",
+      "2. Threshold: active_level_min 11 -> 5."
+    ]
+  },
+  "230435": {
+    "skill_id": 230435,
+    "name": "スマートバリア+",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_hp_below",
+    "global_condition": {
+      "type": "hp_below",
+      "value": 50,
+      "ally_filter": "ally"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": {
+          "type": "target_element",
+          "value": 2
+        },
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "ally_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 2,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 130063.",
+      "Enemy has no 'once per battle' restriction (Features=0, no text); cooldown 99 -> 0."
+    ]
+  },
+  "230436": {
+    "skill_id": 230436,
+    "name": "セカンドライン・セーブ+",
+    "skill_type": 2,
+    "resource_cost": 2,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "value",
+            "value_source": null,
+            "duration": null,
+            "duration_type": "hit",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "damage_element": "physical",
+              "attack_limited": 2
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_min",
+          "value": 5
+        },
+        "effects": [
+          {
+            "effect_type": "add_status",
+            "target_type": "enemy_single_furthest",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "burn",
+            "value_source": null,
+            "duration": 3,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 130064.",
+      "1. dmg_taken_down target: self (ally = friends).",
+      "2. Burn threshold: active_level_min 11 -> 5.",
+      "3. Enemy has no 'once per battle' restriction (Features=0); cooldown 99 -> 0."
+    ]
   }
 }

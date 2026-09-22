@@ -3522,6 +3522,13 @@ class BattleFlowController:
 
         return targets
 
+    def _unit_matches_attribute(self, unit: UnitState, attr: int) -> bool:
+        """角色属性匹配：主属性或副属性任一命中即匹配（双属性角色副属性也触发回忆卡属性highlight）。"""
+        if unit.element == attr:
+            return True
+        sub = getattr(unit, 'sub_element', 0)
+        return bool(sub) and sub == attr
+
     def _match_memory_card_unit_with_position(self, unit: UnitState, highlight,
                                                 block_party_position: int) -> bool:
         """与 _match_memory_card_unit 类似，但位置过滤使用 block_party_position"""
@@ -3539,7 +3546,7 @@ class BattleFlowController:
                 return False
 
         if highlight.character_attribute is not None:
-            if unit.element != highlight.character_attribute:
+            if not self._unit_matches_attribute(unit, highlight.character_attribute):
                 return False
 
         if highlight.character_role is not None:
@@ -3576,7 +3583,7 @@ class BattleFlowController:
                 return False
 
         if highlight.character_attribute is not None:
-            if unit.element != highlight.character_attribute:
+            if not self._unit_matches_attribute(unit, highlight.character_attribute):
                 return False
 
         if highlight.character_role is not None:

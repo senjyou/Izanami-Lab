@@ -12,6 +12,7 @@ from gui.constants import (
     ATTR_ICON_DIR,
     ATTR_ICON_MAP,
     AVATAR_DIR,
+    attribute_matches,
 )
 from gui.widgets.modal import _bind_modal_minimize_restore
 
@@ -158,7 +159,7 @@ class CharacterPickerDialog(tk.Toplevel):
             char = self.app.data_loader.get_character_by_id(cid)
             if not char:
                 continue
-            if self._current_filter != 0 and char.attribute != self._current_filter:
+            if not attribute_matches(char.attribute, getattr(char, 'sub_attribute', 0), self._current_filter):
                 continue
             if search_text:
                 char_name = self.app.format_char_name(char).lower()
@@ -167,7 +168,7 @@ class CharacterPickerDialog(tk.Toplevel):
             result.append(cid)
         # 追加自定义木桩（属性筛选为"全部"或木桩属性匹配时显示）
         for cid, char_data in self.app.data_loader.get_all_custom_dummies().items():
-            if self._current_filter != 0 and char_data.attribute != self._current_filter:
+            if not attribute_matches(char_data.attribute, getattr(char_data, 'sub_attribute', 0), self._current_filter):
                 continue
             if search_text:
                 dummy_name = char_data.name.lower()

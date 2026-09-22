@@ -330346,5 +330346,38 @@
       "230427": 10,
       "230428": 10
     }
+  },
+  "361215": {
+    "enemy_id": 361215,
+    "name": "惨禍：一条白奈",
+    "asset_id": "104301",
+    "hp": 405346,
+    "attack": 8791,
+    "defense": 7513,
+    "speed": 578,
+    "hp_grade": 4,
+    "attack_grade": 3,
+    "defense_grade": 5,
+    "speed_grade": 3,
+    "critical_rate": 0.12999999523162842,
+    "critical_rate_grade": 2,
+    "attribute": 2,
+    "type": 1,
+    "role_type": 3,
+    "rarity": 9,
+    "skill_ids": [
+      210118,
+      220414,
+      220415,
+      230435,
+      230436
+    ],
+    "skill_levels": {
+      "210118": 10,
+      "220414": 10,
+      "220415": 10,
+      "230435": 10,
+      "230436": 10
+    }
   }
 }

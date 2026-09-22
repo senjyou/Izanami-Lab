@@ -70,6 +70,9 @@ class CharacterData:
     # 原始数据（保留完整信息）
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
+    # 副属性（双属性角色专用，0=无副属性）；主属性见 attribute
+    sub_attribute: int = 0
+
 
 @dataclass
 class TemplateTagValue:

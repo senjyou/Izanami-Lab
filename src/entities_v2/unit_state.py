@@ -146,6 +146,10 @@ class UnitState:
     shield: int = 0
     physical_shield: int = 0
     en_shield: int = 0
+
+    # ========== 副属性（双属性角色，0=无副属性）==========
+    # 克制判定时与主属性 element 一同参与；主属性克制倍率1.25，副属性克制倍率1.15
+    sub_element: int = 0
     
     # ========== Buff列表（可变）==========
     buffs: List[BuffState] = field(default_factory=list)

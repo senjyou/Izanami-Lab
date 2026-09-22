@@ -307,7 +307,7 @@ class DamageService:
         
         # 3. 属性克制因子
         skill_element = getattr(skill_data, "element", None) or attacker.element
-        attr_factor = self._get_attribute_factor(skill_element, defender.element, attacker)
+        attr_factor = self._get_attribute_factor(skill_element, defender.element, attacker, defender)
         _log.info("[DMG_CALC] step3_attr_factor: atk_elem=%d def_elem=%d => factor=%.4f",
                   skill_element, defender.element, attr_factor)
         
@@ -696,20 +696,39 @@ class DamageService:
         return base_val * total_pct / 100.0
 
 
-    def _get_attribute_factor(self, atk_attr: int, def_attr: int, attacker: UnitState) -> float:
+    def _get_attribute_factor(self, atk_attr: int, def_attr: int, attacker: UnitState,
+                              defender: Optional[UnitState] = None) -> float:
         """
-        计算属性克制系数
-        公式: 1.25 + 有利属性伤害倍率 (advantage_damage)
+        计算属性克制系数（支持双属性）。
+
+        单属性: 主属性克制 → 1.25 + advantage_damage
+        双属性(500301等): 主属性克制 → 1.25 + bonus；副属性克制 → 1.15 + bonus；
+                          两者都克制时取最大值（主属性优先）。
+        防守方同样支持双属性: 防守方主/副属性任一被克制即构成克制。
+        副属性只在攻击使用角色自身属性（skill_element == attacker.element）时参与。
         """
-        is_advantage = self._check_element_advantage(atk_attr, def_attr)
-        
-        if is_advantage:
-            # 基础 1.25 + 角色特有的 advantage_damage (float)
-            base = 1.25
-            bonus = getattr(attacker, "advantage_damage", 0.0)
-            return base + bonus
-        else:
-            return 1.0
+        bonus = getattr(attacker, "advantage_damage", 0.0)
+        # 攻击方主/副属性
+        atk_main = atk_attr
+        atk_sub = getattr(attacker, "sub_element", 0)
+        # 副属性仅当攻击属性为角色主属性时参与
+        if atk_sub and atk_main != getattr(attacker, "element", atk_main):
+            atk_sub = 0
+        # 防守方主/副属性
+        defender_attrs = [def_attr]
+        if defender is not None:
+            d_sub = getattr(defender, "sub_element", 0)
+            if d_sub:
+                defender_attrs.append(d_sub)
+
+        factor = 1.0
+        # 主属性克制: 1.25 + bonus
+        if any(self._check_element_advantage(atk_main, d) for d in defender_attrs if d):
+            factor = max(factor, 1.25 + bonus)
+        # 副属性克制: 1.15 + bonus
+        if atk_sub and any(self._check_element_advantage(atk_sub, d) for d in defender_attrs if d):
+            factor = max(factor, 1.15 + bonus)
+        return factor
 
     def _check_element_advantage(self, atk_element: int, def_element: int) -> bool:
         """

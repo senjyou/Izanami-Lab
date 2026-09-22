@@ -73,8 +73,20 @@ def apply_element_synergy(units: List[UnitState], narrative=None) -> List[UnitSt
 
 
 def _apply_side_synergy(side_units: List[UnitState], narrative) -> None:
-    four_elements = [u.element for u in side_units if u.element in (1, 2, 3, 4, 5)]
-    dark_count = sum(1 for u in side_units if u.element == 6)
+    # 双属性角色：主属性(element)与副属性(sub_element)均计入同属性加成
+    four_elements = []
+    dark_count = 0
+    for u in side_units:
+        main = u.element
+        sub = getattr(u, 'sub_element', 0)
+        attrs = [main]
+        if sub and sub != main:
+            attrs.append(sub)
+        for e in attrs:
+            if e in (1, 2, 3, 4, 5):
+                four_elements.append(e)
+            elif e == 6:
+                dark_count += 1
 
     atk_pct, hp_pct = _calc_four_element_bonus(four_elements)
     dark_bonus = _calc_dark_bonus(dark_count) if dark_count > 0 else {"attack": 0.0, "hp": 0.0, "defense": 0.0, "crit_rate": 0.0}

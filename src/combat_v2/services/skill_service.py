@@ -592,6 +592,14 @@ class SkillService:
                 _log.info("[SKILL_GC] %s: [%s] self_hp_above pct=%.0f: self hp_pct=%.1f below threshold, blocked",
                           caster.name, skill_name, pct, self_hp_pct)
                 return False
+        elif gc_type == 'self_ap_above_or_equal':
+            # 自身AP >= value（500301 ストレラ130184「自身のAPが2未満の場合、このスキルは発動しない」）
+            _gc_ap = getattr(caster, 'current_ap', 0)
+            _gc_ap_val = gc.get('value', 0)
+            if _gc_ap < _gc_ap_val:
+                _log.info("[SKILL_GC] %s: [%s] self_ap_above_or_equal ap=%d < %s, blocked",
+                          caster.name, skill_name, _gc_ap, _gc_ap_val)
+                return False
         elif gc_type == 'self_hp_below':
             # 自身HP% < pct时条件满足（如220378「自身のHPが80%以上の場合は発動しない」→需HP<80%）
             # 支持 value 和 pct 两种字段名（与 block condition 一致）
@@ -1310,6 +1318,29 @@ class SkillService:
                             if not (_block_cond_ep_snapshot < _ep_val):
                                 skip_block = True
                                 break
+                        elif st == 'actor_element_in':
+                            # 130184/130185: 触发攻击者（actor）元素过滤（and组合子条件）
+                            _avs = sub_cond.get('values') or [sub_cond.get('value')]
+                            _ael = getattr(getattr(self, '_trigger_attacker', None), 'element', 0)
+                            if not (_ael in (set(_avs) if isinstance(_avs, list) else {_avs})):
+                                skip_block = True
+                                break
+                        elif st == 'actor_element_not_in':
+                            _avs = sub_cond.get('values') or [sub_cond.get('value')]
+                            _ael = getattr(getattr(self, '_trigger_attacker', None), 'element', 0)
+                            if _ael in (set(_avs) if isinstance(_avs, list) else {_avs}):
+                                skip_block = True
+                                break
+                        elif st == 'self_has_status_ailment':
+                            # 130184: 自身存在状态异常（and组合子条件）
+                            _STATUS_AILMENT_TYPES2 = {"knockout", "conflagration", "poison", "freeze",
+                                                      "darkness", "confusion", "genwaku"}
+                            _has_ail = any(
+                                d.effect_type.lower() in _STATUS_AILMENT_TYPES2 for d in caster.debuffs
+                            )
+                            if not _has_ail:
+                                skip_block = True
+                                break
                     if skip_block:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (and condition not met)",
                                   caster.name, block.block_id)
@@ -1436,6 +1467,21 @@ class SkillService:
                 elif cond_type == 'target_character_type':
                     _ct_val = block_condition.get('value')
                     self._target_char_type_filter = [_ct_val] if isinstance(_ct_val, int) else _ct_val
+                elif cond_type in ('actor_element_in', 'actor_element_not_in'):
+                    # 按触发攻击者（actor）的元素属性过滤block（500301技能130184「攻撃した味方がキュート属性
+                    # またはアグレッシブ属性だった場合」/ 130185「攻撃してくる敵がシャイ属性またはスマート属性」）
+                    # 攻击者 = _trigger_attacker（none时由全局条件/触发上下文保证）
+                    _avs = block_condition.get('values') or [block_condition.get('value')]
+                    _actor_el = getattr(getattr(self, '_trigger_attacker', None), 'element', 0)
+                    _actor_in = _actor_el in (set(_avs) if isinstance(_avs, list) else {_avs})
+                    if cond_type == 'actor_element_in' and not _actor_in:
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (actor_element_in: element=%s not in %s)",
+                                  caster.name, block.block_id, _actor_el, _avs)
+                        continue
+                    if cond_type == 'actor_element_not_in' and _actor_in:
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (actor_element_not_in: element=%s in %s)",
+                                  caster.name, block.block_id, _actor_el, _avs)
+                        continue
                 elif cond_type == 'self_has_status':
                     status_name = str(block_condition.get('value', ''))
                     has_status = any(
@@ -6719,6 +6765,26 @@ class SkillService:
                 _log.info("[HEAL] %s -> %s: low_hp_heal_bonus hp_ratio=%.3f bonus_mult=%.4f heal %d->%d",
                           caster.name, target.name, hp_ratio, bonus_mult, original_amount, heal_amount)
 
+            # scale_by_self_hp_range: 按施法者自身当前HP比例在区间内线性缩放治疗量
+            # （500301技能120178「回復量は自身のHPが少ないほど増加し（+30%まで）、HP40%時点を最小値とし、
+            #   HP10%時点で最高値となる」：reverse=true 时 HP%低→幅度大）
+            _hp_range = heal_flags.get('scale_by_self_hp_range')
+            if isinstance(_hp_range, dict) and caster.max_hp > 0:
+                _min_pct = float(_hp_range.get('min_pct', 0))
+                _max_pct = float(_hp_range.get('max_pct', 100))
+                _max_bonus = float(_hp_range.get('max_bonus', 0))
+                _reverse = bool(_hp_range.get('reverse', False))
+                _hp_self = (caster.current_hp / caster.max_hp * 100.0)
+                _t = (_hp_self - _min_pct) / (_max_pct - _min_pct) if _max_pct > _min_pct else 1.0
+                _t = max(0.0, min(1.0, _t))
+                if _reverse:
+                    _t = 1.0 - _t
+                _factor = 1.0 + _max_bonus * _t
+                _orig = heal_amount
+                heal_amount = int(heal_amount * _factor)
+                _log.info("[HEAL] %s -> %s: scale_by_self_hp_range self_hp=%.1f%% t=%.3f factor=%.4f heal %d->%d",
+                          caster.name, target.name, _hp_self, _t, _factor, _orig, heal_amount)
+
             # debuff_heal_bonus: 目标有debuff时治疗量+100%（如イケてる♡イケてる）
             if heal_flags.get('debuff_heal_bonus') and target.debuffs:
                 heal_amount = heal_amount * 2
@@ -7115,6 +7181,26 @@ class SkillService:
             effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
             shield_value = int(effective_atk * value / 100)
             shield_base_value = effective_atk
+
+        # scale_by_self_hp_range: 按施法者自身当前HP比例在区间内线性缩放盾值
+        # （500301技能120178「シールド値は自身のHPが多いほど増加し(+20%まで)、HP10%時点を最小値とし、
+        #   HP40%時点で最高値となる」：HP% ∈ [min_pct, max_pct] 线性插值，正比时HP%高→幅度大）
+        _hp_range = effect_flags_aura.get('scale_by_self_hp_range')
+        if isinstance(_hp_range, dict):
+            _min_pct = float(_hp_range.get('min_pct', 0))
+            _max_pct = float(_hp_range.get('max_pct', 100))
+            _max_bonus = float(_hp_range.get('max_bonus', 0))
+            _reverse = bool(_hp_range.get('reverse', False))
+            _hp_self = (caster.current_hp / caster.max_hp * 100.0) if caster.max_hp > 0 else 0
+            _t = (_hp_self - _min_pct) / (_max_pct - _min_pct) if _max_pct > _min_pct else 1.0
+            _t = max(0.0, min(1.0, _t))
+            if _reverse:
+                _t = 1.0 - _t
+            _factor = 1.0 + _max_bonus * _t
+            _before = shield_value
+            shield_value = int(shield_value * _factor)
+            _log.info("[AURA_APPLY] %s -> %s: scale_by_self_hp_range hp=%.1f%% t=%.3f factor=%.4f shield %d->%d",
+                      caster.name, target.name, _hp_self, _t, _factor, _before, shield_value)
         # 根据damage_element决定添加到哪个盾
         shield_elem = effect_flags_aura.get('damage_element', '')
         if shield_elem == 'physical':
@@ -12836,14 +12922,14 @@ class SkillService:
         # 获取guard值（从value_tag解析）
         guard_value = 0.0
         value_tag = getattr(effect, 'value_tag', None)
-        if value_tag == "guard":
-            # 从技能数据中解析guard值
+        if value_tag in ("guard", "guard2"):
+            # 从技能数据中解析guard值（130185铁壁の母娘: 攻击者シャイ/スマート时为guard2，否则guard）
             skill_id = self._current_skill_id
             meta = self.data_loader.get_skill_by_id(skill_id)
             if meta:
                 skill_level = caster.skill_levels.get(skill_id, 1)
                 tag_values = self._resolver._resolve_template_tags(meta, skill_level)
-                guard_value = tag_values.get('guard', 0.0)
+                guard_value = tag_values.get(value_tag, 0.0)
 
         if guard_value <= 0:
             _log.info("[GUARD] %s: guard value is %f, skip", caster.name, guard_value)

@@ -24,6 +24,8 @@ from gui.constants import (
     _DARK_BORDER,
     _DARK_FG,
     _DARK_INPUT_BG,
+    attribute_matches,
+    format_attributes,
 )
 from gui.utils import get_max_rarity_for, get_module_type_ids
 
@@ -189,7 +191,7 @@ class CharacterParamsTab(ttk.Frame):
             char = self.app.data_loader.get_character_by_id(cid)
             if not char:
                 continue
-            if self._current_filter != 0 and char.attribute != self._current_filter:
+            if not attribute_matches(char.attribute, getattr(char, 'sub_attribute', 0), self._current_filter):
                 continue
             self._filtered_char_ids.append(cid)
 
@@ -348,7 +350,7 @@ class CharacterParamsTab(ttk.Frame):
         ttk.Label(f, text="").pack()
 
         type_name = ["", "物理", "EN", "敏捷"][char.character_type] if char.character_type <= 3 else "?"
-        attr_name = ["", "火", "水", "风", "土", "光", "暗"][char.attribute] if char.attribute <= 6 else "?"
+        attr_name = format_attributes(char.attribute, getattr(char, 'sub_attribute', 0)) if char.attribute <= 6 else "?"
         role_names = {0: "未设定", 1: "物理攻击手", 2: "EN攻击手", 3: "坦克", 4: "辅助", 5: "控制"}
         role_name = role_names.get(char.role_type, "?")
         pos_names = {0: "未设定", 1: "前排", 2: "后排", 3: "灵活"}

@@ -42,10 +42,11 @@ ENEMY_SLOT_POSITION_MAP = {
 # ─────────────────── 战术演习敌方白名单 ───────────────────
 
 # 用户模式下可选的敌方ID（经过debug验证可正常模拟的单位）
-ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205, 713405, 722305, 652105, 152205, 161418, 242305}
+ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205, 713405, 722305, 652105, 152205, 161418, 242305, 361215}
 
 # 当期敌方数量（取JSON文件最后添加的N个为当期敌方，其余为往期）
-CURRENT_EXERCISE_ENEMY_COUNT = 4
+# 361215（惨禍：一条白奈）为新一期当期敌方，此前的当期敌方全部转为往期
+CURRENT_EXERCISE_ENEMY_COUNT = 1
 
 # 敌方ID → 同名角色ID（用于获取头像）
 ENEMY_AVATAR_MAP = {
@@ -74,6 +75,7 @@ ENEMY_AVATAR_MAP = {
     101209: 110301,   # ユリア・バーンズ
     152205: 131302,   # 姜小花（砂浜の策謀家）
     242305: 114302,   # 惨禍：アニス・ベネット（渚のスイートデビル）
+    361215: 104301,   # 惨禍：一条白奈（純白のラッキーガール）
 }
 
 
@@ -112,6 +114,25 @@ RARITY_NAMES = {
 
 ELEMENT_NAMES = {1: "火", 2: "水", 3: "风", 4: "土", 5: "光", 6: "暗"}
 CHAR_TYPE_NAMES = {1: "物理", 2: "EN", 3: "敏捷"}
+
+
+def format_attributes(attribute: int, sub_attribute: int = 0) -> str:
+    """格式化角色属性名；双属性显示为「主/副」（如 土/火）。"""
+    name = ELEMENT_NAMES.get(attribute, "?")
+    if sub_attribute and sub_attribute != attribute:
+        sub_name = ELEMENT_NAMES.get(sub_attribute)
+        if sub_name:
+            return f"{name}/{sub_name}"
+    return name
+
+
+def attribute_matches(attribute: int, sub_attribute: int, filter_id: int) -> bool:
+    """属性筛选匹配：主属性或副属性任一命中即匹配；filter_id=0 表示全部。"""
+    if filter_id == 0:
+        return True
+    return attribute == filter_id or bool(sub_attribute) and sub_attribute == filter_id
+
+
 POSITION_TYPE_NAMES = {1: "前排", 2: "后排", 3: "灵活"}
 ROLE_TYPE_NAMES = {1: "物理攻击手", 2: "EN攻击手", 3: "坦克", 4: "辅助", 5: "控制"}
 TARGET_TYPE_NAMES = {1: "自身", 2: "自身+友方", 3: "敌方全体", 4: "友方全体", 5: "全场"}
