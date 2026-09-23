@@ -6660,5 +6660,68 @@
         ]
       }
     ]
+  },
+  "400255": {
+    "skill_id": 400255,
+    "name": "攻撃・防御上昇【オルガ&ナージャ】",
+    "description": "戦闘開始時に発動。オルガ&ナージャ[繋がり合う母娘の絆]の攻撃力を1000、防御力を750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusDefense",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400256": {
+    "skill_id": 400256,
+    "name": "ENダメージ上昇【中央列前・後衛】",
+    "description": "戦闘開始時に発動。中央列前衛と後衛の味方に対し、EN攻撃で与えるダメージを4.2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 4.2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 2
+          }
+        ]
+      }
+    ]
   }
 }

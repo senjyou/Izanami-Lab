@@ -89497,5 +89497,431 @@
       "2. Burn threshold: active_level_min 11 -> 5.",
       "3. Enemy has no 'once per battle' restriction (Features=0); cooldown 99 -> 0."
     ]
+  },
+  "210119": {
+    "skill_id": 210119,
+    "name": "チクっとするよ～？",
+    "skill_type": 3,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_column",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "lowest_hp_priority": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力2",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "lowest_hp_priority": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 7,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 110076; identical mechanic, only power tags differ (enemy 威力 Lv5=78 / 威力2 Lv10=53)."
+    ]
+  },
+  "220416": {
+    "skill_id": 220416,
+    "name": "トリアージ・スラスト",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_first_priority": "観察",
+              "ignore_condition": {
+                "type": "target_has_mark",
+                "mark_name": "観察"
+              }
+            },
+            "ignore_defense": 30,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 120165; identical mechanic (観察 priority + conditional 30% def ignore)."
+    ]
+  },
+  "230437": {
+    "skill_id": 230437,
+    "name": "アナライザ・フォーカス",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_self_attacked",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "観察",
+              "is_buff_mark": false,
+              "duration_owner": "caster",
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_down",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "atk",
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "stackable": true,
+              "unremovable": true,
+              "linked_buff_id": "観察",
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "active_level_max",
+          "value": 9
+        },
+        "effects": [
+          {
+            "effect_type": "heal_efficacy_down",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 100,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "unremovable": true,
+              "linked_buff_id": "観察",
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "condition": {
+          "type": "active_level_min",
+          "value": 10
+        },
+        "effects": [
+          {
+            "effect_type": "heal_link",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 100,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "is_debuff": true,
+              "unremovable": true,
+              "linked_buff_id": "観察",
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "heal_link",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 100,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "attacker_action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "unremovable": true,
+              "linked_buff_id": "観察",
+              "source_death_remove": true
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 130169.",
+      "High-tier heal_link threshold: ally Lv15 -> enemy Lv10 (block3 active_level_min 15->10, block2 max 14->9)."
+    ]
+  },
+  "230438": {
+    "skill_id": 230438,
+    "name": "コーリングナース",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "after_enemy_skill_use",
+    "global_condition": {
+      "type": "actor_has_mark",
+      "mark_name": "観察"
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_ep",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "remove_pp",
+            "target_type": "enemy_single",
+            "target_identifier": "trigger_attacker",
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "level_min": 5
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 130170.",
+      "PP-1 effect tier: ally Lv11 -> enemy Lv5."
+    ]
+  },
+  "230439": {
+    "skill_id": 230439,
+    "name": "バイタルチェック",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 1,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_turn_start",
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "stealth",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down_threshold",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "turn",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "threshold_pct": 20,
+              "threshold_base": "current_hp"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "success",
+    "parse_notes": [
+      "Copied from ally 130171; identical mechanic, only dmg tag differs (enemy Lv10=65)."
+    ]
   }
 }

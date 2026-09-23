@@ -4272,5 +4272,35 @@
         "skill_master_id": 400249
       }
     ]
+  },
+  "20092": {
+    "memory_id": 20092,
+    "name": "新たなる力",
+    "description": "ナージャ「どんなに厳しい戦いだったとしても、必ず乗り越えられます……！」\\nオルガ「私もあなたを信頼しています。ふたりなら、きっと……」",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": 500301,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400255
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 18,
+        "skill_master_id": 400256
+      }
+    ]
   }
 }

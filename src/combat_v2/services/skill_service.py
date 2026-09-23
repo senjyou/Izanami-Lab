@@ -2232,16 +2232,24 @@ class SkillService:
                                 lowest_hp_enemy = enemies[0] if enemies else None
                                 if lowest_hp_enemy and effect.target_type == "enemy_row":
                                     # 根据最低HP比例敌方的位置确定横列（前排/后排）
+                                    # 必须按最低HP单位的实际阵营选择位置集：
+                                    # 敌方施法者（敌方PS/敌方EX）的目标是己方(ALLY)队伍，
+                                    # 硬编码ENEMY位置会导致row_enemies为空（无法命中）
                                     from src.entities_v2.enums import Position as _Pos
+                                    from src.entities_v2.enums import Side as _SideRow
                                     lowest_pos = lowest_hp_enemy.position
-                                    # 判断是前排还是后排
-                                    is_front = lowest_pos in (
-                                        _Pos.ENEMY_LEFT_FRONT, _Pos.ENEMY_CENTER_FRONT, _Pos.ENEMY_RIGHT_FRONT
+                                    _use_ally_set = (
+                                        lowest_hp_enemy.side == _SideRow.ALLY
                                     )
-                                    if is_front:
-                                        row_positions = {_Pos.ENEMY_LEFT_FRONT, _Pos.ENEMY_CENTER_FRONT, _Pos.ENEMY_RIGHT_FRONT}
+                                    if _use_ally_set:
+                                        _front_set = {_Pos.ALLY_LEFT_FRONT, _Pos.ALLY_CENTER_FRONT, _Pos.ALLY_RIGHT_FRONT}
+                                        _back_set = {_Pos.ALLY_LEFT_BACK, _Pos.ALLY_CENTER_BACK, _Pos.ALLY_RIGHT_BACK}
                                     else:
-                                        row_positions = {_Pos.ENEMY_LEFT_BACK, _Pos.ENEMY_CENTER_BACK, _Pos.ENEMY_RIGHT_BACK}
+                                        _front_set = {_Pos.ENEMY_LEFT_FRONT, _Pos.ENEMY_CENTER_FRONT, _Pos.ENEMY_RIGHT_FRONT}
+                                        _back_set = {_Pos.ENEMY_LEFT_BACK, _Pos.ENEMY_CENTER_BACK, _Pos.ENEMY_RIGHT_BACK}
+                                    # 判断是前排还是后排
+                                    is_front = lowest_pos in _front_set
+                                    row_positions = _front_set if is_front else _back_set
                                     row_enemies = [u for u in enemies if u.position in row_positions]
                                     self._block_damage_targets[effect.target_type] = row_enemies
                                     _log.info("[SKILL_EXEC] %s: custom target select: lowest_hp=%s (hp_pct=%.1f%%) row=%s targets=%s",

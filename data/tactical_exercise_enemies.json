@@ -1615,5 +1615,38 @@
     ],
     "position": 2,
     "party_id": 400250
+  },
+  "293405": {
+    "enemy_id": 293405,
+    "name": "惨禍：レイラ・ジェンキンス",
+    "character_name": "レイラ・ジェンキンス",
+    "asset_id": "119302",
+    "hp": 436670,
+    "attack": 12691,
+    "defense": 6400,
+    "speed": 564,
+    "hp_grade": 4,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 3,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 4,
+    "type": 3,
+    "role_type": 5,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 401,
+    "skill_ids": [
+      210119,
+      220416,
+      230437,
+      230438,
+      230439
+    ],
+    "position": 5,
+    "party_id": 400255
   }
 }

@@ -120,4 +120,5 @@ The simulator currently supports a limited set of characters. More will be added
 | 姜小花         |
 | 生駒葵         |
 | アニス・ベネット    |
+| 一条白奈        |
 

@@ -27911,5 +27911,36 @@
         }
       ]
     }
+  },
+  "400255": {
+    "atk": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 1000.0
+        }
+      ]
+    },
+    "def": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 750.0
+        }
+      ]
+    }
+  },
+  "400256": {
+    "dmg": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 4.199999809265137
+        }
+      ]
+    }
   }
 }

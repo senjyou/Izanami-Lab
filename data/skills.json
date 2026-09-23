@@ -82342,5 +82342,330 @@
         ]
       }
     }
+  },
+  "210119": {
+    "skill_id": 210119,
+    "name": "チクっとするよ～？",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 24,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合の低い敵を対象とし、対象が含まれる敵前後列に威力{威力}で攻撃する。\nさらに対象が含まれる敵横一列に威力{威力2}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 5,
+            "value": 78.0
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 5,
+            "value": 39.0
+          },
+          {
+            "level": 10,
+            "value": 53.0
+          }
+        ]
+      }
+    }
+  },
+  "220416": {
+    "skill_id": 220416,
+    "name": "トリアージ・スラスト",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「観察」状態の敵を優先し、敵単体に威力{威力}で攻撃する。\n対象が「観察」状態の場合、この攻撃は防御力を30%無視する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 93.5999984741211
+          },
+          {
+            "level": 10,
+            "value": 127.19999694824219
+          }
+        ]
+      }
+    }
+  },
+  "230437": {
+    "skill_id": 230437,
+    "name": "アナライザ・フォーカス",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      },
+      {
+        "level": 10,
+        "value": 6
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵から攻撃を受けた直後に発動。攻撃してきた敵単体に対し、自身が2回行動を終えるまでの間「観察」を付与する。\nさらに対象の攻撃力を{atk}%低下させ（重複可）、回復無効のデバフを付与する。攻撃・回復無効デバフは解除不可だが、「観察」と同時に解除される。\n「観察」は付与者が倒れると解除される"
+      },
+      {
+        "min_level": 10,
+        "template": "自身が敵から攻撃を受けた直後に発動。攻撃してきた敵単体に対し、自身が2回行動を終えるまでの間「観察」を付与する。\nさらに対象の攻撃力を{atk}%低下させ（重複可）、対象と自身に対して回復リンクを付与し、対象が得られる回復効果を100%自身に転送する状態にする。攻撃デバフと回復リンクは解除不可だが、「観察」と同時に解除される。\n「観察」は付与者が倒れると解除される"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 15.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      }
+    }
+  },
+  "230438": {
+    "skill_id": 230438,
+    "name": "コーリングナース",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「観察」状態の敵がアクティブスキルを使用した後に発動。対象の敵単体に威力{威力}で攻撃し、対象のEXゲージを1削る"
+      },
+      {
+        "min_level": 5,
+        "template": "「観察」状態の敵がアクティブスキルを使用した後に発動。対象の敵単体に威力{威力}で攻撃し、対象のEXゲージとPPを1ずつ削る"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 55.0
+          },
+          {
+            "level": 3,
+            "value": 85.80000305175781
+          },
+          {
+            "level": 5,
+            "value": 85.80000305175781
+          },
+          {
+            "level": 10,
+            "value": 110.44000244140625
+          }
+        ]
+      }
+    }
+  },
+  "230439": {
+    "skill_id": 230439,
+    "name": "バイタルチェック",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 1,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 14,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身に対し1ターンのステルスと、1ターンの間自身の現在HPの20%を超えるダメージのみ{dmg}%減少させる効果を付与する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 65.0
+          }
+        ]
+      }
+    }
+  },
+  "400255": {
+    "skill_id": 400255,
+    "name": "攻撃・防御上昇【オルガ&ナージャ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。オルガ&ナージャ[繋がり合う母娘の絆]の攻撃力を{atk}、防御力を{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 750.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400256": {
+    "skill_id": 400256,
+    "name": "ENダメージ上昇【中央列前・後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。中央列前衛と後衛の味方に対し、EN攻撃で与えるダメージを{dmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 4.199999809265137
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }
