@@ -699,6 +699,28 @@ class BattleFlowController:
                 _log.info("[SKILL_COUNT] AS skill_use_count updated: %s skill[%d] -> count=%d, full=%s",
                           unit.name, selected_skill, unit.skill_use_count[selected_skill], dict(unit.skill_use_count))
 
+            # ===== debuff付与触发（on_debuff_applied）=====
+            # 时序：付与者スキルがデバフを付与 → 被付与者の on_debuff_applied 反応 →
+            #       攻撃者の AS後追撃トリガー(Phase1-3)
+            # 必须晚于 _on_deaths_resolved（确保被击杀后复活的目标能触发自身PS），
+            # 但必须早于 _collect_and_run_post_as_triggers / 非AS触发器，
+            # 否则会出现「ストレラ(Phase2 AFTER_ALLY_AS_ATTACK) が先、
+            # おたすけもとむ(PAWN_RECEIVED_AURA) が後」的时序倒错。
+            if had_aura:
+                aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
+                    self._collect_debuff_trigger_data(skill_result)
+                _log.info("[AURA_TRIGGER] aura_target_ids=%s new_knockout_target_ids=%s applied_debuff_types=%s",
+                          aura_target_ids, new_knockout_target_ids, applied_debuff_types)
+                if aura_target_ids:
+                    aura_actions = self.trigger_service.trigger_pawn_received_aura(
+                        self.battlefield, aura_target_ids, actor=unit,
+                        new_knockout_target_ids=new_knockout_target_ids,
+                        applied_debuff_types=applied_debuff_types)
+                    _log.info("[AURA_TRIGGER] aura_actions=%d, primary_targets=%s",
+                              len(aura_actions),
+                              [a.parameters.get('primary_target').name if hasattr(a, 'parameters') and a.parameters.get('primary_target') else None for a in aura_actions])
+                    self._execute_trigger_actions(aura_actions, unit)
+
             if skill_type == 1:
                 # AS技能：调用统一的5阶段post-skill trigger流程
                 # _collect_and_run_post_as_triggers 内部根据 damaged_targets 自动分支：
@@ -760,21 +782,6 @@ class BattleFlowController:
                         per_hit_reset_values=_per_hit_resets)
                     if cumulative_dmg_actions:
                         self._execute_global_trigger_actions(cumulative_dmg_actions)
-
-            if had_aura:
-                aura_target_ids, new_knockout_target_ids, applied_debuff_types = \
-                    self._collect_debuff_trigger_data(skill_result)
-                _log.info("[AURA_TRIGGER] aura_target_ids=%s new_knockout_target_ids=%s applied_debuff_types=%s",
-                          aura_target_ids, new_knockout_target_ids, applied_debuff_types)
-                if aura_target_ids:
-                    aura_actions = self.trigger_service.trigger_pawn_received_aura(
-                        self.battlefield, aura_target_ids, actor=unit,
-                        new_knockout_target_ids=new_knockout_target_ids,
-                        applied_debuff_types=applied_debuff_types)
-                    _log.info("[AURA_TRIGGER] aura_actions=%d, primary_targets=%s",
-                              len(aura_actions),
-                              [a.parameters.get('primary_target').name if hasattr(a, 'parameters') and a.parameters.get('primary_target') else None for a in aura_actions])
-                    self._execute_trigger_actions(aura_actions, unit)
 
         self.skill_service.update_cooldown_after_skill_use(unit, selected_skill)
 

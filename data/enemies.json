@@ -330412,5 +330412,38 @@
       "230438": 10,
       "230439": 10
     }
+  },
+  "451305": {
+    "enemy_id": 451305,
+    "name": "惨禍：リディア・エルドリッジ",
+    "asset_id": "140302",
+    "hp": 433424,
+    "attack": 13633,
+    "defense": 6912,
+    "speed": 696,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 5,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 3,
+    "type": 1,
+    "role_type": 1,
+    "rarity": 9,
+    "skill_ids": [
+      210120,
+      220417,
+      220418,
+      230440,
+      230441
+    ],
+    "skill_levels": {
+      "210120": 10,
+      "220417": 10,
+      "220418": 10,
+      "230440": 10,
+      "230441": 10
+    }
   }
 }

@@ -300,7 +300,7 @@ class TargetService:
                 if not ally_units:
                     return []
                 return self._get_adjacent_to_closest(ally_units, caster)
-            enemy_units = [u for u in all_units if u.side == Side.ENEMY and u.is_alive]
+            enemy_units = [u for u in all_units if u.side == enemy_side and u.is_alive]
             if not enemy_units:
                 return []
             return self._get_adjacent_to_closest(enemy_units, caster)

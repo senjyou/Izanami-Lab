@@ -9515,6 +9515,15 @@ class SkillService:
                 max_count = int(resolved_count)
                 _log.info("[REMOVE_DEBUFF] %s: count_tag='%s' resolved to %d",
                           caster.name, count_tag, max_count)
+        elif max_count <= 0:
+            # 未配置 flags.count/count_tag 时，回退到 effect.value：
+            # value > 0 表示按数量解除（LIFO，如 おたすけもとむ 130164/230440 value=1 解除1个）；
+            # value <= 0 或 None 表示解除全部（如 セントリストア 130061 value=-1=全部，多数技能 value=None=全部）
+            _rd_eff_value = getattr(effect, 'value', 0) or 0
+            if _rd_eff_value > 0:
+                max_count = int(_rd_eff_value)
+                _log.info("[REMOVE_DEBUFF] %s: effect.value=%d -> max_count=%d (LIFO)",
+                          caster.name, _rd_eff_value, max_count)
 
         # lowest_hp_priority: 优先使用前序heal block记录的_last_primary_target，
         # 避免heal后HP变化导致remove_debuff选到不同友方
@@ -9577,7 +9586,10 @@ class SkillService:
                 continue
             # mark联动debuff（linked_buff_id非空，如130169的攻撃デバフ/回復無効/回復リンク）
             # 不被直接驱散，仅随所属mark一同消失（解除不可だが「観察」と同時に解除される）
-            removable = [d for d in target.debuffs if not getattr(d, 'linked_buff_id', '')]
+            # 回忆卡debuff(is_memory_buff)与不可解除debuff(unremovable)同样不可驱散
+            removable = [d for d in target.debuffs
+                         if not getattr(d, 'linked_buff_id', '')
+                         and not d.is_memory_buff and not d.unremovable]
             removed_auras = []
             if max_count and max_count > 0 and len(removable) > max_count:
                 # LIFO：从列表末尾（最近施加）开始移除max_count个
