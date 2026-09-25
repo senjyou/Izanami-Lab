@@ -3942,7 +3942,7 @@
         "skill_master_id": 400228
       },
       {
-        "character_attribute": 4,
+        "character_attribute": 3,
         "character_base_master_id": null,
         "character_master_id": null,
         "character_role": null,
@@ -4300,6 +4300,36 @@
         "is_targeting_friendly_party": true,
         "party_position": 18,
         "skill_master_id": 400256
+      }
+    ]
+  },
+  "30038": {
+    "memory_id": 30038,
+    "name": "最大の幸運は",
+    "description": "うん……湯船に浸かってるだけで、\n身体がぽかぽかして、気持ちいい……",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": 3,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400253
+      },
+      {
+        "character_attribute": 4,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400254
       }
     ]
   }

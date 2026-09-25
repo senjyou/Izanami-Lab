@@ -27942,5 +27942,27 @@
         }
       ]
     }
+  },
+  "400253": {
+    "atk": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 1500.0
+        }
+      ]
+    }
+  },
+  "400254": {
+    "atk": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 1500.0
+        }
+      ]
+    }
   }
 }

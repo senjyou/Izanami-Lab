@@ -330445,5 +330445,38 @@
       "230440": 10,
       "230441": 10
     }
+  },
+  "463105": {
+    "enemy_id": 463105,
+    "name": "惨禍：ロージー・ヒューズ",
+    "asset_id": "120302",
+    "hp": 352891,
+    "attack": 11334,
+    "defense": 5422,
+    "speed": 608,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 4,
+    "critical_rate": 0.12999999523162842,
+    "critical_rate_grade": 2,
+    "attribute": 1,
+    "type": 3,
+    "role_type": 4,
+    "rarity": 9,
+    "skill_ids": [
+      210117,
+      220413,
+      230432,
+      230433,
+      230434
+    ],
+    "skill_levels": {
+      "210117": 10,
+      "220413": 10,
+      "230432": 10,
+      "230433": 10,
+      "230434": 10
+    }
   }
 }

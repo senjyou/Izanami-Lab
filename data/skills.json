@@ -82929,5 +82929,368 @@
         ]
       }
     }
+  },
+  "210117": {
+    "skill_id": 210117,
+    "name": "特別サービス♪",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 21,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の現在HPの2.5%を消費し、消費HP×100%分のシールドと、最大HP×{shield}%分のシールドを自身に付与する。\n加えて自身に対し4行動の間「アイデア」を付与する。\n自身が「創作」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          },
+          {
+            "level": 3,
+            "value": 2.75
+          },
+          {
+            "level": 10,
+            "value": 3.5
+          }
+        ]
+      }
+    }
+  },
+  "220413": {
+    "skill_id": 220413,
+    "name": "プロモーション・バースト",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 9
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「創作」状態ではない場合、敵単体に威力{威力}で攻撃する。「アイデア」を所持している場合、さらに威力{威力2}で追加攻撃を行う。\n「創作」状態の場合、自身のHPを最大HPの1.5%回復する"
+      },
+      {
+        "min_level": 5,
+        "template": "「創作」状態ではない場合、敵単体に威力{威力}で攻撃する。「アイデア」を所持している場合、さらに威力{威力2}で追加攻撃を行う。\n加えて総ダメージの{cure}%分自身のHPを回復する。\n「創作」状態の場合、自身のHPを最大HPの1.5%回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 93.5999984741211
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 46.79999923706055
+          }
+        ]
+      },
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "230432": {
+    "skill_id": 230432,
+    "name": "スマイル・ファンサービス",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 10
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "累計で最大HP×0.75%のダメージを受けるたびに発動。HP割合が低い順に味方2体のHPを威力{威力}で回復し、自身のPPを1回復する。\n自身が「創作」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 25.0
+          },
+          {
+            "level": 10,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "230433": {
+    "skill_id": 230433,
+    "name": "ボルテージ・マックス+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPが20%未満の状態で敵から攻撃される直前に発動。自身に対し、一度だけ致死ダメージを耐え、HPを最大HP×{cure}%回復するバフを付与する。さらに自身に対し2行動の間「創作」を付与する（解除不可）。\n自身が「創作」状態の場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 5,
+        "template": "自身のHPが20%未満の状態で敵から攻撃される直前に発動。自身に対し、一度だけ致死ダメージを耐え、HPを最大HP×{cure}%回復するバフを付与する。さらに自身の攻撃力を{atk}%、防御力を{def}%上昇させ（重複可）、自身に対し2行動の間「創作」を付与する（解除不可）。\n自身が「創作」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.75
+          },
+          {
+            "level": 3,
+            "value": 1.5
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 3.0
+          },
+          {
+            "level": 10,
+            "value": 6.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 3.0
+          },
+          {
+            "level": 10,
+            "value": 6.0
+          }
+        ]
+      }
+    }
+  },
+  "230434": {
+    "skill_id": 230434,
+    "name": "スペシャル・アピール+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵から攻撃される直前に発動。自身に対しこの行動内で受けるダメージを{dmg}%減少させる効果を付与する。\n自身が「創作」状態ではない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 45.0
+          },
+          {
+            "level": 5,
+            "value": 60.0
+          },
+          {
+            "level": 10,
+            "value": 75.0
+          }
+        ]
+      }
+    }
+  },
+  "400253": {
+    "skill_id": 400253,
+    "name": "攻撃上昇毎T開始【シャイ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。シャイ属性の味方の攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400254": {
+    "skill_id": 400254,
+    "name": "攻撃上昇毎T開始【キュート】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。キュート属性の味方の攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

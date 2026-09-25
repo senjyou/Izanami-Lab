@@ -6723,5 +6723,57 @@
         ]
       }
     ]
+  },
+  "400253": {
+    "skill_id": 400253,
+    "name": "攻撃上昇毎T開始【シャイ】",
+    "description": "ターン開始時に発動。シャイ属性の味方の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400254": {
+    "skill_id": 400254,
+    "name": "攻撃上昇毎T開始【キュート】",
+    "description": "ターン開始時に発動。キュート属性の味方の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }
