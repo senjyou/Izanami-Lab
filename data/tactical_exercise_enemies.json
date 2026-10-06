@@ -1747,5 +1747,38 @@
     ],
     "position": 2,
     "party_id": 400265
+  },
+  "761305": {
+    "enemy_id": 761305,
+    "name": "惨禍：ニーナ／ジーナ・ミーシナ",
+    "character_name": "ニーナ／ジーナ・ミーシナ",
+    "asset_id": "147301",
+    "hp": 536089,
+    "attack": 11967,
+    "defense": 7257,
+    "speed": 628,
+    "hp_grade": 5,
+    "attack_grade": 3,
+    "defense_grade": 3,
+    "speed_grade": 4,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 2,
+    "type": 1,
+    "role_type": 1,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 601,
+    "skill_ids": [
+      210127,
+      220466,
+      220467,
+      230496,
+      230497
+    ],
+    "position": 2,
+    "party_id": 400270
   }
 }

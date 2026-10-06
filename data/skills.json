@@ -84497,5 +84497,246 @@
       }
     },
     "display_info": {}
+  },
+  "210127": {
+    "skill_id": 210127,
+    "name": "双鏡の連理",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 22,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 7
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間、攻撃力を20%低下させる。さらに自身が2回行動を終えるまでの間、新たに向けられる攻撃力バフを無効にするデバフを付与する。各デバフは自身が倒れると解除される。\n加えて自身のHPが50%以上だった場合、自身のAPを1加算する。"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 156.0
+          },
+          {
+            "level": 10,
+            "value": 212.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "220466": {
+    "skill_id": 220466,
+    "name": "断罪の時だ！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 1
+      },
+      {
+        "level": 10,
+        "value": 3
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で1ヒット攻撃する。この攻撃は対象に付与されている「刻痕」1つにつき1ヒット追加される（9つまで）"
+      },
+      {
+        "min_level": 10,
+        "template": "敵単体に威力{威力}で1ヒット攻撃する。この攻撃は対象に付与されている「刻痕」1つにつき1ヒット追加される（9つまで）。\nさらに自身のHPが50%以下だった場合、自身に対し2行動の間、効果付与時の不足HPの{cure}%を継続回復する効果を付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 45.0
+          },
+          {
+            "level": 5,
+            "value": 70.19999694824219
+          }
+        ]
+      },
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 9,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 1.25
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "220467": {
+    "skill_id": 220467,
+    "name": "軍靴の調べにすくめ！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 5
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「刻痕」が最も少ない敵を優先して敵横一列に威力{威力}で攻撃し、「刻痕」を1つ付与する。\n「刻痕」は1つにつき攻撃力を8%、与ダメージを5%減少させる（重複可）。「刻痕」は自身が倒れると解除される。対象が「刻痕」を4つ以上所持している場合、新たに付与しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 10,
+            "value": 169.60000610351562
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "230496": {
+    "skill_id": 230496,
+    "name": "終幕にはまだ早い！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "features": 0,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPが50%以下になった際に発動。自身に対し、自身が1回行動を終えるまでの間向けられるデバフを無効にする効果と、自身が1回行動を終えるまでの間1ヒットまで受けるダメージを{dmg}%減少させる効果を付与する"
+      },
+      {
+        "min_level": 5,
+        "template": "自身のHPが50%以下になった際に発動。自身に対し、自身が1回行動を終えるまでの間、向けられるデバフを無効にする効果と、自身が1回行動を終えるまでの間1ヒットまで受けるダメージを無効にする効果を付与する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 3,
+            "value": 94.29000091552734
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "230497": {
+    "skill_id": 230497,
+    "name": "我が雄姿を見よ！+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "features": 4,
+    "skill_level_pattern_id": 12,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "（同時発動制限）自身がアクティブスキルで攻撃する前に発動。当該攻撃に威力{威力}のダメージと、1行動の「刻痕」を追加する\n自身が前列に編成されていない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 39.0
+          },
+          {
+            "level": 10,
+            "value": 53.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

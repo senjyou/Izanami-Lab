@@ -92736,5 +92736,442 @@
     "parse_notes": [
       "manual: 回合开始先制最低HP敌+30%伤盾（敌方版：无烙印、无once_per_battle、每回合发动）"
     ]
+  },
+  "210127": {
+    "skill_id": 210127,
+    "name": "双鏡の連理",
+    "skill_type": 3,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_all",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "atk_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 20.0,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "block_buff_by_type",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "blocked_buff_types": [
+                "atk_up"
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_hp_above",
+          "value": 50
+        },
+        "effects": [
+          {
+            "effect_type": "add_ap",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": 1,
+            "value_tag": null,
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 5,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 敌全体攻击+自身atk_down20%(1行动)+阻止atk_up(2行动)，HP>=50%时AP+1（敌方版，maxlv10，数值取敌方tag）"
+    ]
+  },
+  "220466": {
+    "skill_id": 220466,
+    "name": "断罪の時だ！",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_single",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_count_per_mark": {
+                "mark_name": "刻痕",
+                "max_extra": 9
+              }
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_hp_below",
+          "value": 50
+        },
+        "effects": [
+          {
+            "effect_type": "heal_over_time",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "cure",
+            "value_source": null,
+            "duration": 2,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "heal_base": "lost_hp",
+              "heal_base_snapshot": true,
+              "level_min": 10
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 单体1hit+目标每枚刻痕+1hit(上限+9)；HP<=50%时2行动HOT(付与时不足HP快照)（敌方版：Lv10+，cure=1.25远低于己方15/25）"
+    ]
+  },
+  "220467": {
+    "skill_id": 220467,
+    "name": "軍靴の調べにすくめ！",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": null,
+    "global_condition": null,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "damage",
+            "target_type": "enemy_row_of_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": 1,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_priority": "刻痕"
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "enemy_row_of_lowest_mark_count",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": -1,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "刻痕",
+              "max_stacks": 4,
+              "source_death_remove": true,
+              "mark_stat_bonus": [
+                {
+                  "mark_name": "刻痕",
+                  "stat": "attack",
+                  "per_mark_pct": -8
+                },
+                {
+                  "mark_name": "刻痕",
+                  "stat": "dealt_damage",
+                  "per_mark_pct": -5
+                }
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 6,
+    "display_target_type": 3,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 刻痕最少之敌所在横一列攻击+刻痕x1(上限4, atk-8%/与damage-5%, 施法者倒下解除)（敌方版，maxlv10，数值取敌方tag）"
+    ]
+  },
+  "230496": {
+    "skill_id": 230496,
+    "name": "終幕にはまだ早い！",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_hp_below",
+    "global_condition": {
+      "type": "self_hp_percent",
+      "operator": "<=",
+      "value": 50
+    },
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "debuff_immune",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {},
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_taken_down",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "dmg",
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "value_type": "percent",
+              "attack_limited": 1,
+              "level_max": 4
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "dmg_invulnerable",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1,
+              "level_min": 5
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": null,
+    "display_target_type": 1,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: HP<=50%触发→debuff_immune(1行动)+Lv5+1hit伤害无效化（敌方版：无Lv11+同排扩展，Lv1-4为dmg%减伤）"
+    ]
+  },
+  "230497": {
+    "skill_id": 230497,
+    "name": "我が雄姿を見よ！",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_skill_use",
+    "global_condition": {
+      "type": "self_is_front_row"
+    },
+    "simultaneous_limit": true,
+    "effect_blocks": [
+      {
+        "block_id": 1,
+        "condition": null,
+        "effects": [
+          {
+            "effect_type": "add_damage_to_attack",
+            "target_type": "self",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": "威力",
+            "value_source": null,
+            "duration": null,
+            "duration_type": null,
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "hit_limited": 1
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          },
+          {
+            "effect_type": "mark",
+            "target_type": "primary_target",
+            "target_identifier": null,
+            "value": null,
+            "value_tag": null,
+            "value_source": null,
+            "duration": 1,
+            "duration_type": "action",
+            "duration_tag": null,
+            "hit_count": null,
+            "hit_count_tag": null,
+            "condition": null,
+            "flags": {
+              "mark_name": "刻痕",
+              "mark_stat_bonus": [
+                {
+                  "mark_name": "刻痕",
+                  "stat": "attack",
+                  "per_mark_pct": -8
+                },
+                {
+                  "mark_name": "刻痕",
+                  "stat": "dealt_damage",
+                  "per_mark_pct": -5
+                }
+              ]
+            },
+            "ignore_defense": 0,
+            "ignore_shield": 0
+          }
+        ]
+      }
+    ],
+    "display_target_priority": null,
+    "display_target_range": 1,
+    "display_target_type": 2,
+    "parse_status": "manual",
+    "parse_notes": [
+      "manual: 自身AS攻击前(同時発動制限)→附魔威力伤害+攻击目标1行动刻痕（敌方版：触发对象为自身而非同排味方）"
+    ]
   }
 }

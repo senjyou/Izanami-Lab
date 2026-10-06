@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-06T19:19:20.918Z",
+  "sessionId": "sess_545895ba-d8fa-4cdd-a8ad-9d830b8cb989",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "F:\\MGG\\muv_luv_girlsgardenx_cl\\explore\\search.py",
+  "outcome": "inconclusive",
+  "coverage": "partial",
+  "findingCount": 0,
+  "durationMs": 9,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}
