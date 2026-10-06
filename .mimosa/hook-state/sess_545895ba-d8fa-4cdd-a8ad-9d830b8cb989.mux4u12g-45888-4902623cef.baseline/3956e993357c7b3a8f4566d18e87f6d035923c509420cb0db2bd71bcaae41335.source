@@ -1,0 +1,1125 @@
+"""角色121301 ノーブル・グレイス 专项E2E测试
+
+技能列表：
+- EX: 110001 ルミナグレイス（敵単体攻撃[威力] + stun(2行動) + 撃破時自身AP+1；Lv11+ remove_debuff self）
+- AS: 120013 ソーヴィニヨン（敵単体攻撃[威力]；HP70%以下穿越時 stun(1行動)）
+- PS1: 130009 アイギスランパード（before_any_attacked + target_is_self；
+  Block1 self guard[attack_limited=1, value_tag=guard]；cooldown=1）
+- PS2: 130022 グローリーコール（on_turn_end + ally_alive_count>=4；
+  Block1 ally_back atk_up[stackable, duration=2 action]；
+  Block2 target_element=5 ally_back add_ep[1]；
+  Block3 L11+ ally_back def_up[duration=2 action]）
+- PS3: 130038 ブラッドオース（on_ally_killed；
+  Block1 ally_all atk_up+def_up[stackable, 永続]；
+  Block2 L11+ self_and_friends add_ep[1]）
+
+覆盖维度：
+1. EX 基础伤害+stun+撃破時AP加算+Lv11+ remove_debuff
+2. AS 基础伤害+hp_threshold_cross(70%) stun
+3. PS1 before_any_attacked + target_is_self + guard(attack_limited=1) + cooldown
+4. PS2 on_turn_end + ally_alive_count>=4 + atk_up + target_element add_ep + L11+ def_up
+5. PS3 on_ally_killed + atk_up+def_up ally_all永続 + L11+ add_ep self_and_friends
+6. guard援护专项：attack_limited=1一次消耗、target_is_self仅自身被攻击时触发
+7. on_ally_killed专项：友方阵亡触发/敌方阵亡不触发/自身阵亡不触发
+8. ally_alive_count专项：>=4触发/<4不触发
+9. target_element专项：光属性=5时触发/其他属性不触发
+10. hp_threshold_cross专项：HP跨越70%时stun付与
+11. target_killed专项：撃殺時add_ap
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.skill_data_resolver import SkillDataResolver
+
+# 简写
+# atk_up/atk_down 共用 STATUS_ATTACK 枚举
+# def_up/def_down 共用 STATUS_DEFENSE 枚举
+# spd_up/spd_down 共用 STATUS_SPEED 枚举
+# stun 用 STUN/KNOCKOUT 枚举
+# guard 用 GUARD 枚举
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+STATUS_SPEED = SkillEffectType.STATUS_SPEED.value
+STUN = SkillEffectType.KNOCKOUT.value
+GUARD = SkillEffectType.GUARD.value
+
+
+class TestActor121301(unittest.TestCase):
+    """角色121301 ノーブル・グレイス 专项E2E测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        # 施法者: 121301 ノーブル・グレイス (光属性attr=5, 物理型character_type=1, 前排position_type=1, 物理攻击role_type=1)
+        # AP=10, PP=10。默认Lv10，部分测试用Lv15验证Lv11+分支
+        # caster 放前排中央（121301 是前排角色）
+        # initial_active_point=10 给出足够大的 AP 上限以测试 add_ap 效果
+        self.caster = UnitState(
+            unit_id="caster", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=121301, level=10,
+            element=5, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=10, initial_passive_point=10, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10,
+                          130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+
+        # 后排光属性友方（PS2 ally_back + target_element=5 → 获得 atk_up + add_ep）
+        self.ally_back_light = UnitState(
+            unit_id="ally_back_light", name="後列光友方", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=999101, level=10,
+            element=5, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 后排火属性友方（PS2 ally_back → 获得 atk_up；target_element=5 → 不获得 add_ep）
+        self.ally_back_fire = UnitState(
+            unit_id="ally_back_fire", name="後列火友方", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999102, level=10,
+            element=1, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=3500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 前排左友方（用于PS3 ally_all目标 + 补足4+存活友方条件）
+        self.ally_front2 = UnitState(
+            unit_id="ally_front2", name="前列左友方", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=999103, level=10,
+            element=2, character_type=1,
+            max_hp=18000, current_hp=18000,
+            attack=9000, defense=4500, speed=420,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 前排右友方（可被撃殺用于PS3 on_ally_killed测试）
+        self.ally_front3 = UnitState(
+            unit_id="ally_front3", name="前列右友方", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_FRONT, character_id=999104, level=10,
+            element=3, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=6000, defense=3000, speed=360,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央（最近敌，主目标）
+        self.enemy_cf = UnitState(
+            unit_id="enemy_cf", name="敵中前", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[120013], skill_levels={120013: 10}, skill_cooldowns={},
+        )
+
+        # 敌方左前（多目标测试用）
+        self.enemy_lf = UnitState(
+            unit_id="enemy_lf", name="敵左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=3, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前（多目标测试用）
+        self.enemy_rf = UnitState(
+            unit_id="enemy_rf", name="敵右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=4, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6500, defense=4500, speed=360,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_back_light, self.ally_back_fire,
+                               self.ally_front2, self.ally_front3]
+        self.bf.enemy_team = [self.enemy_cf, self.enemy_lf, self.enemy_rf]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+        self.resolver = SkillDataResolver(self.dl)
+
+    def _reset_caster(self, hp=None, ap=10, pp=10, ep=0):
+        """重置施法者状态。"""
+        self.caster.current_hp = hp if hp is not None else self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = ap
+        self.caster.current_pp = pp
+        self.caster.current_ep = ep
+        self.caster.level = 10
+        self.caster.guard_rate = 0.0
+        self.caster.guard_active = False
+        for sid in self.caster.skill_levels:
+            self.caster.skill_levels[sid] = 10
+
+    def _reset_ally_back_light(self, hp=None, ap=10, pp=10, ep=0):
+        """重置後列光友方状态。"""
+        self.ally_back_light.current_hp = hp if hp is not None else self.ally_back_light.max_hp
+        self.ally_back_light.buffs = []
+        self.ally_back_light.debuffs = []
+        self.ally_back_light.is_alive = True
+        self.ally_back_light.current_ap = ap
+        self.ally_back_light.current_pp = pp
+        self.ally_back_light.current_ep = ep
+
+    def _reset_ally_back_fire(self, hp=None, ap=10, pp=10, ep=0):
+        """重置後列火友方状态。"""
+        self.ally_back_fire.current_hp = hp if hp is not None else self.ally_back_fire.max_hp
+        self.ally_back_fire.buffs = []
+        self.ally_back_fire.debuffs = []
+        self.ally_back_fire.is_alive = True
+        self.ally_back_fire.current_ap = ap
+        self.ally_back_fire.current_pp = pp
+        self.ally_back_fire.current_ep = ep
+
+    def _reset_ally_front2(self, hp=None):
+        """重置前列左友方状态。"""
+        self.ally_front2.current_hp = hp if hp is not None else self.ally_front2.max_hp
+        self.ally_front2.buffs = []
+        self.ally_front2.debuffs = []
+        self.ally_front2.is_alive = True
+
+    def _reset_ally_front3(self, hp=None):
+        """重置前列右友方状态。"""
+        self.ally_front3.current_hp = hp if hp is not None else self.ally_front3.max_hp
+        self.ally_front3.buffs = []
+        self.ally_front3.debuffs = []
+        self.ally_front3.is_alive = True
+
+    def _reset_all_allies(self):
+        """重置所有友方状态。"""
+        self._reset_caster()
+        self._reset_ally_back_light()
+        self._reset_ally_back_fire()
+        self._reset_ally_front2()
+        self._reset_ally_front3()
+
+    def _reset_enemies(self):
+        """重置敌方状态。"""
+        for e in self.bf.enemy_team:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.is_alive = True
+            e.current_ap = 4
+
+    # ════════════════════════════════════════════════════════════════
+    # EX: 110001 ルミナグレイス
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ex_damage_enemy_single(self):
+        """EX(110001) Block1: 敵単体に攻撃（威力tag）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证最近敌方(enemy_cf)受到伤害
+        self.assertLess(self.enemy_cf.current_hp, self.enemy_cf.max_hp,
+                        "enemy_cf应受到EX伤害")
+        # 验证仅单体受伤
+        self.assertEqual(self.enemy_lf.current_hp, self.enemy_lf.max_hp,
+                         "enemy_lf不应受到EX伤害（单体）")
+        self.assertEqual(self.enemy_rf.current_hp, self.enemy_rf.max_hp,
+                         "enemy_rf不应受到EX伤害（单体）")
+
+    def test_ex_add_status_stun_2_action(self):
+        """EX(110001) Block1: add_status stun(duration=2 action)付与敵単体。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证 enemy_cf 有 stun debuff
+        stuns = [d for d in self.enemy_cf.debuffs if d.effect_type == STUN]
+        self.assertGreater(len(stuns), 0, "enemy_cf应有stun debuff")
+        self.assertEqual(stuns[0].duration, 2, "stun duration应为2（行動分）")
+
+    def test_ex_add_ap_on_target_killed(self):
+        """EX(110001) Block1: 撃破時 add_ap(target_killed) 自身AP+1。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        # 设置 enemy_cf HP 极低，确保被撃殺
+        self.enemy_cf.current_hp = 100
+
+        ap_before = self.caster.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 enemy_cf 被撃殺
+        self.assertFalse(self.enemy_cf.is_alive, "enemy_cf应被撃殺")
+        # 验证 caster AP 增加1（target_killed条件满足）
+        self.assertEqual(self.caster.current_ap, ap_before + 1,
+                         f"撃殺時 caster AP应+1，ap_before={ap_before}, ap_after={self.caster.current_ap}")
+
+    def test_ex_no_add_ap_without_kill(self):
+        """EX(110001) Block1: 未撃殺時 add_ap(target_killed) 不触发。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        # enemy_cf HP 满，不会被撃殺
+
+        ap_before = self.caster.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 enemy_cf 未被撃殺
+        self.assertTrue(self.enemy_cf.is_alive, "enemy_cf不应被撃殺")
+        # 验证 caster AP 不增加（target_killed条件不满足）
+        # 注意：skip_cost=True 不会消耗AP，但 add_ap 仍应执行
+        self.assertEqual(self.caster.current_ap, ap_before,
+                         f"未撃殺時 caster AP不应增加，ap_before={ap_before}, ap_after={self.caster.current_ap}")
+
+    def test_ex_lv10_no_remove_debuff(self):
+        """EX(110001) Lv10: 无 remove_debuff（Block0 active_level_min=11 未满足）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[110001] = 10
+        # 给 caster 施加一个 debuff 用于验证是否被解除
+        from src.entities_v2.unit_state import BuffState as _BS
+        test_debuff = _BS(
+            buff_id="test_debuff_1", name="test_debuff", effect_type="atk_down",
+            value=10.0, duration=2, timing_type=2,
+            is_debuff=True, is_stackable=False,
+            source_unit_id="enemy_cf",
+        )
+        self.caster.debuffs.append(test_debuff)
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+
+        # Lv10 时 Block0 跳过 → debuff 仍在
+        self.assertEqual(len(self.caster.debuffs), 1, "Lv10时不应解除debuff")
+
+    def test_ex_lv11_remove_debuff(self):
+        """EX(110001) Lv11+: Block0 remove_debuff 自身全debuff解除。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 11
+        self.caster.skill_levels[110001] = 11
+        # 给 caster 施加多个 debuff
+        from src.entities_v2.unit_state import BuffState as _BS
+        for i in range(3):
+            test_debuff = _BS(
+                buff_id=f"test_debuff_{i}", name=f"test_debuff_{i}", effect_type="atk_down",
+                value=10.0, duration=2, timing_type=2,
+                is_debuff=True, is_stackable=False,
+                source_unit_id="enemy_cf",
+            )
+            self.caster.debuffs.append(test_debuff)
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+
+        # Lv11+ 时 Block0 执行 → 全 debuff 被解除
+        self.assertEqual(len(self.caster.debuffs), 0, "Lv11+时应解除全debuff")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS: 120013 ソーヴィニヨン
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as_damage_enemy_single(self):
+        """AS(120013) Block1: 敵単体に攻撃（威力tag）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证最近敌方受到伤害
+        self.assertLess(self.enemy_cf.current_hp, self.enemy_cf.max_hp,
+                        "enemy_cf应受到AS伤害")
+
+    def test_as_stun_when_hp_cross_70(self):
+        """AS(120013) hp_threshold_cross=70: HP从>70%降到<=70%时付与stun(1行動)。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 设置 enemy_cf HP 为 75%（>70%），伤害后应降到 <=70%
+        self.enemy_cf.current_hp = int(self.enemy_cf.max_hp * 0.75)
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证 enemy_cf HP <= 70%
+        self.assertLessEqual(self.enemy_cf.current_hp, int(self.enemy_cf.max_hp * 0.70),
+                             "enemy_cf HP应降到70%以下")
+        # 验证 enemy_cf 有 stun debuff
+        stuns = [d for d in self.enemy_cf.debuffs if d.effect_type == STUN]
+        self.assertGreater(len(stuns), 0, "HP穿越70%时应有stun debuff")
+        self.assertEqual(stuns[0].duration, 1, "stun duration应为1（行動分）")
+
+    def test_as_no_stun_when_hp_above_70(self):
+        """AS(120013) hp_threshold_cross=70: HP仍>70%时不付与stun。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 设置 enemy_cf HP 为 99%（>70%），伤害后仍>70%
+        # 使用高防御确保伤害不足以降到70%以下
+        self.enemy_cf.current_hp = int(self.enemy_cf.max_hp * 0.99)
+        self.enemy_cf.defense = 999999  # 极高防御，伤害极低
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证 enemy_cf HP 仍 > 70%
+        self.assertGreater(self.enemy_cf.current_hp, int(self.enemy_cf.max_hp * 0.70),
+                           "enemy_cf HP应仍>70%")
+        # 验证 enemy_cf 无 stun debuff
+        stuns = [d for d in self.enemy_cf.debuffs if d.effect_type == STUN]
+        self.assertEqual(len(stuns), 0, "HP仍>70%时不应有stun debuff")
+
+    def test_as_no_stun_when_hp_already_below_70(self):
+        """AS(120013) hp_threshold_cross=70: HP本就<=70%时不付与stun（未穿越）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 设置 enemy_cf HP 为 50%（本就<=70%）
+        self.enemy_cf.current_hp = int(self.enemy_cf.max_hp * 0.50)
+        self.enemy_cf.defense = 999999  # 极高防御，伤害极低，HP不会降到0
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证 enemy_cf 无 stun debuff（未穿越70%阈值）
+        stuns = [d for d in self.enemy_cf.debuffs if d.effect_type == STUN]
+        self.assertEqual(len(stuns), 0, "HP本就<=70%时不应有stun debuff（未穿越）")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS1: 130009 アイギスランパード（before_any_attacked + target_is_self + guard）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps1_triggers_when_self_attacked(self):
+        """PS1(130009) before_any_attacked + target_is_self: 自身被攻击时触发。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.assertGreater(len(ps1_actions), 0,
+                           "自身被攻击时PS1应被收集")
+
+    def test_ps1_no_trigger_when_other_attacked(self):
+        """PS1(130009) target_is_self: 他友方被攻击时不触发。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # ally_front2 被攻击（不是 caster）
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.ally_front2], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.assertEqual(len(ps1_actions), 0,
+                         "他友方被攻击时PS1(target_is_self)不应触发")
+
+    def test_ps1_grants_guard_buff(self):
+        """PS1(130009) Block1: self guard(attack_limited=1) buff付与。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_any_attacked"
+        )
+
+        # 验证 caster 有 guard buff
+        guard_buffs = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertGreater(len(guard_buffs), 0, "PS1执行后 caster 应有 guard buff")
+        # attack_limited=1
+        self.assertEqual(getattr(guard_buffs[0], 'attack_limited', 0), 1,
+                         "guard buff attack_limited应为1")
+        # guard值应>0（Lv10=50%）
+        self.assertGreater(guard_buffs[0].value, 0, "guard buff value应>0")
+
+    def test_ps1_guard_reduces_damage(self):
+        """PS1(130009) guard buff: 被攻击时伤害按guard_rate%减少。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 用一个简单damage技能做baseline
+        as_data = self.resolver.resolve(120013, skill_level=10)
+
+        # Baseline: 无guard buff时的伤害
+        self.caster.buffs = []
+        self.caster.guard_active = False
+        self.caster.guard_rate = 0.0
+        base = self.dms.calculate_damage(self.enemy_cf, self.caster, as_data).total_damage
+        self.assertGreater(base, 0, "baseline伤害应>0")
+
+        # 触发PS1 → guard buff付与
+        self.caster.buffs = []
+        self.caster.guard_active = False
+        self.caster.guard_rate = 0.0
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_any_attacked"
+        )
+
+        guard_buffs = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertGreater(len(guard_buffs), 0, "应有guard buff")
+
+        # 有guard buff时的伤害
+        guarded = self.dms.calculate_damage(self.enemy_cf, self.caster, as_data).total_damage
+        # Lv10 guard=50% → 伤害应减少约50%
+        expected = base * 0.5
+        self.assertLess(guarded, base, "guard应减少伤害")
+        self.assertAlmostEqual(guarded, expected, delta=expected * 0.15,
+                               msg=f"guard应减少约50%伤害: base={base}, expected~{expected:.0f}, got={guarded}")
+
+    def test_ps1_guard_consumed_after_one_attack(self):
+        """PS1(130009) guard attack_limited=1: 1次攻击后buff消耗消失。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 触发PS1 → guard buff付与
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_any_attacked"
+        )
+
+        guard_buffs_before = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertGreater(len(guard_buffs_before), 0, "攻击前应有guard buff")
+
+        # 让 enemy_cf 攻击 caster（使用120013伤害技能）
+        self.ss.execute_skill(
+            caster=self.enemy_cf, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+
+        # guard buff 应被消耗（attack_limited=1 → 1次攻击后消失）
+        guard_buffs_after = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertEqual(len(guard_buffs_after), 0,
+                         "1次攻击后guard buff应被消耗消失")
+
+    def test_ps1_cooldown_blocks_retrigger(self):
+        """PS1(130009) cooldown=1: 第一次触发后冷却中，第二次不应再被收集。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 第一次触发
+        actions1 = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_1 = [a for a in actions1 if a.skill_id == 130009]
+        self.assertGreater(len(ps1_1), 0, "第一次应触发PS1")
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_1, self.bf, trigger_timing="before_any_attacked"
+        )
+        # 验证冷却已设置
+        self.assertEqual(self.caster.skill_cooldowns.get(130009), 1,
+                         "PS1执行后应设置cooldown=1")
+
+        # 第二次触发（PS1在冷却中）
+        actions2 = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_2 = [a for a in actions2 if a.skill_id == 130009]
+        self.assertEqual(len(ps1_2), 0, "PS1在冷却中 → 不应再次被收集")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS2: 130022 グローリーコール（on_turn_end + ally_alive_count>=4）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps2_triggers_on_turn_end(self):
+        """PS2(130022) on_turn_end: 回合结束时触发（5友方存活>=4）。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.assertGreater(len(ps2_actions), 0,
+                           "回合结束时PS2应被收集（5友方存活>=4）")
+
+    def test_ps2_no_trigger_when_fewer_than_4_allies(self):
+        """PS2(130022) ally_alive_count>=4: 友方存活<4时不触发。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        # 设置2个友方为阵亡（只剩3个存活<4）
+        self.ally_back_fire.is_alive = False
+        self.ally_front3.is_alive = False
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.assertEqual(len(ps2_actions), 0,
+                         "友方存活<4时PS2不应触发")
+
+    def test_ps2_block1_atk_up_ally_back(self):
+        """PS2(130022) Block1: ally_back atk_up(stackable, duration=2 action)。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # 验证後列友方有 atk_up buff
+        atk_ups_light = [b for b in self.ally_back_light.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups_light), 0, "ally_back_light 应有 atk_up buff")
+        self.assertTrue(atk_ups_light[0].is_stackable, "atk_up应可叠加")
+        self.assertEqual(atk_ups_light[0].duration, 2, "atk_up duration应为2")
+
+        atk_ups_fire = [b for b in self.ally_back_fire.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups_fire), 0, "ally_back_fire 也应有 atk_up buff（无element过滤）")
+
+    def test_ps2_block2_add_ep_light_element(self):
+        """PS2(130022) Block2 target_element=5: 光属性後列友方获得 add_ep+1。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.ally_back_light.current_ep = 0
+        self.ally_back_fire.current_ep = 0
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # 验证光属性後列友方 EP 增加
+        self.assertGreater(self.ally_back_light.current_ep, 0,
+                           "光属性後列友方(ally_back_light)应获得EP")
+
+    def test_ps2_block2_no_add_ep_non_light_element(self):
+        """PS2(130022) Block2 target_element=5: 非光属性後列友方不获得 add_ep。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.ally_back_light.current_ep = 0
+        self.ally_back_fire.current_ep = 0
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # 验证火属性後列友方 EP 不增加（target_element=5 过滤）
+        self.assertEqual(self.ally_back_fire.current_ep, 0,
+                         "火属性後列友方(ally_back_fire)不应获得EP（target_element=5过滤）")
+
+    def test_ps2_block3_lv11_def_up(self):
+        """PS2(130022) Block3 L11+: ally_back def_up(duration=2 action)。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 15
+        self.caster.skill_levels[130022] = 15
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # 验证後列友方有 def_up buff
+        def_ups_light = [b for b in self.ally_back_light.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertGreater(len(def_ups_light), 0, "Lv11+ ally_back_light 应有 def_up buff")
+        self.assertEqual(def_ups_light[0].duration, 2, "def_up duration应为2")
+
+    def test_ps2_lv10_no_def_up(self):
+        """PS2(130022) Lv10: 无 def_up（Block3 active_level_min=11 未满足）。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 10
+        self.caster.skill_levels[130022] = 10
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130022]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # Lv10 时 Block3 跳过 → 无 def_up
+        def_ups = [b for b in self.ally_back_light.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_ups), 0, "Lv10时不应有 def_up buff")
+        # 但 Block1 仍执行 → 有 atk_up
+        atk_ups = [b for b in self.ally_back_light.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups), 0, "Lv10时Block1仍执行，应有 atk_up buff")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS3: 130038 ブラッドオース（on_ally_killed）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps3_triggers_when_ally_killed(self):
+        """PS3(130038) on_ally_killed: 他友方阵亡时触发。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # ally_front3 阵亡
+        self.ally_front3.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_front3], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.assertGreater(len(ps3_actions), 0,
+                           "他友方阵亡时PS3应被收集")
+
+    def test_ps3_no_trigger_when_enemy_killed(self):
+        """PS3(130038) on_ally_killed: 敌方阵亡时不触发。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # enemy_cf 阵亡
+        self.enemy_cf.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.enemy_cf], battlefield=self.bf, killer=self.caster
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.assertEqual(len(ps3_actions), 0,
+                         "敌方阵亡时PS3(on_ally_killed)不应触发")
+
+    def test_ps3_no_trigger_when_self_killed(self):
+        """PS3(130038) on_ally_killed: 自身阵亡时不触发。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # caster 自身阵亡
+        self.caster.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.caster], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.assertEqual(len(ps3_actions), 0,
+                         "自身阵亡时PS3(on_ally_killed)不应触发")
+
+    def test_ps3_block1_atk_up_def_up_ally_all(self):
+        """PS3(130038) Block1: ally_all atk_up+def_up(stackable, 永続 duration=null)。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        self.ally_front3.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_front3], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # 验证存活友方有 atk_up buff（ally_all包括自身）
+        atk_ups_caster = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups_caster), 0, "caster 应有 atk_up buff")
+        self.assertTrue(atk_ups_caster[0].is_stackable, "atk_up应可叠加")
+        # duration=null → 永続（duration=None 或 duration=-1）
+        self.assertTrue(atk_ups_caster[0].duration is None or atk_ups_caster[0].duration < 0,
+                        "atk_up应为永続(duration=null)")
+
+        # 验证存活友方有 def_up buff
+        def_ups_caster = [b for b in self.caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertGreater(len(def_ups_caster), 0, "caster 应有 def_up buff")
+        self.assertTrue(def_ups_caster[0].is_stackable, "def_up应可叠加")
+
+        # 验证其他存活友方也有 buff
+        atk_ups_light = [b for b in self.ally_back_light.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups_light), 0, "ally_back_light 应有 atk_up buff")
+
+    def test_ps3_block2_lv11_add_ep(self):
+        """PS3(130038) Block2 L11+: self_and_friends add_ep+1。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 15
+        self.caster.skill_levels[130038] = 15
+        # 重置所有友方EP
+        for ally in self.bf.friend_team:
+            ally.current_ep = 0
+
+        self.ally_front3.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_front3], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # 验证存活友方 EP 增加（self_and_friends 包括自身）
+        self.assertGreater(self.caster.current_ep, 0, "Lv11+ caster EP应增加")
+        self.assertGreater(self.ally_back_light.current_ep, 0, "Lv11+ ally_back_light EP应增加")
+
+    def test_ps3_lv10_no_add_ep(self):
+        """PS3(130038) Lv10: 无 add_ep（Block2 active_level_min=11 未满足）。
+
+        注意：PS3 cost=1 PP，PP消耗会自动 generate_ep(+1) 给 caster。
+        因此 Lv10 时 caster EP=1（来自PP消耗），但其他友方 EP 应不变（Block2 跳过）。
+        本测试通过验证 ally_back_light EP=0 来确认 Block2 add_ep 未执行。
+        """
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 10
+        self.caster.skill_levels[130038] = 10
+        for ally in self.bf.friend_team:
+            ally.current_ep = 0
+
+        self.ally_front3.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_front3], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # Lv10 时 Block2 跳过 → 其他友方 EP 不变（无 add_ep effect）
+        # caster EP=1 来自 PP 消耗（generate_ep），与 add_ep effect 无关
+        self.assertEqual(self.ally_back_light.current_ep, 0,
+                         "Lv10时无add_ep effect，ally_back_light EP不应增加")
+        self.assertEqual(self.ally_back_fire.current_ep, 0,
+                         "Lv10时无add_ep effect，ally_back_fire EP不应增加")
+        self.assertEqual(self.ally_front2.current_ep, 0,
+                         "Lv10时无add_ep effect，ally_front2 EP不应增加")
+        # 但 Block1 仍执行 → 有 atk_up
+        atk_ups = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups), 0, "Lv10时Block1仍执行，应有 atk_up buff")
+
+    # ════════════════════════════════════════════════════════════════
+    # 集成测试
+    # ════════════════════════════════════════════════════════════════
+
+    def test_integration_ex_kill_add_ap_full_chain(self):
+        """集成: EX撃殺 → target_killed条件满足 → add_ap 自身AP+1 完整链路。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=3)
+        self._reset_enemies()
+        # 设置 enemy_cf HP 极低
+        self.enemy_cf.current_hp = 50
+
+        ap_before = self.caster.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110001, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 完整链路验证
+        self.assertFalse(self.enemy_cf.is_alive, "enemy_cf应被撃殺")
+        self.assertEqual(self.caster.current_ap, ap_before + 1,
+                         "撃殺時 caster AP应+1（target_killed → add_ap）")
+
+    def test_integration_ps1_guard_then_attack_full_chain(self):
+        """集成: PS1触发guard → 敌方攻击 → 伤害减少 → guard buff消耗 完整链路。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # Step 1: 触发PS1 → guard buff付与
+        actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130009]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_any_attacked"
+        )
+
+        guard_buffs = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertGreater(len(guard_buffs), 0, "Step1: 应有guard buff")
+
+        # Step 2: 记录caster HP，然后让enemy_cf攻击caster
+        hp_before = self.caster.current_hp
+        self.ss.execute_skill(
+            caster=self.enemy_cf, skill_id=120013, battlefield=self.bf, skip_cost=True
+        )
+
+        # Step 3: 验证caster受伤（但伤害被guard减少）
+        self.assertLess(self.caster.current_hp, hp_before,
+                        "Step3: caster应受到伤害（被guard减少后）")
+
+        # Step 4: 验证guard buff被消耗
+        guard_buffs_after = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertEqual(len(guard_buffs_after), 0,
+                         "Step4: guard buff应被消耗（attack_limited=1）")
+
+    def test_integration_ps3_ally_killed_buff_permanent(self):
+        """集成: PS3触发 → ally_all atk_up+def_up 永続(duration=null) 不随行動消失。"""
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        self.ally_front3.is_alive = False
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_front3], battlefield=self.bf, killer=self.enemy_cf
+        )
+        ps3_actions = [a for a in actions if a.skill_id == 130038]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # 验证 buff 存在
+        atk_ups = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_ups), 0, "应有 atk_up buff")
+        def_ups = [b for b in self.caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertGreater(len(def_ups), 0, "应有 def_up buff")
+
+        # 验证永続性：duration=null（None或-1表示永続）
+        self.assertTrue(atk_ups[0].duration is None or atk_ups[0].duration < 0,
+                        "atk_up应为永続（PS3描述无持続時間限制）")
+        self.assertTrue(def_ups[0].duration is None or def_ups[0].duration < 0,
+                        "def_up应为永続（PS3描述无持続時間限制）")
+
+    # ════════════════════════════════════════════════════════════════
+    # 配置校验
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps1_global_condition_target_is_self(self):
+        """PS1(130009) global_condition 应为 target_is_self。"""
+        parsed = self.dl.get_parsed_skill_data(130009)
+        self.assertIsNotNone(parsed, "PS1(130009) 应有 parsed 数据")
+        gc = parsed.get("global_condition")
+        self.assertIsNotNone(gc, "PS1(130009) 应有 global_condition")
+        self.assertEqual(gc.get("type"), "target_is_self",
+                         "PS1(130009) global_condition.type 应为 target_is_self")
+
+    def test_ps1_trigger_type_before_any_attacked(self):
+        """PS1(130009) trigger_type 应为 before_any_attacked。"""
+        parsed = self.dl.get_parsed_skill_data(130009)
+        self.assertEqual(parsed.get("trigger_type"), "before_any_attacked",
+                         "PS1(130009) trigger_type 应为 before_any_attacked")
+
+    def test_ps1_guard_attack_limited_1(self):
+        """PS1(130009) guard effect flags.attack_limited 应为 1。"""
+        parsed = self.dl.get_parsed_skill_data(130009)
+        effects = parsed["effect_blocks"][0]["effects"]
+        guard_effect = next((e for e in effects if e["effect_type"] == "guard"), None)
+        self.assertIsNotNone(guard_effect, "应有 guard effect")
+        self.assertEqual(guard_effect.get("flags", {}).get("attack_limited"), 1,
+                         "guard flags.attack_limited 应为 1")
+
+    def test_ps2_global_condition_ally_alive_count(self):
+        """PS2(130022) global_condition 应为 ally_alive_count >= 4。"""
+        parsed = self.dl.get_parsed_skill_data(130022)
+        self.assertIsNotNone(parsed, "PS2(130022) 应有 parsed 数据")
+        gc = parsed.get("global_condition")
+        self.assertIsNotNone(gc, "PS2(130022) 应有 global_condition")
+        self.assertEqual(gc.get("type"), "ally_alive_count",
+                         "PS2(130022) global_condition.type 应为 ally_alive_count")
+        self.assertEqual(gc.get("operator"), ">=",
+                         "PS2(130022) global_condition.operator 应为 >=")
+        self.assertEqual(gc.get("value"), 4,
+                         "PS2(130022) global_condition.value 应为 4")
+
+    def test_ps2_trigger_type_on_turn_end(self):
+        """PS2(130022) trigger_type 应为 on_turn_end。"""
+        parsed = self.dl.get_parsed_skill_data(130022)
+        self.assertEqual(parsed.get("trigger_type"), "on_turn_end",
+                         "PS2(130022) trigger_type 应为 on_turn_end")
+
+    def test_ps2_block2_target_element_5(self):
+        """PS2(130022) Block2 condition 应为 target_element value=5。"""
+        parsed = self.dl.get_parsed_skill_data(130022)
+        block2 = next((b for b in parsed["effect_blocks"] if b.get("block_id") == 2), None)
+        self.assertIsNotNone(block2, "应有 Block2")
+        cond = block2.get("condition")
+        self.assertIsNotNone(cond, "Block2 应有 condition")
+        self.assertEqual(cond.get("type"), "target_element",
+                         "Block2 condition.type 应为 target_element")
+        self.assertEqual(cond.get("value"), 5,
+                         "Block2 condition.value 应为 5（光属性）")
+
+    def test_ps3_trigger_type_on_ally_killed(self):
+        """PS3(130038) trigger_type 应为 on_ally_killed。"""
+        parsed = self.dl.get_parsed_skill_data(130038)
+        self.assertEqual(parsed.get("trigger_type"), "on_ally_killed",
+                         "PS3(130038) trigger_type 应为 on_ally_killed")
+
+    def test_ps3_block1_atk_up_def_up_ally_all(self):
+        """PS3(130038) Block1 effects 应为 atk_up + def_up (target_type=ally_all)。"""
+        parsed = self.dl.get_parsed_skill_data(130038)
+        block1 = next((b for b in parsed["effect_blocks"] if b.get("block_id") == 1), None)
+        self.assertIsNotNone(block1, "应有 Block1")
+        effects = block1["effects"]
+        atk_up = next((e for e in effects if e["effect_type"] == "atk_up"), None)
+        def_up = next((e for e in effects if e["effect_type"] == "def_up"), None)
+        self.assertIsNotNone(atk_up, "Block1 应有 atk_up effect")
+        self.assertIsNotNone(def_up, "Block1 应有 def_up effect")
+        self.assertEqual(atk_up.get("target_type"), "ally_all",
+                         "atk_up target_type 应为 ally_all")
+        self.assertEqual(def_up.get("target_type"), "ally_all",
+                         "def_up target_type 应为 ally_all")
+
+    def test_ps3_block2_self_and_friends_add_ep(self):
+        """PS3(130038) Block2 L11+ effects 应为 add_ep (target_type=self_and_friends)。"""
+        parsed = self.dl.get_parsed_skill_data(130038)
+        block2 = next((b for b in parsed["effect_blocks"] if b.get("block_id") == 2), None)
+        self.assertIsNotNone(block2, "应有 Block2")
+        cond = block2.get("condition")
+        self.assertEqual(cond.get("type"), "active_level_min",
+                         "Block2 condition.type 应为 active_level_min")
+        self.assertEqual(cond.get("value"), 11,
+                         "Block2 condition.value 应为 11")
+        effects = block2["effects"]
+        add_ep = next((e for e in effects if e["effect_type"] == "add_ep"), None)
+        self.assertIsNotNone(add_ep, "Block2 应有 add_ep effect")
+        self.assertEqual(add_ep.get("target_type"), "self_and_friends",
+                         "add_ep target_type 应为 self_and_friends")
+
+    def test_ex_block0_remove_debuff_lv11(self):
+        """EX(110001) Block0 L11+ 应有 remove_debuff effect。"""
+        parsed = self.dl.get_parsed_skill_data(110001)
+        block0 = next((b for b in parsed["effect_blocks"] if b.get("block_id") == 0), None)
+        self.assertIsNotNone(block0, "应有 Block0")
+        cond = block0.get("condition")
+        self.assertEqual(cond.get("type"), "active_level_min",
+                         "Block0 condition.type 应为 active_level_min")
+        self.assertEqual(cond.get("value"), 11,
+                         "Block0 condition.value 应为 11")
+        effects = block0["effects"]
+        remove_debuff = next((e for e in effects if e["effect_type"] == "remove_debuff"), None)
+        self.assertIsNotNone(remove_debuff, "Block0 应有 remove_debuff effect")
+        self.assertEqual(remove_debuff.get("target_type"), "self",
+                         "remove_debuff target_type 应为 self")
+
+    def test_ex_block1_add_ap_target_killed(self):
+        """EX(110001) Block1 add_ap 应有 target_killed condition。"""
+        parsed = self.dl.get_parsed_skill_data(110001)
+        block1 = next((b for b in parsed["effect_blocks"] if b.get("block_id") == 1), None)
+        self.assertIsNotNone(block1, "应有 Block1")
+        effects = block1["effects"]
+        add_ap = next((e for e in effects if e["effect_type"] == "add_ap"), None)
+        self.assertIsNotNone(add_ap, "Block1 应有 add_ap effect")
+        cond = add_ap.get("condition")
+        self.assertIsNotNone(cond, "add_ap 应有 condition")
+        self.assertEqual(cond.get("type"), "target_killed",
+                         "add_ap condition.type 应为 target_killed")
+
+    def test_as_block1_stun_hp_threshold_cross_70(self):
+        """AS(120013) Block1 add_status stun 应有 hp_threshold_cross value=70 condition。"""
+        parsed = self.dl.get_parsed_skill_data(120013)
+        block1 = parsed["effect_blocks"][0]
+        effects = block1["effects"]
+        stun = next((e for e in effects if e["effect_type"] == "add_status"), None)
+        self.assertIsNotNone(stun, "Block1 应有 add_status effect")
+        cond = stun.get("condition")
+        self.assertIsNotNone(cond, "stun 应有 condition")
+        self.assertEqual(cond.get("type"), "hp_threshold_cross",
+                         "stun condition.type 应为 hp_threshold_cross")
+        self.assertEqual(cond.get("value"), 70,
+                         "stun condition.value 应为 70")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+测试uuid.uuid4()是否影响random模块状态
+"""
+
+import random
+import uuid
+
+# Test 1: uuid.uuid4() 是否影响 random 状态
+random.seed(42)
+state_before = random.getstate()
+u = uuid.uuid4()
+state_after = random.getstate()
+print(f"uuid.uuid4() 影响random状态: {state_before != state_after}")
+
+# Test 2: uuid4 使用 random 还是 os.urandom
+print(f"uuid4 实现方式: {uuid.uuid4}")
+
+# Test 3: 检查 uuid 模块的 _uuid_create
+try:
+    import _uuid
+    print(f"_uuid 模块存在: True")
+except ImportError:
+    print(f"_uuid 模块存在: False")
+
+# Test 4: 直接测试 - 两次相同seed的random序列是否被uuid打断
+random.seed(42)
+vals_without_uuid = [random.random() for _ in range(10)]
+
+random.seed(42)
+_ = random.random()  # consume one
+_ = uuid.uuid4()     # uuid call
+vals_after_uuid = [random.random() for _ in range(9)]
+
+random.seed(42)
+vals_normal = [random.random() for _ in range(10)]
+
+print(f"无uuid打断: {[f'{v:.6f}' for v in vals_without_uuid[:5]]}")
+print(f"有uuid打断: {[f'{v:.6f}' for v in vals_after_uuid[:5]]}")
+print(f"正常序列:   {[f'{v:.6f}' for v in vals_normal[:5]]}")
+print(f"uuid打断后序列是否偏移: {vals_without_uuid[1:] != vals_after_uuid}")

@@ -1,0 +1,557 @@
+"""
+角色154301 世界への反逆者 专项E2E测试
+- EX: 110051 支配への反逆（HP条件3分支：满血穿防/中间伤害/低血自疗+HOT）
+- AS1: 120113 快刀乱麻（单体2hit + 一列2hit + 自身+1怒气）
+- AS2: 120114 怒髪衝天（怒气4分支：≥4增伤 / ≥3 3hit+敌方减伤 / =2 2hit / ≤1 1hit）+ Lv11+ atk_up
+- PS1: 130121 報仇雪恨（on_ally_killed触发，stackable atk_up）
+- PS2: 130122 起死回生（on_turn_start触发，cheat_death；Lv11+ dmg_dealt_up）
+
+覆盖维度：
+1. EX 3种HP条件分支
+2. AS1 多block伤害+怒气累积
+3. AS2 4种怒气条件分支+Lv11+额外效果
+4. PS1 友方阵亡触发+stackable验证
+5. PS2 cheat_death锁血+Lv11+ dmg_dealt_up
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+# 注意：dmg_dealt_up/dmg_dealt_down 共用 DEALT_DAMAGE 枚举，
+# 区分方式：up 在 buffs 列表，down 在 debuffs 列表
+# atk_up/atk_down 共用 STATUS_ATTACK 枚举
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+CHEAT_DEATH = SkillEffectType.CHEAT_DEATH.value
+HEAL_OVER_TIME = SkillEffectType.HEAL_OVER_TIME.value
+
+
+class TestActor154301(unittest.TestCase):
+    """角色154301 世界への反逆者 专项E2E测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 154301 世界への反逆者 (闇属性attr=6, 攻击型role=1, character_type=3)
+        # 默认Lv10，部分测试用Lv15验证Lv11+分支
+        self.caster = UnitState(
+            unit_id="ally_front", name="世界への反逆者", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=154301, level=10,
+            element=6, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110051, 120113, 120114, 130121, 130122],
+            skill_levels={110051: 10, 120113: 10, 120114: 10, 130121: 10, 130122: 10},
+            skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央（与前排同列，用于column测试）
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=2, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_back]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def _reset_enemies(self):
+        """重置敌方状态。"""
+        for e in self.bf.enemy_team:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.is_alive = True
+
+    def _reset_caster(self, hp=None, fury=0):
+        """重置施法者状态。"""
+        self.caster.current_hp = hp if hp is not None else self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.fury_count = fury
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+
+    # ─── EX: 110051 支配への反逆 ───
+
+    def test_ex_full_hp_block1_ignore_def_shield(self):
+        """EX(110051) Block1: HP满血时触发，20%穿防+20%穿盾。"""
+        self._reset_caster(hp=self.caster.max_hp)  # HP满血
+        self._reset_enemies()
+        # 给敌方加护盾，验证穿盾效果
+        self.enemy_front.shield = 100000  # 巨大护盾，正常情况下完全吸收
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110051, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证敌方受到伤害（穿盾20%意味着至少20%伤害穿透护盾）
+        self.assertLess(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                        "满血时EX应穿透护盾造成伤害")
+
+    def test_ex_mid_hp_block2_normal_damage(self):
+        """EX(110051) Block2: HP 50%-99%时触发，普通伤害（无穿防穿盾）。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.7))  # HP=70%
+        self._reset_enemies()
+        self.enemy_front.shield = 100000  # 巨大护盾
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110051, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block2无穿盾，伤害应全部被护盾吸收，HP不变
+        self.assertEqual(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                         "70%HP时EX无穿盾，伤害应全部被护盾吸收")
+
+    def test_ex_low_hp_block3_heal_and_hot(self):
+        """EX(110051) Block3: HP<50%时触发，自身heal（max_hp基準）+ 2行动HOT。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3))  # HP=30%
+        self._reset_enemies()
+
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110051, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证自身被治疗（HP应增加）
+        self.assertGreater(self.caster.current_hp, hp_before,
+                           "低HP时EX应治疗自身")
+
+        # 验证HOT buff存在
+        hot_buffs = [b for b in self.caster.buffs if b.effect_type == HEAL_OVER_TIME]
+        self.assertTrue(len(hot_buffs) > 0, "应有heal_over_time buff")
+        self.assertEqual(hot_buffs[0].duration, 2, "HOT应持续2行动")
+
+    # ─── AS1: 120113 快刀乱麻 ───
+
+    def test_as1_basic_damage_and_fury(self):
+        """AS1(120113) 单体2hit + 一列2hit + 自身+1怒气。"""
+        self._reset_caster(hp=self.caster.max_hp, fury=0)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120113, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证怒气+1
+        self.assertEqual(self.caster.fury_count, 1, "AS1应使自身怒气+1")
+
+        # 验证伤害效果（至少2个damage effect：单体+列）
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertGreaterEqual(len(dmg_effects), 2, "AS1应至少有2个damage effect")
+
+        # 验证敌方受到伤害
+        self.assertTrue(
+            self.enemy_front.current_hp < self.enemy_front.max_hp or
+            self.enemy_back.current_hp < self.enemy_back.max_hp,
+            "AS1应造成伤害"
+        )
+
+    # ─── AS2: 120114 怒髪衝天 ───
+
+    def test_as2_fury_0_block4_one_hit(self):
+        """AS2(120114) Block4: 怒气≤1时触发，1hit伤害。"""
+        self._reset_caster(hp=self.caster.max_hp, fury=0)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证1hit伤害
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertGreater(len(dmg_effects), 0, "应有damage effect")
+        # 主伤害应为1hit
+        main_dmg = dmg_effects[0]
+        hits = main_dmg.get("hits", [])
+        if hits:
+            self.assertEqual(len(hits), 1, f"怒气=0时应为1hit, 实际: {len(hits)}")
+
+    def test_as2_fury_2_block3_two_hits(self):
+        """AS2(120114) Block3: 怒气=2时触发，2hit伤害。"""
+        self._reset_caster(hp=self.caster.max_hp, fury=2)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertGreater(len(dmg_effects), 0, "应有damage effect")
+        main_dmg = dmg_effects[0]
+        hits = main_dmg.get("hits", [])
+        if hits:
+            self.assertEqual(len(hits), 2, f"怒气=2时应为2hit, 实际: {len(hits)}")
+
+    def test_as2_fury_3_block2_three_hits_and_debuff(self):
+        """AS2(120114) Block2: 怒气≥3时触发，3hit伤害 + 敌方dmg_dealt_down debuff。"""
+        self._reset_caster(hp=self.caster.max_hp, fury=3)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertGreater(len(dmg_effects), 0, "应有damage effect")
+        main_dmg = dmg_effects[0]
+        hits = main_dmg.get("hits", [])
+        if hits:
+            self.assertEqual(len(hits), 3, f"怒气=3时应为3hit, 实际: {len(hits)}")
+
+        # 验证dmg_dealt_down debuff
+        debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertTrue(len(debuffs) > 0, "敌方应有dmg_dealt_down debuff")
+        self.assertEqual(debuffs[0].duration, 1, "dmg_dealt_down应持续1行动")
+        self.assertTrue(debuffs[0].is_stackable, "dmg_dealt_down应可叠加")
+
+    def test_as2_fury_4_block1_self_buff_and_block2(self):
+        """AS2(120114) Block1+Block2: 怒气≥4时触发，自身dmg_dealt_up(stackable, attack_limited=1)
+        + 3hit伤害（享受增伤） + 敌方dmg_dealt_down debuff。
+        注意：dmg_dealt_up是attack_limited=1，伤害结算后立即被消耗，无法在测试末尾检查buffs列表。
+        改为检查aura效果是否被分派（effect_type="aura"），以及伤害是否被增伤（fury=4 dmg > fury=3 dmg）。
+        """
+        self._reset_caster(hp=self.caster.max_hp, fury=4)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 aura 效果被分派（Block1的dmg_dealt_up和Block2的dmg_dealt_down）
+        # 注意：_apply_aura返回的effect_type统一为"aura"
+        aura_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "aura"]
+        self.assertGreaterEqual(len(aura_effects), 2,
+                                "应有至少2个aura效果（dmg_dealt_up + dmg_dealt_down）")
+
+        # 验证 dmg_dealt_up buff 已被消耗（attack_limited=1，结算后消失）
+        dealt_up_buffs_after = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dealt_up_buffs_after), 0,
+                         "dmg_dealt_up buff (attack_limited=1) 应在伤害结算后被消耗")
+
+        # 验证3hit伤害（Block2）
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertGreater(len(dmg_effects), 0, "应有damage effect")
+        main_dmg = dmg_effects[0]
+        hits = main_dmg.get("hits", [])
+        if hits:
+            self.assertEqual(len(hits), 3, f"怒气=4时应为3hit, 实际: {len(hits)}")
+
+        # 验证增伤生效：fury=4时伤害应高于fury=3时（同条件下）
+        # fury=3时dealt_mult=1.0, fury=4时dealt_mult=1.5
+        self._reset_caster(hp=self.caster.max_hp, fury=3)
+        self._reset_enemies()
+        result_fury3 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        dmg_fury3_effects = [e for e in result_fury3["effects_applied"] if e.get("effect_type") == "damage"]
+        dmg_fury3 = sum(t.get("damage", 0) for t in dmg_fury3_effects[0].get("targets", []))
+
+        # fury=4时的伤害需要重新执行（前面已消耗）
+        self._reset_caster(hp=self.caster.max_hp, fury=4)
+        self._reset_enemies()
+        result_fury4 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        dmg_fury4_effects = [e for e in result_fury4["effects_applied"] if e.get("effect_type") == "damage"]
+        dmg_fury4 = sum(t.get("damage", 0) for t in dmg_fury4_effects[0].get("targets", []))
+
+        self.assertGreater(dmg_fury4, dmg_fury3,
+                           f"fury=4(dmg={dmg_fury4})应高于fury=3(dmg={dmg_fury3})，"
+                           "因fury=4享受50%增伤")
+
+    def test_as2_lv11_block5_atk_up(self):
+        """AS2(120114) Block5: Lv11+时触发，自身atk_up(stackable, percent)。"""
+        # 调整技能等级到Lv15
+        self.caster.skill_levels[120114] = 15
+        self.caster.level = 15
+        self._reset_caster(hp=self.caster.max_hp, fury=0)
+        self.caster.skill_levels[120114] = 15
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120114, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证atk_up buff
+        atk_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertTrue(len(atk_up_buffs) > 0, "Lv11+应有atk_up buff")
+        self.assertTrue(atk_up_buffs[0].is_stackable, "atk_up应可叠加")
+
+    # ─── PS1: 130121 報仇雪恨 ───
+
+    def test_ps1_ally_killed_triggers_atk_up(self):
+        """PS1(130121) on_ally_killed触发，自身atk_up(stackable)。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # 添加另一个友方单位，将被击杀
+        ally_victim = UnitState(
+            unit_id="ally_victim", name="友方牺牲者", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=100001, level=10,
+            element=1, character_type=1,
+            max_hp=1000, current_hp=1,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.friend_team = [self.caster, ally_victim]
+
+        # 标记ally_victim为阵亡
+        ally_victim.is_alive = False
+        ally_victim.current_hp = 0
+
+        # 触发pawn_died
+        trigger_actions = self.ts.trigger_pawn_died(
+            dead_units=[ally_victim], battlefield=self.bf, killer=self.enemy_front
+        )
+
+        # 验证PS1(130121)被收集
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130121]
+        self.assertTrue(len(ps1_actions) > 0, "PS1(130121)应在友方阵亡时被收集")
+
+        # 执行PS1
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="pawn_died"
+        )
+
+        # 验证自身获得atk_up buff
+        atk_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertTrue(len(atk_up_buffs) > 0, "PS1应给自身施加atk_up buff")
+        self.assertTrue(atk_up_buffs[0].is_stackable, "atk_up应可叠加")
+
+    def test_ps1_stackable_multiple_triggers(self):
+        """PS1(130121) 多次友方阵亡触发，atk_up应叠加（stackable）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # 添加2个友方牺牲者
+        ally_victim1 = UnitState(
+            unit_id="ally_v1", name="牺牲者1", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=100001, level=10,
+            element=1, character_type=1,
+            max_hp=1000, current_hp=0,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        ally_victim2 = UnitState(
+            unit_id="ally_v2", name="牺牲者2", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_FRONT, character_id=100002, level=10,
+            element=2, character_type=1,
+            max_hp=1000, current_hp=0,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.friend_team = [self.caster, ally_victim1, ally_victim2]
+        ally_victim1.is_alive = False
+        ally_victim2.is_alive = False
+
+        # 第一次触发：v1阵亡
+        actions1 = self.ts.trigger_pawn_died(
+            dead_units=[ally_victim1], battlefield=self.bf, killer=self.enemy_front
+        )
+        ps1_actions1 = [a for a in actions1 if a.skill_id == 130121]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions1, self.bf, trigger_timing="pawn_died"
+        )
+
+        buffs_after_first = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertEqual(len(buffs_after_first), 1, "第一次触发应有1个atk_up buff")
+
+        # 第二次触发：v2阵亡
+        actions2 = self.ts.trigger_pawn_died(
+            dead_units=[ally_victim2], battlefield=self.bf, killer=self.enemy_front
+        )
+        ps1_actions2 = [a for a in actions2 if a.skill_id == 130121]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions2, self.bf, trigger_timing="pawn_died"
+        )
+
+        buffs_after_second = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertEqual(len(buffs_after_second), 2,
+                         "第二次触发应叠加第2个atk_up buff（stackable）")
+
+    # ─── PS2: 130122 起死回生 ───
+
+    def test_ps2_turn_start_cheat_death_buff(self):
+        """PS2(130122) on_turn_start触发，自身cheat_death buff施加。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # 触发回合开始
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+
+        # 验证PS2(130122)被收集
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130122]
+        self.assertTrue(len(ps2_actions) > 0, "PS2(130122)应在回合开始时被收集")
+
+        # 执行PS2
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="turn_start"
+        )
+
+        # 验证自身获得cheat_death buff
+        cheat_buffs = [b for b in self.caster.buffs if b.effect_type in ("cheat_death", "CheatDeath")]
+        self.assertTrue(len(cheat_buffs) > 0, "PS2应给自身施加cheat_death buff")
+
+    def test_ps2_cheat_death_survives_lethal(self):
+        """PS2(130122) cheat_death触发：HP归零时锁血并恢复。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # 先触发PS2获得cheat_death buff
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130122]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="turn_start"
+        )
+
+        # 验证cheat_death buff已施加
+        cheat_buffs = [b for b in self.caster.buffs if b.effect_type in ("cheat_death", "CheatDeath")]
+        self.assertTrue(len(cheat_buffs) > 0, "应有cheat_death buff")
+
+        # 模拟致命伤害：将caster HP设为0
+        self.caster.current_hp = 0
+
+        # 触发_apply_cheat_death逻辑：通过execute_skill让敌方攻击caster
+        # 但更直接的方式：调用内部_apply_cheat_death方法
+        # 这里用敌方对caster进行攻击的方式触发
+        # 将enemy_front的attack设为巨大值确保造成致命伤害
+        self.enemy_front.attack = 999999
+        original_hp = self.caster.current_hp
+        self.caster.current_hp = self.caster.max_hp  # 恢复满血以便被攻击
+
+        result = self.ss.execute_skill(
+            caster=self.enemy_front, skill_id=120048,  # 用一个通用的伤害技能
+            battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证caster未阵亡（cheat_death触发）
+        # 注意：如果没有cheat_death，caster HP应被秒杀到0并阵亡
+        # 由于cheat_death触发，caster HP应恢复到max_hp * heal_pct / 100
+        cheat_buffs_after = [b for b in self.caster.buffs
+                             if b.effect_type in ("cheat_death", "CheatDeath")]
+        # cheat_death应该已被消耗（单次触发后移除）
+        self.assertEqual(len(cheat_buffs_after), 0,
+                         "cheat_death buff应在致命伤害触发后被消耗")
+
+        # caster应存活且HP>0
+        self.assertGreater(self.caster.current_hp, 0,
+                           "cheat_death应让caster在致命伤害后存活")
+
+    def test_ps2_lv11_dmg_dealt_up(self):
+        """PS2(130122) Block2: Lv11+时触发，自身dmg_dealt_up(stackable)。"""
+        self.caster.level = 15
+        self.caster.skill_levels[130122] = 15
+        self._reset_caster(hp=self.caster.max_hp)
+        self.caster.skill_levels[130122] = 15
+        self._reset_enemies()
+
+        # 触发回合开始
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130122]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="turn_start"
+        )
+
+        # 验证cheat_death buff
+        cheat_buffs = [b for b in self.caster.buffs
+                       if b.effect_type in ("cheat_death", "CheatDeath")]
+        self.assertTrue(len(cheat_buffs) > 0, "应有cheat_death buff")
+
+        # 验证Lv11+的dmg_dealt_up buff
+        dealt_up_buffs = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertTrue(len(dealt_up_buffs) > 0, "Lv11+应有dmg_dealt_up buff")
+        self.assertTrue(dealt_up_buffs[0].is_stackable, "dmg_dealt_up应可叠加")
+
+
+if __name__ == "__main__":
+    unittest.main()

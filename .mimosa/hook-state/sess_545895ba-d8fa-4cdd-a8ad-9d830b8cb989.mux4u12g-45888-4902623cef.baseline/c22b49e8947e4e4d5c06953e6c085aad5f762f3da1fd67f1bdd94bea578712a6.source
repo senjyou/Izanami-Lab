@@ -1,0 +1,1239 @@
+"""
+角色117301 省エネ主義の天才ハッカ―（火盾）专项测试
+- EX: 110019 スタックオーバーフロー（敌单体攻击+气绝，Lv11+: 2行动气绝）
+- AS1: 120026 グリッチストライク（敌单体攻击+下次攻击伤害减少）
+- AS2: 120043 バニッシュ（敌单体攻击）
+- PS1: 130034 デコイプロトコル（援护机制：cover替换目标+guard减伤）
+- PS2: 130050 リカバリーブースト（HP从40%以上降至40%以下触发，自回+降攻+加防，Lv11+: ally_row def_up）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+# 简写
+STATUS_DEF = SkillEffectType.STATUS_DEFENSE.value
+STATUS_ATK = SkillEffectType.STATUS_ATTACK.value
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+GUARD = SkillEffectType.GUARD.value
+
+
+def _make_ally_unit(unit_id, name, position, **kwargs):
+    """创建友方单位的快捷方法"""
+    defaults = dict(
+        side=Side.ALLY, character_id=999011, level=10,
+        element=2, character_type=3,
+        max_hp=12000, current_hp=12000,
+        attack=6000, defense=4000, speed=400,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+        current_ap=4, current_pp=4, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    defaults.update(kwargs)
+    return UnitState(unit_id=unit_id, name=name, position=position, **defaults)
+
+
+def _make_enemy_unit(unit_id, name, position, **kwargs):
+    """创建敌方单位的快捷方法"""
+    defaults = dict(
+        side=Side.ENEMY, character_id=999001, level=10,
+        element=2, character_type=1,
+        max_hp=15000, current_hp=15000,
+        attack=10000, defense=5000, speed=300,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+        current_ap=4, current_pp=4, current_ep=3,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    defaults.update(kwargs)
+    return UnitState(unit_id=unit_id, name=name, position=position, **defaults)
+
+
+class TestActor117301(unittest.TestCase):
+    """角色117301 火盾 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 117301 火盾 (火属性, 物理型, 前排)
+        self.caster = UnitState(
+            unit_id="ally_front", name="火盾", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=10,
+            element=1, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方后排
+        self.ally_back = _make_ally_unit(
+            "ally_back", "友方后排", Position.ALLY_CENTER_BACK
+        )
+
+        # 敌方前排
+        self.enemy_front = _make_enemy_unit(
+            "enemy_front", "敌方前排", Position.ENEMY_CENTER_FRONT
+        )
+
+        # 敌方后排
+        self.enemy_back = _make_enemy_unit(
+            "enemy_back", "敌方后排", Position.ENEMY_CENTER_BACK
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_back]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_back]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: スタックオーバーフロー ───
+
+    def test_ex_damage(self):
+        """EX(110019) 敌单体攻击"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110019, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "EX应造成伤害")
+
+    def test_ex_stun_1_action_lv1_10(self):
+        """EX(110019) Lv1-10 气绝1行动"""
+        self.caster.skill_levels[110019] = 10
+        self.caster.level = 10
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110019, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        stun_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == KNOCKOUT]
+        self.assertTrue(len(stun_debuffs) > 0, "EX应施加气绝")
+        self.assertEqual(stun_debuffs[0].duration, 1, "Lv1-10气绝应持续1行动")
+
+    def test_ex_stun_2_actions_lv11_plus(self):
+        """EX(110019) Lv11+ 气绝2行动"""
+        self.caster.skill_levels[110019] = 15
+        self.caster.level = 15
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110019, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        stun_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == KNOCKOUT]
+        self.assertTrue(len(stun_debuffs) > 0, "EX应施加气绝")
+        self.assertEqual(stun_debuffs[0].duration, 2, "Lv11+气绝应持续2行动")
+
+    # ─── AS1: グリッチストライク ───
+
+    def test_as1_damage_and_debuff(self):
+        """AS1(120026) 攻击+dmg_dealt_down"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120026, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "AS1应造成伤害")
+        dmg_down_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertTrue(len(dmg_down_debuffs) > 0, "AS1应施加dmg_dealt_down")
+
+    def test_as1_dmg_dealt_down_stacks(self):
+        """AS1(120026) dmg_dealt_down可叠加"""
+        self.ss.execute_skill(caster=self.caster, skill_id=120026, battlefield=self.bf, skip_cost=True)
+        self.ss.execute_skill(caster=self.caster, skill_id=120026, battlefield=self.bf, skip_cost=True)
+        dmg_down_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertGreaterEqual(len(dmg_down_debuffs), 2, "多次AS1后dmg_dealt_down应叠加")
+
+    # ─── AS2: バニッシュ ───
+
+    def test_as2_single_target_damage(self):
+        """AS2(120043) 敌单体攻击"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120043, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "AS2应造成伤害")
+
+    # ─── PS1: デコイプロトコル（援护） ───
+
+    def test_ps1_cover_sets_state(self):
+        """
+        PS1(130034) 援护设置状态
+        验证: 在攻击目标列表存在时，执行PS1后caster设置cover_target和guard状态
+        """
+        # 模拟战斗中的触发流程：设置_current_attack_targets
+        self.ss._current_attack_targets = [self.caster, self.ally_back]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查cover状态：cover_target应指向被攻击的友方（ally_back）
+        self.assertIsNotNone(self.caster.cover_target, "cover_target应被设置")
+        self.assertEqual(self.caster.cover_skill_id, 130034, "cover_skill_id应为130034")
+        # cover_target应指向攻击目标中的友方（不是自己）
+        self.assertEqual(self.caster.cover_target, self.ally_back.unit_id,
+                         "cover_target应指向被攻击的友方")
+
+        # 检查guard状态
+        self.assertTrue(self.caster.guard_active, "guard_active应为True")
+        self.assertGreater(self.caster.guard_rate, 0, "guard_rate应大于0")
+
+    def test_ps1_cover_not_buff(self):
+        """
+        PS1(130034) 援护不是buff
+        验证: cover和guard不添加到buffs列表
+        """
+        # 设置攻击目标列表
+        self.ss._current_attack_targets = [self.caster, self.ally_back]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # cover不应作为buff
+        cover_buffs = [b for b in self.caster.buffs if b.effect_type == "cover"]
+        self.assertEqual(len(cover_buffs), 0, "cover不应作为buff添加")
+
+        # 新版guard不应作为buff
+        guard_buffs = [b for b in self.caster.buffs if b.effect_type == GUARD]
+        self.assertEqual(len(guard_buffs), 0, "新版guard不应作为buff添加")
+
+    def test_ps1_guard_rate_applied_to_damage(self):
+        """
+        PS1(130034) guard_rate应用减伤
+        验证: 新版guard通过unit.guard_active生效，且只在cover伤害时生效
+        """
+        # 设置攻击目标列表
+        self.ss._current_attack_targets = [self.caster, self.ally_back]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # guard已激活，验证cover伤害时减伤生效
+        guard_mult_cover = self.dms._get_guard_multiplier(self.caster, is_cover_damage=True)
+        self.assertLess(guard_mult_cover, 1.0, "cover伤害时guard减伤应生效")
+
+        # 验证非cover伤害时guard不生效
+        guard_mult_no_cover = self.dms._get_guard_multiplier(self.caster, is_cover_damage=False)
+        self.assertEqual(guard_mult_no_cover, 1.0, "非cover伤害时新版guard不应生效")
+
+    def test_ps1_guard_cleared_at_attacker_action_end(self):
+        """
+        PS1(130034) 攻击者行动结束时清理cover/guard
+        验证: _cleanup_guard_buffs清理cover_target和guard_active
+        """
+        # 设置攻击目标列表
+        self.ss._current_attack_targets = [self.caster, self.ally_back]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 确认状态已设置
+        self.assertIsNotNone(self.caster.cover_target)
+        self.assertTrue(self.caster.guard_active)
+
+        # 模拟攻击者行动结束清理
+        controller = BattleFlowController(self.bf, self.dl)
+        controller._cleanup_guard_buffs(self.enemy_front)
+
+        # 验证cover/guard状态已清理
+        self.assertIsNone(self.caster.cover_target, "cover_target应被清理")
+        self.assertEqual(self.caster.cover_skill_id, 0, "cover_skill_id应被清理")
+        self.assertFalse(self.caster.guard_active, "guard_active应被清理")
+        self.assertEqual(self.caster.guard_rate, 0.0, "guard_rate应被清理")
+
+    def test_ps1_simultaneous_limit(self):
+        """PS1(130034) 同时发动限制配置"""
+        skill_data = self.dl.get_parsed_skill_data(130034)
+        self.assertTrue(skill_data.get("simultaneous_limit"), "PS1应有simultaneous_limit")
+
+    def test_ps1_cover_selects_nearest_ally_in_targets(self):
+        """
+        PS1(130034) 援护选择攻击目标中距离最近的友方
+        验证: 多个友方被攻击时，选择距离最近的
+        """
+        # 添加一个距离更近的友方（同排左列）
+        ally_left_front = _make_ally_unit(
+            "ally_left_front", "友方前排左", Position.ALLY_LEFT_FRONT
+        )
+        self.bf.friend_team.append(ally_left_front)
+
+        # 攻击目标包含后排和前排左（火盾在中前排）
+        self.ss._current_attack_targets = [self.ally_back, ally_left_front]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # cover_target应指向距离最近的被攻击友方
+        # 火盾(中前排)到前排左(距离1)比到后排(距离1)更近，但同距离时优先前列/左列
+        self.assertIsNotNone(self.caster.cover_target, "cover_target应被设置")
+        # 前排左和后排距离相同(都是1)，但前排优先
+        self.assertEqual(self.caster.cover_target, ally_left_front.unit_id,
+                         "cover_target应选择距离最近的被攻击友方（同距离优先前排）")
+
+    # ─── PS2: リカバリーブースト ───
+
+    def test_ps2_heal_and_buffs_at_low_hp(self):
+        """
+        PS2(130050) HP从40%以上降至40%以下触发回血和buff
+        验证: HP跨越40%阈值时触发heal+def_up+atk_down
+        """
+        # 设置初始HP为50%（高于40%阈值）
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        self.caster.prev_hp_percent = 50.0
+
+        # 模拟HP降低到35%（跨越阈值）
+        self.caster.current_hp = int(self.caster.max_hp * 0.35)
+
+        # 手动触发HP_BELOW触发器
+        hp_below_actions = self.ts.trigger_hp_below(self.bf, [self.caster])
+
+        # 检查是否触发了PS2
+        ps2_triggered = any(action.skill_id == 130050 for action in hp_below_actions)
+        self.assertTrue(ps2_triggered, "PS2应在HP跨越40%阈值时触发")
+
+        # 执行触发的技能
+        for action in hp_below_actions:
+            if action.skill_id == 130050:
+                result = self.ss.execute_skill(
+                    caster=self.caster, skill_id=action.skill_id, battlefield=self.bf, skip_cost=True
+                )
+                self.assertTrue(result["success"])
+
+                # 检查回血效果
+                heal_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "heal"]
+                self.assertTrue(len(heal_effects) > 0, "PS2应执行回血")
+
+                # 检查def_up buff
+                def_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_DEF]
+                self.assertTrue(len(def_up_buffs) > 0, "PS2应施加def_up")
+                self.assertEqual(def_up_buffs[0].duration, 2, "def_up应持续2行动")
+
+                # 检查atk_down debuff
+                atk_down_debuffs = [b for b in self.caster.debuffs if b.effect_type == STATUS_ATK]
+                self.assertTrue(len(atk_down_debuffs) > 0, "PS2应施加atk_down")
+                break
+
+    def test_ps2_no_trigger_at_high_hp(self):
+        """
+        PS2(130050) HP>40%不触发
+        验证: HP未跨越40%阈值时不应触发PS2
+        """
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        self.caster.prev_hp_percent = 50.0
+
+        hp_below_actions = self.ts.trigger_hp_below(self.bf, [self.caster])
+
+        ps2_triggered = any(action.skill_id == 130050 for action in hp_below_actions)
+        self.assertFalse(ps2_triggered, "PS2不应在HP未跨越40%阈值时触发")
+
+    def test_ps2_no_trigger_already_below_threshold(self):
+        """
+        PS2(130050) 初始HP已低于40%不触发
+        验证: 战斗开始时HP已经低于40%的单位不会触发PS2
+        """
+        self.caster.current_hp = int(self.caster.max_hp * 0.35)
+        self.caster.prev_hp_percent = (self.caster.current_hp / self.caster.max_hp) * 100
+
+        hp_below_actions = self.ts.trigger_hp_below(self.bf, [self.caster])
+
+        ps2_triggered = any(action.skill_id == 130050 for action in hp_below_actions)
+        self.assertFalse(ps2_triggered, "PS2不应在初始HP已低于40%时触发")
+
+    def test_ps2_ally_row_def_up_lv11(self):
+        """
+        PS2(130050) Lv11+ ally_row def_up
+        验证: Lv11+时对同横排友方施加def_up
+        """
+        # 添加一个同横排的友方单位（前排）
+        ally_front_left = _make_ally_unit(
+            "ally_front_left", "友方前排左", Position.ALLY_LEFT_FRONT
+        )
+        self.bf.friend_team.append(ally_front_left)
+
+        self.caster.skill_levels[130050] = 15
+        self.caster.level = 15
+
+        # 设置初始HP为50%，然后降低到35%（跨越阈值）
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        self.caster.prev_hp_percent = 50.0
+        self.caster.current_hp = int(self.caster.max_hp * 0.35)
+
+        # 触发HP_BELOW触发器
+        hp_below_actions = self.ts.trigger_hp_below(self.bf, [self.caster])
+
+        # 执行PS2
+        for action in hp_below_actions:
+            if action.skill_id == 130050:
+                result = self.ss.execute_skill(
+                    caster=self.caster, skill_id=action.skill_id, battlefield=self.bf, skip_cost=True
+                )
+                self.assertTrue(result["success"])
+                break
+
+        # 检查同横排友方（前排左）是否获得def_up
+        def_up_buffs_ally = [b for b in ally_front_left.buffs if b.effect_type == STATUS_DEF]
+        self.assertTrue(len(def_up_buffs_ally) > 0, "Lv11+ PS2应对同横排友方施加def_up")
+
+        # 检查后排友方不应获得def_up（不在同一横排）
+        def_up_buffs_back = [b for b in self.ally_back.buffs if b.effect_type == STATUS_DEF]
+        self.assertEqual(len(def_up_buffs_back), 0, "后排友方不应获得def_up（不在同一横排）")
+
+    # ─── 新旧guard机制兼容性测试 ───
+
+    def test_legacy_guard_130009_buff_mechanism(self):
+        """
+        旧版guard(130009)使用buff机制
+        验证: 130009使用buff系统，有attack_limited=1
+        """
+        guard_caster = _make_ally_unit(
+            "guard_caster", "Guard测试", Position.ALLY_LEFT_FRONT,
+            skills=[130009], skill_levels={130009: 10},
+        )
+        self.bf.friend_team.append(guard_caster)
+
+        result = self.ss.execute_skill(
+            caster=guard_caster, skill_id=130009, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查guard buff存在
+        guard_buffs = [b for b in guard_caster.buffs if b.effect_type == GUARD]
+        self.assertTrue(len(guard_buffs) > 0, "旧版guard应作为buff添加")
+        self.assertEqual(guard_buffs[0].attack_limited, 1, "旧版guard应有attack_limited=1")
+
+    def test_legacy_guard_reduces_damage(self):
+        """
+        旧版guard(130009)减伤生效
+        验证: guard buff生效时减少伤害
+        """
+        guard_caster = _make_ally_unit(
+            "guard_caster", "Guard测试", Position.ALLY_LEFT_FRONT,
+            skills=[130009], skill_levels={130009: 10},
+        )
+        self.bf.friend_team.append(guard_caster)
+
+        self.ss.execute_skill(
+            caster=guard_caster, skill_id=130009, battlefield=self.bf, skip_cost=True
+        )
+
+        guard_mult = self.dms._get_guard_multiplier(guard_caster)
+        self.assertLess(guard_mult, 1.0, "旧版guard激活时应减少伤害")
+
+    def test_new_guard_vs_legacy_guard_distinction(self):
+        """
+        新版guard(130034) vs 旧版guard(130009) 区分
+        验证: duration_type区分两种机制
+        """
+        # 新版guard (130034) - duration_type="attacker_action"
+        skill_data_new = self.dl.get_parsed_skill_data(130034)
+        new_effects = skill_data_new.get("effect_blocks", [{}])[0].get("effects", [])
+        for eff in new_effects:
+            if eff.get("effect_type") == "guard":
+                self.assertEqual(eff.get("duration_type"), "attacker_action",
+                                 "新版guard应为attacker_action")
+
+        # 旧版guard (130009) - 无duration_type
+        skill_data_old = self.dl.get_parsed_skill_data(130009)
+        old_effects = skill_data_old.get("effect_blocks", [{}])[0].get("effects", [])
+        for eff in old_effects:
+            if eff.get("effect_type") == "guard":
+                self.assertIsNone(eff.get("duration_type"), "旧版guard应无duration_type")
+
+
+class TestCoverMechanism(unittest.TestCase):
+    """援护机制专项测试 - 模拟完整的攻击→触发→替换流程"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 火盾（援护者，前排）
+        self.cover_caster = UnitState(
+            unit_id="cover_caster", name="火盾", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=10,
+            element=1, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[130034], skill_levels={130034: 10},
+            skill_cooldowns={},
+        )
+
+        # 被援护的友方（后排）
+        self.covered_ally = _make_ally_unit(
+            "covered_ally", "被援护友方", Position.ALLY_CENTER_BACK
+        )
+
+        # 敌方攻击者
+        self.enemy_attacker = _make_enemy_unit(
+            "enemy_attacker", "敌方攻击者", Position.ENEMY_CENTER_FRONT
+        )
+
+        self.bf.friend_team = [self.cover_caster, self.covered_ally]
+        self.bf.enemy_team = [self.enemy_attacker]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_cover_target_selection(self):
+        """
+        援护目标选择：从攻击目标中选择同阵营的友方
+        验证: PS1执行时cover_target指向攻击目标中的友方
+        """
+        # 模拟攻击目标列表（敌方攻击友方后排）
+        self.ss._current_attack_targets = [self.covered_ally]
+
+        result = self.ss.execute_skill(
+            caster=self.cover_caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # cover_target应指向被攻击的友方
+        self.assertEqual(self.cover_caster.cover_target, self.covered_ally.unit_id,
+                         "cover_target应指向攻击目标中的友方")
+
+    def test_cover_target_replacement(self):
+        """
+        援护目标替换：被援护目标被攻击时替换为援护者
+        验证: _apply_cover_to_targets将covered_ally替换为cover_caster
+        """
+        # 手动设置cover状态（模拟PS1已触发）
+        self.cover_caster.cover_target = self.covered_ally.unit_id
+        self.cover_caster.cover_skill_id = 130034
+        self.cover_caster.guard_active = True
+        self.cover_caster.guard_rate = 30.0
+
+        # 模拟攻击目标列表
+        targets = [self.covered_ally]
+        self.ss._apply_cover_to_targets(self.enemy_attacker, targets, self.bf)
+
+        # 验证目标被替换
+        self.assertEqual(targets[0].unit_id, self.cover_caster.unit_id,
+                         "被援护目标应被替换为援护者")
+
+    def test_cover_no_replacement_when_target_not_covered(self):
+        """
+        援护不替换未保护的目标
+        验证: cover_target不在攻击目标中时不替换
+        """
+        # cover_target指向一个不在攻击目标中的单位
+        other_ally = _make_ally_unit("other_ally", "其他友方", Position.ALLY_LEFT_BACK)
+        self.cover_caster.cover_target = other_ally.unit_id
+        self.cover_caster.guard_active = True
+        self.cover_caster.guard_rate = 30.0
+
+        # 攻击目标不包含other_ally
+        targets = [self.covered_ally]
+        self.ss._apply_cover_to_targets(self.enemy_attacker, targets, self.bf)
+
+        # 目标不应被替换
+        self.assertEqual(targets[0].unit_id, self.covered_ally.unit_id,
+                         "未保护的攻击目标不应被替换")
+
+    def test_cover_cleared_when_attacker_action_ends(self):
+        """
+        攻击者行动结束时清理cover
+        验证: _cleanup_guard_buffs清理cover状态
+        """
+        # 手动设置cover状态
+        self.cover_caster.cover_target = self.covered_ally.unit_id
+        self.cover_caster.cover_skill_id = 130034
+        self.cover_caster.guard_active = True
+        self.cover_caster.guard_rate = 30.0
+
+        # 模拟行动结束
+        controller = BattleFlowController(self.bf, self.dl)
+        controller._cleanup_guard_buffs(self.enemy_attacker)
+
+        # 验证清理
+        self.assertIsNone(self.cover_caster.cover_target, "cover_target应被清理")
+        self.assertEqual(self.cover_caster.cover_skill_id, 0, "cover_skill_id应被清理")
+        self.assertFalse(self.cover_caster.guard_active, "guard_active应被清理")
+        self.assertEqual(self.cover_caster.guard_rate, 0.0, "guard_rate应被清理")
+
+    def test_cover_guard_reduces_damage_on_coverer(self):
+        """
+        援护者替代承受伤害时guard减伤生效
+        验证: cover_caster的guard_rate减少伤害（新版guard只在cover伤害时生效）
+        """
+        # 设置guard
+        self.cover_caster.guard_active = True
+        self.cover_caster.guard_rate = 30.0
+
+        # 非cover伤害时，新版guard不生效
+        guard_mult_no_cover = self.dms._get_guard_multiplier(self.cover_caster, is_cover_damage=False)
+        self.assertEqual(guard_mult_no_cover, 1.0, "非cover伤害时新版guard不应生效")
+
+        # cover伤害时，新版guard生效
+        guard_mult = self.dms._get_guard_multiplier(self.cover_caster, is_cover_damage=True)
+        self.assertLess(guard_mult, 1.0, "cover伤害时guard减伤应生效")
+        # 30%减伤 → guard_mult = 0.70
+        self.assertAlmostEqual(guard_mult, 0.70, places=2,
+                               msg="30%减伤时guard_mult应为0.70")
+
+    def test_cover_full_flow(self):
+        """
+        援护完整流程：PS1触发→设置cover→目标替换→guard减伤
+        验证: 完整的援护机制链路
+        """
+        # 1. 模拟攻击目标列表（敌方攻击友方后排和火盾）
+        self.ss._current_attack_targets = [self.cover_caster, self.covered_ally]
+
+        # 2. 执行PS1（模拟before_any_attacked触发）
+        result = self.ss.execute_skill(
+            caster=self.cover_caster, skill_id=130034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 3. 验证cover状态已设置
+        self.assertIsNotNone(self.cover_caster.cover_target, "cover_target应被设置")
+        self.assertTrue(self.cover_caster.guard_active, "guard_active应为True")
+
+        # 4. 模拟_apply_cover_to_targets
+        targets = [self.cover_caster, self.covered_ally]
+        self.ss._apply_cover_to_targets(self.enemy_attacker, targets, self.bf)
+
+        # 5. 验证被保护的目标被替换为援护者
+        # covered_ally应被替换为cover_caster
+        target_ids = [t.unit_id for t in targets]
+        self.assertNotIn(self.covered_ally.unit_id, target_ids,
+                         "被保护的目标应被替换出攻击列表")
+        # cover_caster应出现（可能两次：原始目标+替换后的目标）
+        cover_count = target_ids.count(self.cover_caster.unit_id)
+        self.assertGreaterEqual(cover_count, 1, "援护者应在攻击目标中")
+
+        # 6. 验证guard减伤（cover伤害时生效）
+        guard_mult = self.dms._get_guard_multiplier(self.cover_caster, is_cover_damage=True)
+        self.assertLess(guard_mult, 1.0, "cover伤害时guard减伤应生效")
+
+        # 7. 模拟攻击者行动结束，清理cover
+        controller = BattleFlowController(self.bf, self.dl)
+        controller._cleanup_guard_buffs(self.enemy_attacker)
+        self.assertIsNone(self.cover_caster.cover_target, "行动结束后cover应被清理")
+        self.assertFalse(self.cover_caster.guard_active, "行动结束后guard应被清理")
+
+
+class TestCoverIntegration(unittest.TestCase):
+    """援护机制集成测试 - 模拟实际战斗流程中多目标攻击触发援护"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 火盾（友方前排中）
+        self.fire_shield = UnitState(
+            unit_id="fire_shield", name="火盾", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=10,
+            element=1, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方后排
+        self.ally_back = _make_ally_unit(
+            "ally_back", "友方后排", Position.ALLY_CENTER_BACK
+        )
+
+        # 敌方攻击者 - 使用カーテンショット(120024)
+        self.enemy = _make_enemy_unit(
+            "enemy", "敌方", Position.ENEMY_CENTER_FRONT,
+            skills=[120024], skill_levels={120024: 10},
+        )
+
+        self.bf.friend_team = [self.fire_shield, self.ally_back]
+        self.bf.enemy_team = [self.enemy]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_cover_triggered_by_multi_target_attack(self):
+        """
+        集成测试：多目标攻击(カーテンショット)触发援护
+        验证: 敌方使用カーテンショット攻击火盾和友方后排时，
+              PS1自动触发，火盾援护友方后排，友方后排不受伤害
+        """
+        ally_hp_before = self.ally_back.current_hp
+        shield_hp_before = self.fire_shield.current_hp
+
+        # 敌方使用カーテンショット攻击
+        result = self.ss.execute_skill(
+            caster=self.enemy, skill_id=120024, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证PS1已触发：cover_target指向友方后排
+        self.assertEqual(self.fire_shield.cover_target, self.ally_back.unit_id,
+                         "PS1应触发，cover_target应指向友方后排")
+        self.assertTrue(self.fire_shield.guard_active, "guard应激活")
+
+        # 验证友方后排未受伤（被援护替代）
+        self.assertEqual(self.ally_back.current_hp, ally_hp_before,
+                         "友方后排不应受到伤害（被火盾援护替代）")
+
+        # 验证火盾承受了两份伤害（自身+援护）
+        shield_damage = shield_hp_before - self.fire_shield.current_hp
+        self.assertGreater(shield_damage, 0, "火盾应受到伤害")
+        # 火盾承受的伤害应大于单次攻击（因为承受了两份，均享受guard减伤）
+
+    def test_cover_single_target_attack_no_cover_target(self):
+        """
+        集成测试：单目标攻击只打火盾时，cover无有效目标
+        验证: 敌方只攻击火盾时，PS1触发但cover_target为None（攻击目标中没有其他友方）
+        """
+        # 移除友方后排，只剩火盾
+        self.bf.friend_team = [self.fire_shield]
+
+        # 敌方使用单目标攻击
+        result = self.ss.execute_skill(
+            caster=self.enemy, skill_id=120024, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # cover_target应为None（攻击目标中没有其他友方）
+        self.assertIsNone(self.fire_shield.cover_target,
+                          "单目标攻击只打火盾时，cover_target应为None")
+
+    def test_cover_guard_damage_reduction_in_battle(self):
+        """
+        集成测试：guard减伤效果
+        验证: 火盾的guard_rate=30%使cover伤害降低30%，非cover伤害不降低
+        """
+        # 直接通过damage_service计算guard乘区
+        # 无guard
+        self.fire_shield.guard_active = False
+        self.fire_shield.guard_rate = 0.0
+        guard_mult_no = self.dms._get_guard_multiplier(self.fire_shield)
+        self.assertAlmostEqual(guard_mult_no, 1.0, places=2, msg="无guard时guard_mult应为1.0")
+
+        # 有guard 30%，cover伤害时生效
+        self.fire_shield.guard_active = True
+        self.fire_shield.guard_rate = 30.0
+        guard_mult_yes = self.dms._get_guard_multiplier(self.fire_shield, is_cover_damage=True)
+        self.assertAlmostEqual(guard_mult_yes, 0.70, places=2, msg="30%guard时cover伤害guard_mult应为0.70")
+
+        # 非cover伤害时guard不生效
+        guard_mult_no_cover = self.dms._get_guard_multiplier(self.fire_shield, is_cover_damage=False)
+        self.assertAlmostEqual(guard_mult_no_cover, 1.0, places=2, msg="非cover伤害时guard_mult应为1.0")
+
+        # guard减伤30%
+        self.assertLess(guard_mult_yes, guard_mult_no, "guard应减少cover伤害乘区")
+
+
+class TestCoverRealCharacters(unittest.TestCase):
+    """援护机制真实角色集成测试 - 使用实际角色ID验证完整战斗流程"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 117301 省エネ主義の天才ハッカ― (火盾, 前排中)
+        self.hacker = UnitState(
+            unit_id="117301", name="省エネ主義の天才ハッカ―", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=80,
+            element=1, character_type=1,
+            max_hp=112270, current_hp=112270,
+            attack=56942, defense=56942, speed=500,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+
+        # 121301 ノーブル・グレイス (前排左)
+        self.noble = UnitState(
+            unit_id="121301", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=121301, level=80,
+            element=5, character_type=1,
+            max_hp=141584, current_hp=141584,
+            attack=79765, defense=79765, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10, 130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+
+        # 敌方 フィー・ドレーゼ
+        self.fee = _make_enemy_unit(
+            "232301", "フィー・ドレーゼ", Position.ENEMY_CENTER_FRONT,
+            skills=[210016, 220105, 230086, 230087, 230088],
+            skill_levels={210016: 10, 220105: 10, 230086: 10, 230087: 10, 230088: 10},
+        )
+
+        self.bf.friend_team = [self.hacker, self.noble]
+        self.bf.enemy_team = [self.fee]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_real_cover_with_curtain_shot(self):
+        """
+        真实角色测试：フィー・ドレーゼ使用カーテンショット攻击火盾和ノーブル
+        拆分block后：block1(enemy_single)攻击火盾，block2(adjacent_enemies)攻击邻接目标
+        预扫描跨block收集所有目标：block1目标是自己（过滤），block2目标ノーブル（有效）
+        cover应触发并援护ノーブル
+        验证: PS1(130034)触发，cover_target指向ノーブル，ノーブル不受伤害
+        """
+        noble_hp_before = self.noble.current_hp
+        hacker_hp_before = self.hacker.current_hp
+
+        # 敌方使用カーテンショット(220105)
+        result = self.ss.execute_skill(
+            caster=self.fee, skill_id=220105, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 预扫描跨block收集目标，block2的ノーブル是有效cover候选
+        # cover应触发并援护ノーブル
+        self.assertEqual(self.hacker.cover_target, self.noble.unit_id,
+                         "预扫描跨block后，cover应援护ノーブル")
+
+        # 火盾受到block1的伤害（自身直接伤害，不享受guard）
+        hacker_damage = hacker_hp_before - self.hacker.current_hp
+        self.assertGreater(hacker_damage, 0, "火盾应受到伤害")
+
+    def test_real_cover_with_curtain_shot_covering_ally(self):
+        """
+        真实角色测试：当block1攻击的是友方（非火盾自己）时，cover应触发
+        调整布局使enemy_single选择ノーブル作为目标
+        """
+        # 将ノーブル放在更容易被选中的位置
+        noble = UnitState(
+            unit_id="121301", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=121301, level=80,
+            element=5, character_type=1,
+            max_hp=141584, current_hp=141584,
+            attack=79765, defense=79765, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10, 130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+        hacker = UnitState(
+            unit_id="117301", name="省エネ主義の天才ハッカ―", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=117301, level=80,
+            element=1, character_type=1,
+            max_hp=112270, current_hp=112270,
+            attack=56942, defense=56942, speed=500,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+        fee = _make_enemy_unit(
+            "232301", "フィー・ドレーゼ", Position.ENEMY_CENTER_FRONT,
+            skills=[210016, 220105, 230086, 230087, 230088],
+            skill_levels={210016: 10, 220105: 10, 230086: 10, 230087: 10, 230088: 10},
+        )
+        bf = BattlefieldState()
+        bf.friend_team = [hacker, noble]
+        bf.enemy_team = [fee]
+
+        ss = SkillService(
+            self.dl, ResourceService(),
+            target_service=TargetService(),
+            damage_service=DamageService(),
+            aura_service=AuraService(),
+            status_service=StatusService(),
+            trigger_service=self.ts,
+        )
+        ss.set_battlefield(bf)
+
+        noble_hp_before = noble.current_hp
+        hacker_hp_before = hacker.current_hp
+
+        # 敌方使用カーテンショット(220105)
+        result = ss.execute_skill(
+            caster=fee, skill_id=220105, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # block1的enemy_single目标应该是ノーブル（中前列）
+        # cover应触发，援护ノーブル
+        self.assertEqual(hacker.cover_target, noble.unit_id,
+                         "block1攻击ノーブル时，cover应触发援护ノーブル")
+        self.assertTrue(hacker.guard_active, "guard应激活")
+
+        # ノーブル不应受到伤害（被援护替代）
+        self.assertEqual(noble.current_hp, noble_hp_before,
+                         "ノーブル不应受到伤害（被火盾援护替代）")
+
+        # 火盾应承受伤害
+        hacker_damage = hacker_hp_before - hacker.current_hp
+        self.assertGreater(hacker_damage, 0, "火盾应受到伤害（自身+援护）")
+
+    def test_real_cover_noble_guard_buff(self):
+        """
+        真实角色测试：当cover触发时，ノーブル的PS1(130009)也应触发guard buff
+        使用ノーブル在center_front的布局使enemy_single选择ノーブル
+        """
+        noble = UnitState(
+            unit_id="121301", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=121301, level=80,
+            element=5, character_type=1,
+            max_hp=141584, current_hp=141584,
+            attack=79765, defense=79765, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10, 130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+        hacker = UnitState(
+            unit_id="117301", name="省エネ主義の天才ハッカ―", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=117301, level=80,
+            element=1, character_type=1,
+            max_hp=112270, current_hp=112270,
+            attack=56942, defense=56942, speed=500,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+        fee = _make_enemy_unit(
+            "232301", "フィー・ドレーゼ", Position.ENEMY_CENTER_FRONT,
+            skills=[210016, 220105, 230086, 230087, 230088],
+            skill_levels={210016: 10, 220105: 10, 230086: 10, 230087: 10, 230088: 10},
+        )
+        bf = BattlefieldState()
+        bf.friend_team = [hacker, noble]
+        bf.enemy_team = [fee]
+
+        ss = SkillService(
+            self.dl, ResourceService(),
+            target_service=TargetService(),
+            damage_service=DamageService(),
+            aura_service=AuraService(),
+            status_service=StatusService(),
+            trigger_service=self.ts,
+        )
+        ss.set_battlefield(bf)
+
+        result = ss.execute_skill(
+            caster=fee, skill_id=220105, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # ノーブル应有guard buff（旧版）
+        guard_buffs = [b for b in noble.buffs if b.effect_type == GUARD]
+        self.assertTrue(len(guard_buffs) > 0, "ノーブル应有guard buff（来自130009）")
+
+        # 火盾应有guard（新版，非buff）
+        self.assertTrue(hacker.guard_active, "火盾应有guard_active（来自130034）")
+        # 新版guard不应作为buff
+        hacker_guard_buffs = [b for b in hacker.buffs if b.effect_type == GUARD]
+        self.assertEqual(len(hacker_guard_buffs), 0, "火盾的guard不应作为buff")
+
+    def test_real_cover_damage_targets_in_result(self):
+        """
+        真实角色测试：cover替换后，effects_applied中的target应反映替换
+        验证: damage效果的targets中不应包含ノーブル的unit_id
+        """
+        result = self.ss.execute_skill(
+            caster=self.fee, skill_id=220105, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查damage效果中的target_id
+        damage_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        all_target_ids = []
+        for dmg in damage_effects:
+            for t in dmg.get("targets", []):
+                all_target_ids.append(t.get("target_id", t.get("target")))
+
+        # ノーブル不应出现在damage targets中（被援护替代）
+        # 注意：第一个damage效果(enemy_single)的目标是火盾自己，cover不替换
+        # 第二个damage效果(adjacent_enemies)的目标是ノーブル，cover替换为火盾
+        # 所以最终所有damage target都应该是火盾
+        noble_in_targets = self.noble.unit_id in all_target_ids
+        self.assertFalse(noble_in_targets,
+                         "ノーブル不应出现在damage targets中（被援护替代）")
+
+    def test_cover_not_triggered_by_ally_attack(self):
+        """
+        友方攻击敌方时，130034不应触发援护
+        验证: 友方(火盾)攻击敌方时，PS1(130034)不触发
+        """
+        # 友方(火盾)使用AS1攻击敌方
+        result = self.ss.execute_skill(
+            caster=self.hacker, skill_id=120026, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 130034不应触发（友方攻击敌方，不满足"敌方攻击己方"条件）
+        ps_results = result.get("inline_ps_results", [])
+        ps_skill_ids = [ps["skill_id"] for ps in ps_results]
+        self.assertNotIn(130034, ps_skill_ids,
+                         "友方攻击时130034不应触发援护")
+
+        # cover_target不应被设置
+        self.assertIsNone(self.hacker.cover_target,
+                          "友方攻击时cover_target不应被设置")
+
+    def test_cover_triggered_by_enemy_attack(self):
+        """
+        敌方攻击己方时，130034应触发援护
+        验证: 敌方攻击时，PS1(130034)触发，cover_target指向被攻击的友方
+        """
+        # 敌方使用カーテンショット(220105)
+        result = self.ss.execute_skill(
+            caster=self.fee, skill_id=220105, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 130034应触发（敌方攻击己方）
+        ps_results = result.get("inline_ps_results", [])
+        ps_skill_ids = [ps["skill_id"] for ps in ps_results]
+        self.assertIn(130034, ps_skill_ids,
+                      "敌方攻击时130034应触发援护")
+
+        # cover_target应指向被攻击的友方
+        self.assertIsNotNone(self.hacker.cover_target,
+                             "敌方攻击时cover_target应被设置")
+
+
+class TestCoverSideCheck(unittest.TestCase):
+    """援护阵营判断测试 - 验证before_any_attacked的阵营检查"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_before_any_attacked_blocks_same_side_attacker(self):
+        """
+        before_any_attacked触发器：同阵营攻击者不应触发
+        验证: 友方攻击敌方时，130034(デコイプロトコル)不匹配
+        """
+        bf = BattlefieldState()
+        hacker = UnitState(
+            unit_id="117301", name="省エネ主義の天才ハッカ―", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=80,
+            element=1, character_type=1,
+            max_hp=112270, current_hp=112270,
+            attack=56942, defense=56942, speed=500,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+        noble = UnitState(
+            unit_id="121301", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=121301, level=80,
+            element=5, character_type=1,
+            max_hp=141584, current_hp=141584,
+            attack=79765, defense=79765, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10, 130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+        enemy = _make_enemy_unit(
+            "232301", "フィー・ドレーゼ", Position.ENEMY_CENTER_FRONT,
+            skills=[210016, 220105, 230086, 230087, 230088],
+            skill_levels={210016: 10, 220105: 10, 230086: 10, 230087: 10, 230088: 10},
+        )
+        bf.friend_team = [hacker, noble]
+        bf.enemy_team = [enemy]
+
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        # 友方攻击敌方：attacker是友方，targets是敌方
+        # 130034不应匹配（attacker与PS owner同阵营）
+        actions = ts.trigger_before_any_attacked(
+            targets=[enemy], battlefield=bf, attacker=hacker
+        )
+        skill_ids = [a.skill_id for a in actions]
+        self.assertNotIn(130034, skill_ids,
+                         "友方攻击时130034不应匹配before_any_attacked")
+
+    def test_before_any_attacked_allows_enemy_attacker(self):
+        """
+        before_any_attacked触发器：敌方攻击者应触发
+        验证: 敌方攻击己方时，130034(デコイプロトコル)匹配
+        """
+        bf = BattlefieldState()
+        hacker = UnitState(
+            unit_id="117301", name="省エネ主義の天才ハッカ―", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117301, level=80,
+            element=1, character_type=1,
+            max_hp=112270, current_hp=112270,
+            attack=56942, defense=56942, speed=500,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110019, 120026, 120043, 130034, 130050],
+            skill_levels={110019: 10, 120026: 10, 120043: 10, 130034: 10, 130050: 10},
+            skill_cooldowns={},
+        )
+        noble = UnitState(
+            unit_id="121301", name="ノーブル・グレイス", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=121301, level=80,
+            element=5, character_type=1,
+            max_hp=141584, current_hp=141584,
+            attack=79765, defense=79765, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110001, 120013, 130009, 130022, 130038],
+            skill_levels={110001: 10, 120013: 10, 130009: 10, 130022: 10, 130038: 10},
+            skill_cooldowns={},
+        )
+        enemy = _make_enemy_unit(
+            "232301", "フィー・ドレーゼ", Position.ENEMY_CENTER_FRONT,
+            skills=[210016, 220105, 230086, 230087, 230088],
+            skill_levels={210016: 10, 220105: 10, 230086: 10, 230087: 10, 230088: 10},
+        )
+        bf.friend_team = [hacker, noble]
+        bf.enemy_team = [enemy]
+
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        # 敌方攻击己方：attacker是敌方，targets是己方
+        # 130034应匹配（attacker与PS owner不同阵营）
+        actions = ts.trigger_before_any_attacked(
+            targets=[hacker, noble], battlefield=bf, attacker=enemy
+        )
+        skill_ids = [a.skill_id for a in actions]
+        self.assertIn(130034, skill_ids,
+                      "敌方攻击时130034应匹配before_any_attacked")
+
+
+if __name__ == "__main__":
+    unittest.main()

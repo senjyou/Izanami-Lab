@@ -1,0 +1,202 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Debug test for bug1 and bug2"""
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+
+
+def main():
+    panel_config = PanelConfig(
+        character_level=355,
+        school_levels=SchoolLevels(
+            physical_level=90, en_level=86, agility_level=88,
+            fire_level=94, water_level=93, earth_level=92, wind_level=92,
+            light_level=27, dark_level=27,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=True,
+    )
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data)
+
+    # Setup 混沌の立役者 (111301)
+    for cid in [111301, 154301]:
+        char = data_loader.get_character_by_id(cid)
+        panel_config.rarities[cid] = 14
+        panel_config.affection_levels[cid] = 40
+        skill_ids = data_loader.load_character_skills().get(cid, [])
+        panel_config.skill_levels[cid] = {sid: 15 for sid in skill_ids}
+        module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"), int(f"{char.character_type}3")]
+        panel_config.modules[cid] = [
+            ModuleConfig(module_id=mid, tier=9, level=50)
+            for mid in module_ids
+        ]
+
+    player_config = panel_config.get_player_config()
+
+    bf = BattlefieldState()
+
+    # Create 世界への反逆者 (154301)
+    char1 = data_loader.get_character_by_id(154301)
+    char_config1 = panel_config.get_character_config(154301, char1.default_rarity)
+    stats1 = stat_calculator.calculate_stats(char_config1, player_config)
+    char_skills1 = data_loader.load_character_skills()
+    skills1 = char_skills1.get(154301, [])
+    u1 = UnitState(
+        unit_id="F_154301",
+        name=char1.name,
+        side=Side.ALLY,
+        position=Position.ALLY_CENTER_FRONT,
+        character_id=154301,
+        level=char_config1.level,
+        element=char1.attribute,
+        character_type=char1.character_type,
+        max_hp=stats1.hp,
+        current_hp=stats1.hp,
+        attack=stats1.attack,
+        defense=stats1.defense,
+        speed=stats1.speed,
+        crit_rate=stats1.critical_rate,
+        crit_damage=stats1.critical_damage - 1.5,
+        advantage_damage=stats1.advantage_damage - 1.25,
+        initial_active_point=stats1.initial_ap,
+        initial_passive_point=stats1.initial_pp,
+        max_extra_point=7,
+        current_ap=stats1.initial_ap,
+        current_pp=stats1.initial_pp,
+        current_ep=0,
+        skills=skills1,
+        skill_levels=panel_config.skill_levels.get(154301, {}),
+        skill_cooldowns={},
+        role_type=char1.role_type,
+        position_type=char1.position_type,
+    )
+    bf.add_unit(u1)
+
+    # Create 混沌の立役者 (111301)
+    char2 = data_loader.get_character_by_id(111301)
+    char_config2 = panel_config.get_character_config(111301, char2.default_rarity)
+    stats2 = stat_calculator.calculate_stats(char_config2, player_config)
+    skills2 = char_skills1.get(111301, [])
+    u2 = UnitState(
+        unit_id="F_111301",
+        name=char2.name,
+        side=Side.ALLY,
+        position=Position.ALLY_CENTER_BACK,
+        character_id=111301,
+        level=char_config2.level,
+        element=char2.attribute,
+        character_type=char2.character_type,
+        max_hp=stats2.hp,
+        current_hp=stats2.hp,
+        attack=stats2.attack,
+        defense=stats2.defense,
+        speed=stats2.speed,
+        crit_rate=stats2.critical_rate,
+        crit_damage=stats2.critical_damage - 1.5,
+        advantage_damage=stats2.advantage_damage - 1.25,
+        initial_active_point=stats2.initial_ap,
+        initial_passive_point=stats2.initial_pp,
+        max_extra_point=7,
+        current_ap=stats2.initial_ap,
+        current_pp=stats2.initial_pp,
+        current_ep=0,
+        skills=skills2,
+        skill_levels=panel_config.skill_levels.get(111301, {}),
+        skill_cooldowns={},
+        role_type=char2.role_type,
+        position_type=char2.position_type,
+    )
+    bf.add_unit(u2)
+
+    # Create 木桩 (enemy)
+    from src.entities_v2.custom_dummy import (
+        CustomDummyConfig, build_synthetic_character_data,
+    )
+    cfg = CustomDummyConfig(
+        name="木桩（不动2）",
+        element=1,
+        character_type=1,
+        position_type=3,
+        role_type=1,
+        hp=600000,
+        attack=70000,
+        defense=10000,
+        speed=500,
+        ap=4,
+        pp=4,
+    )
+    char_data = build_synthetic_character_data(999999, cfg)
+    char_data.character_id = -999
+    data_loader._custom_characters[-999] = char_data
+    data_loader._custom_character_skills[-999] = []
+    data_loader._custom_dummy_configs[-999] = cfg
+
+    u3 = UnitState(
+        unit_id="E_-999",
+        name="木桩（不动2）",
+        side=Side.ENEMY,
+        position=Position.ENEMY_CENTER_FRONT,
+        character_id=-999,
+        level=200,
+        element=cfg.element,
+        character_type=cfg.character_type,
+        max_hp=600000,
+        current_hp=600000,
+        attack=70000,
+        defense=10000,
+        speed=500,
+        crit_rate=0.15,
+        crit_damage=0.5,
+        advantage_damage=0.25,
+        initial_active_point=4,
+        initial_passive_point=4,
+        max_extra_point=8,
+        current_ap=4,
+        current_pp=4,
+        current_ep=0,
+        skills=[],
+        skill_cooldowns={},
+        role_type=1,
+        position_type=3,
+    )
+    bf.add_unit(u3)
+
+    print(f"  己方: {[f'{u.name}({u.position.name}) ATK={u.attack} DEF={u.defense}' for u in [u1, u2]]}")
+    print(f"  敌方: {[f'{u.name}({u.position.name}) ATK={u.attack} DEF={u.defense}' for u in [u3]]}")
+
+    controller = BattleFlowController(bf, data_loader=data_loader, narrative=BattleNarrativeWriter(data_loader=data_loader))
+    result = controller.execute_battle()
+
+    print(f"  结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in bf.get_all_units():
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        print(f"    [{u.unit_id}] {u.name}({u.position.name}): {s}")
+
+    if controller.narrative:
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "battle_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = controller.narrative.generate_filename(log_dir)
+        controller.narrative.write(log_path)
+        print(f"\n  日志已写入: {log_path}")
+
+
+if __name__ == "__main__":
+    main()

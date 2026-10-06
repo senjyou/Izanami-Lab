@@ -1,0 +1,237 @@
+"""Unit tests for 130125 (気合い入れていこー！) exclude_self behavior.
+
+Skill text: 他の味方がデバフを付与された際に発動
+The PS should trigger only when OTHER allies (excluding self) receive a debuff.
+When multiple allies receive debuffs simultaneously, the nearest one to PS owner
+should be selected as the remove_debuff target.
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import TriggerTiming, Position, SkillEffectType
+from src.entities_v2.unit_state import BuffState
+
+
+def _make_debuff(unit_id, effect_type='poison'):
+    """Helper: create a simple debuff BuffState."""
+    return BuffState(
+        buff_id=f"test_{effect_type}_{unit_id}",
+        name=effect_type,
+        effect_type=effect_type,
+        value=100.0,
+        duration=3,
+        timing_type=2,
+        source_unit_id="enemy",
+        is_debuff=True,
+    )
+
+
+class Test130125ExcludeSelf(unittest.TestCase):
+    """130125 PS should NOT trigger when PS owner itself receives a debuff,
+    but SHOULD trigger when another ally receives a debuff."""
+
+    def setUp(self):
+        builder = BattleBuilder()
+        # PS owner with 130125 (character 130302 has this PS)
+        builder.add_ally(unit_id="ps_owner", character_id=130302,
+                         skills=[110053, 120117, 120118, 130125, 130126],
+                         level=10, hp=20000, atk=5000, speed=200, pp=10, ep=10)
+        # Another ally (no PS, just a target)
+        builder.add_ally(unit_id="ally_B", character_id=104302,
+                         skills=[110001, 120001, 130001],
+                         level=10, hp=15000, atk=3000, speed=150, pp=10, ep=10)
+        # Enemy to apply debuffs
+        builder.add_enemy(unit_id="enemy_C", character_id=100101,
+                         skills=[110002, 120002],
+                         level=10, hp=50000, atk=2000, speed=100, pp=10, ep=10)
+        ctx = builder.build()
+        self.bf = ctx['bf']
+        self.ts = ctx['ts']
+        self.ss = ctx['ss']
+        self.dl = ctx['services']['dl']
+        self.owner = next(u for u in self.bf.friend_team if u.unit_id == "ps_owner")
+        self.ally_B = next(u for u in self.bf.friend_team if u.unit_id == "ally_B")
+        self.enemy_C = next(u for u in self.bf.enemy_team if u.unit_id == "enemy_C")
+
+    def test_config_has_exclude_self(self):
+        """Config should have exclude_self=1 in global_condition."""
+        parsed = self.dl.get_parsed_skill_data(130125)
+        self.assertIsNotNone(parsed, "130125 should be in skill_effects_hybrid.json")
+        gc = parsed.get('global_condition', {})
+        self.assertEqual(gc.get('type'), 'target_is_ally')
+        self.assertEqual(gc.get('value'), 1)
+        self.assertEqual(gc.get('exclude_self'), 1,
+                         "130125 must have exclude_self=1 to exclude self from trigger")
+
+    def test_no_trigger_when_self_receives_debuff(self):
+        """130125 should NOT trigger when PS owner itself receives a debuff."""
+        # PS owner receives a debuff (applied by enemy)
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=[self.owner.unit_id],
+            actor=self.enemy_C,
+            applied_debuff_types={'poison'},
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130125]
+        self.assertEqual(len(ps_actions), 0,
+                         "130125 should NOT trigger when PS owner itself receives debuff")
+
+    def test_trigger_when_other_ally_receives_debuff(self):
+        """130125 SHOULD trigger when another ally receives a debuff."""
+        # ally_B receives a debuff (applied by enemy)
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=[self.ally_B.unit_id],
+            actor=self.enemy_C,
+            applied_debuff_types={'poison'},
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130125]
+        self.assertGreater(len(ps_actions), 0,
+                           "130125 should trigger when another ally receives debuff")
+        # Verify primary_target is set to ally_B (the debuffed ally), not PS owner
+        params = getattr(ps_actions[0], 'parameters', {})
+        self.assertIn('primary_target', params,
+                      "primary_target should be set for debuff_applied_target resolution")
+        self.assertEqual(params['primary_target'].unit_id, self.ally_B.unit_id,
+                         "primary_target should be the debuffed ally, not PS owner")
+
+    def test_no_trigger_when_only_self_in_targets(self):
+        """130125 should trigger when self+ally both receive debuffs (ally triggers it).
+        The trigger condition must not be confused by self being in targets.
+        Note: params['primary_target'] may be self in this edge case, but skill_service's
+        debuff_applied_target resolution will redirect to a non-self ally during execution
+        (see skill_service.py debuff_applied_target exclude_self handling)."""
+        # Both PS owner and ally_B receive debuff; 130125 should trigger for ally_B
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=[self.owner.unit_id, self.ally_B.unit_id],
+            actor=self.enemy_C,
+            applied_debuff_types={'poison'},
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130125]
+        # Should trigger because ally_B (non-self) is among the targets
+        self.assertGreater(len(ps_actions), 0,
+                           "130125 should trigger when ally_B is in targets even if self is also targeted")
+        # Verify that targets list (context.targets) contains ally_B for skill_service redirect
+        params = getattr(ps_actions[0], 'parameters', {})
+        self.assertIn('targets', params, "targets list should be passed for exclude_self redirect")
+        target_ids = [t.unit_id for t in params['targets']]
+        self.assertIn(self.ally_B.unit_id, target_ids,
+                      "ally_B should be in targets list for skill_service exclude_self redirect")
+
+
+class Test130125NearestAllySelection(unittest.TestCase):
+    """When multiple allies receive debuffs simultaneously, 130125's remove_debuff
+    should target the nearest debuffed ally (excluding self) to the PS owner.
+
+    Position layout (row, col), distance = (dr^2 + dc^2):
+      ALLY_LEFT_FRONT(0,0)  ALLY_CENTER_FRONT(0,1)  ALLY_RIGHT_FRONT(0,2)
+      ALLY_LEFT_BACK(1,0)   ALLY_CENTER_BACK(1,1)   ALLY_RIGHT_BACK(1,2)
+
+    PS owner at ALLY_CENTER_FRONT(0,1):
+      ally_near  at ALLY_LEFT_FRONT(0,0):  dist = (0-0)^2+(0-1)^2 = 1
+      ally_far   at ALLY_RIGHT_BACK(1,2):  dist = (1-0)^2+(2-1)^2 = 2
+    => ally_near is closer and should be selected.
+    """
+
+    def setUp(self):
+        builder = BattleBuilder()
+        # PS owner at center front
+        builder.add_ally(unit_id="ps_owner", character_id=130302,
+                         skills=[110053, 120117, 120118, 130125, 130126],
+                         level=10, hp=20000, atk=5000, speed=200, pp=10, ep=10,
+                         position=Position.ALLY_CENTER_FRONT)
+        # ally_near at left front (distance=1 from owner)
+        builder.add_ally(unit_id="ally_near", character_id=104302,
+                         skills=[110001, 120001, 130001],
+                         level=10, hp=15000, atk=3000, speed=150, pp=10, ep=10,
+                         position=Position.ALLY_LEFT_FRONT)
+        # ally_far at right back (distance=2 from owner)
+        builder.add_ally(unit_id="ally_far", character_id=104302,
+                         skills=[110001, 120001, 130001],
+                         level=10, hp=15000, atk=3000, speed=150, pp=10, ep=10,
+                         position=Position.ALLY_RIGHT_BACK)
+        # Enemy
+        builder.add_enemy(unit_id="enemy_C", character_id=100101,
+                         skills=[110002, 120002],
+                         level=10, hp=50000, atk=2000, speed=100, pp=10, ep=10)
+        ctx = builder.build()
+        self.bf = ctx['bf']
+        self.ts = ctx['ts']
+        self.ss = ctx['ss']
+        self.dl = ctx['services']['dl']
+        self.owner = next(u for u in self.bf.friend_team if u.unit_id == "ps_owner")
+        self.ally_near = next(u for u in self.bf.friend_team if u.unit_id == "ally_near")
+        self.ally_far = next(u for u in self.bf.friend_team if u.unit_id == "ally_far")
+        self.enemy_C = next(u for u in self.bf.enemy_team if u.unit_id == "enemy_C")
+
+    def test_nearest_ally_selected_when_both_debuffed(self):
+        """Both allies receive debuff → remove_debuff should target ally_near (closer)."""
+        # Give both allies a poison debuff
+        self.ally_near.debuffs.append(_make_debuff(self.ally_near.unit_id, 'poison'))
+        self.ally_far.debuffs.append(_make_debuff(self.ally_far.unit_id, 'poison'))
+        self.assertEqual(len(self.ally_near.debuffs), 1)
+        self.assertEqual(len(self.ally_far.debuffs), 1)
+
+        # Trigger 130125: both allies receive debuff simultaneously
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=[self.ally_near.unit_id, self.ally_far.unit_id],
+            actor=self.enemy_C,
+            applied_debuff_types={'poison'},
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130125]
+        self.assertGreater(len(ps_actions), 0, "130125 should trigger")
+
+        # Ensure PS owner has enough PP to execute
+        self.owner.current_pp = 10
+
+        # Execute the PS action
+        self.ss._execute_trigger_actions_inline(
+            [a for a in ps_actions if a.owner_id == self.owner.unit_id],
+            self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        # ally_near (nearest) should have its poison removed
+        self.assertEqual(len(self.ally_near.debuffs), 0,
+                         f"ally_near (nearest) debuff should be removed, "
+                         f"remaining: {[d.name for d in self.ally_near.debuffs]}")
+        # ally_far (farther) should still have its poison
+        self.assertEqual(len(self.ally_far.debuffs), 1,
+                         f"ally_far (farther) debuff should remain, "
+                         f"remaining: {[d.name for d in self.ally_far.debuffs]}")
+
+    def test_far_ally_selected_when_only_far_debuffed(self):
+        """Only ally_far receives debuff → remove_debuff should target ally_far."""
+        self.ally_far.debuffs.append(_make_debuff(self.ally_far.unit_id, 'poison'))
+        self.assertEqual(len(self.ally_far.debuffs), 1)
+        self.assertEqual(len(self.ally_near.debuffs), 0)
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=[self.ally_far.unit_id],
+            actor=self.enemy_C,
+            applied_debuff_types={'poison'},
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130125]
+        self.assertGreater(len(ps_actions), 0, "130125 should trigger")
+
+        self.owner.current_pp = 10
+        self.ss._execute_trigger_actions_inline(
+            [a for a in ps_actions if a.owner_id == self.owner.unit_id],
+            self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        # ally_far should have its poison removed
+        self.assertEqual(len(self.ally_far.debuffs), 0,
+                         f"ally_far debuff should be removed, "
+                         f"remaining: {[d.name for d in self.ally_far.debuffs]}")
+        # ally_near should be unaffected (no debuff to begin with)
+        self.assertEqual(len(self.ally_near.debuffs), 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,480 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+角色154301「世界への反逆者」技能验证测试
+
+测试技能:
+  - 110051 支配への反逆 (EX): HP条件分叉 - HP>=50%攻击 / HP=100%无视20%防盾 / HP<50%回复+HoT
+  - 120113 快刀乱麻 (AS): 单体2hit + 纵列2hit + 愤怒+1
+  - 120114 怒髮衝天 (AS): 愤怒计数联动 - fury<=1单段/fury=2双段/fury>=3三段+减伤/fury>=4增伤50%
+  - 130121 報仇雪恨 (PS): 队友被击杀时攻击力上升(可叠加)
+  - 130122 起死回生 (PS): 战斗开始1次不死+回复(level11时加伤)
+"""
+
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.entities_v2.custom_dummy import (
+    CustomDummyConfig, build_synthetic_character_data, build_custom_skill_data,
+    build_custom_parsed_skill, collect_custom_skill_ids,
+)
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+
+
+def create_dummy_unit(data_loader, name, side, pos, char_id, hp, atk, defense, speed,
+                      ap, pp, ep_max=8, role_type=0, position_type=3, element=1, char_type=1,
+                      shield_type=0, shield_value=0):
+    cfg = CustomDummyConfig(
+        name=name,
+        element=element,
+        character_type=char_type,
+        position_type=position_type,
+        role_type=role_type if role_type > 0 else 1,
+        hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        ap=ap,
+        pp=pp,
+        permanent_shield_type=shield_type,
+        permanent_shield_value=shield_value,
+    )
+    char_data = build_synthetic_character_data(abs(char_id) - 1, cfg)
+    char_data.character_id = char_id
+    data_loader._custom_characters[char_id] = char_data
+
+    base_idx = abs(char_id) - 1
+    as_skill = build_custom_skill_data(
+        base_idx, False, 1, "通常攻撃", 100, 1, 0, 1, 3, 1, 1, 1
+    )
+    data_loader._custom_skills[as_skill.skill_id] = as_skill
+    as_parsed = build_custom_parsed_skill(
+        base_idx, False, 1, 3, 1, 1
+    )
+    data_loader._custom_parsed_skills[str(as_skill.skill_id)] = as_parsed
+    data_loader._custom_character_skills[char_id] = [as_skill.skill_id]
+    data_loader._custom_dummy_configs[char_id] = cfg
+
+    side_prefix = "F" if side == Side.ALLY else "E"
+    phys_shield = shield_value if shield_type == 1 else 0
+    en_shld = shield_value if shield_type == 2 else 0
+    all_shield = shield_value if shield_type == 3 else 0
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=200,
+        element=cfg.element,
+        character_type=cfg.character_type,
+        max_hp=hp,
+        current_hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        crit_rate=0.15,
+        crit_damage=0.5,
+        advantage_damage=0.25,
+        initial_active_point=ap,
+        initial_passive_point=pp,
+        max_extra_point=ep_max,
+        current_ap=ap,
+        current_pp=pp,
+        current_ep=0,
+        shield=all_shield,
+        physical_shield=phys_shield,
+        en_shield=en_shld,
+        skills=[as_skill.skill_id],
+        skill_levels={as_skill.skill_id: 1},
+        skill_cooldowns={},
+        role_type=role_type,
+        position_type=position_type,
+    )
+
+
+def create_character_unit(data_loader, stat_calculator, char_id, side, pos,
+                          panel_config, player_config, fury_count=0):
+    char = data_loader.get_character_by_id(char_id)
+    if not char:
+        raise ValueError(f"Character {char_id} not found!")
+    char_config = panel_config.get_character_config(char_id, char.default_rarity)
+    stats = stat_calculator.calculate_stats(char_config, player_config)
+    char_skills = data_loader.load_character_skills()
+    skills = char_skills.get(char_id, [])
+    side_prefix = "F" if side == Side.ALLY else "E"
+    # Get max_ep from character - for AS type, max_ep is 7; for EN/Agility it's 8
+    max_ep = 8 if char.character_type in (2, 3) else 7
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=char.name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=char_config.level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=stats.hp,
+        current_hp=stats.hp,
+        attack=stats.attack,
+        defense=stats.defense,
+        speed=stats.speed,
+        crit_rate=stats.critical_rate,
+        crit_damage=stats.critical_damage - 1.5,
+        advantage_damage=stats.advantage_damage - 1.25,
+        initial_active_point=stats.initial_ap,
+        initial_passive_point=stats.initial_pp,
+        max_extra_point=max_ep,
+        current_ap=stats.initial_ap,
+        current_pp=stats.initial_pp,
+        current_ep=0,
+        skills=skills,
+        skill_levels=panel_config.skill_levels.get(char_id, {}),
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+        fury_count=fury_count,
+    )
+
+
+def run_test(name, friends_config, enemies_config, data_loader, panel_config,
+             player_config, stat_calculator, memory_card_ids=None):
+    print(f"\n{'='*60}")
+    print(f"Test: {name}")
+    print(f"{'='*60}")
+
+    bf = BattlefieldState()
+    friends = []
+    enemies = []
+
+    for cfg in friends_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ALLY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+                cfg.get("shield_type", 0),
+                cfg.get("shield_value", 0),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ALLY, cfg["pos"], panel_config, player_config,
+                fury_count=cfg.get("fury_count", 0),
+            )
+            cooldown_override = cfg.get("skill_cooldown_override", None)
+            if cooldown_override:
+                for sk_id, cd_val in cooldown_override.items():
+                    u.skill_cooldowns[sk_id] = cd_val
+            ep_override = cfg.get("ep_override", None)
+            if ep_override is not None:
+                u.current_ep = ep_override
+            speed_override = cfg.get("speed_override", None)
+            if speed_override is not None:
+                u.speed = speed_override
+        bf.add_unit(u)
+        friends.append(u)
+
+    for cfg in enemies_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ENEMY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+                cfg.get("shield_type", 0),
+                cfg.get("shield_value", 0),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ENEMY, cfg["pos"], panel_config, player_config,
+            )
+        bf.add_unit(u)
+        enemies.append(u)
+
+    if memory_card_ids:
+        bf.memory_cards = []
+        for card_id in memory_card_ids:
+            memory_data = data_loader.get_memory(card_id)
+            if memory_data:
+                highlights = [
+                    MemoryHighlight(
+                        character_attribute=hl.character_attribute,
+                        character_base_master_id=hl.character_base_master_id,
+                        character_master_id=hl.character_master_id,
+                        character_role=hl.character_role,
+                        character_team_master_id=hl.character_team_master_id,
+                        character_type=hl.character_type,
+                        is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                        party_position=hl.party_position,
+                        skill_master_id=hl.skill_master_id,
+                    )
+                    for hl in memory_data.highlights
+                ]
+                bf.memory_cards.append(MemoryCard(
+                    card_id=card_id,
+                    name=memory_data.name,
+                    description=memory_data.description,
+                    rarity=memory_data.rarity,
+                    highlights=highlights,
+                ))
+
+    print(f"  己方: {[f'{u.name}({u.position.name})' for u in friends]}")
+    print(f"  敌方: {[f'{u.name}({u.position.name})' for u in enemies]}")
+
+    controller = BattleFlowController(
+        bf, data_loader=data_loader,
+        narrative=BattleNarrativeWriter(data_loader=data_loader)
+    )
+    result = controller.execute_battle()
+
+    print(f"  结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in bf.get_all_units():
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        print(f"    [{u.unit_id}] {u.name}({u.position.name}): {s} fury={getattr(u, 'fury_count', 0)}")
+
+    if controller.narrative:
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "battle_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = name.replace(" ", "_").replace("/", "_")
+        log_path = os.path.join(log_dir, f"battle_{timestamp}_{safe_name}.txt")
+        controller.narrative.write(log_path)
+        print(f"\n  日志已写入: {log_path}")
+        return log_path
+    return None
+
+
+def main():
+    panel_config = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data)
+
+    # Configure 154301 with all Lv10 skills for testing
+    for cid in [154301]:
+        char = data_loader.get_character_by_id(cid)
+        panel_config.rarities[cid] = 14
+        panel_config.affection_levels[cid] = 40
+        skill_ids = data_loader.load_character_skills().get(cid, [])
+        panel_config.skill_levels[cid] = {sid: 10 for sid in skill_ids}
+        module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"),
+                      int(f"{char.character_type}3")]
+        panel_config.modules[cid] = [
+            ModuleConfig(module_id=mid, tier=9, level=50)
+            for mid in module_ids
+        ]
+
+    player_config = panel_config.get_player_config()
+
+    log_paths = []
+
+    # ============================================================
+    # Test 1: 120113 快刀乱麻 - 单体2hit + 纵列2hit + 愤怒+1
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 1: 120113 快刀乱麻 - 单体2hit + 纵列2hit + 愤怒+1")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test1_120113_快刀乱麻",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -1,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方前排", "char_id": -2,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 200000, "atk": 2000,
+             "defense": 1000, "speed": 400, "ap": 3, "pp": 3},
+            {"is_dummy": True, "name": "敌方后排A", "char_id": -3,
+             "pos": Position.ENEMY_CENTER_BACK, "hp": 200000, "atk": 2000,
+             "defense": 1000, "speed": 400, "ap": 3, "pp": 3},
+            {"is_dummy": True, "name": "敌方后排B", "char_id": -4,
+             "pos": Position.ENEMY_LEFT_BACK, "hp": 200000, "atk": 2000,
+             "defense": 1000, "speed": 400, "ap": 3, "pp": 3},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 2a: 120114 怒髮衝天 - fury=1 start, 快刀乱麻→fury=2, 次轮怒髮衝天=2hit
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 2a: 120114 怒髮衝天 - fury=1→2 via 快刀乱麻→2段")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test2a_120114_怒髮衝天_fury2",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT, "fury_count": 1},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -5,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方A", "char_id": -7,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 100000, "atk": 3000,
+             "defense": 2000, "speed": 400, "ap": 3, "pp": 3},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 2b: 120114 怒髮衝天 - fury=4 启动 (3段+50%增伤), 快刀乱麻上cd
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 2b: 120114 怒髮衝天 - fury=4 (3段+增伤50%)")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test2b_120114_怒髮衝天_fury4",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT, "fury_count": 4,
+             "skill_cooldown_override": {120113: 2}},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -16,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方A", "char_id": -17,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 150000, "atk": 3000,
+             "defense": 2000, "speed": 400, "ap": 3, "pp": 3},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 3: 110051 支配への反逆 - HP条件 (HP>=50%攻击型 + HP=100%无视)
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 3: 110051 支配への反逆 - HP条件分支")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test3_110051_支配への反逆",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT,
+             "ep_override": 7},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -8,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+            {"is_dummy": True, "name": "友方木桩B", "char_id": -9,
+             "pos": Position.ALLY_RIGHT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方A", "char_id": -10,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 200000, "atk": 5000,
+             "defense": 5000, "speed": 400, "ap": 3, "pp": 3},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 4: 130121 報仇雪恨 - 队友被杀时攻击up
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 4: 130121 報仇雪恨 - 队友死亡触发")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test4_130121_報仇雪恨",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_RIGHT_FRONT,
+             "ep_override": 2, "speed_override": 100},
+            {"is_dummy": True, "name": "脆皮队友", "char_id": -11,
+             "pos": Position.ALLY_CENTER_FRONT, "hp": 100, "atk": 1000,
+             "defense": 10, "speed": 700, "ap": 5, "pp": 5},
+            {"is_dummy": True, "name": "友方木桩A", "char_id": -12,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 600, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方A", "char_id": -13,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 80000, "atk": 5000,
+             "defense": 1000, "speed": 650, "ap": 5, "pp": 5},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 3b: 120114 怒髪衝天 - fury accumulation from 0
+    #          高HP木桩, 验证fury从0积累到4+的4种攻击模组
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 3b: 120114 怒髪衝天 - fury积累验证 (0→4+)")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test3b_120114_fury_accumulation",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT, "fury_count": 0},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -20,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "高HP木桩", "char_id": -21,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 5000000, "atk": 1000,
+             "defense": 2000, "speed": 400, "ap": 3, "pp": 3},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # ============================================================
+    # Test 5: 130122 起死回生 - 不死buff + 回血
+    # ============================================================
+    print("\n" + "=" * 70)
+    print("  TEST 5: 130122 起死回生 - 不死")
+    print("=" * 70)
+    log_paths.append(run_test(
+        "Test5_130122_起死回生",
+        [
+            {"is_dummy": False, "char_id": 154301, "pos": Position.ALLY_CENTER_FRONT},
+            {"is_dummy": True, "name": "友方木桩", "char_id": -14,
+             "pos": Position.ALLY_LEFT_FRONT, "hp": 10000, "atk": 1000,
+             "defense": 500, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "高攻敌方", "char_id": -15,
+             "pos": Position.ENEMY_CENTER_FRONT, "hp": 100000, "atk": 70000,
+             "defense": 1000, "speed": 300, "ap": 5, "pp": 5},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    print("\n" + "=" * 70)
+    print("  全部测试完成!")
+    print(f"  日志数量: {len([lp for lp in log_paths if lp])}")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()

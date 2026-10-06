@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import unittest
+from unittest.mock import MagicMock
+import sys
+from pathlib import Path
+
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.enums import SkillEffectType, AuraUpdateTiming, Side, Position
+from src.combat_v2.services.aura_service import AuraService
+
+class TestAuraService(unittest.TestCase):
+    
+    def setUp(self):
+        self.service = AuraService()
+        self.unit = MagicMock(spec=UnitState)
+        self.unit.name = "TestUnit"
+        self.unit.buffs = []
+        self.unit.debuffs = []
+        self.unit.damage_links = []
+        self.unit.unit_id = "test_unit"
+
+    def test_add_buff_basic(self):
+        """测试基础 Buff 添加"""
+        buff = BuffState(
+            buff_id="b1", name="AtkUp", effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value
+        )
+        self.service.add_aura(self.unit, buff)
+        
+        # 应该在 buffs 列表
+        self.assertEqual(len(self.unit.buffs), 1)
+        self.assertEqual(len(self.unit.debuffs), 0)
+        self.assertEqual(self.unit.buffs[0].buff_id, "b1")
+
+    def test_add_debuff_basic(self):
+        """测试基础 Debuff 添加"""
+        debuff = BuffState(
+            buff_id="d1", name="Poison", effect_type=SkillEffectType.POISON.value,
+            value=0.1, duration=3, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True
+        )
+        self.service.add_aura(self.unit, debuff)
+        
+        self.assertEqual(len(self.unit.debuffs), 1)
+        self.assertEqual(self.unit.debuffs[0].effect_type, SkillEffectType.POISON.value)
+
+    def test_burn_stacking(self):
+        """测试炎上叠加 (直接添加新实例)"""
+        burn1 = BuffState(
+            buff_id="burn1", name="Burn", effect_type=SkillEffectType.CONFLAGRATION.value,
+            value=100, duration=3, timing_type=4, is_debuff=True
+        )
+        burn2 = BuffState(
+            buff_id="burn2", name="Burn", effect_type=SkillEffectType.CONFLAGRATION.value,
+            value=100, duration=3, timing_type=4, is_debuff=True
+        )
+        
+        self.service.add_aura(self.unit, burn1)
+        self.service.add_aura(self.unit, burn2)
+        
+        self.assertEqual(len(self.unit.debuffs), 2)
+
+    def test_poison_overwrite(self):
+        """毒叠加: 新毒caster_attack更高且持续时间更长 → 完全替换"""
+        p1 = BuffState(
+            buff_id="p1", name="PoisonWeak", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=2, timing_type=4, caster_attack=100, is_debuff=True
+        )
+        p2 = BuffState(
+            buff_id="p2", name="PoisonStrong", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=3, timing_type=4, caster_attack=500, is_debuff=True
+        )
+
+        self.service.add_aura(self.unit, p1)
+        self.assertEqual(len(self.unit.debuffs), 1)
+        self.assertEqual(self.unit.debuffs[0].caster_attack, 100)
+
+        self.service.add_aura(self.unit, p2)
+        self.assertEqual(len(self.unit.debuffs), 1)
+        self.assertEqual(self.unit.debuffs[0].caster_attack, 500)  # higher cap wins
+        self.assertEqual(self.unit.debuffs[0].duration, 3)  # longer duration
+
+    def test_poison_keep_higher_atk_inherit_longer_dur(self):
+        """毒叠加: 新毒caster_attack更低 → 保留旧毒，继承更长的持续时间"""
+        p1 = BuffState(
+            buff_id="p1", name="PoisonStrong", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=2, timing_type=4, caster_attack=500, is_debuff=True
+        )
+        p2 = BuffState(
+            buff_id="p2", name="PoisonWeak", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=5, timing_type=4, caster_attack=100, is_debuff=True
+        )
+
+        self.service.add_aura(self.unit, p1)
+        self.service.add_aura(self.unit, p2)
+
+        self.assertEqual(len(self.unit.debuffs), 1)
+        # 保留旧毒（caster_attack更高）
+        self.assertEqual(self.unit.debuffs[0].buff_id, "p1")
+        self.assertEqual(self.unit.debuffs[0].caster_attack, 500)
+        # 继承更长的持续时间（p2的5 > p1的2）
+        self.assertEqual(self.unit.debuffs[0].duration, 5)
+
+    def test_poison_equal_atk_keep_existing(self):
+        """毒叠加: caster_attack相等 → 保留旧毒，继承更长的持续时间"""
+        p1 = BuffState(
+            buff_id="p1", name="Poison1", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=3, timing_type=4, caster_attack=500, is_debuff=True
+        )
+        p2 = BuffState(
+            buff_id="p2", name="Poison2", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=5, timing_type=4, caster_attack=500, is_debuff=True
+        )
+
+        self.service.add_aura(self.unit, p1)
+        self.service.add_aura(self.unit, p2)
+
+        self.assertEqual(len(self.unit.debuffs), 1)
+        self.assertEqual(self.unit.debuffs[0].buff_id, "p1")  # 保留旧毒
+        self.assertEqual(self.unit.debuffs[0].duration, 5)  # 继承更长
+
+    def test_poison_higher_atk_shorter_dur_inherits_old_dur(self):
+        """毒叠加: 新毒caster_attack更高但持续时间更短 → 替换，但继承更长的持续时间"""
+        p1 = BuffState(
+            buff_id="p1", name="PoisonWeak", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=5, timing_type=4, caster_attack=100, is_debuff=True
+        )
+        p2 = BuffState(
+            buff_id="p2", name="PoisonStrong", effect_type=SkillEffectType.POISON.value,
+            value=0.10, duration=2, timing_type=4, caster_attack=500, is_debuff=True
+        )
+
+        self.service.add_aura(self.unit, p1)
+        self.service.add_aura(self.unit, p2)
+
+        self.assertEqual(len(self.unit.debuffs), 1)
+        # 新毒替换（caster_attack更高）
+        self.assertEqual(self.unit.debuffs[0].buff_id, "p2")
+        self.assertEqual(self.unit.debuffs[0].caster_attack, 500)
+        # 继承更长的持续时间（p1的5 > p2的2）
+        self.assertEqual(self.unit.debuffs[0].duration, 5)
+
+    def test_duration_update(self):
+        """测试持续时间更新"""
+        # EPHEMERAL - Should be removed (dur=0)
+        b1 = BuffState(buff_id="eph", name="Eph", effect_type="Test", value=1, duration=1,
+                       timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value)
+
+        # DURABLE - Should -1
+        b2 = BuffState(buff_id="dur", name="Dur", effect_type="Test", value=1, duration=2,
+                       timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value)
+
+        self.unit.buffs = [b1, b2]
+
+        self.service.process_maneuver_end(self.unit)
+        self.service.check_expiration(self.unit)
+
+        # b1 should be gone (expiration check called in update)
+        self.assertEqual(len(self.unit.buffs), 1)
+        self.assertEqual(self.unit.buffs[0].buff_id, "dur")
+        self.assertEqual(self.unit.buffs[0].duration, 1)
+
+    def test_get_aura_value(self):
+        """测试 Aura 数值汇总"""
+        b1 = BuffState(buff_id="1", name="A", effect_type="TypeA", value=10, duration=1, timing_type=1)
+        b2 = BuffState(buff_id="2", name="A2", effect_type="TypeA", value=5, duration=1, timing_type=1)
+        b3 = BuffState(buff_id="3", name="B", effect_type="TypeB", value=100, duration=1, timing_type=1)
+        
+        self.unit.buffs = [b1, b2, b3]
+        
+        val_a = self.service.get_aura_value(self.unit, "TypeA")
+        val_b = self.service.get_aura_value(self.unit, "TypeB")
+        
+        self.assertEqual(val_a, 15)
+        self.assertEqual(val_b, 100)
+
+if __name__ == '__main__':
+    unittest.main()

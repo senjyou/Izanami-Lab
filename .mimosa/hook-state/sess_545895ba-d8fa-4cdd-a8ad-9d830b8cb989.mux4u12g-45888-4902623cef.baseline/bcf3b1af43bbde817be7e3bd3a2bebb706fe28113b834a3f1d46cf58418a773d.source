@@ -1,0 +1,171 @@
+"""Regression: 130008 フィジックスシールド (103201 お金大好きな生意気娘).
+
+Validates:
+1. PS triggers on before_as_attacked (when self is about to be attacked)
+2. Shield buff applied to self with value = atk * 50% (Lv10)
+3. physical_shield is increased (damage_element="physical")
+4. attack_limited=1 (consumed after 1 attack)
+5. Shield buff removed after being attacked once
+
+Bug history: Original config had a duplicate Block 2. Fixed by removing the
+duplicate and consolidating into a single shield effect with proper flags
+(shield_base="atk", damage_element="physical", attack_limited=1).
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+SKILL_ID = 130008  # フィジックスシールド
+SHIELD = SkillEffectType.SHIELD.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=0, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10,
+               crit_rate=0.0, crit_damage=0.5, current_hp=None):
+    u = UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+    return u
+
+
+class TestReg103201PhysicsShield(unittest.TestCase):
+    """130008: before_as_attacked -> self physical shield (atk x shield%, 1 hit)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_battlefield(self):
+        """Build a battlefield with shield_owner (ally) + attacker (enemy)."""
+        bf = BattlefieldState()
+        shield_owner = _make_unit(
+            "shield_owner", "ShieldOwner", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=0, speed=500,
+            skills=[SKILL_ID], skill_levels={SKILL_ID: 10},
+        )
+        attacker = _make_unit(
+            "attacker", "Attacker", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=1000, defense=0, speed=800,
+        )
+        bf.friend_team = [shield_owner]
+        bf.enemy_team = [attacker]
+
+        ss = SkillService(
+            self.dl, ResourceService(),
+            target_service=TargetService(), damage_service=DamageService(),
+            aura_service=AuraService(), trigger_service=TriggerService(),
+            status_service=StatusService(),
+        )
+        ss.set_battlefield(bf)
+
+        ts = ss.trigger_service
+        ts.set_data_loader(self.dl)
+        ts.set_skill_service(ss)
+
+        return bf, ss, ts, shield_owner, attacker
+
+    def test_ps_triggers_on_before_as_attacked(self):
+        """PS should trigger when self is about to be attacked by AS."""
+        bf, ss, ts, shield_owner, attacker = self._build_battlefield()
+        actions = ts.trigger_before_as_attacked(
+            targets=[shield_owner], battlefield=bf, attacker=attacker
+        )
+        ps_actions = [a for a in actions if a.skill_id == SKILL_ID]
+        self.assertGreater(len(ps_actions), 0,
+                           "130008 should trigger on before_as_attacked")
+
+    def test_shield_buff_applied_to_self(self):
+        """Shield buff should be applied to self after PS triggers."""
+        bf, ss, ts, shield_owner, attacker = self._build_battlefield()
+        actions = ts.trigger_before_as_attacked(
+            targets=[shield_owner], battlefield=bf, attacker=attacker
+        )
+        ps_actions = [a for a in actions if a.skill_id == SKILL_ID]
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_as_attacked"
+        )
+        shield_buffs = [b for b in shield_owner.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0,
+                           "shield buff should be applied to self")
+
+    def test_physical_shield_increased(self):
+        """physical_shield field should be increased (damage_element=physical).
+
+        Lv10 shield value = 50%, atk = 10000 -> shield = 10000 * 50% = 5000
+        """
+        bf, ss, ts, shield_owner, attacker = self._build_battlefield()
+        actions = ts.trigger_before_as_attacked(
+            targets=[shield_owner], battlefield=bf, attacker=attacker
+        )
+        ps_actions = [a for a in actions if a.skill_id == SKILL_ID]
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_as_attacked"
+        )
+        # atk=10000, Lv10=50%, physical_shield should be 5000
+        self.assertEqual(shield_owner.physical_shield, 5000,
+                         "physical_shield should be atk*50% = 5000")
+        # regular shield and en_shield should NOT be affected
+        self.assertEqual(shield_owner.shield, 0,
+                         "regular shield should not be affected")
+        self.assertEqual(shield_owner.en_shield, 0,
+                         "en_shield should not be affected")
+
+    def test_attack_limited_is_one(self):
+        """attack_limited should be 1 (consumed after 1 attack)."""
+        bf, ss, ts, shield_owner, attacker = self._build_battlefield()
+        actions = ts.trigger_before_as_attacked(
+            targets=[shield_owner], battlefield=bf, attacker=attacker
+        )
+        ps_actions = [a for a in actions if a.skill_id == SKILL_ID]
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_as_attacked"
+        )
+        shield_buffs = [b for b in shield_owner.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0)
+        self.assertEqual(shield_buffs[0].attack_limited, 1,
+                         "attack_limited should be 1")
+
+    def test_no_duplicate_block(self):
+        """Skill should only have 1 effect_block (no duplicate Block 2)."""
+        parsed = self.dl.get_parsed_skill_data(SKILL_ID)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1,
+                         "Should have exactly 1 effect_block (no duplicates)")
+        # The single block should have exactly 1 shield effect
+        effects = blocks[0].get('effects', [])
+        shield_effects = [e for e in effects if e.get('effect_type') == 'shield']
+        self.assertEqual(len(shield_effects), 1,
+                         "Should have exactly 1 shield effect in the block")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,76 @@
+"""分析 skill_effects_hybrid.json 数据质量。
+
+统计 parse_status 分布，列出 failed 和 manual 的技能ID、名称、skill_type，
+帮助定位需要修复或补全的配置。
+"""
+import json
+import sys
+import os
+from collections import Counter
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+
+def main():
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        hybrid = json.load(f)
+    with open('data/skills.json', 'r', encoding='utf-8') as f:
+        raw = json.load(f)
+    # skills.json 可能是 list 或 dict
+    if isinstance(raw, dict):
+        skills = raw
+    else:
+        skills = {str(s.get('Id')): s for s in raw}
+
+    total = len(hybrid)
+    status_count = Counter(v.get('parse_status', 'unknown') for v in hybrid.values())
+    safe_print(f"=== skill_effects_hybrid.json 数据质量分析 ===")
+    safe_print(f"总技能数: {total}")
+    for status, cnt in status_count.most_common():
+        safe_print(f"  {status}: {cnt} ({cnt*100/total:.1f}%)")
+
+    failed_ids = [sid for sid, v in hybrid.items() if v.get('parse_status') == 'failed']
+    manual_ids = [sid for sid, v in hybrid.items() if v.get('parse_status') == 'manual']
+
+    safe_print(f"\n=== Failed ({len(failed_ids)}) ===")
+    failed_by_type = Counter()
+    for sid in failed_ids:
+        skill_type = hybrid[sid].get('skill_type', '?')
+        failed_by_type[skill_type] += 1
+    safe_print(f"按skill_type分布: {dict(failed_by_type)}")
+    safe_print(f"\n详细列表:")
+    for sid in failed_ids:
+        name = hybrid[sid].get('name', '?')
+        skill_type = hybrid[sid].get('skill_type', '?')
+        notes = hybrid[sid].get('parse_notes', [])
+        # 从 skills.json 获取描述
+        skill_meta = skills.get(sid, {})
+        desc = ''
+        descriptions = skill_meta.get('descriptions', [])
+        if descriptions:
+            desc = descriptions[0].get('template', '')
+        safe_print(f"  [{sid}] type={skill_type} {name}")
+        safe_print(f"    desc: {desc[:300]}")
+
+    safe_print(f"\n=== Manual ({len(manual_ids)}) ===")
+    manual_by_type = Counter()
+    for sid in manual_ids:
+        skill_type = hybrid[sid].get('skill_type', '?')
+        manual_by_type[skill_type] += 1
+    safe_print(f"按skill_type分布: {dict(manual_by_type)}")
+    safe_print(f"\n详细列表:")
+    for sid in manual_ids:
+        name = hybrid[sid].get('name', '?')
+        skill_type = hybrid[sid].get('skill_type', '?')
+        blocks = hybrid[sid].get('effect_blocks', [])
+        block_count = len(blocks)
+        effect_count = sum(len(b.get('effects', [])) for b in blocks)
+        safe_print(f"  [{sid}] type={skill_type} {name} | blocks={block_count} effects={effect_count}")
+
+
+if __name__ == '__main__':
+    main()

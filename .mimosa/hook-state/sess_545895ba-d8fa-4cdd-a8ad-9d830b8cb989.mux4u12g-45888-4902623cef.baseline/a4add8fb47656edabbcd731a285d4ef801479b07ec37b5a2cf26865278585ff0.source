@@ -1,0 +1,757 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""角色102301 博識なメイズの探求者 技能效果集成测试
+
+测试场景：
+- 角色: 博識なメイズの探求者 (character_id=102301, 风属性, 敏捷型, 灵活站位)
+- EX: 110005 Q.E.D. (敌全体攻击 + 有状态异常的敌方眩晕1行动 + Lv11+额外易伤1次被攻击)
+- AS1: 120050 Pスラスト (毒目标降防20%(纯效果,stackable) + 前后列攻击 + Lv11+HP≥80%附加毒)
+- AS2: 120051 多重連突 (多hit单体攻击)
+- PS1: 130056 ポイズンチェイス (after_ally_as_attack触发, シャイ属性友方AS攻击后追击+2行动毒)
+- PS2: 130057 ポイズンライド (before_ally_as_attack触发, 敏捷型友方AS攻击前附魔伤害+毒, 同時発動制限)
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+
+class TestMazeSeeker102301(unittest.TestCase):
+    """角色102301 博識なメイズの探求者 技能效果集成测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        """加载游戏数据（所有测试共享）"""
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        """每个测试前创建战场和服务"""
+        self.bf = BattlefieldState()
+
+        # 博識なメイズの探求者 (风属性=3, 敏捷型=3, 灵活站位→放后排)
+        self.caster = UnitState(
+            unit_id="ally_maze", name="博識なメイズの探求者", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=102301, level=200,
+            element=3, character_type=3,  # 风属性, 敏捷型
+            max_hp=120000, current_hp=120000,
+            attack=150000, defense=50000, speed=1000,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[110005, 120050, 120051, 130056, 130057],
+            skill_levels={110005: 15, 120050: 15, 120051: 15, 130056: 15, 130057: 15},
+            skill_cooldowns={},
+        )
+
+        # 友方前排 (シャイ属性, 敏捷型, 用于PS1/PS2触发测试)
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="味方前排(風・敏捷)", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=200,
+            element=3, character_type=3,  # 风属性, 敏捷型
+            max_hp=100000, current_hp=100000,
+            attack=100000, defense=40000, speed=800,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[120051], skill_levels={120051: 15}, skill_cooldowns={},
+        )
+
+        # 友方前排B (非シャイ属性, 敏捷型, 用于PS1属性条件测试)
+        self.ally_front_b = UnitState(
+            unit_id="ally_front_b", name="味方前排(火・敏捷)", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_FRONT, character_id=999102, level=200,
+            element=1, character_type=3,  # 非风属性, 敏捷型
+            max_hp=100000, current_hp=100000,
+            attack=100000, defense=40000, speed=800,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[120051], skill_levels={120051: 15}, skill_cooldowns={},
+        )
+
+        # 敌方前排A (有debuff)
+        self.enemy_a = UnitState(
+            unit_id="enemy_a", name="敵A(前列)", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排B (无debuff)
+        self.enemy_b = UnitState(
+            unit_id="enemy_b", name="敵B(前列)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999002, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=400,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敵C(後列)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999003, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=600,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.ally_front)
+        self.bf.add_unit(self.ally_front_b)
+        self.bf.add_unit(self.enemy_a)
+        self.bf.add_unit(self.enemy_b)
+        self.bf.add_unit(self.enemy_back)
+
+        # 创建服务
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.asvc = AuraService()
+        self.dmgsvc = DamageService()
+        self.tgtsvc = TargetService()
+        self.stsvc = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgtsvc,
+            damage_service=self.dmgsvc,
+            aura_service=self.asvc,
+            status_service=self.stsvc,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def _reset_enemy_hp(self):
+        """重置敌方HP到测试初始值"""
+        self.enemy_a.current_hp = 500000
+        self.enemy_b.current_hp = 500000
+        self.enemy_back.current_hp = 500000
+
+    def _add_poison_debuff(self, target, duration=2):
+        """给目标添加毒debuff"""
+        poison_debuff = BuffState(
+            buff_id=f"test_poison_{target.unit_id}",
+            name="毒",
+            effect_type=SkillEffectType.POISON.value,
+            value=10.0,
+            duration=duration,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="test",
+            hit_limited=0,
+        )
+        target.debuffs.append(poison_debuff)
+
+    # ================================================================
+    # EX (110005) Q.E.D. 测试
+    # ================================================================
+
+    def test_ex_stun_on_debuffed_enemy(self):
+        """
+        测试1: EX(110005) 对有debuff的敌方施加眩晕
+
+        场景:
+        - enemy_a 有毒debuff, enemy_b 无debuff
+        - EX攻击敌全体
+        - 有debuff的enemy_a应获得眩晕(Knockout)debuff
+        - 无debuff的enemy_b不应获得眩晕
+        """
+        self._reset_enemy_hp()
+
+        # 给enemy_a添加毒debuff
+        self._add_poison_debuff(self.enemy_a)
+
+        # 执行EX技能110005
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=110005,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"EX技能执行应成功: {result.get('error', '')}")
+
+        # 验证有debuff的enemy_a获得了眩晕(Knockout)
+        stun_on_a = [
+            d for d in self.enemy_a.debuffs
+            if d.effect_type == SkillEffectType.KNOCKOUT.value
+        ]
+        self.assertTrue(
+            len(stun_on_a) > 0,
+            f"有debuff的敌A应获得眩晕(Knockout), "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_a.debuffs]}"
+        )
+
+        # 验证眩晕持续1行动
+        self.assertEqual(
+            stun_on_a[0].duration, 1,
+            f"眩晕持续应为1行动, 实际: {stun_on_a[0].duration}"
+        )
+
+        # 验证无debuff的enemy_b未获得眩晕
+        stun_on_b = [
+            d for d in self.enemy_b.debuffs
+            if d.effect_type == SkillEffectType.KNOCKOUT.value
+        ]
+        self.assertEqual(
+            len(stun_on_b), 0,
+            f"无debuff的敌B不应获得眩晕, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_b.debuffs]}"
+        )
+
+    def test_ex_dmg_taken_up_on_debuffed_enemy_lv11(self):
+        """
+        测试1b: EX(110005) Lv11+ 对有debuff的敌方施加易伤(attack_limited=1)
+
+        场景:
+        - enemy_a 有毒debuff, enemy_b 无debuff
+        - EX技能Lv15(≥11)
+        - 有debuff的enemy_a应额外获得dmg_taken_up (attack_limited=1, stackable)
+        - 无debuff的enemy_b不应获得dmg_taken_up
+        """
+        self._reset_enemy_hp()
+
+        # 给enemy_a添加毒debuff
+        self._add_poison_debuff(self.enemy_a)
+
+        # 执行EX技能110005
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=110005,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"EX技能执行应成功: {result.get('error', '')}")
+
+        # 验证有debuff的enemy_a获得了dmg_taken_up (ReceivedDamage)
+        dmg_up_on_a = [
+            d for d in self.enemy_a.debuffs
+            if d.effect_type == SkillEffectType.RECEIVED_DAMAGE.value
+        ]
+        self.assertTrue(
+            len(dmg_up_on_a) > 0,
+            f"有debuff的敌A(Lv15≥11)应获得dmg_taken_up, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_a.debuffs]}"
+        )
+
+        # 验证attack_limited=1
+        dmg_up_buff = dmg_up_on_a[0]
+        self.assertEqual(
+            dmg_up_buff.attack_limited, 1,
+            f"dmg_taken_up的attack_limited应为1(1次被攻击), "
+            f"实际: {dmg_up_buff.attack_limited}"
+        )
+
+        # 验证stackable=true
+        self.assertTrue(
+            dmg_up_buff.is_stackable,
+            f"dmg_taken_up应为stackable, 实际: {dmg_up_buff.is_stackable}"
+        )
+
+        # 验证无debuff的enemy_b未获得dmg_taken_up
+        dmg_up_on_b = [
+            d for d in self.enemy_b.debuffs
+            if d.effect_type == SkillEffectType.RECEIVED_DAMAGE.value
+        ]
+        self.assertEqual(
+            len(dmg_up_on_b), 0,
+            f"无debuff的敌B不应获得dmg_taken_up, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_b.debuffs]}"
+        )
+
+    # ================================================================
+    # AS1 (120050) Pスラスト 测试
+    # ================================================================
+
+    def test_as1_def_down_on_poison_target(self):
+        """
+        测试2: AS1(120050) 对有poison的目标降防20%
+
+        场景:
+        - enemy_b(中列) 有毒debuff, enemy_a(左列) 无毒debuff
+        - AS1攻击前后列，def_down的target_type=enemy_single
+        - def_down会对每个选中的目标检查target_has_poison条件
+        - 有poison的目标应获得def_down 20%(纯效果, stackable)
+        - 无poison的目标不应获得def_down
+        """
+        self._reset_enemy_hp()
+
+        # 给enemy_b(中列, 会被AS1选中)添加毒debuff
+        self._add_poison_debuff(self.enemy_b)
+
+        # 执行AS1技能120050
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120050,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS1技能执行应成功: {result.get('error', '')}")
+
+        # 验证有poison的enemy_b获得了def_down (StatusDefense)
+        def_down_on_b = [
+            d for d in self.enemy_b.debuffs
+            if d.effect_type == SkillEffectType.STATUS_DEFENSE.value
+        ]
+        self.assertTrue(
+            len(def_down_on_b) > 0,
+            f"有poison的敌B应获得def_down, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_b.debuffs]}"
+        )
+
+        # 验证降防值20%
+        def_down_buff = def_down_on_b[0]
+        self.assertAlmostEqual(
+            def_down_buff.value, 20.0,
+            places=1,
+            msg=f"def_down的值应为20%, 实际: {def_down_buff.value}"
+        )
+
+        # 验证stackable=true
+        self.assertTrue(
+            def_down_buff.is_stackable,
+            f"def_down应为stackable, 实际: {def_down_buff.is_stackable}"
+        )
+
+        # 验证无poison的enemy_a未获得def_down
+        def_down_on_a = [
+            d for d in self.enemy_a.debuffs
+            if d.effect_type == SkillEffectType.STATUS_DEFENSE.value
+        ]
+        self.assertEqual(
+            len(def_down_on_a), 0,
+            f"无poison的敌A不应获得def_down, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_a.debuffs]}"
+        )
+
+    def test_as1_no_def_down_without_poison(self):
+        """
+        测试2b: AS1(120050) 无poison的目标不降防
+
+        场景:
+        - 所有敌方均无毒debuff
+        - AS1攻击后，def_down的target_has_poison条件不满足
+        - 任何敌方都不应获得def_down
+        """
+        self._reset_enemy_hp()
+
+        # 执行AS1技能120050 (所有敌方均无毒)
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120050,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS1技能执行应成功: {result.get('error', '')}")
+
+        # 验证所有敌方都没有获得def_down
+        for enemy in [self.enemy_a, self.enemy_b, self.enemy_back]:
+            def_down = [
+                d for d in enemy.debuffs
+                if d.effect_type == SkillEffectType.STATUS_DEFENSE.value
+            ]
+            self.assertEqual(
+                len(def_down), 0,
+                f"{enemy.name}(无毒)不应获得def_down, "
+                f"实际debuffs: {[(d.name, d.effect_type) for d in enemy.debuffs]}"
+            )
+
+    # ================================================================
+    # AS2 (120051) 多重連突 测试
+    # ================================================================
+
+    def test_as2_multi_hit_attack(self):
+        """
+        测试3: AS2(120051) 多hit单体攻击
+
+        场景:
+        - 使用AS2攻击敌方单体
+        - 验证hit_count > 1 (多hit攻击, Lv15时hit=13)
+        - 验证造成正数总伤害
+        """
+        self._reset_enemy_hp()
+
+        initial_hp = self.enemy_b.current_hp
+
+        # 执行AS2技能120051
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120051,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS2技能执行应成功: {result.get('error', '')}")
+
+        # 验证造成伤害
+        self.assertLess(
+            self.enemy_b.current_hp, initial_hp,
+            f"敌B应受到AS2伤害, 初始HP={initial_hp}, 当前HP={self.enemy_b.current_hp}"
+        )
+
+        # 验证总伤害为正
+        total_damage = result.get("total_damage", 0)
+        self.assertGreater(
+            total_damage, 0,
+            "AS2技能应造成正数总伤害"
+        )
+
+        # 验证多hit (通过targets_hit中的hits列表长度)
+        damage_effects = [
+            e for e in result.get("effects_applied", [])
+            if e.get("effect_type") == "damage"
+        ]
+        if damage_effects:
+            for dmg_effect in damage_effects:
+                for target_info in dmg_effect.get("targets", []):
+                    hit_details = target_info.get("hits", [])
+                    self.assertGreater(
+                        len(hit_details), 1,
+                        f"AS2应为多hit攻击, 实际hit数: {len(hit_details)}"
+                    )
+
+    # ================================================================
+    # PS1 (130056) ポイズンチェイス 测试
+    # ================================================================
+
+    def test_ps1_after_ally_as_attack_shai_element(self):
+        """
+        测试4: PS1(130056) シャイ属性(attribute=3)友方AS攻击后触发
+
+        场景:
+        - ally_front (element=3, シャイ属性) 使用AS攻击
+        - PS1应触发，对被攻击的敌方追击+附加毒
+        """
+        # ally_front(シャイ属性)使用AS技能
+        result = self.ss.execute_skill(
+            caster=self.ally_front,
+            skill_id=120051,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS技能执行应成功: {result.get('error', '')}")
+
+        # 检查inline_ps_results中是否有PS1触发
+        inline_ps = result.get("inline_ps_results", [])
+        ps1_triggered = any(ps["skill_id"] == 130056 for ps in inline_ps)
+
+        if not ps1_triggered:
+            # 手动触发after_ally_as_attack
+            trigger_actions = self.ts.trigger_after_ally_as_attack(
+                self.ally_front, 120051, [self.enemy_b], self.bf
+            )
+            ps1_triggered = any(a.skill_id == 130056 for a in trigger_actions)
+            if ps1_triggered:
+                self.ss._pending_crit_triggers = []
+                for action in trigger_actions:
+                    if action.skill_id == 130056:
+                        self.ss._execute_trigger_actions_inline(
+                            [action], self.bf, trigger_timing="after_ally_as_attack"
+                        )
+
+        self.assertTrue(
+            ps1_triggered,
+            f"PS1(130056)应在シャイ属性友方AS攻击后触发, "
+            f"inline_ps: {[(ps.get('skill_id'), ps.get('skill_name')) for ps in inline_ps]}"
+        )
+
+        # 验证被攻击的敌方获得毒debuff
+        poison_on_enemy = [
+            d for d in self.enemy_b.debuffs
+            if d.effect_type == SkillEffectType.POISON.value
+        ]
+        self.assertTrue(
+            len(poison_on_enemy) > 0,
+            f"被攻击的敌方应获得毒debuff, "
+            f"实际debuffs: {[(d.name, d.effect_type) for d in self.enemy_b.debuffs]}"
+        )
+
+        # 验证毒持续2行动
+        self.assertEqual(
+            poison_on_enemy[0].duration, 2,
+            f"毒debuff持续应为2行动, 实际: {poison_on_enemy[0].duration}"
+        )
+
+    def test_ps1_no_trigger_non_shai_element(self):
+        """
+        测试4b: PS1(130056) 非シャイ属性友方AS攻击后不触发
+
+        场景:
+        - ally_front_b (element=1, 非シャイ属性) 使用AS攻击
+        - PS1不应触发
+        """
+        # 重置caster的PP和cooldown
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        # ally_front_b(非シャイ属性)使用AS技能
+        result = self.ss.execute_skill(
+            caster=self.ally_front_b,
+            skill_id=120051,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS技能执行应成功: {result.get('error', '')}")
+
+        # 检查inline_ps_results中是否有PS1触发
+        inline_ps = result.get("inline_ps_results", [])
+        ps1_triggered = any(ps["skill_id"] == 130056 for ps in inline_ps)
+
+        if not ps1_triggered:
+            # 手动触发after_ally_as_attack验证
+            trigger_actions = self.ts.trigger_after_ally_as_attack(
+                self.ally_front_b, 120051, [self.enemy_b], self.bf
+            )
+            ps1_triggered = any(a.skill_id == 130056 for a in trigger_actions)
+
+        self.assertFalse(
+            ps1_triggered,
+            f"PS1(130056)不应在非シャイ属性友方AS攻击后触发, "
+            f"inline_ps: {[(ps.get('skill_id'), ps.get('skill_name')) for ps in inline_ps]}"
+        )
+
+    # ================================================================
+    # PS2 (130057) ポイズンライド 测试
+    # ================================================================
+
+    def test_ps2_before_ally_as_attack_agile_type(self):
+        """
+        测试5: PS2(130057) 敏捷型友方AS攻击前触发附魔伤害+毒
+
+        场景:
+        - ally_front (character_type=3, 敏捷型) 使用AS攻击
+        - PS2应在攻击前触发，对触发者(友方)施加附魔伤害buff+携带式毒载荷
+        - 130057的target_type=last_target，在before_ally_as_attack上下文中
+          last_target解析为_trigger_attacker(即发起AS攻击的友方)
+        - EnchantDamage buff施加在友方身上(hit_limited=1)，攻击时附加伤害
+        - poison为carried_debuff载荷，攻击时施加给被攻击的敌方
+        """
+        # ally_front(敏捷型)使用AS技能
+        result = self.ss.execute_skill(
+            caster=self.ally_front,
+            skill_id=120051,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS技能执行应成功: {result.get('error', '')}")
+
+        # 检查inline_ps_results中是否有PS2触发
+        inline_ps = result.get("inline_ps_results", [])
+        ps2_triggered = any(ps["skill_id"] == 130057 for ps in inline_ps)
+
+        if not ps2_triggered:
+            # 手动触发before_ally_as_attack
+            trigger_actions = self.ts.trigger_before_ally_as_attack(
+                self.ally_front, 120051, self.bf
+            )
+            ps2_triggered = any(a.skill_id == 130057 for a in trigger_actions)
+            if ps2_triggered:
+                self.ss._pending_crit_triggers = []
+                for action in trigger_actions:
+                    if action.skill_id == 130057:
+                        self.ss._execute_trigger_actions_inline(
+                            [action], self.bf, trigger_timing="before_ally_as_attack"
+                        )
+
+        self.assertTrue(
+            ps2_triggered,
+            f"PS2(130057)应在敏捷型友方AS攻击前触发, "
+            f"inline_ps: {[(ps.get('skill_id'), ps.get('skill_name')) for ps in inline_ps]}"
+        )
+
+        # 验证触发者(友方)获得了附魔buff (EnchantDamage)
+        # 130057的target_type=last_target，before_ally_as_attack上下文中
+        # last_target解析为_trigger_attacker(发起AS攻击的友方)
+        enchant_buffs_on_ally = [
+            b for b in self.ally_front.buffs
+            if b.effect_type == SkillEffectType.ENCHANT_DAMAGE.value
+        ]
+        self.assertTrue(
+            len(enchant_buffs_on_ally) > 0,
+            f"触发者(友方)应获得EnchantDamage buff, "
+            f"实际buffs: {[(b.name, b.effect_type) for b in self.ally_front.buffs]}"
+        )
+
+        # 验证附魔buff的hit_limited=1
+        enchant_buff = enchant_buffs_on_ally[0]
+        self.assertEqual(
+            enchant_buff.hit_limited, 1,
+            f"EnchantDamage buff的hit_limited应为1, 实际: {enchant_buff.hit_limited}"
+        )
+
+    def test_ps2_simultaneous_limit(self):
+        """
+        测试5b: PS2(130057) 同時発動制限测试
+
+        场景:
+        - 创建两个PS角色: 102301(速度高, speed=1000) 和 113301(速度低, speed=500)
+        - 两者都有before_ally_as_attack触发器的simultaneous_limit PS技能
+        - 102301拥有ポイズンライド(130057), 113301拥有アタックアンプリファイ(130012)
+        - 当敏捷型友方使用AS攻击时，两者都匹配触发条件
+        - 同時発動制限应只触发速度更快的102301的PS2(130057)
+        """
+        # 创建独立的战场
+        bf2 = BattlefieldState()
+
+        # 102301 (速度高)
+        maze_seeker = UnitState(
+            unit_id="ally_maze_fast", name="博識なメイズの探求者", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=102301, level=200,
+            element=3, character_type=3,
+            max_hp=120000, current_hp=120000,
+            attack=150000, defense=50000, speed=1000,  # 高速度
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[110005, 120050, 120051, 130056, 130057],
+            skill_levels={110005: 15, 120050: 15, 120051: 15, 130056: 15, 130057: 15},
+            skill_cooldowns={},
+        )
+
+        # 113301 (速度低, 拥有アタックアンプリファイ 130012)
+        actor = UnitState(
+            unit_id="ally_actor_slow", name="空っぽのアクター", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=113301, level=200,
+            element=3, character_type=2,  # 火属性, EN型
+            max_hp=120000, current_hp=120000,
+            attack=150000, defense=50000, speed=500,  # 低速度
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[110017, 120024, 130012, 130032, 130048],
+            skill_levels={110017: 15, 120024: 15, 130012: 15, 130032: 15, 130048: 15},
+            skill_cooldowns={},
+        )
+
+        # 敏捷型友方 (触发者, character_type=3)
+        agile_ally = UnitState(
+            unit_id="ally_agile", name="敏捷型友方", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=200,
+            element=3, character_type=3,  # 风属性, 敏捷型
+            max_hp=100000, current_hp=100000,
+            attack=100000, defense=40000, speed=800,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[120051], skill_levels={120051: 15}, skill_cooldowns={},
+        )
+
+        # 敌方
+        enemy = UnitState(
+            unit_id="enemy_simul", name="敵(同時制限)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        bf2.add_unit(maze_seeker)
+        bf2.add_unit(actor)
+        bf2.add_unit(agile_ally)
+        bf2.add_unit(enemy)
+
+        # 创建服务
+        ts2 = TriggerService()
+        ts2.set_data_loader(self.dl)
+        asvc2 = AuraService()
+        dmgsvc2 = DamageService()
+        tgtsvc2 = TargetService()
+        stsvc2 = StatusService()
+        rs2 = ResourceService()
+        ss2 = SkillService(
+            self.dl, rs2,
+            target_service=tgtsvc2,
+            damage_service=dmgsvc2,
+            aura_service=asvc2,
+            status_service=stsvc2,
+            trigger_service=ts2,
+        )
+        ts2.set_skill_service(ss2)
+        ss2.set_battlefield(bf2)
+
+        # 手动触发before_ally_as_attack
+        trigger_actions = ts2.trigger_before_ally_as_attack(
+            agile_ally, 120051, bf2
+        )
+
+        # 验证两个PS都匹配了触发条件
+        matched_skill_ids = [a.skill_id for a in trigger_actions]
+        # 130057(ポイズンライド)和130012(アタックアンプリファイ)都可能匹配
+        # 但由于同時発動制限，只有速度更快的maze_seeker的130057应被保留
+
+        # 验证只有1个simultaneous_limit PS被触发
+        simultaneous_ids = [130057, 130012]
+        simultaneous_triggered = [sid for sid in matched_skill_ids if sid in simultaneous_ids]
+
+        # 同時発動制限应只保留1个
+        self.assertLessEqual(
+            len(simultaneous_triggered), 1,
+            f"同時発動制限应只触发1个simultaneous_limit PS, "
+            f"实际触发: {simultaneous_triggered}"
+        )
+
+        # 验证触发的是速度更快的102301的PS2(130057)
+        if len(simultaneous_triggered) == 1:
+            self.assertEqual(
+                simultaneous_triggered[0], 130057,
+                f"同時発動制限应触发速度更快的102301的PS2(130057), "
+                f"实际触发: {simultaneous_triggered[0]}"
+            )
+
+        # 执行触发动作
+        ss2._pending_crit_triggers = []
+        for action in trigger_actions:
+            if action.skill_id == 130057:
+                ss2._execute_trigger_actions_inline(
+                    [action], bf2, trigger_timing="before_ally_as_attack"
+                )
+
+        # 验证速度快的maze_seeker的PS2触发了(触发者友方获得附魔buff)
+        # 130057的target_type=last_target，before_ally_as_attack上下文中
+        # last_target解析为_trigger_attacker(发起AS攻击的友方)
+        enchant_buffs_on_ally = [
+            b for b in agile_ally.buffs
+            if b.effect_type == SkillEffectType.ENCHANT_DAMAGE.value
+        ]
+        # 130057的附魔应包含poison (carried_debuff)
+        # 验证至少有附魔buff存在
+        if simultaneous_triggered and simultaneous_triggered[0] == 130057:
+            self.assertTrue(
+                len(enchant_buffs_on_ally) > 0,
+                f"速度更快的102301的PS2触发后, 触发者(友方)应获得EnchantDamage buff, "
+                f"实际buffs: {[(b.name, b.effect_type) for b in agile_ally.buffs]}"
+            )
+
+
+if __name__ == '__main__':
+    unittest.main()

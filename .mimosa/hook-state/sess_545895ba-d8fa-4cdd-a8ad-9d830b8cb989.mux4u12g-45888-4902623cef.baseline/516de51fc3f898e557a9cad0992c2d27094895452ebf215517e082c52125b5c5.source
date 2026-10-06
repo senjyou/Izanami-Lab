@@ -1,0 +1,32 @@
+"""Regression: グリッチストライク(120026) dmg_dealt_down attack_limited.
+
+Bug: duration_type='action' meant debuff lasted 1 full action of target.
+Fix: duration_type='attack' + attack_limited=1 so debuff consumed on target's next attack.
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, SkillEffectType
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+
+
+class TestRegBucketDuration(unittest.TestCase):
+
+    def test_dmg_dealt_down_has_attack_limited(self):
+        """120026 dmg_dealt_down should have attack_limited=1, duration=-1."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[120026], level=10)
+        bb.add_enemy(unit_id="target", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        target = next(u for u in bf.enemy_team if u.unit_id == "target")
+
+        result = ss.execute_skill(caster=caster, skill_id=120026, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        debuffs = [d for d in target.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertTrue(len(debuffs) > 0, "dmg_dealt_down should be applied")
+        d = debuffs[0]
+        self.assertEqual(d.attack_limited, 1,
+                         "attack_limited should be 1 (consumed on target's attack, not when target is attacked)")

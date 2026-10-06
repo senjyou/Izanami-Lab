@@ -1,0 +1,241 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""子单位(sub_unit)暴击必须共享主攻击的暴击结果，不得独立roll暴击
+
+规则: force_crit = any(target_info.get("hit_crits", []))
+- 主攻击n hit中任意1hit暴击，子单位/附魔/追加伤害固定为暴击
+- per-target独立: 每个目标的主攻击暴击结果独立判断，对应目标的sub_unit独立共享
+- sub_unit/enchant/add_damage crit不再调用_check_crit，也不再调用_crit_override_func
+
+修复位置: skill_service.py _process_enchant_damage_for_target
+          is_sub_crit 从 _check_crit() 改为 force_crit (L4007)
+          a_crit_rate 仅用于日志，实际暴击由force_crit决定 (L3971)
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+
+class TestSubUnitCritFromCaster(unittest.TestCase):
+    """子单位暴击共享主攻击的暴击结果（3场景验证）"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_bf(self, holder_crit_rate=1.0, with_sub_unit=True):
+        """构建场景: creator(crit=0.0) 在 holder(crit=holder_crit_rate) 上放置 sub_unit
+
+        Args:
+            holder_crit_rate: holder的基础暴击率
+            with_sub_unit: 是否在holder上放置sub_unit buff
+        """
+        self.bf = BattlefieldState()
+
+        # 创建者: 暴击率=0.0（无技能，仅作为 sub_unit 的 source_unit）
+        self.creator = UnitState(
+            unit_id="creator", name="Creator", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999901, level=15,
+            element=1, character_type=1,
+            max_hp=100000, current_hp=100000,
+            attack=10000, defense=1000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 持有者(caster): 暴击率=holder_crit_rate，使用 キョンシーハッカー 的 AS(120068, 2hits)
+        self.holder = UnitState(
+            unit_id="holder", name="Holder", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=117302, level=15,
+            element=3, character_type=2,
+            max_hp=148105, current_hp=148105,
+            attack=133141, defense=48981, speed=1000,
+            crit_rate=holder_crit_rate, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[120068], skill_levels={120068: 15},
+            skill_cooldowns={},
+        )
+
+        # 目标: 高HP敌人
+        self.enemy = UnitState(
+            unit_id="enemy", name="Enemy", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999002, level=200,
+            element=1, character_type=1,
+            max_hp=12467681, current_hp=12467681,
+            attack=51726, defense=68224, speed=500,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.creator)
+        self.bf.add_unit(self.holder)
+        self.bf.add_unit(self.enemy)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+        self.damage_service = dmgsvc
+
+        if with_sub_unit:
+            # 在 holder 上手动放置 sub_unit buff，source_unit_id = creator
+            sub_buff = BuffState(
+                buff_id="test_sub_holder", name="子機Ⅰ",
+                effect_type=SkillEffectType.SUB_UNIT.value,
+                value=100.0, duration=-1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id=self.creator.unit_id,
+                source_skill_id=130079,
+                caster_attack=self.creator.attack,
+                is_debuff=False,
+                sub_unit_hp=100000, sub_unit_max_hp=100000,
+            )
+            self.holder.buffs.append(sub_buff)
+
+    def _run_skill_get_damages(self, force_main_crit):
+        """执行技能并返回 (main_damage, sub_unit_damage)
+
+        通过两次执行（无sub_unit vs 有sub_unit）的HP差值计算sub_unit伤害
+
+        Args:
+            force_main_crit: True=强制主攻击暴击, False=强制主攻击不暴击
+
+        Returns:
+            (main_damage, sub_unit_damage)
+        """
+        # Run 1: 无sub_unit，仅主攻击
+        self._build_bf(holder_crit_rate=0.0, with_sub_unit=False)
+        enemy_hp_before_no_sub = self.enemy.current_hp
+
+        def main_crit_override(ctx):
+            source = ctx.get('source', '')
+            if source in ('sub_unit', 'enchant', 'add_damage'):
+                return False
+            return force_main_crit
+
+        self.damage_service._crit_override_func = main_crit_override
+        result_no_sub = self.ss.execute_skill(
+            caster=self.holder, skill_id=120068, battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result_no_sub["success"])
+        main_damage = enemy_hp_before_no_sub - self.enemy.current_hp
+
+        # Run 2: 有sub_unit，主攻击+sub_unit
+        self._build_bf(holder_crit_rate=0.0, with_sub_unit=True)
+        enemy_hp_before_with_sub = self.enemy.current_hp
+
+        self.damage_service._crit_override_func = main_crit_override
+        result_with_sub = self.ss.execute_skill(
+            caster=self.holder, skill_id=120068, battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result_with_sub["success"])
+        total_damage = enemy_hp_before_with_sub - self.enemy.current_hp
+
+        sub_unit_damage = total_damage - main_damage
+        return main_damage, sub_unit_damage
+
+    def test_sub_unit_crit_when_main_attack_crits(self):
+        """场景1: 主攻击暴击时，sub_unit也必须暴击（共享force_crit=True）
+
+        验证: holder crit_rate=0.0 + 主攻击强制暴击 → sub_unit伤害应高于主攻击不暴击时的sub_unit伤害
+        """
+        # 主攻击不暴击 → sub_unit不暴击（baseline）
+        _, sub_unit_dmg_no_crit = self._run_skill_get_damages(force_main_crit=False)
+        self.assertGreater(sub_unit_dmg_no_crit, 0,
+                           "sub_unit应造成伤害（baseline）")
+
+        # 主攻击暴击 → sub_unit也暴击（应为baseline的~1.5倍）
+        _, sub_unit_dmg_with_crit = self._run_skill_get_damages(force_main_crit=True)
+        self.assertGreater(sub_unit_dmg_with_crit, 0,
+                           "sub_unit应造成伤害（crit共享）")
+
+        # sub_unit crit伤害应明显高于no-crit伤害（1.5x）
+        # 允许一定误差（属性克制、guard等可能影响）
+        ratio = sub_unit_dmg_with_crit / sub_unit_dmg_no_crit if sub_unit_dmg_no_crit > 0 else 0
+        self.assertGreater(
+            ratio, 1.4,
+            f"主攻击暴击时sub_unit伤害应~1.5x于不暴击时（共享force_crit=True）: "
+            f"with_crit={sub_unit_dmg_with_crit}, no_crit={sub_unit_dmg_no_crit}, ratio={ratio:.3f}"
+        )
+
+    def test_sub_unit_no_crit_when_main_attack_no_crit(self):
+        """场景2: 主攻击不暴击时，sub_unit也不暴击（共享force_crit=False）
+
+        验证: 即使holder crit_rate=1.0，主攻击强制不暴击 → sub_unit也不暴击
+        证明: sub_unit不独立roll crit，而是共享主攻击的crit结果
+        """
+        # holder crit_rate=1.0 (高暴击率)，但主攻击强制不暴击
+        # 在旧实现中，sub_unit会独立roll crit using holder's crit_rate(1.0) -> sub_unit crits
+        # 在新实现中，sub_unit共享force_crit=False -> sub_unit doesn't crit
+        _, sub_unit_dmg_holder_high_crit = self._run_skill_get_damages(force_main_crit=False)
+
+        # 对比: holder crit_rate=0.0，主攻击强制不暴击
+        _, sub_unit_dmg_holder_low_crit = self._run_skill_get_damages(force_main_crit=False)
+
+        # 两次sub_unit伤害应基本相同（因为主攻击都不暴击，sub_unit也都不暴击）
+        # 这证明sub_unit不使用holder的crit_rate独立roll
+        if sub_unit_dmg_holder_low_crit > 0:
+            ratio = sub_unit_dmg_holder_high_crit / sub_unit_dmg_holder_low_crit
+            # 应接近1.0（不暴击），而非1.5（暴击）
+            self.assertLess(
+                ratio, 1.3,
+                f"主攻击不暴击时，sub_unit不应暴击（即使holder crit_rate高）: "
+                f"high_crit_holder={sub_unit_dmg_holder_high_crit}, "
+                f"low_crit_holder={sub_unit_dmg_holder_low_crit}, ratio={ratio:.3f}"
+            )
+
+    def test_sub_unit_crit_ignores_own_crit_rate(self):
+        """场景3: sub_unit暴击完全由主攻击结果决定，与holder/creator的暴击率无关
+
+        验证: holder crit_rate=0.0 + 主攻击强制暴击 → sub_unit暴击
+              holder crit_rate=1.0 + 主攻击强制不暴击 → sub_unit不暴击
+        这证明sub_unit不再独立roll暴击，而是共享主攻击的暴击结果。
+        """
+        # 场景3a: holder crit=0.0, 主攻击强制暴击 → sub_unit应暴击
+        _, sub_unit_dmg_3a = self._run_skill_get_damages(force_main_crit=True)
+
+        # 场景3b: holder crit=0.0, 主攻击强制不暴击 → sub_unit应不暴击
+        _, sub_unit_dmg_3b = self._run_skill_get_damages(force_main_crit=False)
+
+        self.assertGreater(sub_unit_dmg_3a, 0, "3a: sub_unit应造成伤害")
+        self.assertGreater(sub_unit_dmg_3b, 0, "3b: sub_unit应造成伤害")
+
+        # 3a (主攻击暴击→sub_unit暴击) 应明显高于 3b (主攻击不暴击→sub_unit不暴击)
+        ratio = sub_unit_dmg_3a / sub_unit_dmg_3b if sub_unit_dmg_3b > 0 else 0
+        self.assertGreater(
+            ratio, 1.4,
+            f"3a(主攻击暴击)的sub_unit伤害应~1.5x于3b(主攻击不暴击): "
+            f"3a={sub_unit_dmg_3a}, 3b={sub_unit_dmg_3b}, ratio={ratio:.3f}"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

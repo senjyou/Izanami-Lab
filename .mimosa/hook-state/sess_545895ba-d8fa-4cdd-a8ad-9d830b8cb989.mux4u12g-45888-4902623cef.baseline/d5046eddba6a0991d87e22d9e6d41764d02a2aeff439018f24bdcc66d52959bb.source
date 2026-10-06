@@ -1,0 +1,35 @@
+import sqlite3
+
+conn = sqlite3.connect('db/character_stats.db')
+c = conn.cursor()
+
+print("="*60)
+print("Database Migration Verification")
+print("="*60)
+
+tables = [
+    ('characters', 'Characters'),
+    ('level_lerp_coefficients', 'Level Lerp'),
+    ('affection_bonuses', 'Affection Bonuses'),
+    ('equipment', 'Equipment'),
+    ('school_system_definitions', 'School Definitions'),
+    ('school_system_bonuses', 'School Bonuses'),
+    ('modules', 'Modules'),
+    ('module_tiers', 'Module Tiers'),
+    ('rarity_bonuses', 'Rarity Bonuses'),
+    ('module_gear_types', 'Gear Types'),
+    ('module_gear_rarities', 'Gear Rarities'),
+    ('module_gear_effects', 'Gear Effects'),
+]
+
+for tbl, name in tables:
+    count = c.execute(f'SELECT COUNT(*) FROM {tbl}').fetchone()[0]
+    print(f"{name:25} : {count:6} records")
+
+print("\nGame Constants:")
+for row in c.execute('SELECT * FROM game_constants').fetchall():
+    print(f"  {row[0]:30} = {row[1]}")
+
+print("\n" + "="*60)
+print("SUCCESS!")
+print("="*60)

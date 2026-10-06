@@ -1,0 +1,299 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Skill Data Builder
+用于构建和生成技能数据的工具类，提供强类型校验和流式API
+"""
+
+import sqlite3
+import json
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional, Union
+
+# 项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent
+DB_PATH = PROJECT_ROOT / "db" / "skill_data.db"
+
+class ValidationException(Exception):
+    pass
+
+class SkillDataBuilder:
+    def __init__(self, db_path: Path = DB_PATH):
+        self.db_path = db_path
+        self.enums = {}
+        self.conn = None
+        self.cursor = None
+        self._load_enums()
+
+    def _load_enums(self):
+        """加载所有枚举表到内存中用于校验"""
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+        
+        enum_tables = [
+            ("enum_skill_types", "skill_type_id", "code"),
+            ("enum_target_types", "target_type_id", "code"),
+            ("enum_target_ranges", "target_range_id", "code"),
+            ("enum_target_priorities", "priority_id", "code"),
+            ("enum_special_priorities", "special_priority_id", "code"),
+            ("enum_effect_types", "effect_type_id", "code"),
+            ("enum_condition_types", "condition_type_id", "code"),
+            ("enum_trigger_timings", "timing_id", "code"),
+            ("enum_operators", "operator_id", "code"),
+            ("enum_duration_units", "unit_id", "code"),
+        ]
+        
+        for table, id_col, code_col in enum_tables:
+            try:
+                self.cursor.execute(f"SELECT {id_col}, {code_col} FROM {table}")
+                self.enums[table] = {row[code_col]: row[id_col] for row in self.cursor.fetchall()}
+            except sqlite3.Error as e:
+                print(f"Warning: Failed to load enum table {table}: {e}")
+
+    def validate_enum(self, table: str, code: str) -> int:
+        """校验并返回枚举ID"""
+        if not code:
+            return None
+        
+        if table not in self.enums:
+            raise ValidationException(f"Unknown enum table: {table}")
+            
+        if code not in self.enums[table]:
+            valid_codes = ", ".join(sorted(self.enums[table].keys()))
+            raise ValidationException(
+                f"Invalid code '{code}' for table {table}.\nValid options: {valid_codes}"
+            )
+            
+        return self.enums[table][code]
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+
+# Fluent Builder Classes
+class EffectBuilder:
+    def __init__(self, parent, effect_type: str, order: int = 1):
+        self.parent = parent
+        self.effect_type = effect_type
+        self.order = order
+        self.is_temporary = False
+        self.params_numeric = {}
+        self.params_text = {}
+        self.params_flag = {}
+        self.duration_params = None
+
+    def temporary(self):
+        self.is_temporary = True
+        return self
+
+    def param(self, key: str, value: Union[int, float, str]):
+        if isinstance(value, (int, float)):
+            self.params_numeric[key] = {"value": value, "tag": None}
+        else:
+            self.params_text[key] = value
+        return self
+
+    def param_tag(self, key: str, tag: str, default_value: float = 0):
+        self.params_numeric[key] = {"value": default_value, "tag": tag}
+        return self
+
+    def flag(self, key: str, value: bool = True):
+        self.params_flag[key] = value
+        return self
+        
+    def duration(self, value: int = None, tag: str = None, unit: str = "TURN"):
+        self.duration_params = {
+            "value": value,
+            "tag": tag,
+            "unit": unit
+        }
+        return self
+
+    def save(self, parent_id: int, parent_table_type: str, cursor: sqlite3.Cursor):
+        """保存效果到数据库"""
+        builder = self.parent.builder
+        effect_type_id = builder.validate_enum("enum_effect_types", self.effect_type)
+        
+        # Determine table names
+        if parent_table_type == "skill_effect_groups":
+            effects_table = "skill_effects"
+            params_num_table = "effect_numeric_params"
+            params_text_table = "effect_text_params"
+            params_flag_table = "effect_flag_params"
+            params_dur_table = "effect_duration_params"
+            fk_col = "group_id"
+        else:
+            effects_table = "trigger_effects"
+            params_num_table = "trigger_effect_numeric_params"
+            params_text_table = "trigger_effect_text_params"
+            params_flag_table = "trigger_effect_flag_params"
+            params_dur_table = "trigger_effect_duration_params"
+            fk_col = "action_group_id"
+
+        # Insert Effect
+        if effects_table == "skill_effects":
+            cursor.execute(f"""
+            INSERT INTO {effects_table} ({fk_col}, effect_order, effect_type_id, is_temporary)
+            VALUES (?, ?, ?, ?)
+            """, (parent_id, self.order, effect_type_id, 1 if self.is_temporary else 0))
+        else:
+            cursor.execute(f"""
+            INSERT INTO {effects_table} ({fk_col}, effect_order, effect_type_id)
+            VALUES (?, ?, ?)
+            """, (parent_id, self.order, effect_type_id))
+        
+        effect_id = cursor.lastrowid
+        
+        # Params
+        for key, data in self.params_numeric.items():
+            cursor.execute(f"""
+            INSERT INTO {params_num_table} (effect_id, param_key, param_value, param_tag)
+            VALUES (?, ?, ?, ?)
+            """, (effect_id, key, data['value'], data['tag']))
+            
+        for key, val in self.params_text.items():
+            cursor.execute(f"""
+            INSERT INTO {params_text_table} (effect_id, param_key, param_value)
+            VALUES (?, ?, ?)
+            """, (effect_id, key, val))
+            
+        for key, val in self.params_flag.items():
+            cursor.execute(f"""
+            INSERT INTO {params_flag_table} (effect_id, flag_key, flag_value)
+            VALUES (?, ?, ?)
+            """, (effect_id, key, 1 if val else 0))
+
+        # Duration
+        if self.duration_params:
+            unit_id = builder.validate_enum("enum_duration_units", self.duration_params["unit"])
+            cursor.execute(f"""
+            INSERT INTO {params_dur_table} (effect_id, duration, duration_tag, duration_unit_id)
+            VALUES (?, ?, ?, ?)
+            """, (effect_id, self.duration_params["value"], self.duration_params["tag"], unit_id))
+
+
+class ActionGroupBuilder:
+    def __init__(self, parent, builder, order: int, lv_min: int = 1, lv_max: int = 15):
+        self.parent = parent
+        self.builder = builder
+        self.order = order
+        self.lv_min = lv_min
+        self.lv_max = lv_max
+        self.target_type = None
+        self.target_range = None
+        self.target_prio = None
+        self.special_prio = None
+        self.effects = []
+
+    def target(self, type: str, range: str = "ONE_PAWN", priority: str = None, special: str = None):
+        self.target_type = type
+        self.target_range = range
+        self.target_prio = priority
+        self.special_prio = special
+        return self
+
+    def add_effect(self, type: str, order: int = 1) -> EffectBuilder:
+        effect = EffectBuilder(self, type, order)
+        self.effects.append(effect)
+        return effect
+
+    def save(self, parent_id: int, is_passive: bool, cursor: sqlite3.Cursor):
+        t_type_id = self.builder.validate_enum("enum_target_types", self.target_type)
+        t_range_id = self.builder.validate_enum("enum_target_ranges", self.target_range)
+        t_prio_id = self.builder.validate_enum("enum_target_priorities", self.target_prio) if self.target_prio else None
+        s_prio_id = self.builder.validate_enum("enum_special_priorities", self.special_prio) if self.special_prio else None
+
+        if is_passive:
+            cursor.execute("""
+            INSERT INTO trigger_action_groups (trigger_id, execution_order, active_level_min, active_level_max, target_type, target_range, target_priority, special_priority)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (parent_id, self.order, self.lv_min, self.lv_max, t_type_id, t_range_id, t_prio_id, s_prio_id))
+            
+            group_id = cursor.lastrowid
+            
+            for effect in self.effects:
+                effect.save(group_id, "trigger_action_groups", cursor)
+        else:
+            # Active skill logic (future)
+            pass
+
+class TriggerBuilder:
+    def __init__(self, parent, builder, timing: str, order: int = 1):
+        self.parent = parent
+        self.builder = builder
+        self.timing = timing
+        self.order = order
+        self.conditions = []
+        self.action_groups = []
+
+    def condition(self, type: str, op: str = None, val_num: float = None, val_text: str = None):
+        self.conditions.append({
+            "type": type,
+            "op": op,
+            "val_num": val_num,
+            "val_text": val_text
+        })
+        return self
+
+    def add_action_group(self, order: int, lv_min: int = 1, lv_max: int = 15) -> ActionGroupBuilder:
+        group = ActionGroupBuilder(self, self.builder, order, lv_min, lv_max)
+        self.action_groups.append(group)
+        return group
+
+    def save(self, skill_id: int, cursor: sqlite3.Cursor):
+        timing_id = self.builder.validate_enum("enum_trigger_timings", self.timing)
+        
+        cursor.execute("""
+        INSERT INTO passive_triggers (skill_id, trigger_order, timing_id)
+        VALUES (?, ?, ?)
+        """, (skill_id, self.order, timing_id))
+        
+        trigger_id = cursor.lastrowid
+        
+        # Conditions
+        for idx, cond in enumerate(self.conditions, 1):
+            cond_id = self.builder.validate_enum("enum_condition_types", cond['type'])
+            op_id = self.builder.validate_enum("enum_operators", cond['op']) if cond['op'] else None
+            
+            cursor.execute("""
+            INSERT INTO trigger_conditions (trigger_id, condition_order, condition_type_id, operator_id, value_numeric, value_text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, (trigger_id, idx, cond_id, op_id, cond['val_num'], cond['val_text']))
+            
+        # Action Groups
+        for group in self.action_groups:
+            group.save(trigger_id, True, cursor)
+
+class SkillDef:
+    def __init__(self, builder, skill_id: int, name: str):
+        self.builder = builder
+        self.skill_id = skill_id
+        self.name = name
+        self.triggers = []
+
+    def add_trigger(self, timing: str, order: int = 1) -> TriggerBuilder:
+        trigger = TriggerBuilder(self, self.builder, timing, order)
+        self.triggers.append(trigger)
+        return trigger
+
+    def save(self):
+        """保存整个技能定义到数据库"""
+        conn = self.builder.conn
+        cursor = self.builder.cursor
+        
+        try:
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # Clean up existing passive data
+            cursor.execute("DELETE FROM passive_triggers WHERE skill_id = ?", (self.skill_id,))
+            
+            for trigger in self.triggers:
+                trigger.save(self.skill_id, cursor)
+                
+            conn.commit()
+            print(f"✅ Successfully saved skill {self.skill_id}: {self.name}")
+        except Exception as e:
+            conn.rollback()
+            raise e

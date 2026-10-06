@@ -1,0 +1,143 @@
+"""Unit tests for target_identifier resolution in heal and aura effects.
+
+Tests the following target_identifier values:
+- primary_target (heal): PS triggers use _primary_target from trigger context
+- triggered_by (aura/shield): on_hp_below triggers use _primary_target = context.triggered_by
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import SkillEffectType
+
+
+class TestHealPrimaryTarget(unittest.TestCase):
+    """heal effect with target_identifier='primary_target'."""
+
+    def setUp(self):
+        builder = BattleBuilder()
+        builder.add_ally(unit_id="caster", position=None, hp=20000, atk=10000,
+                         skills=[130025], level=10)
+        builder.add_ally(unit_id="ally_A", hp=15000)
+        builder.add_enemy(unit_id="enemy_attacker", hp=50000)
+        ctx = builder.quick_build()
+        for b in builder._allies:
+            if b.unit_id != "ally_A":
+                continue  # Only ally_A should be present
+        self.bf = ctx['bf']
+        self.ss = ctx['ss']
+        self.caster = next(u for u in self.bf.friend_team if u.unit_id == "caster")
+        self.ally_A = next(u for u in self.bf.friend_team if u.unit_id == "ally_A")
+
+    def test_primary_target_used_for_heal(self):
+        """When _primary_target is set, heal should target that unit, not nearest."""
+        # Set _primary_target to a specific ally
+        self.ss._primary_target = self.ally_A
+        # Execute heal via _apply_heal directly with a fake effect
+        from types import SimpleNamespace
+        effect = SimpleNamespace(
+            effect_type="heal",
+            target_type="ally_single",
+            target_identifier="primary_target",
+            value=50,
+            duration=None,
+            duration_type=None,
+            flags={},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        self.ss._current_skill_id = 130025
+        result = self.ss._apply_heal(self.caster, effect, self.bf)
+        self.assertIsNotNone(result)
+        heals = result.get("heals", [])
+        self.assertEqual(len(heals), 1)
+        self.assertEqual(heals[0]["target"], self.ally_A.name,
+                         "heal should target ally_A (set via _primary_target)")
+
+    def test_primary_target_ignored_if_dead(self):
+        """Dead _primary_target should return None."""
+        self.ss._primary_target = self.ally_A
+        self.ally_A.is_alive = False
+        from types import SimpleNamespace
+        effect = SimpleNamespace(
+            effect_type="heal",
+            target_type="ally_single",
+            target_identifier="primary_target",
+            value=50,
+            duration=None,
+            duration_type=None,
+            flags={},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        result = self.ss._apply_heal(self.caster, effect, self.bf)
+        self.assertIsNotNone(result)
+        heals = result.get("heals", [])
+        self.assertEqual(len(heals), 0, "should not heal dead unit")
+
+
+class TestAuraTriggeredBy(unittest.TestCase):
+    """aura/shield effect with target_identifier='triggered_by'."""
+
+    def setUp(self):
+        builder = BattleBuilder()
+        builder.add_ally(unit_id="caster", hp=20000, atk=10000,
+                         skills=[130041], level=10)
+        builder.add_ally(unit_id="ally_A", hp=4000)  # crossed 50% HP
+        builder.add_enemy(unit_id="enemy_attacker", hp=50000)
+        ctx = builder.quick_build()
+        self.bf = ctx['bf']
+        self.ss = ctx['ss']
+        self.caster = next(u for u in self.bf.friend_team if u.unit_id == "caster")
+        self.ally_A = next(u for u in self.bf.friend_team if u.unit_id == "ally_A")
+
+    def test_triggered_by_uses_primary_target(self):
+        """When target_identifier='triggered_by', shield should use _primary_target."""
+        self.ss._primary_target = self.ally_A
+        from types import SimpleNamespace
+        effect = SimpleNamespace(
+            effect_type="shield",
+            target_type="ally_single",
+            target_identifier="triggered_by",
+            value=100,
+            duration=-1,
+            duration_type="hit",
+            flags={"shield_base": "atk", "attack_limited": 1},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        self.ss._current_skill_id = 130041
+        result = self.ss._apply_aura(self.caster, effect, self.bf, is_debuff=False)
+        self.assertIsNotNone(result)
+        auras = result.get("auras", [])
+        self.assertEqual(len(auras), 1)
+        self.assertEqual(auras[0]["target_id"], self.ally_A.unit_id,
+                         "shield should be given to triggered_by unit (ally_A)")
+
+    def test_triggered_by_none_returns_none(self):
+        """When _primary_target is None, triggered_by should return None."""
+        self.ss._primary_target = None
+        from types import SimpleNamespace
+        effect = SimpleNamespace(
+            effect_type="shield",
+            target_type="ally_single",
+            target_identifier="triggered_by",
+            value=100,
+            duration=-1,
+            duration_type="hit",
+            flags={"shield_base": "atk", "attack_limited": 1},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        result = self.ss._apply_aura(self.caster, effect, self.bf, is_debuff=False)
+        self.assertIsNone(result, "should return None when no primary_target")
+
+
+if __name__ == '__main__':
+    unittest.main()

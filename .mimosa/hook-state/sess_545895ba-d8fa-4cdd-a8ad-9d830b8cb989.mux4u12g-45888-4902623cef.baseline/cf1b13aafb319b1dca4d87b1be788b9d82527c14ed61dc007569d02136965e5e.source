@@ -1,0 +1,1021 @@
+"""Tests for enemy character 163205 - 惨禍：生駒葵.
+
+Skills: 210099(EX), 220371(AS1), 220372(AS2), 230394(PS1), 230395(PS2)
+
+敌方版技能与己方105302(110066/120147/120148/130147/130148)同名同机制，
+差异：
+- active_level_min阈值：敌方DefaultMaxLevel=10，PS2(230395)进阶阈值为Lv5（己方Lv11）
+- 数值tag数据点分布不同（敌方Lv3/Lv5/Lv10 vs 己方Lv1-Lv15多点）
+- 所有满级数值与己方Lv15完全一致，无削弱
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import SkillEffectType, Position, Side
+from src.entities_v2.unit_state import BuffState
+
+MARK = SkillEffectType.MARK.value
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value  # atk_down
+STATUS_CRITICAL_CHANCE = SkillEffectType.STATUS_CRITICAL_CHANCE.value  # crit_rate_down
+CRITICAL_BONUS_MODIFICATION = SkillEffectType.CRITICAL_BONUS_MODIFICATION.value  # crit_dmg_down
+ACTION_DAMAGE = SkillEffectType.ACTION_DAMAGE.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value  # dmg_taken_down
+EVADE = SkillEffectType.EVADE.value  # perfect_evasion
+
+
+def _count_marks(unit, mark_name):
+    """Count marks with given name on unit (checks both buffs and debuffs)."""
+    count = 0
+    for b in unit.buffs + unit.debuffs:
+        if getattr(b, 'effect_type', '') == MARK and getattr(b, 'name', '') == mark_name:
+            count += 1
+    return count
+
+
+def _has_mark(unit, mark_name):
+    """Check if unit has at least one mark with given name."""
+    return _count_marks(unit, mark_name) > 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# 210099 衣擦れの調べ (EX)
+# ═══════════════════════════════════════════════════════════════
+
+class TestEX210099(unittest.TestCase):
+    """EX：浮足最多の敵を優先し敵前後列に威力攻撃
+    対象が浮足所持→atk_down(15%, 2action, stackable)
+    さらにPS1(230394)のクールタイムをリセット"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[210099, 230394], level=10, ep=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        bb.add_ally(unit_id="a2", position=Position.ALLY_CENTER_BACK, hp=50000)
+        bb.add_ally(unit_id="a3", position=Position.ALLY_LEFT_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.a2 = next(u for u in self.bf.friend_team if u.unit_id == "a2")
+        self.a3 = next(u for u in self.bf.friend_team if u.unit_id == "a3")
+
+    def test_damage_hits_column_targets(self):
+        """EX应该攻击敌方前后列（同列的多个目标）。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210099,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        dmg_ids = set()
+        for e in result["effects_applied"]:
+            if e.get("effect_type") == "damage":
+                for t in e.get("targets", []):
+                    dmg_ids.add(t.get("target_id"))
+        # 中前列和中后列的a1和a2应被攻击（同一列）
+        self.assertGreater(len(dmg_ids), 0, "should hit at least 1 target")
+
+    def test_atk_down_on_target_with_mark(self):
+        """目标有浮足mark时，应施加atk_down(15%, 2action)。"""
+        # 先给a1施加浮足mark（通过手动方式）
+        from src.entities_v2.unit_state import BuffState
+        self.a1.buffs.append(BuffState(
+            buff_id="test_mark", name="浮足", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=210099, is_debuff=True, is_stackable=False, is_memory_buff=False,
+        ))
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210099,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        atk_debuffs = [d for d in self.a1.debuffs if d.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_debuffs), 0, "a1 (with 浮足) should have atk_down")
+
+    def test_no_atk_down_without_mark(self):
+        """目标无浮足mark时，不应施加atk_down。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210099,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        for ally in [self.a1, self.a2, self.a3]:
+            atk_debuffs = [d for d in ally.debuffs if d.effect_type == STATUS_ATTACK]
+            self.assertEqual(len(atk_debuffs), 0, f"{ally.unit_id} (no 浮足) should not have atk_down")
+
+    def test_reset_cooldown_ps1(self):
+        """EX应重置PS1(230394)的冷却。"""
+        # 先设置PS1在冷却中
+        self.caster.skill_cooldowns[230394] = 99
+        self.assertEqual(self.caster.skill_cooldowns.get(230394, 0), 99)
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210099,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        cd_after = self.caster.skill_cooldowns.get(230394, 0)
+        self.assertEqual(cd_after, 0, "PS1(230394) cooldown should be reset to 0")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 220371 百花繚乱 (AS1)
+# ═══════════════════════════════════════════════════════════════
+
+class TestAS1220371(unittest.TestCase):
+    """AS1：最も残りHPが多い敵単体に威力攻撃 + 浮足mark付与
+    浮足>=3→全解除 + 高揚mark + crit_rate_down(linked) + action_damage(linked)"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220371], level=10, ep=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=30000)
+        bb.add_ally(unit_id="a2", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.a2 = next(u for u in self.bf.friend_team if u.unit_id == "a2")
+        # a1 HP较低（30k），a2 HP较高（50k），应选a2作为目标
+        self.a1.current_hp = 30000
+        self.a2.current_hp = 50000
+
+    def test_damage_targets_highest_hp(self):
+        """应攻击剩余HP最多的敌人（a2）。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        dmg_ids = set()
+        for e in result["effects_applied"]:
+            if e.get("effect_type") == "damage":
+                for t in e.get("targets", []):
+                    dmg_ids.add(t.get("target_id"))
+        self.assertIn(self.a2.unit_id, dmg_ids, "should target highest HP ally (a2)")
+
+    def test_apply_floating_mark(self):
+        """应施加1个浮足mark。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertTrue(_has_mark(self.a2, "浮足"), "a2 should have 浮足 mark")
+
+    def test_floating_to_kouyo_conversion(self):
+        """浮足>=3时应转化为高揚。"""
+        from src.entities_v2.unit_state import BuffState
+        # 预先施加2个浮足
+        for i in range(2):
+            self.a2.buffs.append(BuffState(
+                buff_id=f"test_mark_{i}", name="浮足", effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+                source_skill_id=220371, is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+        # 使用AS1后浮足达到3个，应转化为高揚
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        # 浮足应被全部清除
+        self.assertEqual(_count_marks(self.a2, "浮足"), 0, "浮足 should be removed after conversion")
+        # 应有1个高揚
+        self.assertEqual(_count_marks(self.a2, "高揚"), 1, "should have 1 高揚 mark")
+
+    def test_kouyo_links_crit_rate_down(self):
+        """高揚应附带crit_rate_down（linked_mark=高揚）。"""
+        from src.entities_v2.unit_state import BuffState
+        for i in range(2):
+            self.a2.buffs.append(BuffState(
+                buff_id=f"test_mark_{i}", name="浮足", effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+                source_skill_id=220371, is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        crit_debuffs = [d for d in self.a2.debuffs if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(len(crit_debuffs), 0, "should have crit_rate_down linked to 高揚")
+
+    def test_kouyo_links_action_damage(self):
+        """高揚应附带action_damage（linked_mark=高揚）。"""
+        from src.entities_v2.unit_state import BuffState
+        for i in range(2):
+            self.a2.buffs.append(BuffState(
+                buff_id=f"test_mark_{i}", name="浮足", effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+                source_skill_id=220371, is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        action_damages = [d for d in self.a2.debuffs if d.effect_type == ACTION_DAMAGE]
+        self.assertGreater(len(action_damages), 0, "should have action_damage linked to 高揚")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 220372 清廉なる一撃 (AS2)
+# ═══════════════════════════════════════════════════════════════
+
+class TestAS2220372(unittest.TestCase):
+    """AS2：最も遠い敵単体 + 隣接2体に威力攻撃
+    自身が2回行動終えるまで浮足mark付与
+    対象が浮足所持→現在HP×20%ダメージ（ATK×50%上限）"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", position=Position.ENEMY_CENTER_FRONT,
+                     hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220372], level=10, ep=10)
+        # 敌方在最远位置（后排）
+        bb.add_ally(unit_id="a_far", position=Position.ALLY_CENTER_BACK, hp=50000)
+        bb.add_ally(unit_id="a_adj1", position=Position.ALLY_LEFT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_adj2", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_near", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a_far = next(u for u in self.bf.friend_team if u.unit_id == "a_far")
+        self.a_adj1 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj1")
+        self.a_adj2 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj2")
+        self.a_near = next(u for u in self.bf.friend_team if u.unit_id == "a_near")
+
+    def test_damage_hits_furthest_and_adjacent(self):
+        """应攻击最远敌人+相邻2体（共3个目标）。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        dmg_ids = set()
+        for e in result["effects_applied"]:
+            if e.get("effect_type") in ("damage", "hp_ratio_damage"):
+                for t in e.get("targets", []):
+                    dmg_ids.add(t.get("target_id"))
+        self.assertGreaterEqual(len(dmg_ids), 1, "should hit at least 1 target")
+        # 最远敌人应该被攻击
+        self.assertIn(self.a_far.unit_id, dmg_ids, "furthest ally should be hit")
+
+    def test_apply_furutori_mark(self):
+        """应施加浮足mark（duration_owner=caster，2次施法者行动后消失）。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertTrue(_has_mark(self.a_far, "浮足"), "a_far should have 浮足 mark")
+
+    def test_hp_ratio_damage_when_has_mark(self):
+        """目标有浮足mark时，应追加HP比例伤害（ATK×50%为上限）。"""
+        from src.entities_v2.unit_state import BuffState
+        # 给a_far预先施加浮足mark
+        self.a_far.buffs.append(BuffState(
+            buff_id="test_mark", name="浮足", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=220372, is_debuff=True, is_stackable=False, is_memory_buff=False,
+        ))
+        hp_before = self.a_far.current_hp
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        # 应该有额外伤害（HP比例伤害）
+        # ATK=12894, 50% cap = 6447
+        # current_hp=50000, 20% = 10000 > 6447, 所以实际伤害应为6447
+        # 但加上基础伤害，总伤害应 > 基础伤害
+        hp_after = self.a_far.current_hp
+        total_dmg = hp_before - hp_after
+        self.assertGreater(total_dmg, 0, "should deal damage")
+
+    def test_no_hp_ratio_damage_without_mark(self):
+        """目标无浮足mark时，无追加HP比例伤害（仅有基础伤害）。"""
+        hp_before_no_mark = self.a_far.current_hp
+        result_no_mark = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                                battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result_no_mark["success"])
+        dmg_no_mark = hp_before_no_mark - self.a_far.current_hp
+
+        # 重置并施加mark
+        self.a_far.current_hp = hp_before_no_mark
+        from src.entities_v2.unit_state import BuffState
+        self.a_far.buffs.append(BuffState(
+            buff_id="test_mark", name="浮足", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=220372, is_debuff=True, is_stackable=False, is_memory_buff=False,
+        ))
+        hp_before_with_mark = self.a_far.current_hp
+        result_with_mark = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                                  battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result_with_mark["success"])
+        dmg_with_mark = hp_before_with_mark - self.a_far.current_hp
+
+        # 有mark时应多受HP比例伤害
+        self.assertGreater(dmg_with_mark, dmg_no_mark,
+                           "damage with 浮足 should be greater (extra HP ratio damage)")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Bug修复测试：AS2浮足mark just_applied保护
+# ═══════════════════════════════════════════════════════════════
+
+class TestAS2220372_JustAppliedFix(unittest.TestCase):
+    """AS2(220372)浮足mark的just_applied保护和duration_owner=caster机制测试。
+
+    验证bug修复：process_source_maneuver_end 应当检查just_applied标志，
+    使得AS2施加的浮足mark（duration=2）在施法当次行动不被递减。
+
+    预期行为（"自身が2回行動を終えるまでの間"）：
+    - 第1次行动（施法）：mark被施加（duration=2, just_applied=True）
+    - 第1次行动结束：duration保持2（just_applied保护）
+    - 第2次行动结束：duration 2→1
+    - 第3次行动结束：duration 1→0，mark消失
+    总共持续3次施法者行动（含施法当次），即"施法后2次行动结束"。
+    """
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", position=Position.ENEMY_CENTER_FRONT,
+                     hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220372], level=10, ep=10)
+        bb.add_ally(unit_id="a_far", position=Position.ALLY_CENTER_BACK, hp=50000)
+        bb.add_ally(unit_id="a_adj1", position=Position.ALLY_LEFT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_adj2", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_near", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.aus = ctx['aus']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a_far = next(u for u in self.bf.friend_team if u.unit_id == "a_far")
+        self.a_adj1 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj1")
+        self.a_adj2 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj2")
+        self.a_near = next(u for u in self.bf.friend_team if u.unit_id == "a_near")
+        self.all_units = self.bf.friend_team + self.bf.enemy_team
+
+    def _reset_just_applied(self):
+        """模拟battle_flow_controller的行为：行动结束后reset just_applied标志。"""
+        for u in self.all_units:
+            for b in u.buffs + u.debuffs:
+                b.just_applied = False
+
+    def _get_as2_marks(self, unit):
+        """获取unit上由AS2(220372)施加的浮足mark。"""
+        return [b for b in unit.buffs + unit.debuffs
+                if getattr(b, 'effect_type', '') == MARK
+                and getattr(b, 'name', '') == '浮足'
+                and getattr(b, 'source_skill_id', 0) == 220372]
+
+    def test_as2_mark_just_applied_protection_on_casting_action(self):
+        """施法当次行动结束：AS2浮足mark不被递减（just_applied保护）。"""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        marks = self._get_as2_marks(self.a_far)
+        self.assertGreater(len(marks), 0, "a_far should have 浮足 mark from AS2")
+
+        mark = marks[0]
+        self.assertEqual(mark.duration, 2, "duration should be 2 initially")
+        self.assertTrue(getattr(mark, 'just_applied', False),
+                        "just_applied should be True after add_aura")
+
+        # 施法当次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+
+        mark = self._get_as2_marks(self.a_far)[0]
+        self.assertEqual(mark.duration, 2,
+                         "duration should remain 2 (just_applied protection on casting action)")
+
+    def test_as2_mark_decremented_on_second_action(self):
+        """第2次施法者行动结束：duration 2→1。"""
+        # 第1次行动（施法）
+        self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                              battlefield=self.bf, skip_cost=True)
+        # 第1次行动结束（just_applied保护）
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+        self._reset_just_applied()
+
+        # 第2次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+
+        mark = self._get_as2_marks(self.a_far)[0]
+        self.assertEqual(mark.duration, 1,
+                         "duration should be 1 after 2nd action end")
+
+    def test_as2_mark_expired_on_third_action(self):
+        """第3次施法者行动结束：duration 1→0，mark消失。"""
+        # 第1次行动（施法）
+        self.ss.execute_skill(caster=self.caster, skill_id=220372,
+                              battlefield=self.bf, skip_cost=True)
+        # 第1次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+        self._reset_just_applied()
+        # 第2次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+        self._reset_just_applied()
+        # 第3次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+
+        marks = self._get_as2_marks(self.a_far)
+        self.assertEqual(len(marks), 0,
+                         "浮足 mark should be expired after 3rd action end")
+
+
+class TestBaiHuaNotRemoveOtherMarks(unittest.TestCase):
+    """百花繚乱(AS1, 220371)的bug修复测试：
+
+    当攻击目标的浮足mark达到3个及以上时，解除浮足mark的目标只是达到该条件的那一个被攻击单位，
+    其他角色身上的浮足mark不应被同步解除。
+
+    bug根因：process_source_maneuver_end 未检查just_applied标志，
+    导致AS2施加的浮足mark（duration=2）在施法当次行动就被递减（2→1），
+    下次施法者行动结束时再次递减（1→0），mark消失时机与百花繚乱重合。
+    修复后：just_applied保护使mark在施法当次行动不递减，下次行动结束时duration才2→1，mark仍存在。
+    """
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", position=Position.ENEMY_CENTER_FRONT,
+                     hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220371, 220372], level=10, ep=10)
+        # a_far HP最高，使其成为AS1(百花繚乱)的目标
+        bb.add_ally(unit_id="a_far", position=Position.ALLY_CENTER_BACK, hp=60000)
+        bb.add_ally(unit_id="a_adj1", position=Position.ALLY_LEFT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_adj2", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_near", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.aus = ctx['aus']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a_far = next(u for u in self.bf.friend_team if u.unit_id == "a_far")
+        self.a_adj1 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj1")
+        self.a_adj2 = next(u for u in self.bf.friend_team if u.unit_id == "a_adj2")
+        self.a_near = next(u for u in self.bf.friend_team if u.unit_id == "a_near")
+        self.all_units = self.bf.friend_team + self.bf.enemy_team
+
+    def _reset_just_applied(self):
+        for u in self.all_units:
+            for b in u.buffs + u.debuffs:
+                b.just_applied = False
+
+    def test_baihua_does_not_remove_other_targets_marks(self):
+        """百花繚乱转化浮足→高揚时，不应解除其他角色身上的浮足mark。"""
+        from src.entities_v2.unit_state import BuffState
+        from src.entities_v2.enums import AuraUpdateTiming
+
+        # Step 1: 模拟AS2施加浮足mark（duration=2, just_applied=True）
+        # 手动给3个目标施加浮足mark，模拟AS2的效果
+        for unit in [self.a_far, self.a_adj1, self.a_adj2]:
+            mark = BuffState(
+                buff_id=f"test_as2_mark_{unit.unit_id}", name="浮足",
+                effect_type=MARK, value=1.0,
+                duration=2, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+                source_unit_id=self.caster.unit_id,
+                source_skill_id=220372,
+                is_debuff=True, is_stackable=False, is_memory_buff=False,
+            )
+            mark.just_applied = True  # 模拟add_aura的行为
+            unit.buffs.append(mark)
+
+        # Step 2: 第1次行动结束（施法当次行动）
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+
+        # 验证just_applied保护：duration保持2
+        for unit in [self.a_far, self.a_adj1, self.a_adj2]:
+            marks = [b for b in unit.buffs if getattr(b, 'name', '') == '浮足'
+                     and getattr(b, 'source_skill_id', 0) == 220372]
+            self.assertEqual(len(marks), 1, f"{unit.unit_id} should have 1 浮足 mark")
+            self.assertEqual(marks[0].duration, 2,
+                             f"{unit.unit_id} duration should be 2 (just_applied protection)")
+
+        self._reset_just_applied()
+
+        # Step 3: 给a_far额外施加2个浮足mark（使其总数达到3个，触发百花繚乱转化）
+        for i in range(2):
+            self.a_far.buffs.append(BuffState(
+                buff_id=f"test_extra_mark_{i}", name="浮足",
+                effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2,
+                source_unit_id=self.caster.unit_id,
+                source_skill_id=220371,
+                is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+
+        # 验证a_far现在有3个浮足mark
+        self.assertEqual(_count_marks(self.a_far, "浮足"), 3,
+                         "a_far should have 3 浮足 marks")
+        # 验证a_adj1和a_adj2的浮足mark存在
+        self.assertGreater(_count_marks(self.a_adj1, "浮足"), 0,
+                           "a_adj1 should have 浮足 mark before AS1")
+        self.assertGreater(_count_marks(self.a_adj2, "浮足"), 0,
+                           "a_adj2 should have 浮足 mark before AS1")
+
+        # Step 4: 施法者使用AS1（第2次行动），百花繚乱对a_far转化浮足→高揚
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # 验证a_far的浮足被解除，转化为高揚
+        self.assertEqual(_count_marks(self.a_far, "浮足"), 0,
+                         "a_far 浮足 should be removed after conversion")
+        self.assertEqual(_count_marks(self.a_far, "高揚"), 1,
+                         "a_far should have 1 高揚 mark")
+
+        # Step 5: 第2次行动结束
+        self.aus.process_source_maneuver_end(self.caster, self.all_units)
+
+        # 关键验证：a_adj1和a_adj2的浮足mark仍然存在
+        # bug行为：第1次行动结束递减（2→1），第2次行动结束递减（1→0），mark消失
+        # 修复后行为：第1次行动结束跳过（just_applied保护，duration=2），第2次行动结束递减（2→1），mark仍存在
+        self.assertGreater(_count_marks(self.a_adj1, "浮足"), 0,
+                           "a_adj1 浮足 should NOT be removed (only attacked target's marks are removed)")
+        self.assertGreater(_count_marks(self.a_adj2, "浮足"), 0,
+                           "a_adj2 浮足 should NOT be removed (only attacked target's marks are removed)")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 230394 優雅な足取り (PS1)
+# ═══════════════════════════════════════════════════════════════
+
+class TestPS1230394(unittest.TestCase):
+    """PS1：AS攻撃された後に発動。攻撃者に反撃 + atk_down
+    trigger_type=after_as_attacked, target_identifier=trigger_attacker"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        # 敌方持有PS1
+        bb.add_enemy(unit_id="c", position=Position.ENEMY_CENTER_FRONT,
+                     hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[230394], level=10, pp=10)
+        # 己方攻击者
+        bb.add_ally(unit_id="attacker", position=Position.ALLY_CENTER_FRONT, hp=50000, atk=5000,
+                    skills=[120049])
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.attacker = next(u for u in self.bf.friend_team if u.unit_id == "attacker")
+        # 确保PS1不在冷却中
+        self.caster.skill_cooldowns[230394] = 0
+
+    def test_counter_attacks_attacker(self):
+        """PS1应反击攻击者（trigger_attacker）。"""
+        # 先让attacker使用AS攻击caster
+        self.ss.execute_skill(caster=self.attacker, skill_id=120049,
+                              battlefield=self.bf, skip_cost=True)
+        # 触发after_as_attacked
+        trigger_actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            actor=self.attacker, primary_target=self.caster,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230394]
+        self.assertGreater(len(ps_actions), 0, "PS1(230394) should trigger")
+
+        # 执行PS
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        attacker_hp_before = self.attacker.current_hp
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="after_as_attacked"
+        )
+        # 攻击者应受到反击伤害
+        self.assertLess(self.attacker.current_hp, attacker_hp_before,
+                        "attacker should take counter damage")
+
+    def test_atk_down_on_attacker(self):
+        """PS1反击后应给攻击者施加atk_down。"""
+        self.ss.execute_skill(caster=self.attacker, skill_id=120049,
+                              battlefield=self.bf, skip_cost=True)
+        trigger_actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            actor=self.attacker, primary_target=self.caster,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230394]
+        self.assertGreater(len(ps_actions), 0)
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="after_as_attacked"
+        )
+        atk_debuffs = [d for d in self.attacker.debuffs if d.effect_type == STATUS_ATTACK]
+        self.assertGreater(len(atk_debuffs), 0, "attacker should have atk_down")
+        # atk_down应为35%（Lv10）
+        self.assertAlmostEqual(atk_debuffs[0].value, 35.0, delta=0.5)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 230395 高貴な一礼 (PS2)
+# ═══════════════════════════════════════════════════════════════
+
+class TestPS2230395(unittest.TestCase):
+    """PS2：ターン開始時に発動。敵単体の会心率/会心ダメージ低下
+    Lv5+: 浮足mark付与 + 自身にdmg_taken_down(浮足所持敵から)
+    高揚>=2の敵いたら全解除
+    trigger_type=on_turn_start"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[230395], level=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        # 设置回合数（PS2冷却1，需回合>=2）
+        self.bf.turn_number = 2
+        self.caster.skill_cooldowns[230395] = 0
+
+    def test_applies_crit_rate_down(self):
+        """应施加crit_rate_down。"""
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0, "PS2 should trigger on turn start")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        crit_debuffs = [d for d in self.a1.debuffs if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(len(crit_debuffs), 0, "a1 should have crit_rate_down")
+
+    def test_applies_crit_dmg_down(self):
+        """应施加crit_dmg_down。"""
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0)
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        crit_dmg_debuffs = [d for d in self.a1.debuffs
+                            if d.effect_type == CRITICAL_BONUS_MODIFICATION]
+        self.assertGreater(len(crit_dmg_debuffs), 0, "a1 should have crit_dmg_down")
+
+    def test_lv5_applies_furutori_mark(self):
+        """Lv5+应施加浮足mark（active_level_min=5）。"""
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0)
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        self.assertTrue(_has_mark(self.a1, "浮足"), "Lv10 a1 should have 浮足 mark")
+
+    def test_lv5_applies_dmg_taken_down(self):
+        """Lv5+应给自身施加dmg_taken_down（mark_condition=浮足）。"""
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0)
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        dmg_taken_buffs = [b for b in self.caster.buffs
+                           if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(dmg_taken_buffs), 0,
+                           "caster should have dmg_taken_down (Lv5+)")
+
+    def test_lv4_no_furutori_mark(self):
+        """Lv4时不应施加浮足mark（active_level_min=5）。"""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[230395], level=4, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss, ts = ctx['bf'], ctx['ss'], ctx['ts']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        a1 = next(u for u in bf.friend_team if u.unit_id == "a1")
+        bf.turn_number = 2
+        caster.skill_cooldowns[230395] = 0
+
+        actions = ts.trigger_turn_start(bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0)
+
+        ss._pending_crit_triggers = []
+        ss._inline_ps_results = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="on_turn_start"
+        )
+        self.assertFalse(_has_mark(a1, "浮足"), "Lv4 a1 should NOT have 浮足 mark")
+
+    def test_removes_kouyo_when_2_or_more(self):
+        """高揚>=2时应清除所有高揚。"""
+        from src.entities_v2.unit_state import BuffState
+        # 预先施加2个高揚
+        for i in range(2):
+            self.a1.buffs.append(BuffState(
+                buff_id=f"test_kouyo_{i}", name="高揚", effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+                source_skill_id=220371, is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+        self.assertEqual(_count_marks(self.a1, "高揚"), 2)
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0)
+
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        self.assertEqual(_count_marks(self.a1, "高揚"), 0,
+                         "高揚 should be removed when >= 2")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 联动测试：EX重置PS1冷却
+# ═══════════════════════════════════════════════════════════════
+
+class TestComboEXResetPS1(unittest.TestCase):
+    """EX(210099)应重置PS1(230394)的冷却，使PS1可再次触发。"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[210099, 230394], level=10, ep=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000, atk=5000,
+                    skills=[120049])
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+
+    def test_ex_resets_ps1_cooldown(self):
+        """PS1在冷却中，使用EX后PS1冷却应被重置为0。"""
+        # 设置PS1在冷却中
+        self.caster.skill_cooldowns[230394] = 99
+        self.assertEqual(self.caster.skill_cooldowns.get(230394, 0), 99)
+
+        # 使用EX
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210099,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # PS1冷却应被重置
+        self.assertEqual(self.caster.skill_cooldowns.get(230394, 0), 0,
+                         "PS1 cooldown should be reset by EX")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 日志格式化回归测试：施法者死亡时高揚mark清除的日志导出
+# ═══════════════════════════════════════════════════════════════
+
+class TestMarkDeathLogFormat(unittest.TestCase):
+    """施法者死亡时_remove_marks_from_dead_caster的日志格式化验证。
+
+    Bug: [MARK_DEATH]日志曾用%d格式化source_unit_id（字符串），
+    导致MemoryLogHandler.get_lines()导出时TypeError。
+    """
+
+    def test_mark_death_log_no_format_error(self):
+        """施法者死亡后清除高揚mark，日志导出不应产生FORMAT_ERROR。"""
+        from src.combat_v2.battle_logger import battle_logger, MemoryLogHandler
+        from src.combat_v2.battle_flow_controller import BattleFlowController
+        from src.entities_v2.battlefield_state import BattlefieldState
+
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", position=Position.ENEMY_CENTER_FRONT,
+                     hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220371], level=10, ep=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf = ctx['bf']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        a1 = next(u for u in bf.friend_team if u.unit_id == "a1")
+
+        # 给a1施加高揚mark（存于debuffs，source_unit_id为施法者）
+        a1.debuffs.append(BuffState(
+            buff_id="test_kouyo", name="高揚", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=caster.unit_id,
+            source_skill_id=220371, is_debuff=True, is_stackable=False,
+            is_memory_buff=False,
+        ))
+        # 施加linked debuff
+        a1.debuffs.append(BuffState(
+            buff_id="test_linked", name="crit_rate_down", effect_type=STATUS_CRITICAL_CHANCE,
+            value=20.0, duration=-1, timing_type=2, source_unit_id=caster.unit_id,
+            source_skill_id=220371, is_debuff=True, is_stackable=False,
+            is_memory_buff=False, linked_buff_id="高揚",
+        ))
+
+        # 施法者死亡
+        caster.current_hp = 0
+        caster.is_alive = False
+
+        # 挂载MemoryLogHandler
+        logger = battle_logger()
+        handler = MemoryLogHandler()
+        logger.addHandler(handler)
+        try:
+            bfc = BattleFlowController(bf, data_loader=ctx['services']['dl'])
+            bfc._remove_marks_from_dead_caster([caster])
+
+            # 导出日志，不应有FORMAT_ERROR
+            lines = handler.get_lines()
+            format_errors = [l for l in lines if l.startswith("[FORMAT_ERROR]")]
+            self.assertEqual(len(format_errors), 0,
+                             f"Log export should not have format errors, got: {format_errors}")
+
+            mark_death_lines = [l for l in lines if "[MARK_DEATH]" in l]
+            self.assertGreater(len(mark_death_lines), 0,
+                               "Should have [MARK_DEATH] log lines")
+        finally:
+            logger.removeHandler(handler)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 回归测试：闪避buff对纯效果技能的全体miss（1层闪避 → 技能内全效果跳过）
+# ═══════════════════════════════════════════════════════════════
+
+class TestEvasionBlocksAllEffectsInSkill(unittest.TestCase):
+    """闪避buff对纯效果技能的miss生效范围是1个技能：
+    仅消耗1层闪避，该技能中所有对闪避持有者施加的debuff效果全部miss。
+
+    Bug: _apply_aura的evasion逻辑只跳过当前effect，未将目标加入
+    _skill_evaded_targets，导致同一技能内后续effect（crit_dmg_down/mark等）
+    仍被施加。修复后，第一个effect触发闪避时即将目标加入_skill_evaded_targets，
+    后续所有debuff effect通过line 5157的检查自动跳过。
+    """
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[230395], level=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.bf.turn_number = 2
+        self.caster.skill_cooldowns[230395] = 0
+
+    def _trigger_ps2(self):
+        """触发高貴な一礼(230395)并执行。"""
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps_actions = [a for a in actions if a.skill_id == 230395]
+        self.assertGreater(len(ps_actions), 0, "PS2 should trigger on turn start")
+        self.ss._pending_crit_triggers = []
+        self.ss._inline_ps_results = []
+        self.ss._execute_trigger_actions_inline(
+            ps_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+    def test_evasion_blocks_all_debuff_effects(self):
+        """闪避buff应使高貴な一礼的所有debuff效果miss（仅消耗1层）。"""
+        # 给a1施加1层闪避buff
+        evade_buff = BuffState(
+            buff_id="test_evade", name="evade", effect_type=EVADE,
+            value=None, duration=3, timing_type=2,
+            source_unit_id=self.a1.unit_id, is_debuff=False,
+            hit_limited=1, is_memory_buff=False,
+        )
+        self.a1.buffs.append(evade_buff)
+
+        self._trigger_ps2()
+
+        # 验证：闪避buff被消耗（1层→0，已移除）
+        evade_after = [b for b in self.a1.buffs if b.effect_type == EVADE]
+        self.assertEqual(len(evade_after), 0,
+                         "evade buff should be consumed (1 layer)")
+
+        # 验证：crit_rate_down未施加（被闪避）
+        crit_rate_debuffs = [d for d in self.a1.debuffs
+                             if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertEqual(len(crit_rate_debuffs), 0,
+                         "crit_rate_down should be evaded")
+
+        # 验证：crit_dmg_down未施加（同一技能内联动闪避）
+        crit_dmg_debuffs = [d for d in self.a1.debuffs
+                            if d.effect_type == CRITICAL_BONUS_MODIFICATION]
+        self.assertEqual(len(crit_dmg_debuffs), 0,
+                         "crit_dmg_down should be evaded (same skill)")
+
+        # 验证：浮足mark未施加（同一技能内联动闪避）
+        self.assertFalse(_has_mark(self.a1, "浮足"),
+                         "浮足 mark should be evaded (same skill)")
+
+    def test_evasion_does_not_block_self_buff(self):
+        """闪避buff只miss对闪避持有者的debuff，施法者自身的buff仍正常施加。"""
+        evade_buff = BuffState(
+            buff_id="test_evade", name="evade", effect_type=EVADE,
+            value=None, duration=3, timing_type=2,
+            source_unit_id=self.a1.unit_id, is_debuff=False,
+            hit_limited=1, is_memory_buff=False,
+        )
+        self.a1.buffs.append(evade_buff)
+
+        self._trigger_ps2()
+
+        # 验证：施法者自身的dmg_taken_down仍正常施加（不受a1闪避影响）
+        dmg_taken_buffs = [b for b in self.caster.buffs
+                           if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(dmg_taken_buffs), 0,
+                           "caster's dmg_taken_down should still be applied")
+
+    def test_no_evasion_all_effects_applied(self):
+        """无闪避buff时，所有debuff正常施加（回归测试）。"""
+        self._trigger_ps2()
+
+        # 验证：crit_rate_down正常施加
+        crit_rate_debuffs = [d for d in self.a1.debuffs
+                             if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(len(crit_rate_debuffs), 0,
+                           "crit_rate_down should be applied without evasion")
+
+        # 验证：crit_dmg_down正常施加
+        crit_dmg_debuffs = [d for d in self.a1.debuffs
+                            if d.effect_type == CRITICAL_BONUS_MODIFICATION]
+        self.assertGreater(len(crit_dmg_debuffs), 0,
+                           "crit_dmg_down should be applied without evasion")
+
+        # 验证：浮足mark正常施加
+        self.assertTrue(_has_mark(self.a1, "浮足"),
+                        "浮足 mark should be applied without evasion")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 回归测试：add_status(linked_mark) flag传播 + 施法者死亡时联动移除
+# ═══════════════════════════════════════════════════════════════
+
+class TestActionDamageLinkedMarkRemoval(unittest.TestCase):
+    """百花繚乱(220371) Block2のActionDamageにlinked_mark='高揚'が正しく伝播され、
+    施法者死亡時に高揚mark/StatusCriticalChance/ActionDamageが全て解除されることを検証する。
+
+    Bug: _apply_add_statusがeffect.flagsのlinked_mark/unremovable/stackableを
+    BuffStateに伝播していなかった。そのためActionDamageにlinked_buff_id='高揚'が
+    設定されず、_remove_marks_from_dead_casterがActionDamageを検出できず残存した。
+    """
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=422195, atk=12894, defense=6912, speed=620,
+                     skills=[220371], level=10, ep=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=30000)
+        bb.add_ally(unit_id="a2", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.a2 = next(u for u in self.bf.friend_team if u.unit_id == "a2")
+        self.a1.current_hp = 30000
+        self.a2.current_hp = 50000
+
+    def _execute_baihua_with_3_floating(self):
+        """a2に浮足2個を事前付与→百花繚乱実行で3個目を付与→高揚変換をトリガー。"""
+        for i in range(2):
+            self.a2.buffs.append(BuffState(
+                buff_id=f"test_mark_{i}", name="浮足", effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+                source_skill_id=220371, is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220371,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+    def test_action_damage_has_linked_buff_id(self):
+        """ActionDamageにlinked_buff_id='高揚'が設定されていること（flag伝播の検証）。"""
+        self._execute_baihua_with_3_floating()
+        action_damages = [d for d in self.a2.debuffs if d.effect_type == ACTION_DAMAGE]
+        self.assertGreater(len(action_damages), 0, "should have ActionDamage")
+        for ad in action_damages:
+            self.assertEqual(getattr(ad, 'linked_buff_id', ''), '高揚',
+                             "ActionDamage should have linked_buff_id='高揚'")
+
+    def test_action_damage_unremovable_flag(self):
+        """ActionDamageにunremovable=Trueが設定されていること（flag伝播の検証）。"""
+        self._execute_baihua_with_3_floating()
+        action_damages = [d for d in self.a2.debuffs if d.effect_type == ACTION_DAMAGE]
+        self.assertGreater(len(action_damages), 0, "should have ActionDamage")
+        for ad in action_damages:
+            self.assertTrue(getattr(ad, 'unremovable', False),
+                            "ActionDamage should have unremovable=True")
+
+    def test_all_linked_debuffs_removed_on_caster_death(self):
+        """施法者死亡時、高揚mark + StatusCriticalChance + ActionDamageが全て解除されること。"""
+        from src.combat_v2.battle_flow_controller import BattleFlowController
+        self._execute_baihua_with_3_floating()
+
+        # 事前確認：3種類のdebuffが存在
+        self.assertEqual(_count_marks(self.a2, "高揚"), 1, "precondition: 1 高揚 mark")
+        crit_debuffs = [d for d in self.a2.debuffs if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(len(crit_debuffs), 0, "precondition: StatusCriticalChance exists")
+        action_damages = [d for d in self.a2.debuffs if d.effect_type == ACTION_DAMAGE]
+        self.assertGreater(len(action_damages), 0, "precondition: ActionDamage exists")
+
+        # 施法者死亡
+        self.caster.current_hp = 0
+        self.caster.is_alive = False
+
+        bfc = BattleFlowController(self.bf, data_loader=self.ss.data_loader)
+        bfc._remove_marks_from_dead_caster([self.caster])
+
+        # 検証：3種類全てが解除されている
+        self.assertEqual(_count_marks(self.a2, "高揚"), 0,
+                         "高揚 mark should be removed when caster dies")
+        crit_after = [d for d in self.a2.debuffs if d.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertEqual(len(crit_after), 0,
+                         "StatusCriticalChance should be removed when caster dies")
+        ad_after = [d for d in self.a2.debuffs if d.effect_type == ACTION_DAMAGE]
+        self.assertEqual(len(ad_after), 0,
+                         "ActionDamage should be removed when caster dies (linked_mark propagation)")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

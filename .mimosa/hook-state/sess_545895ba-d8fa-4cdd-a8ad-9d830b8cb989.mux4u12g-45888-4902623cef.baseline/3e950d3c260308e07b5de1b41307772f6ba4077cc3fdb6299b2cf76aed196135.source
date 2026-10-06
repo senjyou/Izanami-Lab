@@ -1,0 +1,266 @@
+"""Regression: 器用貧乏なお嬢様リーダー (101201) skill effects config validation.
+
+Character 101201 has 3 skills:
+- AS 120005 レイディアントシフト: 敵2体にEN攻撃 + 与ダメージ{cure}%を味方横一列に均等分配回復
+- AS 120030 ライフシード: 最もHP割合の低い味方に回復 + スマート属性(水=2)時PP+1
+- PS 130014 チェインリリーフ: 他味方AS攻撃前、最寄りの味方にHP回復+デバフ解除
+
+Fixes applied:
+- 120005: target_count=2追加, split_heal_by_damage ally_row + source_block_id=1 + split_among_targets=true + value_type=percent
+- 120030: heal ally_single + lowest_hp_priority=true, add_ep with target_element=2 condition
+- 130014: trigger_type=before_ally_as_attack, heal + remove_debuff both ally_single (shared target), simultaneous_limit preserved
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+RADIANT_SHIFT = 120005  # レイディアントシフト
+LIFE_SEED = 120030  # ライフシード
+CHAIN_RELIEF = 130014  # チェインリリーフ
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=2, skills=None, skill_levels=None, pp=4):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=0,
+        is_alive=hp > 0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestReg101201Leader(unittest.TestCase):
+    """器用貧乏なお嬢様リーダー (101201) skill effects validation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    # ---- 120005 レイディアントシフト config ----
+
+    def test_config_120005_damage_target_count_2(self):
+        """120005 damage must have target_count=2 (攻撃対象2体)."""
+        parsed = self.dl.get_parsed_skill_data(RADIANT_SHIFT)
+        self.assertIsNotNone(parsed, "120005 parsed data missing")
+
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1, "120005 must have 1 effect block")
+
+        dmg_effs = [e for e in blocks[0].get('effects', [])
+                    if e.get('effect_type') == 'damage']
+        self.assertGreater(len(dmg_effs), 0, "120005 must have damage effect")
+        eff = dmg_effs[0]
+        self.assertEqual(eff.get('target_type'), 'enemy_single')
+        self.assertEqual(eff.get('value_tag'), '威力')
+        self.assertEqual(eff.get('flags', {}).get('target_count'), 2,
+                         "120005 damage must target 2 enemies")
+        self.assertTrue(eff.get('flags', {}).get('is_en_attack'))
+
+    def test_config_120005_split_heal_ally_row(self):
+        """120005 split_heal_by_damage must target ally_row with proper flags."""
+        parsed = self.dl.get_parsed_skill_data(RADIANT_SHIFT)
+        blocks = parsed.get('effect_blocks', [])
+
+        split_effs = [e for e in blocks[0].get('effects', [])
+                      if e.get('effect_type') == 'split_heal_by_damage']
+        self.assertGreater(len(split_effs), 0, "120005 must have split_heal_by_damage")
+        eff = split_effs[0]
+
+        self.assertEqual(eff.get('target_type'), 'ally_row',
+                         "120005 split_heal must target ally_row (横一列3人)")
+        self.assertEqual(eff.get('value_tag'), 'cure')
+        self.assertEqual(eff.get('value_type'), 'percent')
+        flags = eff.get('flags', {})
+        self.assertEqual(flags.get('source_block_id'), 1,
+                         "split_heal must reference Block1 damage total")
+        self.assertTrue(flags.get('split_among_targets'),
+                        "split_heal must split evenly among targets")
+
+    # ---- 120030 ライフシード config ----
+
+    def test_config_120030_heal_ally_single_lowest_hp(self):
+        """120030 heal must target ally_single with lowest_hp_priority=true."""
+        parsed = self.dl.get_parsed_skill_data(LIFE_SEED)
+        self.assertIsNotNone(parsed, "120030 parsed data missing")
+
+        blocks = parsed.get('effect_blocks', [])
+        heal_effs = [e for e in blocks[0].get('effects', [])
+                     if e.get('effect_type') == 'heal']
+        self.assertGreater(len(heal_effs), 0, "120030 must have heal effect")
+        eff = heal_effs[0]
+        self.assertEqual(eff.get('target_type'), 'ally_single')
+        self.assertEqual(eff.get('value_tag'), '威力')
+        self.assertTrue(eff.get('flags', {}).get('lowest_hp_priority'),
+                        "120030 heal must select ally with lowest HP ratio")
+
+    def test_config_120030_add_ep_target_element_water(self):
+        """120030 add_ep must have target_element=2 (スマート/水) condition."""
+        parsed = self.dl.get_parsed_skill_data(LIFE_SEED)
+        blocks = parsed.get('effect_blocks', [])
+
+        ep_effs = [e for e in blocks[0].get('effects', [])
+                   if e.get('effect_type') == 'add_ep']
+        self.assertGreater(len(ep_effs), 0, "120030 must have add_ep effect")
+        eff = ep_effs[0]
+        self.assertEqual(eff.get('target_type'), 'ally_single')
+        self.assertEqual(eff.get('value'), 1, "add_ep must add 1 point")
+
+        cond = eff.get('condition')
+        self.assertIsNotNone(cond, "add_ep must have target_element condition")
+        self.assertEqual(cond.get('type'), 'target_element')
+        self.assertEqual(cond.get('value'), 2,
+                         "120030 add_ep targets スマート(水=2) only")
+
+    # ---- 130014 チェインリリーフ config ----
+
+    def test_config_130014_trigger_before_ally_as_attack(self):
+        """130014 must have trigger_type=before_ally_as_attack and simultaneous_limit."""
+        parsed = self.dl.get_parsed_skill_data(CHAIN_RELIEF)
+        self.assertIsNotNone(parsed, "130014 parsed data missing")
+        self.assertEqual(parsed.get('trigger_type'), 'before_ally_as_attack')
+        self.assertEqual(parsed.get('skill_type'), 2, "130014 must be PS (skill_type=2)")
+        self.assertTrue(parsed.get('simultaneous_limit'),
+                        "130014 must preserve simultaneous_limit=true")
+
+    def test_config_130014_heal_and_remove_debuff_shared_target(self):
+        """130014 heal and remove_debuff must both target ally_single (shared target)."""
+        parsed = self.dl.get_parsed_skill_data(CHAIN_RELIEF)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1, "130014 must have 1 effect block")
+
+        effs = blocks[0].get('effects', [])
+        heal_effs = [e for e in effs if e.get('effect_type') == 'heal']
+        remove_effs = [e for e in effs if e.get('effect_type') == 'remove_debuff']
+        self.assertGreater(len(heal_effs), 0, "130014 must have heal effect")
+        self.assertGreater(len(remove_effs), 0, "130014 must have remove_debuff effect")
+
+        # Both must target ally_single (same block => shared target selection)
+        self.assertEqual(heal_effs[0].get('target_type'), 'ally_single')
+        self.assertEqual(remove_effs[0].get('target_type'), 'ally_single')
+        self.assertEqual(heal_effs[0].get('value_tag'), '威力')
+
+    # ---- 120030 behavior: heals lowest HP ally ----
+
+    def test_behavior_120030_heals_lowest_hp_ally(self):
+        """ライフシード must heal the ally with the lowest HP ratio.
+
+        Setup: caster + 2 allies with different HP ratios.
+        Expected: lowest-HP ally is healed, full-HP ally is not.
+        """
+        caster = _make_unit(
+            "caster", "ライフシード使用者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[LIFE_SEED], skill_levels={LIFE_SEED: 10}, pp=1,
+        )
+        ally_full = _make_unit(
+            "ally_full", "满血友方", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=100000, atk=5000, defense=4000, speed=400,
+        )
+        ally_lowest = _make_unit(
+            "ally_lowest", "最低血友方", Side.ALLY, Position.ALLY_RIGHT_FRONT,
+            hp=100000, atk=5000, defense=4000, speed=400,
+        )
+        ally_lowest.current_hp = 25000  # 25% HP — lowest
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=100000, atk=5000)
+
+        bf = _make_bf(caster, ally_full, ally_lowest, enemy)
+        ss, _ = self._make_services(bf)
+
+        full_before = ally_full.current_hp
+        low_before = ally_lowest.current_hp
+
+        result = ss.execute_skill(caster, LIFE_SEED, bf)
+        self.assertTrue(result.get('success'))
+
+        self.assertGreater(ally_lowest.current_hp, low_before,
+                           "ライフシード must heal the lowest-HP ally")
+        self.assertEqual(ally_full.current_hp, full_before,
+                         "ライフシード must NOT heal the full-HP ally")
+
+    def test_behavior_120030_smart_ally_gets_ep(self):
+        """ライフシード add_ep: スマート(水=2)属性の味方が回復対象時、EP+1.
+
+        Setup: lowest-HP ally is スマート(水=2). After heal, that ally should
+        have current_ep incremented by 1.
+        """
+        caster = _make_unit(
+            "caster", "ライフシード使用者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[LIFE_SEED], skill_levels={LIFE_SEED: 10}, pp=1,
+            element=Attribute.FIRE.value,  # caster is アグレッシブ(火)
+        )
+        # lowest-HP ally is スマート(水=2)
+        ally_smart = _make_unit(
+            "ally_smart", "スマート属性友方", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=100000, atk=5000, defense=4000, speed=400,
+            element=Attribute.WATER.value,  # スマート(水=2)
+        )
+        ally_smart.current_hp = 30000  # 30% HP — lowest
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=100000, atk=5000)
+
+        bf = _make_bf(caster, ally_smart, enemy)
+        ss, _ = self._make_services(bf)
+
+        ep_before = ally_smart.current_ep
+        result = ss.execute_skill(caster, LIFE_SEED, bf)
+        self.assertTrue(result.get('success'))
+
+        # ally_smart was the heal target (lowest HP) AND is スマート(水=2),
+        # so add_ep condition (target_element=2) should pass → EP+1
+        self.assertEqual(ally_smart.current_ep, ep_before + 1,
+                        "スマート属性の回復対象はEP+1されるべき")
+
+
+if __name__ == '__main__':
+    unittest.main()

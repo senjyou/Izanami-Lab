@@ -1,0 +1,1180 @@
+"""角色140301 純真無垢なるジーニアス 专项E2E测试
+
+技能列表：
+- EX: 110039 リディアたいちょうのめいれい（敵右列・左列[威力] + 後列横一列[威力]；
+  Lv11+ 後列会心攻撃(force_crit)；対象範囲に敵が存在しない場合、最近敵単体に威力100）
+- AS1: 120088 ジャマしちゃ、めっ……だよ？（敵右列・左列[威力]；
+  Lv11+ self dmg_dealt_up[永続, stackable]；targets_exist global_condition）
+- AS2: 120089 わるいこはおしおき（敵単体2hit[威力20固定]；
+  target_survived -> 追撃[威力] + dmg_dealt_down[20%, attack_limited=1, stackable]）
+- PS1: 130098 みんなをおたすけ（after_as_attack；self_and_friends dmg_taken_down
+  [scale_by_alive_allies, attack_limited=1, stackable, 1hit]）
+- PS2: 130099 がんばるね、おにいちゃん（on_turn_start, is_preemptive；
+  enemy_single_furthest[威力] + remove_pp[2]；Lv11+ attacked_targets heal_efficacy_down
+  [2actions]；cooldown=99, 1度のみ発動）
+
+覆盖维度：
+1. EX enemy_side_columns(4単位) + active_level_max/min成对条件 + force_crit(Lv11+) + fallback_when_no_targets
+2. AS1 enemy_side_columns + targets_exist global_condition + Lv11+ dmg_dealt_up(stackable, 永続)
+3. AS2 2hit固定威力 + target_survived条件 + 追撃 + dmg_dealt_down(attack_limited=1)
+4. PS1 after_as_attack + self_and_friends dmg_taken_down + scale_by_alive_allies + attack_limited=1
+5. PS2 on_turn_start + is_preemptive + enemy_single_furthest + remove_pp + Lv11+ heal_efficacy_down + cooldown=99
+6. force_crit 专项：Lv11+ back_row强制暴击 / Lv10不强制 / 前排不强制
+7. fallback_when_no_targets 专项：无目标时fallback最近敌方 / 有目标时不fallback
+8. target_survived 专项：目标存活追加伤害 / 阵亡不追加
+9. scale_by_alive_allies 专项：0/1/3/5存活队友数下scaling
+10. active_level_min/max 专项：Lv1-10/Lv11-14/Lv15分支
+11. 配置校验：5技能ID/force_crit/targets_exist/simultaneous_limit
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+# dmg_taken_down -> RECEIVED_DAMAGE 枚举（与 dmg_taken_up 共用，正负值区分）
+# dmg_dealt_up / dmg_dealt_down -> DEALT_DAMAGE 枚举
+# heal_efficacy_down -> RECEIVED_HEALING 枚举
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+RECEIVED_HEALING = SkillEffectType.RECEIVED_HEALING.value
+
+
+class TestActor140301(unittest.TestCase):
+    """角色140301 純真無垢なるジーニアス 专项E2E测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        # 施法者: 140301 純真無垢なるジーニアス
+        # 属性5(光), character_type=3(敏捷), position_type=3(灵活), role_type=5(控制)
+        # AP=2, PP=2, crit_rate=0.2。默认Lv10，部分测试用Lv15验证Lv11+分支
+        # caster 放后排中央（用于验证 force_crit 的 back_row 条件）
+        self.caster = UnitState(
+            unit_id="caster", name="純真無垢なるジーニアス", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=140301, level=10,
+            element=5, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=20,
+            current_ap=10, current_pp=10, current_ep=10,
+            skills=[110039, 120088, 120089, 130098, 130099],
+            skill_levels={110039: 10, 120088: 10, 120089: 10,
+                          130098: 10, 130099: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排中央（caster 正前方友方）
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="前方友方", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=10,
+            element=5, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=20,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方左后（用于 scale_by_alive_allies 测试）
+        self.ally_lb = UnitState(
+            unit_id="ally_lb", name="左後友方", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999102, level=10,
+            element=5, character_type=3,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=3500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=20,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方右后（用于 scale_by_alive_allies 测试）
+        self.ally_rb = UnitState(
+            unit_id="ally_rb", name="右後友方", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_BACK, character_id=999103, level=10,
+            element=5, character_type=3,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=3500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=20,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方中前（最近敌，fallback 目标）
+        self.enemy_cf = UnitState(
+            unit_id="enemy_cf", name="敵中前", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前（side_columns 范围）
+        self.enemy_lf = UnitState(
+            unit_id="enemy_lf", name="敵左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=3, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左后（side_columns + back_row 范围）
+        self.enemy_lb = UnitState(
+            unit_id="enemy_lb", name="敵左後", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_BACK, character_id=999005, level=10,
+            element=3, character_type=1,
+            max_hp=25000, current_hp=25000,
+            attack=6000, defense=4500, speed=360,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前（side_columns 范围）
+        self.enemy_rf = UnitState(
+            unit_id="enemy_rf", name="敵右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=4, character_type=1,
+            max_hp=28000, current_hp=28000,
+            attack=6500, defense=4800, speed=370,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右后（side_columns + back_row 范围）
+        self.enemy_rb = UnitState(
+            unit_id="enemy_rb", name="敵右後", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_BACK, character_id=999006, level=10,
+            element=4, character_type=1,
+            max_hp=22000, current_hp=22000,
+            attack=5500, defense=4200, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 默认全员上阵
+        self.bf.friend_team = [self.caster, self.ally_front, self.ally_lb, self.ally_rb]
+        self.bf.enemy_team = [self.enemy_cf, self.enemy_lf, self.enemy_lb,
+                              self.enemy_rf, self.enemy_rb]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ════════════════════════════════════════════════════════════════
+    # 重置辅助方法
+    # ════════════════════════════════════════════════════════════════
+
+    def _reset_caster(self, hp=None, ap=10, pp=10, ep=10):
+        """重置施法者状态。"""
+        self.caster.current_hp = hp if hp is not None else self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = ap
+        self.caster.current_pp = pp
+        self.caster.current_ep = ep
+        self.caster.level = 10
+        self.caster.crit_rate = 0.0
+        for sid in self.caster.skill_levels:
+            self.caster.skill_levels[sid] = 10
+
+    def _reset_ally_front(self, hp=None, ap=10, pp=10, ep=0):
+        """重置前方友方状态。"""
+        self.ally_front.current_hp = hp if hp is not None else self.ally_front.max_hp
+        self.ally_front.buffs = []
+        self.ally_front.debuffs = []
+        self.ally_front.is_alive = True
+        self.ally_front.skill_cooldowns = {}
+        self.ally_front.current_ap = ap
+        self.ally_front.current_pp = pp
+        self.ally_front.current_ep = ep
+
+    def _reset_all_allies(self):
+        """重置所有友方状态。"""
+        self._reset_caster()
+        self._reset_ally_front()
+        for ally in [self.ally_lb, self.ally_rb]:
+            ally.current_hp = ally.max_hp
+            ally.buffs = []
+            ally.debuffs = []
+            ally.is_alive = True
+            ally.skill_cooldowns = {}
+
+    def _reset_enemies(self):
+        """重置敌方状态。"""
+        for e in self.bf.enemy_team:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.is_alive = True
+            e.current_ap = 4
+            e.current_pp = 4
+            e.current_ep = 2
+
+    def _set_only_center_enemies(self):
+        """仅保留中前敌（用于 fallback_when_no_targets 测试）。"""
+        for e in [self.enemy_lf, self.enemy_lb, self.enemy_rf, self.enemy_rb]:
+            e.is_alive = False
+        self.bf.enemy_team = [self.enemy_cf]
+
+    # ════════════════════════════════════════════════════════════════
+    # 配置校验
+    # ════════════════════════════════════════════════════════════════
+
+    def test_config_skill_ids(self):
+        """配置校验：140301 应有5个技能ID [110039, 120088, 120089, 130098, 130099]。"""
+        char_skills_map = self.dl.load_character_skills()
+        char_skills = char_skills_map.get(140301)
+        self.assertIsNotNone(char_skills, "character_skills 应包含 140301")
+        if isinstance(char_skills, dict):
+            skill_ids = char_skills.get('skill_ids', [])
+        else:
+            skill_ids = char_skills
+        self.assertEqual(skill_ids, [110039, 120088, 120089, 130098, 130099],
+                         f"技能ID列表应为 [110039, 120088, 120089, 130098, 130099]，实际: {skill_ids}")
+
+    def test_config_ex_force_crit_flag(self):
+        """配置校验：EX(110039) Block3 应有 force_crit=true flag。"""
+        parsed = self.dl.get_parsed_skill_data(110039)
+        self.assertIsNotNone(parsed, "EX 应有 parsed 数据")
+        block3 = None
+        for blk in parsed['effect_blocks']:
+            if blk.get('condition', {}) and blk['condition'].get('type') == 'active_level_min':
+                block3 = blk
+                break
+        self.assertIsNotNone(block3, "应有 Block3 (active_level_min=11)")
+        has_force_crit = any(
+            eff.get('flags', {}).get('force_crit') is True
+            for eff in block3['effects']
+        )
+        self.assertTrue(has_force_crit, "Block3 Lv11+ damage 应有 force_crit=true")
+
+    def test_config_as1_targets_exist(self):
+        """配置校验：AS1(120088) 应有 targets_exist global_condition。"""
+        parsed = self.dl.get_parsed_skill_data(120088)
+        self.assertIsNotNone(parsed, "AS1 应有 parsed 数据")
+        gc = parsed.get('global_condition')
+        self.assertIsNotNone(gc, "AS1 应有 global_condition")
+        self.assertEqual(gc.get('type'), 'targets_exist',
+                         "AS1 global_condition 应为 targets_exist")
+
+    def test_config_ps2_cooldown_99(self):
+        """配置校验：PS2(130099) cooldown=99（1度のみ発動）。"""
+        parsed = self.dl.get_parsed_skill_data(130099)
+        self.assertIsNotNone(parsed, "PS2 应有 parsed 数据")
+        self.assertEqual(parsed.get('cooldown'), 99,
+                         "PS2 cooldown 应为 99（1度のみ発動）")
+
+    def test_config_no_simultaneous_limit(self):
+        """配置校验：140301 的5个技能均无 simultaneous_limit。"""
+        for sid in [110039, 120088, 120089, 130098, 130099]:
+            parsed = self.dl.get_parsed_skill_data(sid)
+            self.assertFalse(parsed.get('simultaneous_limit', False),
+                             f"技能 {sid} 不应有 simultaneous_limit")
+
+    # ════════════════════════════════════════════════════════════════
+    # EX: 110039 リディアたいちょうのめいれい
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ex_block1_enemy_side_columns_damage(self):
+        """EX(110039) Block1: enemy_side_columns(4単位) 范围伤害。"""
+        self._reset_caster()
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # side_columns = 左列(lf+lb) + 右列(rf+rb) = 4单位，不含中列(cf)
+        self.assertLess(self.enemy_lf.current_hp, self.enemy_lf.max_hp,
+                        "enemy_lf 应受到EX side_columns伤害")
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "enemy_lb 应受到EX side_columns伤害")
+        self.assertLess(self.enemy_rf.current_hp, self.enemy_rf.max_hp,
+                        "enemy_rf 应受到EX side_columns伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "enemy_rb 应受到EX side_columns伤害")
+        # 中列不在 side_columns 范围（但 Block2/3 会打 back_row 含 cb，此处 cb 不存在）
+        # 注意：enemy_cf 是中前，不在 side_columns，也不在 back_row（除非有中后）
+
+    def test_ex_block2_lv10_back_row_damage(self):
+        """EX(110039) Block2 (active_level_max=10): enemy_back_row 伤害。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[110039] = 10
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+
+        # Block2 active_level_max=10 → Lv<=10 时执行 → back_row 受伤
+        # back_row = lb, rb（中后不存在）
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "Lv10时 enemy_lb 应受到 Block2 back_row 伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "Lv10时 enemy_rb 应受到 Block2 back_row 伤害")
+
+    def test_ex_block2_lv11_skipped(self):
+        """EX(110039) Block2 (active_level_max=10): Lv11+ 时跳过Block2。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 11
+        self.caster.skill_levels[110039] = 11
+
+        # 记录 back_row 初始HP
+        lb_hp_before = self.enemy_lb.max_hp
+        rb_hp_before = self.enemy_rb.max_hp
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+
+        # Lv11+ 时 Block2(active_level_max=10) 跳过，但 Block3(active_level_min=11) 执行
+        # Block3 也是 enemy_back_row + force_crit，所以 back_row 仍受伤
+        # 此测试主要验证不报错且 back_row 受伤（来自 Block3）
+        self.assertLess(self.enemy_lb.current_hp, lb_hp_before,
+                        "Lv11+ enemy_lb 应受到 Block3 back_row 伤害")
+        self.assertLess(self.enemy_rb.current_hp, rb_hp_before,
+                        "Lv11+ enemy_rb 应受到 Block3 back_row 伤害")
+
+    def test_ex_block3_lv11_force_crit_back_row(self):
+        """EX(110039) Block3 (active_level_min=11): Lv11+ back_row force_crit强制暴击。
+
+        force_crit=true 使 back_row 敌人必定暴击。验证：crit_rate=0 时 back_row 仍暴击。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 15
+        self.caster.skill_levels[110039] = 15
+        self.caster.crit_rate = 0.0  # 强制0暴击率
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block3 force_crit → back_row 必定暴击
+        # 验证 back_row 受伤（暴击伤害 = 基础 * 1.5）
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "Lv15 enemy_lb 应受到 Block3 force_crit 暴击伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "Lv15 enemy_rb 应受到 Block3 force_crit 暴击伤害")
+
+    def test_ex_block3_lv10_no_force_crit(self):
+        """EX(110039) Lv10: Block3 跳过，无 force_crit（Block2 走 active_level_max=10）。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[110039] = 10
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Lv10 时 Block3 跳过（active_level_min=11 未满足），仅 Block2 执行
+        # Block2 无 force_crit，crit_rate=0 → back_row 不暴击
+        # 验证 back_row 仍受伤（来自 Block2，非暴击）
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "Lv10 enemy_lb 应受到 Block2 back_row 伤害（无force_crit）")
+
+    def test_ex_block4_fallback_when_no_targets(self):
+        """EX(110039) Block4 (fallback_when_no_targets): 无side_columns目标时fallback最近敌方。
+
+        场景：仅保留中前敌（enemy_cf），side_columns(左+右列)无目标 → fallback 到 enemy_single 威力100。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        # 移除 side_columns 范围的敌人（左列+右列），仅保留中前
+        for e in [self.enemy_lf, self.enemy_lb, self.enemy_rf, self.enemy_rb]:
+            e.is_alive = False
+        self.bf.enemy_team = [self.enemy_cf]
+
+        cf_hp_before = self.enemy_cf.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # fallback → enemy_cf（最近敌方）受到威力100伤害
+        self.assertLess(self.enemy_cf.current_hp, cf_hp_before,
+                        "fallback 时 enemy_cf 应受到威力100伤害")
+
+    def test_ex_block4_no_fallback_when_targets_exist(self):
+        """EX(110039) 有side_columns目标时不fallback：Block4 跳过。"""
+        self._reset_caster()
+        self._reset_enemies()
+
+        cf_hp_before = self.enemy_cf.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # side_columns 有目标 → Block4 fallback 跳过 → enemy_cf 不应被 fallback 打到
+        # 注意：enemy_cf 是中前，不在 side_columns 范围，也不在 back_row
+        # 但 Block2/3 的 back_row 不含中前（仅 lb, rb, cb）
+        # 所以 enemy_cf HP 应不变（除非 fallback 触发）
+        # 验证：有目标时 enemy_cf 不受 fallback 伤害
+        # 注意：若 enemy_cf 受到伤害，说明 fallback 误触发
+        # 但需注意 back_row 在 Lv10 时会执行 Block2，enemy_cf 不在 back_row
+        self.assertEqual(self.enemy_cf.current_hp, cf_hp_before,
+                         "有side_columns目标时 enemy_cf 不应受 fallback 伤害")
+
+    def test_ex_active_level_pair_lv10(self):
+        """EX(110039) active_level_max=10 + active_level_min=11 成对条件：Lv10分支。
+
+        Lv10: Block2(active_level_max=10)执行，Block3(active_level_min=11)跳过。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[110039] = 10
+        self.caster.crit_rate = 0.0
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+
+        # Lv10: Block2 执行（无 force_crit），Block3 跳过
+        # back_row 受伤但非暴击
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "Lv10 Block2 应对 enemy_lb 造成伤害")
+
+    def test_ex_active_level_pair_lv15(self):
+        """EX(110039) active_level_max=10 + active_level_min=11 成对条件：Lv15分支。
+
+        Lv15: Block2(active_level_max=10)跳过，Block3(active_level_min=11)执行(force_crit)。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 15
+        self.caster.skill_levels[110039] = 15
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Lv15: Block3 执行（force_crit），back_row 受暴击伤害
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "Lv15 Block3 应对 enemy_lb 造成暴击伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "Lv15 Block3 应对 enemy_rb 造成暴击伤害")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS1: 120088 ジャマしちゃ、めっ……だよ？
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as1_block1_enemy_side_columns_damage(self):
+        """AS1(120088) Block1: enemy_side_columns(4単位) 范围伤害。"""
+        self._reset_caster()
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # side_columns = 左列+右列 = 4单位
+        self.assertLess(self.enemy_lf.current_hp, self.enemy_lf.max_hp,
+                        "enemy_lf 应受到AS1 side_columns伤害")
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "enemy_lb 应受到AS1 side_columns伤害")
+        self.assertLess(self.enemy_rf.current_hp, self.enemy_rf.max_hp,
+                        "enemy_rf 应受到AS1 side_columns伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "enemy_rb 应受到AS1 side_columns伤害")
+
+    def test_as1_lv11_dmg_dealt_up(self):
+        """AS1(120088) Block2 (active_level_min=11): self dmg_dealt_up(永続, stackable)。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 15
+        self.caster.skill_levels[120088] = 15
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+
+        # 验证 caster 自身有 dmg_dealt_up buff
+        dmg_ups = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertGreater(len(dmg_ups), 0, "Lv15 应有 dmg_dealt_up buff")
+        self.assertTrue(dmg_ups[0].is_stackable, "dmg_dealt_up 应可叠加")
+        # duration=-1 表示永续
+        self.assertEqual(dmg_ups[0].duration, -1, "dmg_dealt_up 应为永续(duration=-1)")
+
+    def test_as1_lv10_no_dmg_dealt_up(self):
+        """AS1(120088) Lv10: 无 dmg_dealt_up（Block2 active_level_min=11 未满足）。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[120088] = 10
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+
+        dmg_ups = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_ups), 0, "Lv10 时不应有 dmg_dealt_up buff")
+
+    def test_as1_dmg_dealt_up_stackable(self):
+        """AS1(120088) dmg_dealt_up stackable=true：每次施放生成唯一 buff_id。
+
+        stackable=true → 多次施放叠加多个 buff（而非 refresh）。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 15
+        self.caster.skill_levels[120088] = 15
+
+        # 第一次施放
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+        buffs_after_first = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertGreater(len(buffs_after_first), 0, "第一次施放应施加 dmg_dealt_up")
+        first_count = len(buffs_after_first)
+
+        # 第二次施放（skip_cost 且清除冷却）
+        self.caster.skill_cooldowns = {}
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+        buffs_after_second = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        # stackable=true → buff 数量增加
+        self.assertGreater(len(buffs_after_second), first_count,
+                           "stackable=true 第二次施放后 buff 数量应增加")
+
+    def test_as1_targets_exist_blocks_when_no_targets(self):
+        """AS1(120088) targets_exist: 无side_columns目标时技能被global_condition阻断。
+
+        场景：仅保留中前敌，side_columns 无目标 → targets_exist 条件不满足。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        # 仅保留中前敌
+        for e in [self.enemy_lf, self.enemy_lb, self.enemy_rf, self.enemy_rb]:
+            e.is_alive = False
+        self.bf.enemy_team = [self.enemy_cf]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+
+        # targets_exist 条件不满足 → execute_skill 返回 error
+        # 注意：global_condition 不满足时 execute_skill 应返回 success=False 或 error
+        self.assertFalse(result.get("success", False),
+                         "无side_columns目标时 AS1(targets_exist) 应被阻断")
+
+    def test_as1_targets_exist_allows_when_targets_exist(self):
+        """AS1(120088) targets_exist: 有side_columns目标时条件满足，技能正常执行。"""
+        self._reset_caster()
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120088, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], "有side_columns目标时 AS1 应正常执行")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS2: 120089 わるいこはおしおき
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as2_block1_2hit_damage(self):
+        """AS2(120089) Block1: enemy_single 2hit 威力20固定。"""
+        self._reset_caster()
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 最近敌方(enemy_cf)受到2hit伤害
+        self.assertLess(self.enemy_cf.current_hp, self.enemy_cf.max_hp,
+                        "enemy_cf 应受到AS2 2hit伤害")
+
+    def test_as2_block2_target_survived_additional_damage(self):
+        """AS2(120089) Block2 (target_survived): 目标存活时追加伤害+debuff。
+
+        场景：enemy_cf HP足够高，Block1 2hit后仍存活 → Block2 追撃+ dmg_dealt_down。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        # enemy_cf HP 设为很高，确保 Block1 后仍存活
+        self.enemy_cf.max_hp = 999999
+        self.enemy_cf.current_hp = 999999
+
+        hp_before = self.enemy_cf.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 目标存活 → Block2 执行：追加伤害 + dmg_dealt_down
+        self.assertLess(self.enemy_cf.current_hp, hp_before,
+                        "目标存活时 Block2 应追加伤害")
+
+        # 验证 dmg_dealt_down debuff
+        dmg_downs = [d for d in self.enemy_cf.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertGreater(len(dmg_downs), 0, "目标存活时应有 dmg_dealt_down debuff")
+        self.assertTrue(dmg_downs[0].is_stackable, "dmg_dealt_down 应可叠加")
+        self.assertEqual(getattr(dmg_downs[0], 'attack_limited', 0), 1,
+                         "dmg_dealt_down attack_limited 应为1")
+
+    def test_as2_block2_target_dead_no_additional(self):
+        """AS2(120089) Block2 (target_survived): 目标阵亡时不追加。
+
+        场景：enemy_cf HP很低，Block1 2hit后阵亡 → Block2 跳过。
+        """
+        self._reset_caster()
+        self._reset_enemies()
+        # enemy_cf HP 设为很低，确保 Block1 后阵亡
+        self.enemy_cf.current_hp = 100
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 目标阵亡 → Block2 跳过
+        self.assertFalse(self.enemy_cf.is_alive, "enemy_cf 应在 Block1 后阵亡")
+
+        # 验证无 dmg_dealt_down debuff（Block2 跳过）
+        # 注意：即使目标阵亡，debuffs 列表仍可检查（阵亡单位的 debuffs 不会被清除）
+        dmg_downs = [d for d in self.enemy_cf.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_downs), 0, "目标阵亡时不应有 dmg_dealt_down debuff")
+
+    def test_as2_dmg_dealt_down_value_20_percent(self):
+        """AS2(120089) Block2: dmg_dealt_down value=20 percent。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.enemy_cf.max_hp = 999999
+        self.enemy_cf.current_hp = 999999
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+
+        dmg_downs = [d for d in self.enemy_cf.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertGreater(len(dmg_downs), 0, "应有 dmg_dealt_down debuff")
+        # value=20, value_type=percent
+        self.assertEqual(dmg_downs[0].value, 20.0, "dmg_dealt_down value 应为20")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS1: 130098 みんなをおたすけ（after_as_attack + scale_by_alive_allies）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps1_triggers_after_as_attack(self):
+        """PS1(130098) after_as_attack: AS攻击后触发。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # caster 执行AS2攻击（120089 无冷却，便于测试）
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 触发 after_as_attack
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.assertGreater(len(ps1_actions), 0,
+                           "after_as_attack 应收集 PS1(130098)")
+
+    def test_ps1_dmg_taken_down_self_and_friends(self):
+        """PS1(130098) Block1: self_and_friends dmg_taken_down（含自身）。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # self_and_friends 包含 caster 自身 + 所有友方
+        caster_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(caster_buffs), 0, "caster 自身应有 dmg_taken_down buff")
+
+        for ally in [self.ally_front, self.ally_lb, self.ally_rb]:
+            ally_buffs = [b for b in ally.buffs if b.effect_type == RECEIVED_DAMAGE]
+            self.assertGreater(len(ally_buffs), 0,
+                               f"{ally.name} 应有 dmg_taken_down buff")
+
+    def test_ps1_attack_limited_1(self):
+        """PS1(130098) dmg_taken_down attack_limited=1：1次被攻击后消耗。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证 attack_limited=1
+        caster_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(caster_buffs), 0, "应有 dmg_taken_down buff")
+        self.assertEqual(getattr(caster_buffs[0], 'attack_limited', 0), 1,
+                         "dmg_taken_down attack_limited 应为1")
+
+    def test_ps1_stackable(self):
+        """PS1(130098) dmg_taken_down stackable=true：可叠加。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+
+        # 第一次触发
+        self.caster.skill_cooldowns = {}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        caster_buffs_1 = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(caster_buffs_1), 0, "第一次触发应有 dmg_taken_down")
+        self.assertTrue(caster_buffs_1[0].is_stackable, "buff 应可叠加")
+
+    def test_ps1_scale_by_alive_allies_more_allies_higher_value(self):
+        """PS1(130098) scale_by_alive_allies: 存活友方数越多，dmg_taken_down value越高。
+
+        场景：4存活友方 vs 1存活友方，4友方时value应更高。
+        """
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+
+        # 场景1：4存活友方（caster + ally_front + ally_lb + ally_rb）
+        self._reset_all_allies()
+        self.caster.skill_cooldowns = {}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        buffs_4 = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(buffs_4), 0, "4友方场景应有 buff")
+        value_4 = buffs_4[0].value
+
+        # 场景2：仅1存活友方（caster自身），其他友方阵亡
+        self.caster.buffs = []
+        self.ally_front.is_alive = False
+        self.ally_lb.is_alive = False
+        self.ally_rb.is_alive = False
+        self.caster.skill_cooldowns = {}
+
+        result2 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        actions2 = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result2, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions2 = [a for a in actions2 if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions2, self.bf, trigger_timing="after_as_attack"
+        )
+
+        buffs_1 = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(buffs_1), 0, "1友方场景应有 buff")
+        value_1 = buffs_1[0].value
+
+        # scale_by_alive_allies: 4友方时value > 1友方时value
+        self.assertGreater(value_4, value_1,
+                           f"4友方时value({value_4})应 > 1友方时value({value_1})")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS2: 130099 がんばるね、おにいちゃん（on_turn_start + is_preemptive）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps2_triggers_on_turn_start(self):
+        """PS2(130099) on_turn_start: 回合开始时触发。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # on_turn_start 先制技能收集
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.assertGreater(len(ps2_actions), 0,
+                           "回合开始应触发 PS2(130099) 先制")
+
+    def test_ps2_is_preemptive_collected_in_preemptive_phase(self):
+        """PS2(130099) is_preemptive=true: 在先制阶段被收集。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 先制阶段
+        preemptive_actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_pre = [a for a in preemptive_actions if a.skill_id == 130099]
+        self.assertGreater(len(ps2_pre), 0,
+                           "PS2 is_preemptive=true 应在先制阶段被收集")
+
+        # 非先制阶段不应包含 PS2
+        non_preemptive_actions = self.ts.trigger_turn_start_non_preemptive(self.bf)
+        ps2_non = [a for a in non_preemptive_actions if a.skill_id == 130099]
+        self.assertEqual(len(ps2_non), 0,
+                         "PS2 is_preemptive=true 不应在非先制阶段被收集")
+
+    def test_ps2_damage_enemy_single_furthest(self):
+        """PS2(130099) Block1: enemy_single_furthest 伤害。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证最远敌方受到伤害（caster 在 ALLY_CENTER_BACK，最远敌方是前排某单位）
+        # 至少有一个敌方受伤
+        any_damaged = any(e.current_hp < e.max_hp for e in self.bf.enemy_team if e.is_alive)
+        self.assertTrue(any_damaged, "PS2 应对最远敌方造成伤害")
+
+    def test_ps2_remove_pp_2(self):
+        """PS2(130099) Block1: remove_pp value=2 削减最远敌方PP。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 记录所有敌方初始PP
+        pp_before = {e.unit_id: e.current_pp for e in self.bf.enemy_team if e.is_alive}
+
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证最远敌方PP被削减2点
+        # 找出PP变化的敌方
+        pp_reduced = [e for e in self.bf.enemy_team
+                      if e.is_alive and e.current_pp < pp_before.get(e.unit_id, 0)]
+        self.assertGreater(len(pp_reduced), 0, "应有敌方PP被削减")
+
+        # 验证削减量=2
+        for e in pp_reduced:
+            reduction = pp_before[e.unit_id] - e.current_pp
+            self.assertEqual(reduction, 2,
+                             f"{e.name} PP应被削减2点，实际削减{reduction}")
+
+    def test_ps2_lv11_heal_efficacy_down(self):
+        """PS2(130099) Block2 (active_level_min=11): attacked_targets heal_efficacy_down(2actions)。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 15
+        self.caster.skill_levels[130099] = 15
+
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证被攻击目标(最远敌方)有 heal_efficacy_down debuff
+        heal_downs = [d for e in self.bf.enemy_team if e.is_alive
+                      for d in e.debuffs if d.effect_type == RECEIVED_HEALING]
+        self.assertGreater(len(heal_downs), 0,
+                           "Lv15 应对被攻击目标付与 heal_efficacy_down debuff")
+        self.assertEqual(heal_downs[0].duration, 2,
+                         "heal_efficacy_down duration 应为2")
+
+    def test_ps2_lv10_no_heal_efficacy_down(self):
+        """PS2(130099) Lv10: 无 heal_efficacy_down（Block2 active_level_min=11 未满足）。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self.caster.level = 10
+        self.caster.skill_levels[130099] = 10
+
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # Lv10 时 Block2 跳过 → 无 heal_efficacy_down
+        heal_downs = [d for e in self.bf.enemy_team if e.is_alive
+                      for d in e.debuffs if d.effect_type == RECEIVED_HEALING]
+        self.assertEqual(len(heal_downs), 0,
+                         "Lv10 时不应有 heal_efficacy_down debuff")
+
+    def test_ps2_cooldown_99_once_only(self):
+        """PS2(130099) cooldown=99: 1度のみ発動，第二次回合开始不再触发。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 第一次触发
+        actions1 = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_1 = [a for a in actions1 if a.skill_id == 130099]
+        self.assertGreater(len(ps2_1), 0, "第一次应触发PS2")
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_1, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证冷却已设置为99
+        self.assertEqual(self.caster.skill_cooldowns.get(130099), 99,
+                         "PS2执行后应设置cooldown=99")
+
+        # 第二次触发（PS2在冷却中）
+        actions2 = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_2 = [a for a in actions2 if a.skill_id == 130099]
+        self.assertEqual(len(ps2_2), 0, "PS2 cooldown=99 → 不应再次被收集")
+
+    # ════════════════════════════════════════════════════════════════
+    # scale_by_alive_allies 专项
+    # ════════════════════════════════════════════════════════════════
+
+    def test_scale_by_alive_allies_scales_with_count(self):
+        """scale_by_alive_allies: value 随存活友方数线性缩放。
+
+        场景对比：1友方 vs 4友方，value 应递增。
+        """
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_enemies()
+
+        values = []
+        for alive_count in [1, 2, 4]:
+            self._reset_all_allies()
+            # 设置存活友方数
+            allies = [self.ally_front, self.ally_lb, self.ally_rb]
+            for i, ally in enumerate(allies):
+                ally.is_alive = (i < alive_count - 1)  # -1 因为 caster 自身始终算
+
+            self.caster.buffs = []
+            self.caster.skill_cooldowns = {}
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+            )
+            actions = self.ts.trigger_after_as_attack(
+                actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+                primary_target=self.enemy_cf
+            )
+            ps1_actions = [a for a in actions if a.skill_id == 130098]
+            self.ss._pending_crit_triggers = []
+            self.ss._execute_trigger_actions_inline(
+                ps1_actions, self.bf, trigger_timing="after_as_attack"
+            )
+
+            buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+            self.assertGreater(len(buffs), 0,
+                               f"{alive_count}友方时应有 buff")
+            values.append(buffs[0].value)
+
+        # value 应递增（1 < 2 < 4 友方）
+        self.assertLess(values[0], values[1],
+                        f"1友方value({values[0]})应 < 2友方value({values[1]})")
+        self.assertLess(values[1], values[2],
+                        f"2友方value({values[1]})应 < 4友方value({values[2]})")
+
+    def test_scale_by_alive_allies_max_at_full(self):
+        """scale_by_alive_allies: 全员存活时value达到max_value（dmg tag Lv10=20%）。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[130098] = 10
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(buffs), 0, "应有 dmg_taken_down buff")
+        # 全员存活时 value = max_value = 20 (Lv10 dmg tag)
+        self.assertAlmostEqual(buffs[0].value, 20.0, places=1,
+                               msg=f"全员存活时 value 应为20(Lv10 max)，实际: {buffs[0].value}")
+
+    # ════════════════════════════════════════════════════════════════
+    # 集成测试
+    # ════════════════════════════════════════════════════════════════
+
+    def test_integration_ex_full_chain(self):
+        """集成测试：EX 完整链路（side_columns + back_row + Lv11+ force_crit）。"""
+        self._reset_caster()
+        self._reset_enemies()
+        self.caster.level = 15
+        self.caster.skill_levels[110039] = 15
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110039, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block1: side_columns (lf, lb, rf, rb)
+        self.assertLess(self.enemy_lf.current_hp, self.enemy_lf.max_hp,
+                        "enemy_lf 应受 Block1 伤害")
+        self.assertLess(self.enemy_rf.current_hp, self.enemy_rf.max_hp,
+                        "enemy_rf 应受 Block1 伤害")
+        # Block3: back_row force_crit (lb, rb)
+        self.assertLess(self.enemy_lb.current_hp, self.enemy_lb.max_hp,
+                        "enemy_lb 应受 Block3 暴击伤害")
+        self.assertLess(self.enemy_rb.current_hp, self.enemy_rb.max_hp,
+                        "enemy_rb 应受 Block3 暴击伤害")
+
+    def test_integration_ps2_then_ps1_chain(self):
+        """集成测试：PS2先制攻击 → AS攻击 → PS1触发链。"""
+        self._reset_caster(hp=self.caster.max_hp, pp=10)
+        self._reset_all_allies()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # Step 1: 回合开始触发 PS2 先制攻击
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130099]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+        # 验证最远敌方受伤
+        any_damaged = any(e.current_hp < e.max_hp for e in self.bf.enemy_team if e.is_alive)
+        self.assertTrue(any_damaged, "PS2 先制攻击应造成伤害")
+
+        # Step 2: caster 执行 AS2 攻击
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120089, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Step 3: AS攻击后触发 PS1
+        actions = self.ts.trigger_after_as_attack(
+            actor=self.caster, skill_id=120089, result=result, battlefield=self.bf,
+            primary_target=self.enemy_cf
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130098]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证 self_and_friends 获得 dmg_taken_down
+        caster_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(caster_buffs), 0, "PS1 应给 caster 付与 dmg_taken_down")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

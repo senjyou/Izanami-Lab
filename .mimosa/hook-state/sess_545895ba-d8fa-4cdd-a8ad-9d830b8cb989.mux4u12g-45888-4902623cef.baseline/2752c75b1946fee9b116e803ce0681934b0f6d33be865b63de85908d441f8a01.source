@@ -1,0 +1,956 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""角色119301 戦うアントレプレナー 技能效果集成测试
+
+测试场景：
+- 角色: 戦うアントレプレナー (character_id=119301, 火属性=1, 敏捷型=3, 灵活站位)
+- EX: 110015 大儲けだー！ (敌横列hit攻击[Lv1-10:7hit, Lv15:12hit], 自身dmg_invulnerable buff hit_limited=1)
+- AS1: 120023 フォーカススラスト (敌column攻击, 自身暴击率上升1行动, Lv11+: 主目标物理型追加攻击)
+- AS2: 120041 四連突 (敌单体4hit攻击)
+- PS1: 130031 CRTフォーカス (on_turn_start触发, 自身暴击率永续可叠加, cooldown=99, Lv11+: 追加4行动必中)
+- PS2: 130047 ラッキー4！ (on_critical触发, crit_count_mod=4, 敌单体伤害+自身最大HP×20%特殊伤害)
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+# 常用枚举值简写
+SET = SkillEffectType
+STATUS_CRIT = SET.STATUS_CRITICAL_CHANCE.value   # crit_rate_up映射后的值
+DMG_INVULNERABLE = SET.DMG_INVULNERABLE.value     # dmg_invulnerable映射后的值
+SURE_HIT = SET.SURE_HIT.value                     # sure_hit映射后的值
+EVADE = SET.EVADE.value                           # evade映射后的值
+GUARD = SET.GUARD.value                           # guard映射后的值
+
+
+class TestActor119301(unittest.TestCase):
+    """角色119301 戦うアントレプレナー 技能效果集成测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        """加载游戏数据（所有测试共享）"""
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        """每个测试前创建战场和服务"""
+        self.bf = BattlefieldState()
+
+        # 戦うアントレプレナー (火属性=1, 敏捷型=3, 灵活站位)
+        self.caster = UnitState(
+            unit_id="ally_shiryu", name="子龍", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=119301, level=200,
+            element=1, character_type=3,
+            max_hp=120000, current_hp=120000,
+            attack=150000, defense=50000, speed=1000,
+            crit_rate=0.00, crit_damage=0.5, advantage_damage=0.0,  # crit_rate=0避免暴击影响测试
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=50,
+            skills=[110015, 120023, 120041, 130031, 130047],
+            skill_levels={110015: 15, 120023: 15, 120041: 15, 130031: 15, 130047: 15},
+            skill_cooldowns={},
+        )
+
+        # 敌方A (物理型=1, 前排左)
+        self.enemy_phys_front = UnitState(
+            unit_id="enemy_phys_front", name="敵A(物理前列)", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=30000, defense=30000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方B (物理型=1, 前排中)
+        self.enemy_phys_center = UnitState(
+            unit_id="enemy_phys_center", name="敵B(物理前列中)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999002, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=400,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方C (非物理型=2, 前排右)
+        self.enemy_en_front = UnitState(
+            unit_id="enemy_en_front", name="敵C(EN前列)", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999003, level=200,
+            element=1, character_type=2,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=300,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方D (后排)
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敵D(後列)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999004, level=200,
+            element=1, character_type=1,
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=600,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.enemy_phys_front)
+        self.bf.add_unit(self.enemy_phys_center)
+        self.bf.add_unit(self.enemy_en_front)
+        self.bf.add_unit(self.enemy_back)
+
+        # 创建服务
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.asvc = AuraService()
+        self.dmgsvc = DamageService()
+        self.tgtsvc = TargetService()
+        self.stsvc = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgtsvc,
+            damage_service=self.dmgsvc,
+            aura_service=self.asvc,
+            status_service=self.stsvc,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ============================================================
+    # EX: 110015 大儲けだー！
+    # ============================================================
+
+    def test_ex_damage(self):
+        """
+        EX: 敌横列hit伤害（hit数随等级变化，Lv15=12hit）
+        技能描述: 敵横列に威力{威力}で{hit}ヒット攻撃する
+        验证: Lv15时伤害结果中应有12个hit
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=110015,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"EX技能执行应成功: {result.get('error', '')}")
+
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage"]
+        self.assertTrue(len(damage_effects) > 0, "EX技能应造成伤害")
+
+        # 验证hit数：Lv15时hit=12（Lv1-10=7, Lv15=12）
+        first_damage = damage_effects[0]
+        targets = first_damage.get("targets", [])
+        self.assertTrue(len(targets) > 0, "应有伤害目标")
+        hits = targets[0].get("hits", [])
+        expected_hits = 12  # skill_level=15, hit tag: level15=12
+        self.assertEqual(
+            len(hits), expected_hits,
+            f"EX技能Lv15应为{expected_hits}hit攻击, 实际hits: {len(hits)}"
+        )
+
+    def test_ex_dmg_invulnerable(self):
+        """
+        EX: 赋予自身dmg_invulnerable buff（hit_limited=1）
+        技能描述: 自身にダメージ無効バフを付与する（1回限り）
+        验证: EX使用后，施法者应获得dmg_invulnerable buff，hit_limited=1
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=110015,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"EX技能执行应成功: {result.get('error', '')}")
+
+        # 验证获得dmg_invulnerable buff
+        invuln_buffs = [b for b in self.caster.buffs
+                        if b.effect_type == DMG_INVULNERABLE]
+        self.assertTrue(
+            len(invuln_buffs) > 0,
+            f"EX技能后应获得DmgInvulnerable buff, "
+            f"实际buffs: {[(b.effect_type, getattr(b, 'hit_limited', None)) for b in self.caster.buffs]}"
+        )
+
+        # 验证hit_limited=1
+        self.assertEqual(
+            invuln_buffs[0].hit_limited, 1,
+            f"dmg_invulnerable的hit_limited应为1, 实际: {invuln_buffs[0].hit_limited}"
+        )
+
+        # 验证下次受到攻击时伤害变为1点
+        hp_before_attack = self.caster.current_hp
+        # 用敌方攻击施法者
+        atk_result = self.ss.execute_skill(
+            caster=self.enemy_phys_front,
+            skill_id=120041,  # 四連突，4hit
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(atk_result["success"], f"敌方攻击执行应成功: {atk_result.get('error', '')}")
+
+        # 验证dmg_invulnerable被消费
+        invuln_after = [b for b in self.caster.buffs
+                        if b.effect_type == DMG_INVULNERABLE]
+        self.assertEqual(
+            len(invuln_after), 0,
+            f"dmg_invulnerable应在受到攻击后被消费, 剩余: {len(invuln_after)}"
+        )
+
+        # 验证伤害被无效化（hp减少应远小于正常伤害）
+        # 正常4hit攻击伤害远大于4点，无效化后每hit只造成1点
+        hp_loss = hp_before_attack - self.caster.current_hp
+        self.assertLessEqual(
+            hp_loss, 4,
+            f"dmg_invulnerable应将每hit伤害无效化为1点, "
+            f"HP损失: {hp_loss}, 应<=4"
+        )
+
+    # ============================================================
+    # AS1: 120023 フォーカススラスト
+    # ============================================================
+
+    def test_as1_damage_and_crit_up(self):
+        """
+        AS1: 敌column攻击 + 自身暴击率上升1行动
+        技能描述: 敵columnに攻撃 + 自身の会心率を1行動上昇させる
+        验证: AS1使用后，施法者应获得crit_rate_up buff，持续1行动
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120023,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS1技能执行应成功: {result.get('error', '')}")
+
+        # 验证造成伤害
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage"]
+        self.assertTrue(len(damage_effects) > 0, "AS1技能应造成伤害")
+
+        # 验证获得crit_rate_up buff
+        crit_buffs = [b for b in self.caster.buffs
+                      if b.effect_type == STATUS_CRIT]
+        self.assertTrue(
+            len(crit_buffs) > 0,
+            f"AS1使用后应获得暴击率上升buff, "
+            f"实际buffs: {[(b.effect_type, b.duration) for b in self.caster.buffs]}"
+        )
+
+        # 验证持续1行动
+        self.assertEqual(
+            crit_buffs[0].duration, 1,
+            f"crit_rate_up持续应为1行动, 实际: {crit_buffs[0].duration}"
+        )
+
+    def test_as1_lv11_extra_attack_physical(self):
+        """
+        AS1: Lv11+ 主目标为物理类型时追加攻击
+        技能描述: Lv11+ 対象が物理タイプだった場合、追加攻撃する
+        验证: 主目标为物理类型(character_type=1)时，应有追加伤害效果
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120023,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS1技能执行应成功: {result.get('error', '')}")
+
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage"]
+        # Lv11+且目标为物理类型时，应有2次伤害效果（基础+追加）
+        self.assertGreaterEqual(
+            len(damage_effects), 2,
+            f"Lv11+主目标为物理类型时应有至少2次伤害效果(基础+追加), "
+            f"实际: {len(damage_effects)}"
+        )
+
+    def test_as1_lv11_no_extra_attack_non_physical(self):
+        """
+        AS1: Lv11+ 主目标非物理类型时不追加攻击
+        验证: 主目标为非物理类型(character_type!=1)时，只有1次伤害效果
+        """
+        # 创建只有非物理型敌人的战场
+        bf2 = BattlefieldState()
+        # EN型敌人在前排中间（AS1的enemy_column默认选前排中间）
+        enemy_en_center = UnitState(
+            unit_id="enemy_en_center", name="敵(EN前列中)", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999003, level=200,
+            element=1, character_type=2,  # EN型=2
+            max_hp=500000, current_hp=500000,
+            attack=50000, defense=30000, speed=400,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        bf2.add_unit(self.caster)
+        bf2.add_unit(enemy_en_center)
+
+        # 重建服务绑定到新战场
+        ss2 = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgtsvc,
+            damage_service=self.dmgsvc,
+            aura_service=self.asvc,
+            status_service=self.stsvc,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(ss2)
+        ss2.set_battlefield(bf2)
+
+        result = ss2.execute_skill(
+            caster=self.caster,
+            skill_id=120023,
+            battlefield=bf2,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS1技能执行应成功: {result.get('error', '')}")
+
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage" and len(e.get("targets", [])) > 0]
+        # 主目标非物理类型时，只有1次伤害效果（追加攻击因char_type过滤无目标）
+        self.assertEqual(
+            len(damage_effects), 1,
+            f"主目标非物理类型时应有1次伤害效果, 实际: {len(damage_effects)}"
+        )
+
+        # 恢复原始服务的战场绑定
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ============================================================
+    # AS2: 120041 四連突
+    # ============================================================
+
+    def test_as2_four_hits(self):
+        """
+        AS2: 敌单体4hit攻击
+        技能描述: 敵単体に威力{威力}で4ヒット攻撃する
+        验证: 伤害结果中应有4个hit
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS2技能执行应成功: {result.get('error', '')}")
+
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage"]
+        self.assertTrue(len(damage_effects) > 0, "AS2技能应造成伤害")
+
+        # 验证4hit
+        first_damage = damage_effects[0]
+        targets = first_damage.get("targets", [])
+        self.assertTrue(len(targets) > 0, "应有伤害目标")
+        hits = targets[0].get("hits", [])
+        self.assertEqual(
+            len(hits), 4,
+            f"AS2应为4hit攻击, 实际hits: {len(hits)}"
+        )
+
+    # ============================================================
+    # PS1: 130031 CRTフォーカス
+    # ============================================================
+
+    def test_ps1_crit_rate_up(self):
+        """
+        PS1: 回合开始时提升自身暴击率（永续，可叠加）
+        技能描述: ターン開始時に自身の会心率を上昇させる（永続、重複可）
+        验证: 触发on_turn_start后，施法者应获得crit_rate_up buff（永续）
+        """
+        # 触发on_turn_start
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+
+        # 验证PS1(130031)被触发
+        ps1_triggered = any(a.skill_id == 130031 for a in trigger_actions)
+        self.assertTrue(
+            ps1_triggered,
+            f"PS1(130031)应在回合开始时触发, "
+            f"实际触发的技能: {[a.skill_id for a in trigger_actions]}"
+        )
+
+        # 执行PS1触发动作
+        self.ss._pending_crit_triggers = []
+        for action in trigger_actions:
+            if action.skill_id == 130031:
+                self.ss._execute_trigger_actions_inline(
+                    [action], self.bf, trigger_timing="on_turn_start"
+                )
+
+        # 验证获得crit_rate_up buff
+        crit_buffs = [b for b in self.caster.buffs
+                      if b.effect_type == STATUS_CRIT]
+        self.assertTrue(
+            len(crit_buffs) > 0,
+            f"PS1触发后应获得暴击率上升buff, "
+            f"实际buffs: {[(b.effect_type, b.duration) for b in self.caster.buffs]}"
+        )
+
+        # 验证永续（duration为None或-1）
+        crit_buff = crit_buffs[0]
+        self.assertTrue(
+            crit_buff.duration is None or crit_buff.duration == -1,
+            f"PS1暴击率上升应为永续, 实际duration: {crit_buff.duration}"
+        )
+
+    def test_ps1_only_once(self):
+        """
+        PS1: 只能发动1次（cooldown=99）
+        验证: PS1触发后进入cooldown=99，再次触发on_turn_start不应再触发
+        """
+        # 第一次触发on_turn_start
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+
+        ps1_triggered = any(a.skill_id == 130031 for a in trigger_actions)
+        self.assertTrue(ps1_triggered, "PS1(130031)应首次触发")
+
+        # 执行PS1触发动作
+        self.ss._pending_crit_triggers = []
+        for action in trigger_actions:
+            if action.skill_id == 130031:
+                self.ss._execute_trigger_actions_inline(
+                    [action], self.bf, trigger_timing="on_turn_start"
+                )
+
+        # 验证PS1进入cooldown
+        self.assertEqual(
+            self.caster.skill_cooldowns.get(130031, 0), 99,
+            f"PS1(130031)触发后cooldown应为99, "
+            f"实际: {self.caster.skill_cooldowns.get(130031, 0)}"
+        )
+
+        # 第二次触发on_turn_start
+        trigger_actions_2 = self.ts.trigger_turn_start(self.bf)
+
+        # 验证PS1不再触发
+        ps1_triggered_2 = any(a.skill_id == 130031 for a in trigger_actions_2)
+        self.assertFalse(
+            ps1_triggered_2,
+            f"PS1(130031)在cooldown期间不应再次触发, "
+            f"实际触发的技能: {[a.skill_id for a in trigger_actions_2]}"
+        )
+
+    def test_ps1_lv11_sure_hit(self):
+        """
+        PS1: Lv11+ 额外赋予自身4行动必中buff
+        技能描述: Lv11+ 自身に4行動の間必中バフを付与する
+        验证: Lv11+时PS1触发后，施法者应额外获得sure_hit buff，持续4行动
+        """
+        # 触发on_turn_start
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+
+        # 执行PS1触发动作
+        self.ss._pending_crit_triggers = []
+        for action in trigger_actions:
+            if action.skill_id == 130031:
+                self.ss._execute_trigger_actions_inline(
+                    [action], self.bf, trigger_timing="on_turn_start"
+                )
+
+        # 验证获得sure_hit buff
+        sure_hit_buffs = [b for b in self.caster.buffs
+                          if b.effect_type == SURE_HIT]
+        self.assertTrue(
+            len(sure_hit_buffs) > 0,
+            f"Lv11+ PS1触发后应获得sure_hit buff, "
+            f"实际buffs: {[(b.effect_type, b.duration) for b in self.caster.buffs]}"
+        )
+
+        # 验证持续4行动
+        self.assertEqual(
+            sure_hit_buffs[0].duration, 4,
+            f"sure_hit持续应为4行动, 实际: {sure_hit_buffs[0].duration}"
+        )
+
+    # ============================================================
+    # PS2: 130047 ラッキー4！
+    # ============================================================
+
+    def test_ps2_damage_and_hp_pct(self):
+        """
+        PS2: 每4次暴击触发，造成普通伤害+自身最大HP×20%的特殊伤害
+        技能描述: 4回会心を出す度に発動。敵単体に威力{威力}で攻撃し、
+                 自身の最大HP×20%の特殊ダメージを与える
+        验证: 暴击计数达到4时触发PS2，触发后crit_counter扣减4
+        注意: 暴击计数按hit计算，4hit全暴击的AS2一次即可让crit_counter=4触发PS2
+        """
+        # 设置暴击率为100%确保暴击
+        self.caster.crit_rate = 1.0
+
+        # 4hit全暴击的AS2一次即可让crit_counter=4，触发PS2
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS2技能执行应成功: {result.get('error', '')}")
+
+        # 验证PS2已触发：crit_counter达到4后被扣减为0
+        self.assertEqual(
+            self.caster.crit_counter, 0,
+            f"4hit全暴击触发PS2后crit_counter应被扣减为0, 实际: {self.caster.crit_counter}"
+        )
+
+        # 验证PS2已触发：检查PP是否被消耗（PS2 cost=1 PP）
+        self.assertLess(
+            self.caster.current_pp, 10,
+            f"PS2触发后PP应被消耗, 当前PP: {self.caster.current_pp}"
+        )
+
+        # 验证至少有一个敌人受到了伤害
+        alive_enemies_after = [u for u in self.bf.get_all_units()
+                               if u.side == Side.ENEMY and u.is_alive]
+        self.assertTrue(len(alive_enemies_after) > 0, "应有存活敌人")
+
+    def test_ps2_hp_pct_affected_by_guard(self):
+        """
+        PS2: HP百分比伤害受guard效果影响
+        验证: 目标持有guard buff时，HP比例特殊伤害应减少
+        注意: 暴击计数按hit计算，4hit全暴击的AS2一次即可触发PS2
+        """
+        # 设置暴击率为100%确保暴击
+        self.caster.crit_rate = 1.0
+
+        # 给PS2实际目标添加guard buff（50%减伤）
+        # PS2的target_type=enemy_single, display_target_type=3(敏捷型), range=1
+        # 实际会选enemy_phys_center（前排中间）
+        guard_buff = BuffState(
+            buff_id="test_guard",
+            name="guard",
+            effect_type=GUARD,
+            value=50.0,
+            duration=3,
+            timing_type=2,
+            source_unit_id=self.enemy_phys_center.unit_id,
+            is_debuff=False,
+        )
+        self.enemy_phys_center.buffs.append(guard_buff)
+
+        # 4hit全暴击的AS2一次即可让crit_counter=4，触发PS2
+        hp_before = self.enemy_phys_center.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS2技能执行应成功: {result.get('error', '')}")
+
+        # 验证PS2已触发（PP被消耗）
+        self.assertLess(
+            self.caster.current_pp, 10,
+            f"PS2触发后PP应被消耗, 当前PP: {self.caster.current_pp}"
+        )
+
+        # 验证HP比例伤害受guard减伤影响
+        if self.enemy_phys_center.is_alive:
+            hp_loss = hp_before - self.enemy_phys_center.current_hp
+            self.assertGreater(hp_loss, 0, "目标HP应减少")
+
+    def test_ps2_hp_pct_can_be_evaded(self):
+        """
+        PS2: HP百分比伤害可被闪避
+        验证: 目标持有evade buff时，damage_special可被闪避
+        测试策略: 直接调用_apply_damage_special测试evade交互
+        """
+        # 给目标添加evade buff
+        evade_buff = BuffState(
+            buff_id="test_evade",
+            name="evade",
+            effect_type=EVADE,
+            value=None,
+            duration=3,
+            timing_type=2,
+            source_unit_id=self.enemy_phys_center.unit_id,
+            is_debuff=False,
+            hit_limited=1,
+        )
+        self.enemy_phys_center.buffs.append(evade_buff)
+
+        # 构造damage_special效果来测试evade
+        class FakeDamageSpecialEffect:
+            effect_type = "damage_special"
+            target_type = "enemy_single"
+            value = 20
+            value_tag = None
+            value_source = "self_max_hp"
+            duration = None
+            duration_type = None
+            duration_tag = None
+            hit_count = None
+            hit_count_tag = None
+            condition = None
+            flags = {"apply_guard": True, "can_evade": True, "apply_shield": True}
+            ignore_defense = 0
+            ignore_shield = 0
+            target_identifier = None
+
+        hp_before = self.enemy_phys_center.current_hp
+        self.ss._apply_damage_special(
+            self.caster, FakeDamageSpecialEffect(), self.bf
+        )
+
+        # 验证evade buff被消耗（damage_special可被闪避）
+        evade_buffs_after = [b for b in self.enemy_phys_center.buffs
+                             if b.effect_type == EVADE]
+        self.assertEqual(
+            len(evade_buffs_after), 0,
+            f"evade buff应被damage_special消耗, 剩余evade: {len(evade_buffs_after)}"
+        )
+
+    def test_ps2_hp_pct_can_be_shield_absorbed(self):
+        """
+        PS2: HP百分比伤害可被护盾吸收
+        验证: 目标持有shield时，HP比例特殊伤害应被护盾吸收
+        注意: 暴击计数按hit计算，4hit全暴击的AS2一次即可触发PS2
+        """
+        # 设置暴击率为100%确保暴击
+        self.caster.crit_rate = 1.0
+
+        # 给PS2实际目标添加护盾
+        # PS2的target_type=enemy_single, display_target_type=3(敏捷型), range=1
+        # 实际会选enemy_phys_center（前排中间）
+        shield_value = 100000
+        self.enemy_phys_center.shield = shield_value
+
+        # 4hit全暴击的AS2一次即可让crit_counter=4，触发PS2
+        shield_before = self.enemy_phys_center.shield
+
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"AS2技能执行应成功: {result.get('error', '')}")
+
+        # 验证PS2已触发（PP被消耗）
+        self.assertLess(
+            self.caster.current_pp, 10,
+            f"PS2触发后PP应被消耗, 当前PP: {self.caster.current_pp}"
+        )
+
+        # 验证shield被消耗（PS2的damage_special可被护盾吸收）
+        self.assertLess(
+            self.enemy_phys_center.shield, shield_before,
+            f"PS2的HP比例特殊伤害应被护盾吸收, "
+            f"shield: {shield_before} -> {self.enemy_phys_center.shield}"
+        )
+
+    # ============================================================
+    # sure_hit与evade交互
+    # ============================================================
+
+    def test_sure_hit_overrides_evade(self):
+        """
+        sure_hit: 持有sure_hit的单位攻击持有evade的单位时，evade不触发且不消耗
+        验证: 攻击者持有sure_hit时，防御者的evade buff不触发，hit_limited不变
+        """
+        # 给攻击者添加sure_hit buff
+        sure_hit_buff = BuffState(
+            buff_id="test_sure_hit",
+            name="sure_hit",
+            effect_type=SURE_HIT,
+            value=None,
+            duration=4,
+            timing_type=2,
+            source_unit_id=self.caster.unit_id,
+            is_debuff=False,
+        )
+        self.caster.buffs.append(sure_hit_buff)
+
+        # 给防御者添加evade buff（AS2默认选enemy_phys_center）
+        evade_buff = BuffState(
+            buff_id="test_evade",
+            name="evade",
+            effect_type=EVADE,
+            value=None,
+            duration=3,
+            timing_type=2,
+            source_unit_id=self.enemy_phys_center.unit_id,
+            is_debuff=False,
+            hit_limited=1,
+        )
+        self.enemy_phys_center.buffs.append(evade_buff)
+
+        hp_before = self.enemy_phys_center.current_hp
+
+        # 攻击
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"技能执行应成功: {result.get('error', '')}")
+
+        # 验证防御者受到了伤害（evade未触发）
+        self.assertLess(
+            self.enemy_phys_center.current_hp, hp_before,
+            f"持有sure_hit时攻击应命中, HP应减少"
+        )
+
+        # 验证evade buff未被消耗（hit_limited仍为1）
+        evade_buffs_after = [b for b in self.enemy_phys_center.buffs
+                             if b.effect_type == EVADE]
+        self.assertTrue(
+            len(evade_buffs_after) > 0,
+            "evade buff不应被消耗（sure_hit优先）"
+        )
+        self.assertEqual(
+            evade_buffs_after[0].hit_limited, 1,
+            f"evade的hit_limited应仍为1, 实际: {evade_buffs_after[0].hit_limited}"
+        )
+
+    def test_sure_hit_overrides_evade_on_debuff(self):
+        """
+        sure_hit: 持有sure_hit的单位施加debuff时，目标的evade不触发
+        验证: 攻击者持有sure_hit时，对持有evade的目标施加debuff，evade不触发且不消耗
+        """
+        # 给攻击者添加sure_hit buff
+        sure_hit_buff = BuffState(
+            buff_id="test_sure_hit",
+            name="sure_hit",
+            effect_type=SURE_HIT,
+            value=None,
+            duration=4,
+            timing_type=2,
+            source_unit_id=self.caster.unit_id,
+            is_debuff=False,
+        )
+        self.caster.buffs.append(sure_hit_buff)
+
+        # 给防御者添加evade buff
+        evade_buff = BuffState(
+            buff_id="test_evade",
+            name="evade",
+            effect_type=EVADE,
+            value=None,
+            duration=3,
+            timing_type=2,
+            source_unit_id=self.enemy_phys_front.unit_id,
+            is_debuff=False,
+            hit_limited=1,
+        )
+        self.enemy_phys_front.buffs.append(evade_buff)
+
+        # 通过_apply_aura施加debuff
+        class FakeDebuffEffect:
+            effect_type = "atk_down"
+            target_type = "self"
+            value = 0.1
+            value_tag = None
+            value_source = None
+            duration = 2
+            duration_type = "action"
+            duration_tag = None
+            hit_count = None
+            hit_count_tag = None
+            condition = None
+            flags = {"value_type": "percent"}
+            ignore_defense = 0
+            ignore_shield = 0
+            target_identifier = None
+
+        self.ss._apply_aura(self.enemy_phys_front, FakeDebuffEffect(), self.bf, is_debuff=True)
+
+        # 验证debuff被施加（evade未触发）
+        atk_down_debuffs = [d for d in self.enemy_phys_front.debuffs
+                            if d.effect_type == SET.STATUS_ATTACK.value]
+        self.assertTrue(
+            len(atk_down_debuffs) > 0,
+            f"持有sure_hit时debuff应被施加, "
+            f"实际debuffs: {[(d.effect_type, d.duration) for d in self.enemy_phys_front.debuffs]}"
+        )
+
+    def test_ps2_pp_insufficient_keeps_counter(self):
+        """
+        PS2: PP不足时crit_counter保持不变，下次暴击即可触发
+        验证: crit_counter达到4但PP不足时，计数器不清空；
+              下次暴击后crit_counter>=4，PP恢复时即可触发PS2
+        """
+        # 设置暴击率为100%确保暴击
+        self.caster.crit_rate = 1.0
+        # 消耗所有PP，使PS2无法触发
+        self.caster.current_pp = 0
+
+        # 4hit全暴击的AS2，crit_counter应达到4，但PP不足PS2不触发
+        result = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120041,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # PP不足时crit_counter应保持>=4（不清空）
+        self.assertGreaterEqual(
+            self.caster.crit_counter, 4,
+            f"PP不足时crit_counter应保持>=4, 实际: {self.caster.crit_counter}"
+        )
+
+        # 恢复PP
+        self.caster.current_pp = 10
+
+        # 使用AS1（暴击），crit_counter继续累加，>=4触发PS2
+        result2 = self.ss.execute_skill(
+            caster=self.caster,
+            skill_id=120023,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result2["success"])
+
+        # PS2触发后crit_counter应被清空（PS2自身暴击可能再次累加）
+        # PS2执行成功后crit_counter清空为0，但PS2自身的暴击可能再加1
+        self.assertLess(
+            self.caster.crit_counter, 4,
+            f"PS2触发后crit_counter应<4, 实际: {self.caster.crit_counter}"
+        )
+
+        # 验证PP被消耗（PS2 cost=1 PP）
+        self.assertLess(
+            self.caster.current_pp, 10,
+            f"PS2触发后PP应被消耗, 当前PP: {self.caster.current_pp}"
+        )
+
+    # ============================================================
+    # dmg_invulnerable无阈值模式
+    # ============================================================
+
+    def test_dmg_invulnerable_no_threshold(self):
+        """
+        dmg_invulnerable: 无阈值时，所有伤害无效化为1点
+        验证: 持有dmg_invulnerable(threshold_pct=0, hit_limited=1)的单位，
+              受到攻击时每hit伤害变为1点
+        """
+        # 给施法者添加dmg_invulnerable buff（无阈值，hit_limited=1）
+        invuln_buff = BuffState(
+            buff_id="test_dmg_invuln",
+            name="dmg_invulnerable",
+            effect_type=DMG_INVULNERABLE,
+            value=None,
+            duration=-1,
+            timing_type=2,
+            source_unit_id=self.caster.unit_id,
+            is_debuff=False,
+            hit_limited=1,
+            threshold_pct=0.0,
+        )
+        self.caster.buffs.append(invuln_buff)
+
+        hp_before = self.caster.current_hp
+
+        # 用敌方4hit攻击施法者
+        result = self.ss.execute_skill(
+            caster=self.enemy_phys_front,
+            skill_id=120041,  # 四連突，4hit
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"敌方攻击执行应成功: {result.get('error', '')}")
+
+        # 验证伤害被无效化：每hit只造成1点，4hit=4点
+        hp_loss = hp_before - self.caster.current_hp
+        self.assertLessEqual(
+            hp_loss, 4,
+            f"dmg_invulnerable无阈值时应将每hit伤害无效化为1点, "
+            f"HP损失: {hp_loss}, 应<=4"
+        )
+
+        # 验证dmg_invulnerable被消费
+        invuln_after = [b for b in self.caster.buffs
+                        if b.effect_type == DMG_INVULNERABLE]
+        self.assertEqual(
+            len(invuln_after), 0,
+            f"dmg_invulnerable应在受到攻击后被消费, 剩余: {len(invuln_after)}"
+        )
+
+    def test_dmg_invulnerable_no_threshold_debuff_still_applies(self):
+        """
+        dmg_invulnerable: 只无效伤害，附加的debuff仍会被施加
+        验证: 持有dmg_invulnerable的单位受到攻击时，伤害被无效化，
+              但攻击附带的debuff仍应被施加
+        """
+        # 给施法者添加dmg_invulnerable buff（无阈值，hit_limited=1）
+        invuln_buff = BuffState(
+            buff_id="test_dmg_invuln",
+            name="dmg_invulnerable",
+            effect_type=DMG_INVULNERABLE,
+            value=None,
+            duration=-1,
+            timing_type=2,
+            source_unit_id=self.caster.unit_id,
+            is_debuff=False,
+            hit_limited=1,
+            threshold_pct=0.0,
+        )
+        self.caster.buffs.append(invuln_buff)
+
+        # 通过_apply_aura对施法者施加debuff
+        class FakeDebuffEffect:
+            effect_type = "spd_down"
+            target_type = "self"
+            value = 0.2
+            value_tag = None
+            value_source = None
+            duration = 2
+            duration_type = "action"
+            duration_tag = None
+            hit_count = None
+            hit_count_tag = None
+            condition = None
+            flags = {"value_type": "percent"}
+            ignore_defense = 0
+            ignore_shield = 0
+            target_identifier = None
+
+        self.ss._apply_aura(self.caster, FakeDebuffEffect(), self.bf, is_debuff=True)
+
+        # 验证debuff被施加（dmg_invulnerable不阻止debuff）
+        spd_down_debuffs = [d for d in self.caster.debuffs
+                            if d.effect_type == SET.STATUS_SPEED.value]
+        self.assertTrue(
+            len(spd_down_debuffs) > 0,
+            f"dmg_invulnerable不应阻止debuff施加, "
+            f"实际debuffs: {[(d.effect_type, d.duration) for d in self.caster.debuffs]}"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

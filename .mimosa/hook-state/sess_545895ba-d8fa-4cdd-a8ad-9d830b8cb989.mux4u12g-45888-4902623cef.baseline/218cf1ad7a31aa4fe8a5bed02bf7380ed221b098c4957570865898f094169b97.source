@@ -1,0 +1,29 @@
+"""
+词条效果类型定义
+"""
+
+class GearEffectType:
+    """词条效果类型枚举"""
+    HP_PERCENT = 1          # HP百分比
+    ATTACK_PERCENT = 2      # 攻击力百分比
+    DEFENSE_PERCENT = 3     # 防御力百分比
+    SPEED_PERCENT = 4       # 速度百分比
+    CRIT_RATE = 5           # 暴击率
+    CRIT_DAMAGE = 6         # 暴击伤害
+    ADVANTAGE_DAMAGE = 7    # 有利属性伤害
+    DISADVANTAGE_DAMAGE = 8 # 不利属性伤害
+    
+    @classmethod
+    def get_name(cls, effect_type: int) -> str:
+        """获取词条类型名称"""
+        names = {
+            1: "HP百分比",
+            2: "攻击力百分比",
+            3: "防御力百分比",
+            4: "速度百分比",
+            5: "暴击率",
+            6: "暴击伤害",
+            7: "有利属性伤害",
+            8: "不利属性伤害"
+        }
+        return names.get(effect_type, f"未知类型{effect_type}")

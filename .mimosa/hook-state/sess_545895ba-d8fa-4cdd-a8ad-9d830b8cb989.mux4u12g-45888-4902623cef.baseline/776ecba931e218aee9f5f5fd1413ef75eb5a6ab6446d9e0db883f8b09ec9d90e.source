@@ -1,0 +1,109 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Fix enemy 232315's parsed skill effects by copying from character 113301.
+The hybrid text parser gives different results for enemy skills (2xxxxx)
+even though they have the same name and effects as character skills (1xxxxx).
+"""
+import json
+from copy import deepcopy
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+
+# Character skill -> Enemy skill mapping
+SKILL_MAP = {
+    "110017": "210096",  # 幕間の微睡み
+    "120024": "220350",  # カーテンショット
+    "130012": "230373",  # アタックアンプリファイ/アタックアンプリファイ+
+    "130032": "230374",  # ステージブースト
+    "130048": "230375",  # ヴォイドアンプリファイ
+}
+
+
+def main():
+    with open(DATA_DIR / "skill_effects_hybrid.json", "r", encoding="utf-8") as f:
+        effects = json.load(f)
+
+    with open(DATA_DIR / "skills.json", "r", encoding="utf-8") as f:
+        skills = json.load(f)
+
+    fixed = 0
+    for char_skill_id, enemy_skill_id in SKILL_MAP.items():
+        char_effect = effects.get(char_skill_id)
+        enemy_effect = effects.get(enemy_skill_id)
+
+        if not char_effect or not enemy_effect:
+            print(f"[SKIP] {char_skill_id} -> {enemy_skill_id}: data not found")
+            continue
+
+        char_name = char_effect.get("name", "")
+        enemy_name = enemy_effect.get("name", "")
+        print(f"\n--- {char_skill_id} ({char_name}) -> {enemy_skill_id} ({enemy_name}) ---")
+
+        # Copy character effects but preserve enemy-specific metadata
+        new_effect = deepcopy(char_effect)
+        new_effect["skill_id"] = int(enemy_skill_id)
+        new_effect["name"] = enemy_name  # Keep enemy name (has "+" suffix for some)
+
+        # Preserve enemy-specific cooldown if it differs
+        if enemy_effect.get("cooldown") is not None:
+            new_effect["cooldown"] = enemy_effect["cooldown"]
+        if enemy_effect.get("cooldown_update_timing") is not None:
+            new_effect["cooldown_update_timing"] = enemy_effect["cooldown_update_timing"]
+
+        # Preserve enemy-specific display settings if they exist
+        for key in ["display_target_priority", "display_target_range", "display_target_type"]:
+            if enemy_effect.get(key) is not None:
+                new_effect[key] = enemy_effect[key]
+
+        # Compare and report differences
+        old_trigger = enemy_effect.get("trigger_type")
+        new_trigger = new_effect.get("trigger_type")
+        if old_trigger != new_trigger:
+            print(f"  trigger_type: '{old_trigger}' -> '{new_trigger}'")
+
+        old_blocks = enemy_effect.get("effect_blocks", [])
+        new_blocks = new_effect.get("effect_blocks", [])
+
+        if len(old_blocks) != len(new_blocks):
+            print(f"  effect_blocks count: {len(old_blocks)} -> {len(new_blocks)}")
+
+        for i, (old_block, new_block) in enumerate(zip(old_blocks, new_blocks)):
+            old_effects = old_block.get("effects", [])
+            new_effects = new_block.get("effects", [])
+            if len(old_effects) != len(new_effects):
+                print(f"  block[{i}] effects count: {len(old_effects)} -> {len(new_effects)}")
+            for j, (old_eff, new_eff) in enumerate(zip(old_effects, new_effects)):
+                if old_eff.get("effect_type") != new_eff.get("effect_type"):
+                    print(f"  block[{i}].effect[{j}] type: {old_eff['effect_type']} -> {new_eff['effect_type']}")
+                if old_eff.get("target_type") != new_eff.get("target_type"):
+                    print(f"  block[{i}].effect[{j}] target: {old_eff['target_type']} -> {new_eff['target_type']}")
+
+        effects[enemy_skill_id] = new_effect
+        fixed += 1
+
+    # Save
+    import shutil
+    shutil.copy(DATA_DIR / "skill_effects_hybrid.json", DATA_DIR / "skill_effects_hybrid.json.bak3")
+    with open(DATA_DIR / "skill_effects_hybrid.json", "w", encoding="utf-8") as f:
+        json.dump(effects, f, ensure_ascii=False, indent=2)
+
+    print(f"\n[OK] Fixed {fixed} enemy skill effects")
+
+    # Verify the fix
+    print("\n=== Verification ===")
+    for char_sid, enemy_sid in SKILL_MAP.items():
+        char = effects.get(char_sid, {})
+        enemy = effects.get(enemy_sid, {})
+        char_blocks = char.get("effect_blocks", [])
+        enemy_blocks = enemy.get("effect_blocks", [])
+        char_effects = sum(len(b.get("effects", [])) for b in char_blocks)
+        enemy_effects = sum(len(b.get("effects", [])) for b in enemy_blocks)
+        match = "OK" if char_effects == enemy_effects else "MISMATCH"
+        print(f"  {char_sid} -> {enemy_sid}: {char_effects} effects vs {enemy_effects} effects [{match}]")
+
+
+if __name__ == "__main__":
+    main()

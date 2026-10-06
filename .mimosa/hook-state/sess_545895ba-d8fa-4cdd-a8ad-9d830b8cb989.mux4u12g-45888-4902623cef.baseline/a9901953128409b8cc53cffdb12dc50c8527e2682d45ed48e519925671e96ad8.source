@@ -1,0 +1,567 @@
+"""角色293405 惨禍：レイラ・ジェンキンス 专项E2E测试（「観察」mark全链 + 回復無効/回復リンク + HP阈值减伤）
+
+同名己方参考: 119302 商売上手のエンジェルナース（技能 110076/120165/130169/130170/130171）
+
+技能列表（5个，敌方版）:
+- EX: 210119 チクっとするよ～？（最低HP比例敵を含む縦列[威力]+横列[威力2]2段攻撃）
+- AS: 220416 トリアージ・スラスト（「観察」状態の敵を優先 + 「観察」時のみ防御30%無視）
+- PS1: 230437 アナライザ・フォーカス（after_self_attacked → 攻撃者に「観察」2自身行動+攻撃down(重複可)
+       + 回復無効(Lv1-9)/回復リンク(Lv10+)。「観察」と同時に解除、付与者死亡で解除）
+- PS2: 230438 コーリングナース（「観察」状態の敵がAS使用した後に追撃+EXゲージ-1、Lv5+ PP-1）
+- PS3: 230439 バイタルチェック（ターン開始時ステルス1ターン+現在HP20%超過分ダメージ減少1ターン）
+
+敌方差异（vs 己方119302）:
+- 高阶阈值下移: PS1 回復リンク 己方Lv15→敌方Lv10；PS2 PP-1 己方Lv11→敌方Lv5
+- 数值不同（威力/威力2/atk/dmg tags，按敌方原始数据）
+
+角色信息:
+- 角色: 惨禍：レイラ・ジェンキンス（敌方）/ 商売上手のエンジェルナース（己方）
+- 属性: 4 (土), 类型: 3 (敏捷/AGI), 站位: 5 (中後), 定位: 制御
+- 技能: 210119, 220416, 230437, 230438, 230439
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming, TriggerTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value       # atk_up/atk_down 共用
+RECEIVED_HEALING = SkillEffectType.RECEIVED_HEALING.value  # heal_efficacy_up/down 共用
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+HEAL_LINK = SkillEffectType.HEAL_LINK.value
+MARK = SkillEffectType.MARK.value
+
+KANSATSU = "観察"  # mark name 常量
+
+# 通用己方AS（skill_type=1，用于PS2触发验证）
+_GENERIC_AS = 120001
+
+
+def _make_mark(name, source_id="pre", count=1):
+    """生成 count 个指定名称 mark BuffState（debuff, 永续）。"""
+    return [
+        BuffState(
+            buff_id=f"{source_id}_mark_{i}_{id(source_id)}",
+            name=name,
+            effect_type=MARK,
+            value=0,
+            duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=source_id,
+            source_skill_id=0,
+            is_debuff=True,
+        )
+        for i in range(count)
+    ]
+
+
+class TestActor293405(unittest.TestCase):
+    """角色293405 惨禍：レイラ・ジェンキンス 专项E2E测试（敌方版）"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        # 施法者: 293405 惨禍：レイラ・ジェンキンス (土属性attr=4, 敏捷type=3) 中後
+        self.caster = UnitState(
+            unit_id="caster", name="惨禍：レイラ", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=293405, level=10,
+            element=4, character_type=3,
+            max_hp=30000, current_hp=30000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=10,
+            skills=[210119, 220416, 230437, 230438, 230439],
+            skill_levels={210119: 10, 220416: 10, 230437: 10,
+                          230438: 10, 230439: 10},
+            skill_cooldowns={},
+        )
+
+        # 己方前排（cf为最近友方）
+        self.ally_cf = self._mk_ally("ally_cf", "友方中前", Position.ALLY_CENTER_FRONT, 8000, 99999, ep=3)
+        self.ally_lf = self._mk_ally("ally_lf", "友方左前", Position.ALLY_LEFT_FRONT, 7000, 99999, ep=2)
+        self.ally_rf = self._mk_ally("ally_rf", "友方右前", Position.ALLY_RIGHT_FRONT, 6500, 99999, ep=2)
+        # 己方后排
+        self.ally_cb = self._mk_ally("ally_cb", "友方中後", Position.ALLY_CENTER_BACK, 6000, 99999, ep=1)
+        self.ally_lb = self._mk_ally("ally_lb", "友方左後", Position.ALLY_LEFT_BACK, 6000, 99999, ep=1)
+        self.ally_rb = self._mk_ally("ally_rb", "友方右後", Position.ALLY_RIGHT_BACK, 6000, 99999, ep=1)
+
+        self.bf.friend_team = [self.ally_cf, self.ally_lf, self.ally_rf,
+                               self.ally_cb, self.ally_lb, self.ally_rb]
+        self.bf.enemy_team = [self.caster]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    def _mk_ally(self, unit_id, name, position, atk, hp, ep=2, pp=4, ap=4):
+        return UnitState(
+            unit_id=unit_id, name=name, side=Side.ALLY,
+            position=position, character_id=999001, level=10,
+            element=3, character_type=1,
+            max_hp=hp, current_hp=hp,
+            attack=atk, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=ap, current_pp=pp, current_ep=ep,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+    # ════════════════════════════════════════════════════════════════
+    # 辅助方法
+    # ════════════════════════════════════════════════════════════════
+
+    def _reset(self, level=10):
+        self.caster.current_hp = self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = 10
+        self.caster.current_pp = 10
+        self.caster.current_ep = 10
+        self.caster.level = level
+        for sid in self.caster.skill_levels:
+            self.caster.skill_levels[sid] = level
+        for a in [self.ally_cf, self.ally_lf, self.ally_rf,
+                  self.ally_cb, self.ally_lb, self.ally_rb]:
+            a.current_hp = a.max_hp
+            a.buffs = []
+            a.debuffs = []
+            a.is_alive = True
+
+    def _get_marks(self, unit, name=KANSATSU):
+        return [d for d in unit.debuffs + unit.buffs
+                if d.effect_type == MARK and d.name == name]
+
+    def _direct_heal(self, target, pct=100):
+        """对 target 自身执行一次直接治疗（走 _apply_heal 完整路径，含heal_link/回復無効）。
+        理论治疗量 = target.attack × pct%。"""
+        heal_obj = type('obj', (object,), {
+            'effect_type': 'heal', 'target_type': 'self', 'target_identifier': None,
+            'value': pct, 'value_tag': None, 'value_source': None,
+            'duration': None, 'duration_type': None, 'duration_tag': None,
+            'hit_count': None, 'hit_count_tag': None, 'condition': None, 'flags': {},
+        })()
+        return self.ss._apply_heal(target, heal_obj, self.bf)
+
+    def _trigger_ps1(self, attacker=None):
+        """敌方cater被己方攻击后触发PS1（after_self_attacked）"""
+        attacker = attacker or self.ally_cf
+        self.caster.current_pp = 4
+        actions = self.ts.trigger_after_self_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            actor=attacker, primary_target=self.caster, triggered_by=attacker,
+        )
+        ps1 = [a for a in actions if a.skill_id == 230437]
+        self.assertGreater(len(ps1), 0, "被攻击后应触发PS1(230437)")
+        self.ss._execute_trigger_actions_inline(ps1, self.bf)
+        return ps1
+
+    def _ally_use_as(self, actor, skill_id=_GENERIC_AS):
+        """己方actor使用AS后触发PS2（after_enemy_skill_use）"""
+        actions = self.ts.trigger_after_skill_use(
+            actor=actor, skill_id=skill_id, primary_target=self.caster,
+            result={"total_damage": 100}, battlefield=self.bf,
+        )
+        ps2 = [a for a in actions if a.skill_id == 230438]
+        if ps2:
+            self.ss._execute_trigger_actions_inline(ps2, self.bf)
+        return ps2
+
+    # ════════════════════════════════════════════════════════════════
+    # EX 210119 チクっとするよ～？
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ex_210119_column_and_row_targeting(self):
+        """EX: 最低HP比例友方(ally_cf)を含む縦列(cf+cb)+横列(前排3人)の2段攻撃。"""
+        self._reset()
+        # ally_cf 设为最低HP比例
+        self.ally_cf.current_hp = int(self.ally_cf.max_hp * 0.1)
+        hp_before = {a.unit_id: a.current_hp for a in self.bf.friend_team}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=210119, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 縦列: cf + cb 均受击
+        self.assertLess(self.ally_cf.current_hp, hp_before["ally_cf"], "縦列含cf")
+        self.assertLess(self.ally_cb.current_hp, hp_before["ally_cb"], "縦列含cb")
+        # 横列: 前排3人（lf/rf/cf）受击
+        self.assertLess(self.ally_lf.current_hp, hp_before["ally_lf"], "横列含lf")
+        self.assertLess(self.ally_rf.current_hp, hp_before["ally_rf"], "横列含rf")
+        # 无关后排（lb/rb）不受击
+        self.assertEqual(self.ally_lb.current_hp, hp_before["ally_lb"], "lb不应受击")
+        self.assertEqual(self.ally_rb.current_hp, hp_before["ally_rb"], "rb不应受击")
+
+    def test_ex_210119_lowest_hp_priority(self):
+        """EX: 最低HP比例友方在后排时，縦列=后排、横列=后排3人。"""
+        self._reset()
+        self.ally_cb.current_hp = int(self.ally_cb.max_hp * 0.1)
+        hp_before = {a.unit_id: a.current_hp for a in self.bf.friend_team}
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=210119, battlefield=self.bf, skip_cost=True
+        )
+        # 縦列: cb + cf（中列前后）
+        self.assertLess(self.ally_cb.current_hp, hp_before["ally_cb"])
+        self.assertLess(self.ally_cf.current_hp, hp_before["ally_cf"])
+        # 横列: 后排3人
+        self.assertLess(self.ally_lb.current_hp, hp_before["ally_lb"], "横列含lb")
+        self.assertLess(self.ally_rb.current_hp, hp_before["ally_rb"], "横列含rb")
+        # 前排 lf/rf 应仅受縦列无关（中列前后）时不受击
+        self.assertEqual(self.ally_lf.current_hp, hp_before["ally_lf"], "lf不应受击")
+        self.assertEqual(self.ally_rf.current_hp, hp_before["ally_rf"], "rf不应受击")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS 220416 トリアージ・スラスト
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as_220416_prefers_marked_enemy(self):
+        """AS: 「観察」状態の敵を優先（持有者优先，距离最近优先于mark数）。"""
+        self._reset()
+        # rf 持有「観察」但距离比 cf 远 → 仍选 rf
+        self.ally_rf.debuffs.extend(_make_mark(KANSATSU, "src1", 1))
+        hp_before = {u.unit_id: u.current_hp
+                     for u in [self.ally_cf, self.ally_rf, self.ally_lf]}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=220416, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.ally_rf.current_hp, hp_before['ally_rf'],
+                        "应优先攻击持有「観察」的rf（距离优先于无mark的cf）")
+        self.assertEqual(self.ally_cf.current_hp, hp_before['ally_cf'], "无mark的cf不应被攻击")
+        self.assertEqual(self.ally_lf.current_hp, hp_before['ally_lf'], "无mark的lf不应被攻击")
+
+    def test_as_220416_marked_nearest_among_marked(self):
+        """AS: 复数「観察」持有者中选距离最近者（不看mark数）。"""
+        self._reset()
+        self.ally_lf.debuffs.extend(_make_mark(KANSATSU, "src1", 1))
+        self.ally_rf.debuffs.extend(_make_mark(KANSATSU, "src2", 3))
+        hp_before = {u.unit_id: u.current_hp for u in [self.ally_lf, self.ally_rf]}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=220416, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.ally_lf.current_hp, hp_before['ally_lf'],
+                        "复数「観察」持有者中应选距离最近的lf")
+        self.assertEqual(self.ally_rf.current_hp, hp_before['ally_rf'],
+                         "较远的rf不应被攻击（不看mark数）")
+
+    def test_as_220416_fallback_nearest_when_no_mark(self):
+        """AS: 无「観察」持有者时回退最近敌人。"""
+        self._reset()
+        hp_before = {u.unit_id: u.current_hp for u in [self.ally_cf, self.ally_lf]}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=220416, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.ally_cf.current_hp, hp_before['ally_cf'],
+                        "无mark持有者时应攻击最近敌cf")
+        self.assertEqual(self.ally_lf.current_hp, hp_before['ally_lf'])
+
+    def test_as_220416_conditional_ignore_defense(self):
+        """AS: 対象持「観察」時のみ防御30%無視。相同面板下 mark持有者受到伤害更大。"""
+        self._reset()
+        # cf(近) 与 rf(远) 相同面板；先打持mark的rf（穿透30%），再打无mark的cf
+        self.ally_rf.debuffs.extend(_make_mark(KANSATSU, "src1", 1))
+        rf_hp_before = self.ally_rf.current_hp
+        self.ss.execute_skill(caster=self.caster, skill_id=220416,
+                              battlefield=self.bf, skip_cost=True)
+        dmg_marked = rf_hp_before - self.ally_rf.current_hp
+        self.assertGreater(dmg_marked, 0)
+
+        # 清除mark，索敌回退最近敌cf（30%穿防不生效）
+        self._reset()
+        cf_hp_before = self.ally_cf.current_hp
+        self.ss.execute_skill(caster=self.caster, skill_id=220416,
+                              battlefield=self.bf, skip_cost=True)
+        dmg_unmarked = cf_hp_before - self.ally_cf.current_hp
+        self.assertGreater(dmg_unmarked, 0)
+        # 穿防30%生效时伤害应明显更高（同面板）
+        self.assertGreater(dmg_marked, dmg_unmarked,
+                           "对「観察」目标的伤害应高于无mark目标（30%穿防生效）")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS1 230437 アナライザ・フォーカス
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps1_230437_applies_mark_and_atk_down(self):
+        """PS1: 被攻击后给攻击者挂「観察」(2自身行動)+atk_down(stackable, linked)。"""
+        self._reset()
+        self._trigger_ps1(self.ally_cf)
+        marks = self._get_marks(self.ally_cf)
+        self.assertEqual(len(marks), 1, "攻击者应获得1个「観察」mark")
+        self.assertEqual(marks[0].duration, 2, "「観察」持续2自身行動")
+        self.assertTrue(getattr(marks[0], 'source_death_remove', False),
+                        "「観察」应带source_death_remove")
+        atk_downs = [d for d in self.ally_cf.debuffs if d.effect_type == STATUS_ATTACK]
+        self.assertGreaterEqual(len(atk_downs), 1, "攻击者应获得atk_down")
+        self.assertTrue(getattr(atk_downs[0], 'linked_buff_id', '') == KANSATSU,
+                        "atk_down应linked到「観察」")
+        self.assertTrue(atk_downs[0].unremovable, "atk_down应为unremovable")
+        final_atk = self.dms._calculate_final_stat(self.ally_cf, "attack")
+        self.assertLess(final_atk, self.ally_cf.attack, "atk_down应实际降低攻击力")
+
+    def test_ps1_230437_heal_link_lv10(self):
+        """PS1 Lv10: 回復リンク（対象受到治療100%転送給自身）。敌方阈值=己方Lv15下移。"""
+        self._reset(level=10)
+        self._trigger_ps1(self.ally_cf)
+        eff_downs = [d for d in self.ally_cf.debuffs if d.effect_type == RECEIVED_HEALING]
+        self.assertEqual(len(eff_downs), 0, "Lv10 回復無効应被回復リンク替换")
+        cf_links = [b for b in self.ally_cf.debuffs if b.effect_type == HEAL_LINK]
+        self.assertGreaterEqual(len(cf_links), 1, "対象应持有回復リンク(debuff侧)")
+        self.assertEqual(cf_links[0].value, 100, "転送率应为100%")
+        self.assertTrue(getattr(cf_links[0], 'linked_buff_id', '') == KANSATSU,
+                        "回復リンク应linked到「観察」")
+        self_links = [b for b in self.caster.buffs if b.effect_type == HEAL_LINK]
+        self.assertGreaterEqual(len(self_links), 1, "自身也应持有回復リンク")
+        # 治疗 ally_cf（理论值 = 即时ATK×100%）→ 自身(敌方cater)也收到等量
+        # atk_down=0(None trigger? PS1 Lv10 atk tag=20) → 即时ATK = 8000×(1-20%)=6400
+        self.ally_cf.current_hp = self.ally_cf.max_hp - 10000
+        self.caster.current_hp = self.caster.max_hp - 8000
+        self._direct_heal(self.ally_cf, pct=100)
+        self.assertEqual(self.ally_cf.current_hp - (self.ally_cf.max_hp - 10000), 6400,
+                         "Lv10対象本身应正常回復")
+        self.assertEqual(self.caster.current_hp - (self.caster.max_hp - 8000), 6400,
+                         "回復リンク应将理論治療量100%転送給自身")
+
+    def test_ps1_230437_heal_invalid_lv9(self):
+        """PS1 Lv9: 回復無効（heal_efficacy_down 100%）。"""
+        self._reset(level=9)
+        self._trigger_ps1(self.ally_cf)
+        eff_downs = [d for d in self.ally_cf.debuffs if d.effect_type == RECEIVED_HEALING]
+        self.assertGreaterEqual(len(eff_downs), 1, "Lv1-9 应为回復無効")
+        self.assertEqual(eff_downs[0].value, 100, "回復無効应为100%")
+        self.ally_cf.current_hp = self.ally_cf.max_hp - 10000
+        self._direct_heal(self.ally_cf, pct=100)
+        self.assertEqual(self.ally_cf.max_hp - self.ally_cf.current_hp, 10000,
+                         "回復無効下治疗应完全无效")
+
+    def test_ps1_230437_mark_expiry_cascades(self):
+        """PS1: 「観察」期限切れ（自身2回行動終了）→ linked debuffs一同消失。"""
+        self._reset()
+        self._trigger_ps1(self.ally_cf)
+        self.assertGreaterEqual(len(self._get_marks(self.ally_cf)), 1)
+        self.assertGreaterEqual(len([d for d in self.ally_cf.debuffs
+                                     if d.effect_type == STATUS_ATTACK]), 1)
+        for _ in range(2):
+            for d in self.ally_cf.debuffs:
+                d.just_applied = False
+            self.aus.process_source_maneuver_end(self.caster, self.bf.get_all_units())
+        self.assertEqual(len(self._get_marks(self.ally_cf)), 0,
+                         "2回行動終了後「観察」应消失")
+        self.assertEqual(len([d for d in self.ally_cf.debuffs
+                              if getattr(d, 'linked_buff_id', '') == KANSATSU]), 0,
+                         "「観察」到期后linked debuffs应级联消失")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS2 230438 コーリングナース
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps2_230438_triggers_on_marked_enemy_as(self):
+        """PS2: 「観察」状態の敵がAS使用した後に発動（追撃+EP-1）。Lv10不削PP。"""
+        self._reset()
+        self.ally_cf.debuffs.extend(_make_mark(KANSATSU, "src", 1))
+        cf_hp_before = self.ally_cf.current_hp
+        cf_ep_before = self.ally_cf.current_ep
+        pp_before = self.caster.current_pp
+        ps2 = self._ally_use_as(self.ally_cf)
+        self.assertGreater(len(ps2), 0, "「観察」状態の敵使用AS应触发PS2")
+        self.assertLess(self.ally_cf.current_hp, cf_hp_before, "追撃伤害应命中该敌")
+        self.assertEqual(self.ally_cf.current_ep, cf_ep_before - 1, "EXゲージ应-1")
+        self.assertEqual(self.caster.current_pp, pp_before - 1, "PS发动消耗PP 1")
+        # Lv10: 敌方高阶阈值Lv5 → 应削PP
+        self.assertEqual(self.ally_cf.current_pp, 3, "Lv10 己方Lv11级效果下移后应削PP")
+
+    def test_ps2_230438_no_mark_no_trigger(self):
+        """PS2: 无「観察」的敌使用AS → 不触发。"""
+        self._reset()
+        cf_hp_before = self.ally_cf.current_hp
+        ps2 = self._ally_use_as(self.ally_cf)
+        self.assertEqual(len(ps2), 0, "无「観察」敵使用AS不应触发")
+        self.assertEqual(self.ally_cf.current_hp, cf_hp_before)
+
+    def test_ps2_230438_same_side_no_trigger(self):
+        """PS2: 同阵营（敌方）使用AS → 不触发。"""
+        self._reset()
+        # caster自身（敌方）持「観察」，但使用AS时同阵营 → 不应触发
+        self.caster.debuffs.extend(_make_mark(KANSATSU, "src", 1))
+        cf_hp_before = self.ally_cf.current_hp
+        ps2 = self._ally_use_as(self.caster)
+        self.assertEqual(len(ps2), 0, "同阵营AS使用不应触发after_enemy_skill_use")
+        self.assertEqual(self.ally_cf.current_hp, cf_hp_before)
+
+    def test_ps2_230438_lv4_no_pp_reduction(self):
+        """PS2 Lv4: 仅削EX（PP-1效果 Lv5+ 才生效）。"""
+        self._reset(level=4)
+        self.ally_cf.debuffs.extend(_make_mark(KANSATSU, "src", 1))
+        cf_pp_before = self.ally_cf.current_pp
+        ps2 = self._ally_use_as(self.ally_cf)
+        self.assertGreater(len(ps2), 0, "Lv4 应触发追撃")
+        self.assertEqual(self.ally_cf.current_pp, cf_pp_before, "Lv4 不应削PP")
+
+    def test_ps2_230438_lv5_removes_pp(self):
+        """PS2 Lv5+: 追撃+EXゲージ-1+PP-1。"""
+        self._reset(level=5)
+        self.ally_cf.debuffs.extend(_make_mark(KANSATSU, "src", 1))
+        cf_pp_before = self.ally_cf.current_pp
+        ps2 = self._ally_use_as(self.ally_cf)
+        self.assertGreater(len(ps2), 0, "Lv5 应触发追撃")
+        self.assertEqual(self.ally_cf.current_pp, cf_pp_before - 1,
+                         "Lv5+ 应削PP 1（敌方阈值下移自己方Lv11）")
+
+    def test_ps2_230438_hits_marked_actor(self):
+        """PS2: 使用AS的「観察」敵在后排时也应被追撃（trigger_attacker定位）。"""
+        self._reset()
+        self.ally_cb.debuffs.extend(_make_mark(KANSATSU, "src", 1))
+        cb_hp_before = self.ally_cb.current_hp
+        ps2 = self._ally_use_as(self.ally_cb)
+        self.assertGreater(len(ps2), 0, "后排「観察」敵使用AS应触发")
+        self.assertLess(self.ally_cb.current_hp, cb_hp_before,
+                        "追撃应命中AS使用者（trigger_attacker）而非最近友方cf")
+        self.assertEqual(self.ally_cf.current_hp, self.ally_cf.max_hp,
+                         "最近友方cf不应被误击")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS3 230439 バイタルチェック
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps3_230439_turn_start_stealth_and_threshold(self):
+        """PS3: ターン開始時 自身にステルス1ターン+HP20%超過分減少(1ターン)。"""
+        self._reset()
+        self.caster.skill_cooldowns = {}
+        actions = self.ts.trigger_turn_start_non_preemptive(self.bf)
+        ps3 = [a for a in actions if a.skill_id == 230439]
+        self.assertGreater(len(ps3), 0, "回合开始应触发PS3(230439)")
+        self.ss._execute_trigger_actions_inline(ps3, self.bf, trigger_timing="on_turn_start")
+        stealths = [b for b in self.caster.buffs if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertGreaterEqual(len(stealths), 1, "应获得ステルス")
+        self.assertEqual(stealths[0].duration, 1, "ステルス持续1ターン")
+        thresholds = [b for b in self.caster.buffs
+                      if b.effect_type == "dmg_taken_down_threshold"]
+        self.assertGreaterEqual(len(thresholds), 1, "应获得HP阈值减伤buff")
+        self.assertEqual(thresholds[0].threshold_pct, 20.0, "阈值应为20%")
+        self.assertEqual(thresholds[0].threshold_base, "current_hp", "阈值基数为当前HP")
+        self.assertEqual(thresholds[0].duration, 1, "持续1ターン")
+
+    def test_ps3_230439_threshold_reduces_excess_damage(self):
+        """PS3: 現在HPの20%超過分のみdmg%減少（Lv10=65%）。"""
+        self._reset()
+        self.caster.skill_cooldowns = {}
+        actions = self.ts.trigger_turn_start_non_preemptive(self.bf)
+        ps3 = [a for a in actions if a.skill_id == 230439]
+        self.ss._execute_trigger_actions_inline(ps3, self.bf, trigger_timing="on_turn_start")
+
+        self.caster.current_hp = 10000
+        thresholds = [b for b in self.caster.buffs
+                      if b.effect_type == "dmg_taken_down_threshold"]
+        self.caster.buffs.remove(thresholds[0])
+        dmg_obj = type('obj', (object,), {
+            'power': 100.0, 'hit_count': 1, 'element': 4,
+            'ignore_defense': 0, 'ignore_shield': 0, 'hp_scaling_bonus': 0.0,
+            'cannot_crit': True, 'force_crit': False, 'bonus_crit_rate': 0.0,
+            'skill_id': 999999, 'name': 'test', 'base_value_source': None,
+        })
+        base_result = self.dms.calculate_damage(self.ally_cf, self.caster, dmg_obj)
+        base_dmg = base_result.total_damage
+        self.assertGreater(base_dmg, 0)
+
+        self.caster.buffs.append(thresholds[0])
+        buffed_result = self.dms.calculate_damage(self.ally_cf, self.caster, dmg_obj)
+        buffed_dmg = buffed_result.total_damage
+        threshold = self.caster.current_hp * 0.2
+        self.assertGreater(base_dmg, threshold, "基准伤害应超过阈值才能触发减伤")
+        # Lv10 dmg tag=65%（敌方原始数据）
+        expected = base_dmg * 0.35
+        self.assertLess(buffed_dmg, base_dmg, "超过分減少应生效")
+        self.assertAlmostEqual(buffed_dmg, expected, delta=max(5, expected * 0.02),
+                               msg=f"阈值减伤: base={base_dmg} → base×0.35")
+
+    # ════════════════════════════════════════════════════════════════
+    # 配置校验
+    # ════════════════════════════════════════════════════════════════
+
+    def test_config_validation(self):
+        """配置校验: 5技能存在 / trigger / 阈值 / target_identifier。"""
+        for sid in [210119, 220416, 230437, 230438, 230439]:
+            self.assertIsNotNone(self.dl.get_skill_by_id(sid), f"skills.json 缺 {sid}")
+            self.assertIsNotNone(self.dl.get_parsed_skill_data(sid), f"hybrid 缺 {sid}")
+
+        p437 = self.dl.get_parsed_skill_data(230437)
+        self.assertEqual(p437['trigger_type'], 'after_self_attacked')
+        # 阈值：block2 max=9（回復無効），block3 min=10（回復リンク）
+        conds = [b.get('condition') or {} for b in p437['effect_blocks']]
+        self.assertIn({'type': 'active_level_max', 'value': 9}, conds,
+                      "230437 回復無効应为Lv1-9")
+        self.assertIn({'type': 'active_level_min', 'value': 10}, conds,
+                      "230437 回復リンク应为Lv10+")
+        for blk_ in p437['effect_blocks']:
+            for eff_ in blk_['effects']:
+                if eff_['target_type'] == 'enemy_single':
+                    self.assertEqual(eff_.get('target_identifier'), 'trigger_attacker',
+                                     "230437 反击型效果必须定位trigger_attacker")
+
+        p438 = self.dl.get_parsed_skill_data(230438)
+        self.assertEqual(p438['trigger_type'], 'after_enemy_skill_use')
+        self.assertIn(p438['trigger_type'],
+                      __import__('src.combat_v2.services.trigger_service',
+                                 fromlist=['TRIGGER_TYPE_MAP']).TRIGGER_TYPE_MAP,
+                      "after_enemy_skill_use 必须已注册")
+        # PP-1效果 level_min=5
+        pp_found = False
+        for blk_ in p438['effect_blocks']:
+            for eff_ in blk_['effects']:
+                self.assertEqual(eff_.get('target_identifier'), 'trigger_attacker',
+                                 "230438 追撃效果必须定位trigger_attacker")
+                if eff_['effect_type'] == 'remove_pp':
+                    pp_found = True
+                    self.assertEqual(eff_['flags'].get('level_min'), 5,
+                                     "230438 PP-1效果应Lv5+生效")
+        self.assertTrue(pp_found, "230438 应配置 remove_pp 效果")
+
+        p439 = self.dl.get_parsed_skill_data(230439)
+        self.assertEqual(p439['trigger_type'], 'on_turn_start')
+        for blk_ in p439['effect_blocks']:
+            for eff_ in blk_['effects']:
+                self.assertEqual(eff_['duration_type'], 'turn',
+                                 "230439 「1ターン」效果必须用turn制")
+
+
+if __name__ == '__main__':
+    unittest.main()

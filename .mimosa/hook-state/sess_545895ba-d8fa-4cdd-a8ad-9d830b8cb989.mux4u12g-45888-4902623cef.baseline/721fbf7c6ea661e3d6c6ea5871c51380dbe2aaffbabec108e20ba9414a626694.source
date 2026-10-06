@@ -1,0 +1,134 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import unittest
+from unittest.mock import MagicMock, patch
+import sys
+from pathlib import Path
+
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.skill_data_resolver import ResolvedSkillData, ResolvedEffectBlock, ResolvedEffect
+from src.data.models import SkillData
+
+class TestSkillService(unittest.TestCase):
+    
+    def setUp(self):
+        self.mock_loader = MagicMock()
+        self.mock_resource_service = MagicMock()
+        self.service = SkillService(self.mock_loader, self.mock_resource_service)
+        self.service._resolver = MagicMock()
+        self.service.set_battlefield = MagicMock()
+        self.service.target_service = MagicMock()
+        self.service.damage_service = MagicMock()
+        self.service.aura_service = MagicMock()
+        self.service.status_service = MagicMock()
+        self.service.trigger_service = MagicMock()
+        self.unit = MagicMock(spec=UnitState)
+        self.unit.unit_id = "test_unit"
+        self.unit.name = "TestUnit"
+        self.unit.current_ap = 0
+        self.unit.current_pp = 0
+        self.unit.current_ep = 0
+        self.unit.max_extra_point = 100
+        self.unit.skill_levels = {}
+        self.unit.skill_cooldowns = {}
+        self.battlefield = MagicMock(spec=BattlefieldState)
+        
+    def test_check_skill_cost_as(self):
+        # Setup AS Skill (cost 2 AP)
+        skill_data = MagicMock(resource_cost=2, skill_type=1) # 1=AS
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        
+        # Case 1: Enough AP
+        self.unit.current_ap = 2
+        self.assertTrue(self.service.check_skill_cost(self.unit, 101))
+        
+        # Case 2: Not enough AP
+        self.unit.current_ap = 1
+        self.assertFalse(self.service.check_skill_cost(self.unit, 101))
+        
+    def test_check_skill_cost_ps(self):
+        # Setup PS Skill (cost 2 PP)
+        skill_data = MagicMock(resource_cost=2, skill_type=2) # 2=PS
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        
+        # Case 1: Enough PP
+        self.unit.current_pp = 2
+        self.assertTrue(self.service.check_skill_cost(self.unit, 201))
+        
+        # Case 2: Not enough PP
+        self.unit.current_pp = 1
+        self.assertFalse(self.service.check_skill_cost(self.unit, 201))
+        
+    def test_check_skill_cost_mc(self):
+        # Setup Memory Card (cost irrelevant, type=4)
+        skill_data = MagicMock(resource_cost=100, skill_type=4) # 4=MC
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        
+        # Should be free regardless of resources
+        self.unit.current_ap = 0
+        self.unit.current_pp = 0
+        self.assertTrue(self.service.check_skill_cost(self.unit, 401))
+
+    def test_check_skill_cost_ex(self):
+        # Setup EX Skill (cost effectively all EP, check full)
+        skill_data = MagicMock(resource_cost=0, skill_type=3) # 3=EX
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        
+        self.unit.max_extra_point = 100
+        
+        # Case 1: Full EP
+        self.unit.current_ep = 100
+        self.assertTrue(self.service.check_skill_cost(self.unit, 301))
+        
+        # Case 2: Not Full EP
+        self.unit.current_ep = 99
+        self.assertFalse(self.service.check_skill_cost(self.unit, 301))
+
+    def test_execute_skill_success(self):
+        skill_id = 101
+        skill_data = MagicMock(resource_cost=2, skill_type=1)
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        self.mock_loader.load_parsed_skills.return_value = {}
+        
+        resolved = ResolvedSkillData(
+            skill_id=skill_id, name="TestSkill", skill_type=1,
+            resource_cost=2, cooldown=0, effect_blocks=[]
+        )
+        self.service._resolver.resolve.return_value = resolved
+        
+        # Mock Successful Deduction
+        self.mock_resource_service.consume_ap.return_value = True
+        
+        result = self.service.execute_skill(self.unit, skill_id, self.battlefield)
+        
+        self.assertTrue(result["success"])
+        self.mock_resource_service.consume_ap.assert_called_with(self.unit, 2)
+        
+    def test_execute_skill_fail_resource(self):
+        skill_id = 101
+        skill_data = MagicMock(resource_cost=2, skill_type=1)
+        self.mock_loader.get_skill_by_id.return_value = skill_data
+        
+        resolved = ResolvedSkillData(
+            skill_id=skill_id, name="TestSkill", skill_type=1,
+            resource_cost=2, cooldown=0, effect_blocks=[]
+        )
+        self.service._resolver.resolve.return_value = resolved
+        
+        # Mock Failed Deduction (Double Check mechanism)
+        self.mock_resource_service.consume_ap.return_value = False
+        
+        result = self.service.execute_skill(self.unit, skill_id, self.battlefield)
+        
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Insufficient resources")
+
+if __name__ == '__main__':
+    unittest.main()

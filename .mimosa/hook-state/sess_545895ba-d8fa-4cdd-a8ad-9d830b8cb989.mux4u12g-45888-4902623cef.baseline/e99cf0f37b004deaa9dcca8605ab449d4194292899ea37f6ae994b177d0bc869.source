@@ -1,0 +1,2040 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+第六赛季对抗压制战 (Circle Battle S6) 专项测试
+
+覆盖 S6 引入的 8 个新机制：
+1. block_buff_by_type 检查 (aura_service.add_aura) — 土雷 220362
+2. skill_power_down 乘区扣减 (damage_service.calculate_damage) — 若雷 230384
+3. stealth 消耗逻辑 (target_service._select_targets) — 土雷 220362
+4. 3 个新 target_type (enemy_row_of_lowest_def / enemy_single_lowest_def_x2 / ally_single_lowest_hp_x2) — 若雷 220360/361
+5. _apply_block_buff_by_type (skill_service) — 土雷 220362
+6. _apply_stealth (skill_service) — 土雷 220362
+7. _apply_skill_power_down (skill_service) — 若雷 230384
+8. _apply_split_heal_by_damage (skill_service) — 若雷 220360/361
+"""
+
+import unittest
+from unittest.mock import MagicMock
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, Attribute, SkillEffectType, AuraUpdateTiming,
+    DisplayTargetType, DisplayTargetRange, DisplayTargetPriority,
+)
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.skill_service import SkillService, _JSON_EFFECT_TO_ENUM
+
+
+def _make_unit(unit_id, name, side, position, attack=1000, defense=500,
+               max_hp=10000, current_hp=10000, speed=500, crit_rate=0.0,
+               element=Attribute.FIRE.value, character_type=1, is_alive=True):
+    """构造真实 UnitState 用于测试"""
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=1, element=element, character_type=character_type,
+        max_hp=max_hp, attack=attack, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=current_hp, current_ap=4, current_pp=4, current_ep=0.0,
+        is_alive=is_alive,
+    )
+
+
+def _make_bf(*units):
+    """构造战场状态，按 side 分别填入 enemy_team / friend_team"""
+    bf = BattlefieldState()
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    return bf
+
+
+# =============================================================================
+# 1. block_buff_by_type 检查 (AuraService.add_aura)
+# =============================================================================
+class TestS6AuraBlockBuffByType(unittest.TestCase):
+    """S6 土雷 220362: 目标持有 BLOCK_BUFF_BY_TYPE debuff 时阻止指定 buff 新付与"""
+
+    def setUp(self):
+        self.service = AuraService()
+        self.unit = _make_unit("u1", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+
+    def test_blocks_atk_up_buff(self):
+        """持有 block_buff_by_type(atk_up) debuff 时，atk_up buff 不可付与"""
+        block_debuff = BuffState(
+            buff_id="bb1", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=2, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[SkillEffectType.STATUS_ATTACK.value],
+        )
+        self.unit.debuffs.append(block_debuff)
+
+        atk_up = BuffState(
+            buff_id="atk1", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        ok = self.service.add_aura(self.unit, atk_up)
+        self.assertFalse(ok, "atk_up should be blocked by BlockBuffByType")
+        self.assertEqual(len(self.unit.buffs), 0)
+
+    def test_does_not_block_other_buff_types(self):
+        """持有 block_buff_by_type(atk_up) debuff 时，def_up 仍可付与"""
+        block_debuff = BuffState(
+            buff_id="bb2", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=2, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[SkillEffectType.STATUS_ATTACK.value],
+        )
+        self.unit.debuffs.append(block_debuff)
+
+        def_up = BuffState(
+            buff_id="def1", name="DefUp",
+            effect_type=SkillEffectType.STATUS_DEFENSE.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        ok = self.service.add_aura(self.unit, def_up)
+        self.assertTrue(ok, "def_up should NOT be blocked")
+        self.assertEqual(len(self.unit.buffs), 1)
+
+    def test_block_buff_by_type_not_self_blocked(self):
+        """BLOCK_BUFF_BY_TYPE 自身不应被自己阻止"""
+        block_debuff = BuffState(
+            buff_id="bb3", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=2, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[SkillEffectType.BLOCK_BUFF_BY_TYPE.value],
+        )
+        self.unit.debuffs.append(block_debuff)
+
+        another_block = BuffState(
+            buff_id="bb4", name="buff_block2",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=1, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[SkillEffectType.STATUS_ATTACK.value],
+        )
+        ok = self.service.add_aura(self.unit, another_block)
+        self.assertTrue(ok, "BlockBuffByType should not be self-blocked")
+
+    def test_expired_block_debuff_does_not_block(self):
+        """duration=0 的 block_buff_by_type debuff 不再生效"""
+        block_debuff = BuffState(
+            buff_id="bb5", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=0, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[SkillEffectType.STATUS_ATTACK.value],
+        )
+        self.unit.debuffs.append(block_debuff)
+
+        atk_up = BuffState(
+            buff_id="atk2", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        ok = self.service.add_aura(self.unit, atk_up)
+        self.assertTrue(ok, "atk_up should pass when block debuff duration=0")
+
+
+# =============================================================================
+# 2. skill_power_down 乘区扣减 (DamageService.calculate_damage)
+# =============================================================================
+class TestS6DamageSkillPowerDown(unittest.TestCase):
+    """S6 若雷 230384: 攻击者持有 skill_power_down debuff 时按百分比扣减 skill_factor"""
+
+    def setUp(self):
+        self.service = DamageService()
+        self.attacker = _make_unit("atk", "Attacker", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                                   attack=1000, defense=0, crit_rate=0.0)
+        self.defender = _make_unit("def", "Defender", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                                   attack=0, defense=500)
+        self.skill = MagicMock()
+        self.skill.power = 100
+        self.skill.hit_count = 1
+        self.skill.element = None
+        self.skill.ignore_defense = 0
+        self.skill.bonus_crit_rate = 0.0
+        self.skill.cannot_crit = True
+        self.skill.hp_scaling_bonus = 0.0
+        self.skill.base_value_source = None
+
+    def _base_damage(self):
+        """无 debuff 时基础伤害 = (1000-500) * 1.0 = 500"""
+        return self.service.calculate_damage(self.attacker, self.defender, self.skill).total_damage
+
+    def test_no_debuff_uses_full_skill_power(self):
+        dmg = self._base_damage()
+        self.assertEqual(dmg, 500)
+
+    def test_single_skill_power_down_debuff(self):
+        """50% skill_power_down -> skill_factor 1.0 -> 0.5 -> dmg 250"""
+        self.attacker.debuffs.append(BuffState(
+            buff_id="spd1", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=50.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self.skill).total_damage
+        self.assertEqual(dmg, 250)
+
+    def test_multiple_skill_power_down_debuffs_stack(self):
+        """两个 30% skill_power_down -> 累计 60% -> skill_factor 0.4 -> dmg 200"""
+        for i in range(2):
+            self.attacker.debuffs.append(BuffState(
+                buff_id=f"spd{i}", name="skill_power_down",
+                effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+                value=30.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+                is_debuff=True,
+            ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self.skill).total_damage
+        self.assertEqual(dmg, 200)
+
+    def test_full_reduction_floor(self):
+        """100% skill_power_down -> skill_factor 0 -> raw=0, 但最低伤害保护 max(1, ...) 返回 1"""
+        self.attacker.debuffs.append(BuffState(
+            buff_id="spd_full", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=100.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self.skill).total_damage
+        # max(1, atk-def) = 500, skill_factor = max(0, 1-1) = 0 -> raw=0
+        # 但 final_hit_damage = max(1, math.floor(raw)) = 1 (最低伤害保护)
+        self.assertEqual(dmg, 1)
+
+
+# =============================================================================
+# 3. stealth 消耗逻辑 (TargetService._select_targets ONE_PAWN 分支)
+# =============================================================================
+class TestS6TargetStealth(unittest.TestCase):
+    """S6 土雷 220362: 第一優先対象持ステルス時移到末尾并消耗"""
+
+    def setUp(self):
+        self.service = TargetService()
+        self.caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        # 2 个敌方，LF 防御更低（更靠前排序）
+        self.enemy_lf = _make_unit("e_lf", "EnemyLF", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                                   defense=400)
+        self.enemy_rb = _make_unit("e_rb", "EnemyRB", Side.ENEMY, Position.ENEMY_RIGHT_BACK,
+                                   defense=800)
+        self.bf = _make_bf(self.caster, self.enemy_lf, self.enemy_rb)
+
+    def _skill(self, priority=DisplayTargetPriority.NEAREST.value):
+        s = MagicMock()
+        s.display_target_type = DisplayTargetType.ENEMIES.value
+        s.display_target_range = DisplayTargetRange.ONE_PAWN.value
+        s.display_target_priority = priority
+        s.target_type_name = None
+        return s
+
+    def test_no_stealth_selects_first(self):
+        """无 stealth 时按优先级选第一位 (LF)"""
+        targets = self.service.select_targets(self._skill(), self.caster, self.bf)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "e_lf")
+
+    def test_stealth_on_first_moves_to_end_and_consumed(self):
+        """LF 持 stealth 2 -> 被移到末尾，目标改为 RB。action-based 触发不消耗 duration。"""
+        self.enemy_lf.buffs.append(BuffState(
+            buff_id="st1", name="ステルス",
+            effect_type=SkillEffectType.STEALTH.value,
+            value=1.0, duration=2, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            original_duration_type='action',
+        ))
+        targets = self.service.select_targets(self._skill(), self.caster, self.bf)
+        self.assertEqual(targets[0].unit_id, "e_rb")
+        # action-based: 触发不消耗 duration（duration 仅随持有者行动递减）
+        stealth_buff = next(b for b in self.enemy_lf.buffs
+                            if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth_buff.duration, 2)
+
+    def test_stealth_expired_after_consumption(self):
+        """action-based stealth duration=1 时触发不消耗，buff 仍存在（duration 仅随行动递减）"""
+        self.enemy_lf.buffs.append(BuffState(
+            buff_id="st_exp", name="ステルス",
+            effect_type=SkillEffectType.STEALTH.value,
+            value=1.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            original_duration_type='action',
+        ))
+        targets = self.service.select_targets(self._skill(), self.caster, self.bf)
+        self.assertEqual(targets[0].unit_id, "e_rb")
+        # action-based: 触发不消耗 duration，buff 仍存在
+        stealth_buffs = [b for b in self.enemy_lf.buffs
+                         if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertEqual(len(stealth_buffs), 1)
+        self.assertEqual(stealth_buffs[0].duration, 1)
+
+    def test_single_candidate_stealth_not_consumed(self):
+        """只剩 1 个候选时，自身是 primary 仍触发 stealth（action-based 不消耗 duration），且仍被攻击到"""
+        single_enemy = _make_unit("e_only", "EnemyOnly", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        single_enemy.buffs.append(BuffState(
+            buff_id="st_single", name="ステルス",
+            effect_type=SkillEffectType.STEALTH.value,
+            value=1.0, duration=2, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            original_duration_type='action',
+        ))
+        bf_single = _make_bf(self.caster, single_enemy)
+        targets = self.service.select_targets(self._skill(), self.caster, bf_single)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "e_only")
+        stealth_buff = next(b for b in single_enemy.buffs
+                            if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth_buff.duration, 2, "action-based stealth 触发不消耗 duration")
+
+
+# =============================================================================
+# 4. 3 个新 target_type (TargetService._select_targets)
+# =============================================================================
+class TestS6TargetNewTypes(unittest.TestCase):
+    """S6 若雷 220360/361: 防御最低敵含む横一列 / 防御低順2体 / HP低順2味方"""
+
+    def setUp(self):
+        self.service = TargetService()
+        self.caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        # 敌方阵容: LF(def=300) / CF(def=500) / LB(def=400) / CB(def=600) / RB(def=700)
+        self.e_lf = _make_unit("e_lf", "EnemyLF", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        self.e_cf = _make_unit("e_cf", "EnemyCF", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=500)
+        self.e_lb = _make_unit("e_lb", "EnemyLB", Side.ENEMY, Position.ENEMY_LEFT_BACK, defense=400)
+        self.e_cb = _make_unit("e_cb", "EnemyCB", Side.ENEMY, Position.ENEMY_CENTER_BACK, defense=600)
+        self.e_rb = _make_unit("e_rb", "EnemyRB", Side.ENEMY, Position.ENEMY_RIGHT_BACK, defense=700)
+        # 友方阵容: caster(HP=10000) + ally2(HP=3000) + ally3(HP=7000)
+        self.ally2 = _make_unit("a2", "Ally2", Side.ALLY, Position.ALLY_LEFT_FRONT, current_hp=3000)
+        self.ally3 = _make_unit("a3", "Ally3", Side.ALLY, Position.ALLY_RIGHT_FRONT, current_hp=7000)
+        self.bf = _make_bf(self.caster, self.ally2, self.ally3,
+                           self.e_lf, self.e_cf, self.e_lb, self.e_cb, self.e_rb)
+
+    def _skill(self, target_type_name):
+        s = MagicMock()
+        s.display_target_type = DisplayTargetType.ENEMIES.value
+        s.display_target_range = DisplayTargetRange.LINE.value
+        s.display_target_priority = DisplayTargetPriority.NEAREST.value
+        s.target_type_name = target_type_name
+        return s
+
+    def test_enemy_row_of_lowest_def(self):
+        """防御最低敌方 LF(def=300) 在前排，应返回所有前排敌方 [LF, CF]"""
+        s = self._skill("enemy_row_of_lowest_def")
+        s.display_target_range = DisplayTargetRange.LINE.value
+        targets = self.service.select_targets(s, self.caster, self.bf)
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e_cf", "e_lf"])
+
+    def test_enemy_row_of_lowest_def_back_row(self):
+        """最低防御在后排时返回所有后排敌方 [LB, CB, RB]"""
+        self.e_lf.defense = 999  # 让 LF 不再最低
+        # 现在 LB(def=400) 是最低，且在后排
+        # 后排单位: LB(LEFT_BACK), CB(CENTER_BACK), RB(RIGHT_BACK)
+        s = self._skill("enemy_row_of_lowest_def")
+        targets = self.service.select_targets(s, self.caster, self.bf)
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e_cb", "e_lb", "e_rb"])  # 后排全部 3 个
+
+    def test_enemy_single_lowest_def_x2(self):
+        """防御低顺2体 -> LF(300) + LB(400)"""
+        s = self._skill("enemy_single_lowest_def_x2")
+        s.display_target_range = DisplayTargetRange.TWO_PAWNS.value
+        targets = self.service.select_targets(s, self.caster, self.bf)
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e_lb", "e_lf"])
+
+    def test_ally_single_lowest_hp_x2(self):
+        """HP 低顺2味方 -> ally2(3000) + ally3(7000)（不含 caster HP=10000）"""
+        s = self._skill("ally_single_lowest_hp_x2")
+        s.display_target_type = DisplayTargetType.FRIENDS.value
+        s.display_target_range = DisplayTargetRange.TWO_PAWNS.value
+        targets = self.service.select_targets(s, self.caster, self.bf)
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["a2", "a3"])
+
+
+# =============================================================================
+# 5-8. SkillService 的 4 个新 _apply_xxx 方法
+# =============================================================================
+class TestS6SkillServiceNewEffects(unittest.TestCase):
+    """S6 SkillService 新增的 4 个 effect_type 应用方法"""
+
+    def _make_skill_service(self):
+        """构造最小可用的 SkillService: 真实 TargetService + AuraService, 其余 Mock"""
+        target_service = TargetService()
+        aura_service = AuraService()
+        data_loader = MagicMock()
+        resource_service = MagicMock()
+        svc = SkillService(
+            data_loader=data_loader,
+            resource_service=resource_service,
+            target_service=target_service,
+            damage_service=MagicMock(),
+            aura_service=aura_service,
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 999001
+        return svc
+
+    def _make_effect(self, **kwargs):
+        """构造 effect 对象 (避免依赖 dataclass)"""
+        e = MagicMock()
+        for k, v in kwargs.items():
+            setattr(e, k, v)
+        return e
+
+    # -------- 5. _apply_block_buff_by_type --------
+    def test_apply_block_buff_by_type(self):
+        """_apply_block_buff_by_type: 应为目标添加 BLOCK_BUFF_BY_TYPE debuff，并阻止后续 atk_up"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=2,
+            duration_type="source_action",
+            value=0,
+            flags={"blocked_buff_types": ["atk_up", "def_up"]},
+        )
+        result = svc._apply_block_buff_by_type(caster, effect, bf)
+
+        self.assertEqual(result["effect_type"], "block_buff_by_type")
+        self.assertEqual(result["target_count"], 1)
+        # 验证 debuff 已添加
+        self.assertEqual(len(target.debuffs), 1)
+        db = target.debuffs[0]
+        self.assertEqual(db.effect_type, SkillEffectType.BLOCK_BUFF_BY_TYPE.value)
+        self.assertEqual(db.duration, 2)
+        self.assertTrue(db.is_debuff)
+        self.assertTrue(db.caster_alive)
+        self.assertEqual(db.original_duration_type, "source_action")
+        # block_status_list 应包含 atk_up/def_up 映射后的枚举值
+        self.assertIn(SkillEffectType.STATUS_ATTACK.value, db.block_status_list)
+        self.assertIn(SkillEffectType.STATUS_DEFENSE.value, db.block_status_list)
+
+        # 进一步验证：后续 atk_up buff 应被阻止
+        atk_up = BuffState(
+            buff_id="atk_test", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        ok = svc.aura_service.add_aura(target, atk_up)
+        self.assertFalse(ok, "atk_up should be blocked after BlockBuffByType applied")
+
+    def test_apply_block_buff_by_type_skips_dead(self):
+        """_apply_block_buff_by_type: 跳过已死亡目标"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        dead_target = _make_unit("dead", "Dead", Side.ENEMY, Position.ENEMY_CENTER_FRONT, is_alive=False)
+        bf = _make_bf(caster, dead_target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        result = svc._apply_block_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["target_count"], 0)
+        self.assertEqual(len(dead_target.debuffs), 0)
+
+    # -------- 6. _apply_stealth --------
+    def test_apply_stealth(self):
+        """_apply_stealth: 为施法者自身添加 STEALTH buff"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        bf = _make_bf(caster)
+
+        effect = self._make_effect(
+            effect_type="stealth",
+            duration=2, duration_type="action", value=1,
+        )
+        result = svc._apply_stealth(caster, effect, bf)
+
+        self.assertEqual(result["effect_type"], "stealth")
+        self.assertEqual(result["target_count"], 1)
+        self.assertEqual(len(caster.buffs), 1)
+        b = caster.buffs[0]
+        self.assertEqual(b.effect_type, SkillEffectType.STEALTH.value)
+        self.assertEqual(b.duration, 2)
+        self.assertFalse(b.is_debuff)
+        self.assertEqual(b.original_duration_type, "action")
+
+    def test_apply_stealth_can_be_consumed_by_target_service(self):
+        """集成验证: _apply_stealth 后，TargetService 在 ONE_PAWN 选择时能触发此 stealth（action-based 不消耗 duration）"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=300)
+        bf = _make_bf(caster, enemy)
+
+        # 给 enemy 加 stealth (模拟敌方土雷)
+        effect = self._make_effect(effect_type="stealth", duration=2, duration_type="action", value=1)
+        svc._apply_stealth(enemy, effect, bf)  # enemy 给自己加 stealth
+
+        # 当 caster 攻击时，enemy 是唯一候选 -> stealth 触发但 action-based 不消耗 duration
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.ENEMIES.value
+        skill.display_target_range = DisplayTargetRange.ONE_PAWN.value
+        skill.display_target_priority = DisplayTargetPriority.NEAREST.value
+        skill.target_type_name = None
+        targets = svc.target_service.select_targets(skill, caster, bf)
+        self.assertEqual(len(targets), 1)
+        # action-based: 触发不消耗 duration
+        stealth_buffs = [b for b in enemy.buffs if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertEqual(len(stealth_buffs), 1)
+        self.assertEqual(stealth_buffs[0].duration, 2)
+
+    # -------- 7. _apply_skill_power_down --------
+    def test_apply_skill_power_down_attacker_action(self):
+        """_apply_skill_power_down: duration_type=attacker_action 时设置 duration=-1 + original_duration_type=attacker_action"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="skill_power_down",
+            target_type="enemy_single",
+            value=50.0, duration=1, duration_type="attacker_action",
+        )
+        result = svc._apply_skill_power_down(caster, effect, bf)
+
+        self.assertEqual(result["effect_type"], "aura")
+        self.assertTrue(result["is_debuff"])
+        self.assertEqual(len(result["auras"]), 1)
+        self.assertEqual(result["auras"][0]["target"], target.unit_id)
+        self.assertEqual(result["auras"][0]["effect"], SkillEffectType.SKILL_POWER_DOWN.value)
+        self.assertEqual(len(target.debuffs), 1)
+        db = target.debuffs[0]
+        self.assertEqual(db.effect_type, SkillEffectType.SKILL_POWER_DOWN.value)
+        self.assertEqual(db.value, 50.0)
+        self.assertEqual(db.duration, -1, "attacker_action should set duration=-1 (permanent)")
+        self.assertEqual(db.original_duration_type, "attacker_action")
+        self.assertTrue(db.is_debuff)
+
+    def test_apply_skill_power_down_then_damage_reduction(self):
+        """集成验证: _apply_skill_power_down 后，DamageService 应扣减 skill_factor"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            attack=1000, defense=0, crit_rate=0.0)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            attack=0, defense=500)
+        bf = _make_bf(caster, target)
+
+        # 给目标加 skill_power_down (此时 target 是被攻击者，但 skill_power_down 是给攻击者持有的)
+        # 这里测试: 给 caster 加 skill_power_down -> caster 攻击 target 时伤害减少
+        effect = self._make_effect(
+            effect_type="skill_power_down",
+            target_type="enemy_single",  # caster 视角下 target=enemy
+            value=50.0, duration=1, duration_type="attacker_action",
+        )
+        # 让 caster 自己持有 skill_power_down debuff (模拟被若雷减衰影响)
+        caster.debuffs.append(BuffState(
+            buff_id="spd_test", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=50.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+
+        damage_service = DamageService()
+        skill = MagicMock()
+        skill.power = 100
+        skill.hit_count = 1
+        skill.element = None
+        skill.ignore_defense = 0
+        skill.bonus_crit_rate = 0.0
+        skill.cannot_crit = True
+        skill.hp_scaling_bonus = 0.0
+        skill.base_value_source = None
+
+        dmg = damage_service.calculate_damage(caster, target, skill).total_damage
+        # base_diff = 1000-500 = 500, skill_factor = 1.0 * (1 - 50/100) = 0.5 -> 250
+        self.assertEqual(dmg, 250)
+
+    # -------- 8. _apply_split_heal_by_damage --------
+    def test_apply_split_heal_by_damage_splits_among_targets(self):
+        """_apply_split_heal_by_damage: 将 block 内伤害按 percent 均分到友方目标"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        # 2 个受伤友方
+        ally1 = _make_unit("a1", "Ally1", Side.ALLY, Position.ALLY_LEFT_FRONT, current_hp=1000)
+        ally2 = _make_unit("a2", "Ally2", Side.ALLY, Position.ALLY_RIGHT_FRONT, current_hp=2000)
+        bf = _make_bf(caster, ally1, ally2)
+
+        # 模拟 block_id=5 已累计伤害 1000
+        svc._block_damage_total = {5: 1000}
+        svc._current_block_id = 5
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,  # 100% 转换
+            flags={"split_among_targets": True, "source_block_id": 5},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+
+        self.assertEqual(result["effect_type"], "split_heal_by_damage")
+        self.assertEqual(result["source_damage_total"], 1000)
+        self.assertEqual(result["percent"], 100.0)
+        # 总回血 = 1000, 均分到 2 个目标 = 500 each
+        # 但 ally_all 通常会含 caster 自己，需要根据 _resolve_target_type 确定
+        # 这里我们验证: 总回血量正确，且每个目标收到相等量
+        self.assertGreater(result["total_heal"], 0)
+        details = result["details"]
+        heals = [d["heal"] for d in details]
+        self.assertTrue(all(h == heals[0] for h in heals), "all heals should be equal when split=True")
+        # total_heal 是实际回复量总和（受 max_hp 上限），与 heals 列表中 amount 之和一致
+        # caster 满血 actual=0, ally1/ally2 各 actual=333 → total=666
+        actual_amounts = [h["amount"] for h in result["heals"]]
+        self.assertEqual(result["total_heal"], sum(actual_amounts))
+
+    def test_apply_split_heal_by_damage_no_damage_skips(self):
+        """_apply_split_heal_by_damage: block 内无伤害时返回 total_heal=0"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        ally1 = _make_unit("a1", "Ally1", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        bf = _make_bf(caster, ally1)
+
+        svc._block_damage_total = {7: 0}
+        svc._current_block_id = 7
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True, "source_block_id": 7},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        self.assertEqual(result["total_heal"], 0)
+        self.assertEqual(result["target_count"], 0)
+
+    def test_apply_split_heal_by_damage_no_split_full_to_each(self):
+        """_apply_split_heal_by_damage: split=False 时每个目标获得全额"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        ally1 = _make_unit("a1", "Ally1", Side.ALLY, Position.ALLY_LEFT_FRONT, current_hp=1000)
+        ally2 = _make_unit("a2", "Ally2", Side.ALLY, Position.ALLY_RIGHT_FRONT, current_hp=2000)
+        bf = _make_bf(caster, ally1, ally2)
+
+        svc._block_damage_total = {9: 1000}
+        svc._current_block_id = 9
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=50,  # 50% 转换
+            flags={"split_among_targets": False, "source_block_id": 9},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        # total_heal_value = 1000 * 50/100 = 500
+        # split=False -> 每个目标 500
+        for d in result["details"]:
+            self.assertEqual(d["heal"], 500)
+
+
+# =============================================================================
+# 9. hp_scaling_bonus 基础应用 (DamageService)
+# =============================================================================
+class TestS6HpScalingBonus(unittest.TestCase):
+    """S6 大雷 220367: HP比例ダメージ増 (+100%まで)
+    注: per-target max_bonus_pct 覆盖逻辑在 skill_service._apply_damage 中
+    （按每个 target 当前 HP 比例覆盖 dmg_skill_obj.hp_scaling_bonus），
+    DamageService 层只读取已计算好的 hp_scaling_bonus 值。这里验证基础乘区。
+    """
+
+    def setUp(self):
+        self.service = DamageService()
+        self.attacker = _make_unit("atk", "Attacker", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                                   attack=2000, defense=0, crit_rate=0.0)
+        self.defender = _make_unit("def", "Defender", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                                   attack=0, defense=1000)
+
+    def _skill(self, hp_scaling_bonus=0.0):
+        s = MagicMock()
+        s.power = 100
+        s.hit_count = 1
+        s.element = None
+        s.ignore_defense = 0
+        s.bonus_crit_rate = 0.0
+        s.cannot_crit = True
+        s.hp_scaling_bonus = hp_scaling_bonus
+        s.base_value_source = None
+        return s
+
+    def test_no_hp_scaling_bonus(self):
+        """无 hp_scaling_bonus 时: base_diff=1000 * 1.0 = 1000"""
+        dmg = self.service.calculate_damage(self.attacker, self.defender,
+                                            self._skill(hp_scaling_bonus=0.0)).total_damage
+        self.assertEqual(dmg, 1000)
+
+    def test_full_hp_scaling_bonus(self):
+        """hp_scaling_bonus=100 (100% 增伤): base_diff=1000 * (1 + 100/100) = 2000"""
+        dmg = self.service.calculate_damage(self.attacker, self.defender,
+                                            self._skill(hp_scaling_bonus=100.0)).total_damage
+        self.assertEqual(dmg, 2000)
+
+    def test_half_hp_scaling_bonus(self):
+        """hp_scaling_bonus=50 (50% 增伤): base_diff=1000 * (1 + 50/100) = 1500"""
+        dmg = self.service.calculate_damage(self.attacker, self.defender,
+                                            self._skill(hp_scaling_bonus=50.0)).total_damage
+        self.assertEqual(dmg, 1500)
+
+
+# =============================================================================
+# 10. 大雷: per-target hp_scaling 極端ケース (DamageService)
+# =============================================================================
+class TestS6DaiRaiHpScalingPerTarget(unittest.TestCase):
+    """S6 大雷 220367: HP比例ダメージ増 (max_bonus_pct=100)
+    per-target 計算ロジック: bonus = (current_hp / max_hp) * max_bonus_pct
+    _apply_damage が各 target のHP比率に応じて hp_scaling_bonus を上書きする。
+    ここでは DamageService レベルで各種 bonus 値の境界を検証する。
+    """
+
+    def setUp(self):
+        self.service = DamageService()
+        self.attacker = _make_unit("atk", "Attacker", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                                   attack=2000, defense=0, crit_rate=0.0)
+        self.defender = _make_unit("def", "Defender", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                                   attack=0, defense=1000)
+
+    def _skill(self, hp_scaling_bonus=0.0):
+        s = MagicMock()
+        s.power = 100
+        s.hit_count = 1
+        s.element = None
+        s.ignore_defense = 0
+        s.bonus_crit_rate = 0.0
+        s.cannot_crit = True
+        s.hp_scaling_bonus = hp_scaling_bonus
+        s.base_value_source = None
+        return s
+
+    def _dmg(self, bonus):
+        return self.service.calculate_damage(
+            self.attacker, self.defender, self._skill(hp_scaling_bonus=bonus)
+        ).total_damage
+
+    def test_hp_ratio_100_percent_full_bonus(self):
+        """HP=100% → bonus=100 → base_diff=1000 * (1+100/100) = 2000"""
+        self.assertEqual(self._dmg(100.0), 2000)
+
+    def test_hp_ratio_75_percent(self):
+        """HP=75% → bonus=75 → 1000 * 1.75 = 1750"""
+        self.assertEqual(self._dmg(75.0), 1750)
+
+    def test_hp_ratio_25_percent(self):
+        """HP=25% → bonus=25 → 1000 * 1.25 = 1250"""
+        self.assertEqual(self._dmg(25.0), 1250)
+
+    def test_hp_ratio_1_percent_near_death(self):
+        """HP=1% → bonus=1 → 1000 * 1.01 = 1010"""
+        self.assertEqual(self._dmg(1.0), 1010)
+
+    def test_hp_ratio_0_percent_no_bonus(self):
+        """HP=0% → bonus=0 → 1000 * 1.0 = 1000 (増幅度なし)"""
+        self.assertEqual(self._dmg(0.0), 1000)
+
+    def test_max_bonus_pct_zero_no_effect(self):
+        """max_bonus_pct=0 の設定ミス → bonus=0 → 増幅度なし"""
+        self.assertEqual(self._dmg(0.0), 1000)
+
+    def test_fractional_bonus_truncates_via_floor(self):
+        """bonus=33.7 (小数) → 1000 * (1 + 33.7/100) = 1337.0 → floor=1337"""
+        self.assertEqual(self._dmg(33.7), 1337)
+
+    def test_per_target_different_bonuses_same_skill(self):
+        """2 target が異なるHP比率 → 異なる bonus 値で計算される"""
+        # target A: HP=100% → bonus=100 → dmg=2000
+        # target B: HP=50% → bonus=50 → dmg=1500
+        self.assertEqual(self._dmg(100.0), 2000)
+        self.assertEqual(self._dmg(50.0), 1500)
+
+
+# =============================================================================
+# 11. 大雷: _apply_remove_buff_by_type (会心時バフ全解除)
+# =============================================================================
+class TestS6DaiRaiRemoveBuffByType(unittest.TestCase):
+    """S6 大雷 220367/220368: on_crit で自身の atk_up/crit_rate_up バフを全解除
+    _apply_remove_buff_by_type の検証
+    """
+
+    def _make_skill_service(self):
+        target_service = TargetService()
+        aura_service = AuraService()
+        svc = SkillService(
+            data_loader=MagicMock(), resource_service=MagicMock(),
+            target_service=target_service, damage_service=MagicMock(),
+            aura_service=aura_service, status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 220367
+        return svc
+
+    def _make_effect(self, **kwargs):
+        e = MagicMock()
+        for k, v in kwargs.items():
+            setattr(e, k, v)
+        return e
+
+    def test_remove_atk_up_buff_from_self(self):
+        """filter=[atk_up] → atk_up buff が除去される"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        # atk_up buff を付与
+        atk_up = BuffState(
+            buff_id="atk1", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.3, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        caster.buffs.append(atk_up)
+        bf = _make_bf(caster)
+
+        effect = self._make_effect(
+            effect_type="remove_buff_by_type",
+            target_type="self",
+            flags={"filter": ["StatusAttack"]},
+        )
+        result = svc._apply_remove_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["total_removed"], 1)
+        self.assertEqual(len(caster.buffs), 0)
+
+    def test_remove_multiple_buff_types(self):
+        """filter=[StatusAttack, StatusCriticalChance] → 両方の buff が除去される"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        caster.buffs.append(BuffState(
+            buff_id="atk1", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.3, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        ))
+        caster.buffs.append(BuffState(
+            buff_id="crit1", name="CritUp",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=0.1, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        ))
+        # def_up は対象外 → 残る
+        def_up = BuffState(
+            buff_id="def1", name="DefUp",
+            effect_type=SkillEffectType.STATUS_DEFENSE.value,
+            value=0.2, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        caster.buffs.append(def_up)
+        bf = _make_bf(caster)
+
+        effect = self._make_effect(
+            effect_type="remove_buff_by_type",
+            target_type="self",
+            flags={"filter": ["StatusAttack", "StatusCriticalChance"]},
+        )
+        result = svc._apply_remove_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["total_removed"], 2)
+        self.assertEqual(len(caster.buffs), 1)
+        self.assertEqual(caster.buffs[0].effect_type, SkillEffectType.STATUS_DEFENSE.value)
+
+    def test_remove_skips_memory_buffs(self):
+        """回忆卡 buff (is_memory_buff=True) は除去されない"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        mem_buff = BuffState(
+            buff_id="mem1", name="MemoryAtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.3, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+            is_memory_buff=True,
+        )
+        caster.buffs.append(mem_buff)
+        bf = _make_bf(caster)
+
+        effect = self._make_effect(
+            effect_type="remove_buff_by_type",
+            target_type="self",
+            flags={"filter": ["StatusAttack"]},
+        )
+        result = svc._apply_remove_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["total_removed"], 0)
+        self.assertEqual(len(caster.buffs), 1)
+
+    def test_remove_empty_filter_noop(self):
+        """filter=[] → 何も除去しない"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        caster.buffs.append(BuffState(
+            buff_id="atk1", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.3, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        ))
+        bf = _make_bf(caster)
+
+        effect = self._make_effect(
+            effect_type="remove_buff_by_type",
+            target_type="self",
+            flags={"filter": []},
+        )
+        result = svc._apply_remove_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["total_removed"], 0)
+        self.assertEqual(len(caster.buffs), 1)
+
+    def test_remove_skips_dead_targets(self):
+        """死亡目標はスキップ"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        dead_target = _make_unit("dead", "Dead", Side.ENEMY, Position.ENEMY_CENTER_FRONT, is_alive=False)
+        dead_target.buffs.append(BuffState(
+            buff_id="atk_e", name="AtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=0.3, duration=2, timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        ))
+        bf = _make_bf(caster, dead_target)
+
+        effect = self._make_effect(
+            effect_type="remove_buff_by_type",
+            target_type="enemy_single",
+            flags={"filter": ["StatusAttack"]},
+        )
+        result = svc._apply_remove_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["total_removed"], 0)
+        # dead target の buff は残る
+        self.assertEqual(len(dead_target.buffs), 1)
+
+
+# =============================================================================
+# 12. 土雷: block_buff_by_type 極端ケース (SkillService._apply_block_buff_by_type)
+# =============================================================================
+class TestS6TsuchiRaiBlockBuffEdge(unittest.TestCase):
+    """S6 土雷 220362: block_buff_by_type の極端ケース"""
+
+    def _make_skill_service(self):
+        target_service = TargetService()
+        aura_service = AuraService()
+        svc = SkillService(
+            data_loader=MagicMock(), resource_service=MagicMock(),
+            target_service=target_service, damage_service=MagicMock(),
+            aura_service=aura_service, status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 220362
+        return svc
+
+    def _make_effect(self, **kwargs):
+        e = MagicMock()
+        for k, v in kwargs.items():
+            setattr(e, k, v)
+        return e
+
+    def test_block_buff_multiple_targets_enemy_all(self):
+        """target_type=enemy_all → 全敌方に debuff 付与"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        e1 = _make_unit("e1", "Enemy1", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        e2 = _make_unit("e2", "Enemy2", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        e3 = _make_unit("e3", "Enemy3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT)
+        bf = _make_bf(caster, e1, e2, e3)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_all",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        result = svc._apply_block_buff_by_type(caster, effect, bf)
+        self.assertEqual(result["target_count"], 3)
+        for u in [e1, e2, e3]:
+            self.assertEqual(len(u.debuffs), 1)
+            self.assertEqual(u.debuffs[0].effect_type, SkillEffectType.BLOCK_BUFF_BY_TYPE.value)
+
+    def test_block_buff_snake_case_name_mapping(self):
+        """blocked_buff_types=["atk_up","def_up"] → enum値に変換されて block_status_list に格納"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up", "def_up", "spd_up", "crit_rate_up"]},
+        )
+        result = svc._apply_block_buff_by_type(caster, effect, bf)
+        db = target.debuffs[0]
+        # snake_case → enum値に変換されているか確認
+        self.assertIn(SkillEffectType.STATUS_ATTACK.value, db.block_status_list)
+        self.assertIn(SkillEffectType.STATUS_DEFENSE.value, db.block_status_list)
+        self.assertIn(SkillEffectType.STATUS_SPEED.value, db.block_status_list)
+        self.assertIn(SkillEffectType.STATUS_CRITICAL_CHANCE.value, db.block_status_list)
+        # 元の snake_case は残らない
+        self.assertNotIn("atk_up", db.block_status_list)
+
+    def test_block_buff_refreshes_existing_debuff(self):
+        """既存の block_buff_by_type debuff に再付与 → 更新される"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        # 1回目
+        svc._apply_block_buff_by_type(caster, effect, bf)
+        # 2回目 (duration=3 で更新)
+        effect2 = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=3, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up", "def_up"]},
+        )
+        svc._current_skill_id = 220362  # 同じ skill_id で同じ buff_id
+        svc._apply_block_buff_by_type(caster, effect2, bf)
+        # 同じ buff_id なので上書きされ、1つだけ残る
+        block_debuffs = [d for d in target.debuffs
+                         if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value]
+        self.assertEqual(len(block_debuffs), 1)
+        self.assertEqual(block_debuffs[0].duration, 3)
+
+    def test_block_buff_duration_type_action(self):
+        """duration_type=action → DURABLE_TARGET_MANEUVER_END"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=1, duration_type="action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        svc._apply_block_buff_by_type(caster, effect, bf)
+        db = target.debuffs[0]
+        self.assertEqual(db.original_duration_type, "action")
+        self.assertEqual(db.timing_type, AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value)
+
+    def test_block_buff_caster_alive_flag(self):
+        """caster_alive=True が設定される (施法者死亡時に自動消滅)"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_single",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        svc._apply_block_buff_by_type(caster, effect, bf)
+        db = target.debuffs[0]
+        self.assertTrue(db.caster_alive)
+
+    def test_block_buff_all_targets_dead(self):
+        """全目標死亡 → select_targets が死体を除外するため target_count=0"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        dead1 = _make_unit("d1", "Dead1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, is_alive=False)
+        dead2 = _make_unit("d2", "Dead2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, is_alive=False)
+        bf = _make_bf(caster, dead1, dead2)
+
+        effect = self._make_effect(
+            effect_type="block_buff_by_type",
+            target_type="enemy_all",
+            duration=2, duration_type="source_action", value=0,
+            flags={"blocked_buff_types": ["atk_up"]},
+        )
+        result = svc._apply_block_buff_by_type(caster, effect, bf)
+        # select_targets が死亡ユニットをフィルタするため 0
+        self.assertEqual(result["target_count"], 0)
+        self.assertEqual(len(dead1.debuffs), 0)
+        self.assertEqual(len(dead2.debuffs), 0)
+
+
+# =============================================================================
+# 13. 土雷: stealth 消費 極端ケース (TargetService)
+# =============================================================================
+class TestS6TsuchiRaiStealthEdge(unittest.TestCase):
+    """S6 土雷 220362: stealth 消費の極端ケース"""
+
+    def setUp(self):
+        self.service = TargetService()
+        self.caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+
+    def _stealth_buff(self, duration=2):
+        return BuffState(
+            buff_id=f"st_{id(self)}", name="ステルス",
+            effect_type=SkillEffectType.STEALTH.value,
+            value=1.0, duration=duration,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            original_duration_type='action',
+        )
+
+    def _skill(self, range_val=DisplayTargetRange.ONE_PAWN.value,
+               target_type=DisplayTargetType.ENEMIES.value):
+        s = MagicMock()
+        s.display_target_type = target_type
+        s.display_target_range = range_val
+        s.display_target_priority = DisplayTargetPriority.NEAREST.value
+        s.target_type_name = None
+        return s
+
+    def test_stealth_triggered_in_line_range_primary(self):
+        """LINE 範囲: 主目标(首位)持ステルス → 触発して末尾移動、主目标重定向到次选"""
+        # caster at CENTER_FRONT
+        # e1 at CENTER_FRONT (front row, closest to caster, primary)
+        # e2 at CENTER_BACK (back row)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_BACK, defense=500)
+        e1.buffs.append(self._stealth_buff(2))
+        bf = _make_bf(self.caster, e1, e2)
+
+        targets = self.service.select_targets(self._skill(range_val=DisplayTargetRange.LINE.value),
+                                               self.caster, bf)
+        # e1(主目标)持ステルス → 触発、末尾移動
+        # 新主目标 = e2 (CENTER_BACK, back row)
+        # LINE 返回 e2 所在排(后排): [e2] (仅 e2)
+        ids = [t.unit_id for t in targets]
+        self.assertEqual(ids, ["e2"])  # e1 被重定向，不在 targets 中
+        # action-based: 触発不消耗 duration
+        stealth = next(b for b in e1.buffs if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth.duration, 2)
+
+    def test_stealth_triggered_in_two_pawns_range(self):
+        """TWO_PAWNS 範囲: 主目标持ステルス → 触発して末尾移動、副目标选中其他单位"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=500)
+        e1.buffs.append(self._stealth_buff(2))
+        bf = _make_bf(self.caster, e1, e2)
+
+        targets = self.service.select_targets(
+            self._skill(range_val=DisplayTargetRange.TWO_PAWNS.value),
+            self.caster, bf)
+        # e1(主目标)持ステルス → 触発、末尾移動 → ordered=[e2, e1]
+        # primary=e2, remaining=[e1] (e1 被重定向，排最后)
+        # count=2, returns [e2, e1] (e1 仍被选为副目标，因为只有2个候选)
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e1", "e2"])
+        # action-based: 触発不消耗 duration
+        stealth = next(b for b in e1.buffs if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth.duration, 2)
+
+    def test_stealth_multiple_buffs_consume_one_only(self):
+        """同一ユニットに stealth buff が複数 → 一つだけ触発（action-based 不消耗 duration）"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=500)
+        e1.buffs.append(self._stealth_buff(2))
+        e1.buffs.append(self._stealth_buff(3))
+        bf = _make_bf(self.caster, e1, e2)
+
+        self.service.select_targets(self._skill(), self.caster, bf)
+        stealth_buffs = [b for b in e1.buffs if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertEqual(len(stealth_buffs), 2)
+        # action-based: 触発不消耗 duration，两个 buff 都保持原 duration
+        durations = sorted(b.duration for b in stealth_buffs)
+        self.assertEqual(durations, [2, 3])
+
+    def test_stealth_all_enemies_stealthed_chaining(self):
+        """全敵が stealth 所持 → 連鎖触発: e1→e2 依次触発，最終 e1 が primary に戻る（action-based 不消耗 duration）"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=500)
+        e1.buffs.append(self._stealth_buff(1))
+        e2.buffs.append(self._stealth_buff(1))
+        bf = _make_bf(self.caster, e1, e2)
+
+        targets = self.service.select_targets(self._skill(), self.caster, bf)
+        # 連鎖: e1 触発 → [e2, e1] → e2 触発 → [e1, e2] → e1 已触発 → break
+        # 最終 ordered = [e1, e2], primary = e1（繰り返し触発なし）
+        # 両方触発したが action-based → duration 変わらず
+        self.assertEqual(len(e1.buffs), 1, "e1 的 stealth 仍存在(action-based 不消耗)")
+        self.assertEqual(e1.buffs[0].duration, 1, "e1 的 stealth duration 保持 1")
+        self.assertEqual(len(e2.buffs), 1, "e2 的 stealth 仍存在(action-based 不消耗)")
+        self.assertEqual(e2.buffs[0].duration, 1, "e2 的 stealth duration 保持 1")
+        # e1 が primary に戻る（連鎖後 wrap around）
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "e1")
+
+    def test_stealth_duration_zero_not_active(self):
+        """duration=0 の stealth はアクティブ扱いされない (消費スキップ)"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=500)
+        # duration=0 → 期限切れ扱い
+        e1.buffs.append(self._stealth_buff(0))
+        bf = _make_bf(self.caster, e1, e2)
+
+        targets = self.service.select_targets(self._skill(), self.caster, bf)
+        # e1 がそのまま選ばれる (stealth 無効)
+        self.assertEqual(targets[0].unit_id, "e1")
+
+    def test_stealth_three_enemies_first_stealthed(self):
+        """3敵中 先頭(最近)が stealth → 末尾に移動、2番目が選ばれる（action-based 不消耗 duration）"""
+        # caster は CENTER_FRONT → CENTER_FRONT が最近
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=500)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=700)
+        e1.buffs.append(self._stealth_buff(2))
+        bf = _make_bf(self.caster, e1, e2, e3)
+
+        targets = self.service.select_targets(self._skill(), self.caster, bf)
+        # e1 が回避 → 次に近い e2 が選ばれる
+        self.assertEqual(targets[0].unit_id, "e2")
+        # action-based: 触発不消耗 duration
+        stealth = next(b for b in e1.buffs if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth.duration, 2)
+
+    def test_stealth_dead_unit_not_active(self):
+        """死亡ユニットの stealth は _has_stealth で False"""
+        dead = _make_unit("dead", "Dead", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300,
+                          is_alive=False)
+        result = self.service._has_stealth(dead)
+        self.assertFalse(result)
+
+    def test_stealth_two_pawns_primary_stealthed_with_three_candidates(self):
+        """TWO_PAWNS + 3候補: 主目标(首位)持ステルス → 末尾移動して触発、自身は不受击（action-based 不消耗 duration）"""
+        # caster は CENTER_FRONT → 最近は CENTER_FRONT
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=500)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=700)
+        e1.buffs.append(self._stealth_buff(2))
+        bf = _make_bf(self.caster, e1, e2, e3)
+
+        targets = self.service.select_targets(
+            self._skill(range_val=DisplayTargetRange.TWO_PAWNS.value),
+            self.caster, bf)
+        # e1(主目标)は末尾に移動 → 選ばれるのは e2, e3
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e2", "e3"])
+        # e1 は不受击（targets に含まれない）
+        self.assertNotIn("e1", ids)
+        # action-based: 触発不消耗 duration
+        stealth = next(b for b in e1.buffs if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth.duration, 2)
+
+    def test_stealth_two_pawns_secondary_stealthed_not_triggered(self):
+        """TWO_PAWNS + 3候補: 副目标持ステルス → トリガーせず正常受击"""
+        # caster は CENTER_FRONT → 最近は CENTER_FRONT
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_CENTER_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=500)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=700)
+        # e2(副目标)に stealth 付与
+        e2.buffs.append(self._stealth_buff(2))
+        bf = _make_bf(self.caster, e1, e2, e3)
+
+        targets = self.service.select_targets(
+            self._skill(range_val=DisplayTargetRange.TWO_PAWNS.value),
+            self.caster, bf)
+        # e1(主目标)は stealth 無し → そのまま選ばれる
+        # e2(副目标)は stealth 有りだが主目标でない → トリガーせず正常受击
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e1", "e2"])
+        # e2 の stealth は消費されない（主目标でないため）
+        stealth = next(b for b in e2.buffs if b.effect_type == SkillEffectType.STEALTH.value)
+        self.assertEqual(stealth.duration, 2, "副目标のstealthは消費されない")
+
+
+# =============================================================================
+# 14. 若雷: 新 target_type 極端ケース (TargetService)
+# =============================================================================
+class TestS6WakaRaiTargetingEdge(unittest.TestCase):
+    """S6 若雷 220360/361: 新 target_type の極端ケース"""
+
+    def setUp(self):
+        self.service = TargetService()
+        self.caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+
+    def _skill(self, target_type_name, range_val=None, target_type=None):
+        s = MagicMock()
+        s.display_target_type = target_type or DisplayTargetType.ENEMIES.value
+        s.display_target_range = range_val or DisplayTargetRange.LINE.value
+        s.display_target_priority = DisplayTargetPriority.NEAREST.value
+        s.target_type_name = target_type_name
+        return s
+
+    def test_enemy_row_of_lowest_def_single_enemy(self):
+        """敵1体のみ → その1体を返す (クラッシュしない)"""
+        only = _make_unit("only", "Only", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        bf = _make_bf(self.caster, only)
+        targets = self.service.select_targets(
+            self._skill("enemy_row_of_lowest_def"), self.caster, bf)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "only")
+
+    def test_enemy_row_of_lowest_def_tie_defense(self):
+        """防御力同点 → 最初に見つかった方が基準 (min は最初の要素を返す)"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_BACK, defense=300)
+        bf = _make_bf(self.caster, e1, e2)
+        targets = self.service.select_targets(
+            self._skill("enemy_row_of_lowest_def"), self.caster, bf)
+        # 同点の場合、min() は最初の要素を返す → e1 (front row) が基準
+        ids = sorted(t.unit_id for t in targets)
+        # e1 は front row → front row の敵のみ = [e1]
+        self.assertEqual(ids, ["e1"])
+
+    def test_enemy_single_lowest_def_x2_single_enemy(self):
+        """敵1体のみ → 1体のみ返す (2体要求でも1体)"""
+        only = _make_unit("only", "Only", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        bf = _make_bf(self.caster, only)
+        s = self._skill("enemy_single_lowest_def_x2",
+                        range_val=DisplayTargetRange.TWO_PAWNS.value)
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 1)
+
+    def test_enemy_single_lowest_def_x2_tie_defense(self):
+        """防御力同点 → ソートキー(距離)で tie-break"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, defense=300)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, defense=300)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_CENTER_BACK, defense=500)
+        bf = _make_bf(self.caster, e1, e2, e3)
+        s = self._skill("enemy_single_lowest_def_x2",
+                        range_val=DisplayTargetRange.TWO_PAWNS.value)
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 2)
+        # 両方とも defense=300 → e1 と e2 が選ばれる
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["e1", "e2"])
+
+    def test_ally_single_lowest_hp_x2_single_ally(self):
+        """味方1体のみ → 1体のみ返す"""
+        only = _make_unit("only", "Only", Side.ALLY, Position.ALLY_LEFT_FRONT, current_hp=1000)
+        bf = _make_bf(self.caster, only)
+        s = self._skill("ally_single_lowest_hp_x2",
+                        range_val=DisplayTargetRange.TWO_PAWNS.value,
+                        target_type=DisplayTargetType.FRIENDS.value)
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 1)
+
+    def test_ally_single_lowest_hp_x2_full_hp_ordering(self):
+        """HP同値の場合 → 距離で tie-break"""
+        a1 = _make_unit("a1", "A1", Side.ALLY, Position.ALLY_LEFT_FRONT, current_hp=5000)
+        a2 = _make_unit("a2", "A2", Side.ALLY, Position.ALLY_RIGHT_FRONT, current_hp=5000)
+        a3 = _make_unit("a3", "A3", Side.ALLY, Position.ALLY_CENTER_BACK, current_hp=9000)
+        bf = _make_bf(self.caster, a1, a2, a3)
+        s = self._skill("ally_single_lowest_hp_x2",
+                        range_val=DisplayTargetRange.TWO_PAWNS.value,
+                        target_type=DisplayTargetType.FRIENDS.value)
+        targets = self.service.select_targets(s, self.caster, bf)
+        # a1, a2 が共に HP=5000 → 2体選ばれる
+        ids = sorted(t.unit_id for t in targets)
+        self.assertEqual(ids, ["a1", "a2"])
+
+    def test_enemy_row_of_lowest_def_no_enemies(self):
+        """敵0体 → 空リスト返す (クラッシュしない)"""
+        bf = _make_bf(self.caster)
+        targets = self.service.select_targets(
+            self._skill("enemy_row_of_lowest_def"), self.caster, bf)
+        self.assertEqual(len(targets), 0)
+
+    def test_enemy_single_lowest_def_x2_no_enemies(self):
+        """敵0体 → 空リスト返す"""
+        bf = _make_bf(self.caster)
+        s = self._skill("enemy_single_lowest_def_x2",
+                        range_val=DisplayTargetRange.TWO_PAWNS.value)
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 0)
+
+
+# =============================================================================
+# 15. 若雷: split_heal_by_damage 極端ケース (SkillService)
+# =============================================================================
+class TestS6WakaRaiSplitHealEdge(unittest.TestCase):
+    """S6 若雷 220360/361: split_heal_by_damage の極端ケース"""
+
+    def _make_skill_service(self):
+        target_service = TargetService()
+        aura_service = AuraService()
+        svc = SkillService(
+            data_loader=MagicMock(), resource_service=MagicMock(),
+            target_service=target_service, damage_service=MagicMock(),
+            aura_service=aura_service, status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 220360
+        return svc
+
+    def _make_effect(self, **kwargs):
+        e = MagicMock()
+        for k, v in kwargs.items():
+            setattr(e, k, v)
+        return e
+
+    def test_split_heal_overheal_protection(self):
+        """回復量が max_hp を超えない (current_hp は max_hp でキャップ)"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        # max_hp=100, current_hp=80 → 回復上限は 20
+        ally = _make_unit("a1", "Ally1", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                          max_hp=100, current_hp=80)
+        bf = _make_bf(caster, ally)
+
+        svc._block_damage_total = {1: 10000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        # 2目標 (caster + ally) → per_target = 10000 // 2 = 5000
+        # ally.current_hp = min(100, 80+5000) = 100 (キャップ)
+        self.assertEqual(ally.current_hp, 100)
+        # details の heal 値は計算値 5000 (実際の回復量ではなく)
+        self.assertEqual(result["details"][1]["heal"], 5000)
+
+    def test_split_heal_single_target_gets_all(self):
+        """目標1体 → 全回復量がその1体へ"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        bf = _make_bf(caster)
+
+        svc._block_damage_total = {1: 1000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        # caster のみ → 1000 全額回復
+        self.assertEqual(result["target_count"], 1)
+        self.assertEqual(result["details"][0]["heal"], 1000)
+        self.assertEqual(caster.current_hp, 11000)
+
+    def test_split_heal_rounding_integer_division(self):
+        """均分割合で割り切れない → 切り捨て (//)"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        a1 = _make_unit("a1", "A1", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=50000, current_hp=10000)
+        a2 = _make_unit("a2", "A2", Side.ALLY, Position.ALLY_RIGHT_FRONT,
+                        max_hp=50000, current_hp=10000)
+        bf = _make_bf(caster, a1, a2)
+
+        # total_damage=1000, percent=100 → heal=1000, 3人で均分 → 333 each (1000//3=333)
+        svc._block_damage_total = {1: 1000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        per_target = result["details"][0]["heal"]
+        self.assertEqual(per_target, 333)  # 1000 // 3 = 333
+        # total_heal = 333 * 3 = 999 (1 余る)
+        self.assertEqual(result["total_heal"], 999)
+
+    def test_split_heal_zero_percent_falls_back_to_100(self):
+        """value=0 → `float(0 or 100)` により 100% 扱いになる (フォールバック仕様)
+        実装: percent = float(getattr(effect, 'value', 100) or 100)
+        0 は falsy なので 100 にフォールバックする。
+        """
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        bf = _make_bf(caster)
+
+        svc._block_damage_total = {1: 1000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=0,  # → float(0 or 100) = 100.0
+            flags={"split_among_targets": True, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        # value=0 は 100 にフォールバック → 1000 * 100/100 = 1000 回復
+        self.assertEqual(result["percent"], 100.0)
+        self.assertEqual(result["total_heal"], 1000)
+        self.assertEqual(caster.current_hp, 11000)
+
+    def test_split_heal_no_alive_targets(self):
+        """生存味方0体 → total_heal=0"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        dead_ally = _make_unit("a1", "Dead", Side.ALLY, Position.ALLY_LEFT_FRONT, is_alive=False)
+        bf = _make_bf(caster, dead_ally)
+        # caster 以外全員死亡 → caster は ally_all に含まれるが、ここでは dead_ally のみ検証
+        # ally_all は通常 caster を含むので、caster が死んでいるケースを作る
+        caster.is_alive = False
+
+        svc._block_damage_total = {1: 1000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        self.assertEqual(result["total_heal"], 0)
+        self.assertEqual(result["target_count"], 0)
+
+    def test_split_heal_no_split_uneven_targets(self):
+        """split=False → 各目標が全額受け取る (均分しない)"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        a1 = _make_unit("a1", "A1", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=50000, current_hp=10000)
+        bf = _make_bf(caster, a1)
+
+        svc._block_damage_total = {1: 1000}
+        svc._current_block_id = 1
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=50,
+            flags={"split_among_targets": False, "source_block_id": 1},
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        # total_heal_value = 1000 * 50/100 = 500
+        # split=False → 各目標 500 ずつ
+        for d in result["details"]:
+            self.assertEqual(d["heal"], 500)
+
+    def test_split_heal_default_source_block_id(self):
+        """source_block_id 未指定 → _current_block_id を使用"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            max_hp=50000, current_hp=10000)
+        bf = _make_bf(caster)
+
+        svc._block_damage_total = {99: 500}
+        svc._current_block_id = 99
+
+        effect = self._make_effect(
+            effect_type="split_heal_by_damage",
+            target_type="ally_all",
+            value=100,
+            flags={"split_among_targets": True},  # source_block_id なし
+        )
+        result = svc._apply_split_heal_by_damage(caster, effect, bf)
+        self.assertEqual(result["source_block_id"], 99)
+        self.assertEqual(result["source_damage_total"], 500)
+        self.assertEqual(result["details"][0]["heal"], 500)
+
+
+# =============================================================================
+# 16. 若雷: skill_power_down 極端ケース (SkillService + DamageService)
+# =============================================================================
+class TestS6WakaRaiSkillPowerDownEdge(unittest.TestCase):
+    """S6 若雷 230384: skill_power_down の極端ケース"""
+
+    def _make_skill_service(self):
+        target_service = TargetService()
+        aura_service = AuraService()
+        svc = SkillService(
+            data_loader=MagicMock(), resource_service=MagicMock(),
+            target_service=target_service, damage_service=MagicMock(),
+            aura_service=aura_service, status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 230384
+        return svc
+
+    def _make_effect(self, **kwargs):
+        e = MagicMock()
+        for k, v in kwargs.items():
+            setattr(e, k, v)
+        return e
+
+    def test_skill_power_down_multiple_targets(self):
+        """複数目標に同時付与"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT)
+        bf = _make_bf(caster, e1, e2)
+
+        effect = self._make_effect(
+            effect_type="skill_power_down",
+            target_type="enemy_all",
+            value=50.0, duration=1, duration_type="attacker_action",
+        )
+        result = svc._apply_skill_power_down(caster, effect, bf)
+        self.assertEqual(len(result["auras"]), 2)
+        for u in [e1, e2]:
+            self.assertEqual(len(u.debuffs), 1)
+            self.assertEqual(u.debuffs[0].effect_type, SkillEffectType.SKILL_POWER_DOWN.value)
+            self.assertEqual(u.debuffs[0].value, 50.0)
+
+    def test_skill_power_down_value_over_100_clamped_to_zero_factor(self):
+        """value=150% → skill_factor = max(0, 1-1.5) = 0 → 最低傷害1"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            attack=1000, defense=0, crit_rate=0.0)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            attack=0, defense=500)
+        bf = _make_bf(caster, target)
+
+        # caster に value=150 の skill_power_down を付与
+        caster.debuffs.append(BuffState(
+            buff_id="spd150", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=150.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+
+        damage_svc = DamageService()
+        skill = MagicMock()
+        skill.power = 100
+        skill.hit_count = 1
+        skill.element = None
+        skill.ignore_defense = 0
+        skill.bonus_crit_rate = 0.0
+        skill.cannot_crit = True
+        skill.hp_scaling_bonus = 0.0
+        skill.base_value_source = None
+
+        dmg = damage_svc.calculate_damage(caster, target, skill).total_damage
+        # factor = max(0, 1 - 150/100) = 0 → raw=0 → floor=1 (最低保護)
+        self.assertEqual(dmg, 1)
+
+    def test_skill_power_down_non_attacker_action_duration(self):
+        """duration_type=action → DURABLE_TARGET_MANEUVER_END (duration=-1 にならない)"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+
+        effect = self._make_effect(
+            effect_type="skill_power_down",
+            target_type="enemy_single",
+            value=50.0, duration=2, duration_type="action",
+        )
+        result = svc._apply_skill_power_down(caster, effect, bf)
+        db = target.debuffs[0]
+        self.assertEqual(db.original_duration_type, "action")
+        self.assertEqual(db.timing_type, AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value)
+        # duration_type=action の場合は duration そのまま (=-1 にならない)
+        self.assertEqual(db.duration, 2)
+
+    def test_skill_power_down_skips_dead_targets(self):
+        """死亡目標には付与しない"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        dead = _make_unit("dead", "Dead", Side.ENEMY, Position.ENEMY_LEFT_FRONT, is_alive=False)
+        alive = _make_unit("alive", "Alive", Side.ENEMY, Position.ENEMY_RIGHT_FRONT)
+        bf = _make_bf(caster, dead, alive)
+
+        effect = self._make_effect(
+            effect_type="skill_power_down",
+            target_type="enemy_all",
+            value=50.0, duration=1, duration_type="attacker_action",
+        )
+        result = svc._apply_skill_power_down(caster, effect, bf)
+        # select_targets は死体も返すが、debuff 付与は skip
+        self.assertEqual(len(dead.debuffs), 0)
+        self.assertEqual(len(alive.debuffs), 1)
+
+    def test_skill_power_down_zero_value_no_effect(self):
+        """value=0 → skill_factor 減少なし"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            attack=1000, defense=0, crit_rate=0.0)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            attack=0, defense=500)
+
+        caster.debuffs.append(BuffState(
+            buff_id="spd0", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=0.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+
+        damage_svc = DamageService()
+        skill = MagicMock()
+        skill.power = 100
+        skill.hit_count = 1
+        skill.element = None
+        skill.ignore_defense = 0
+        skill.bonus_crit_rate = 0.0
+        skill.cannot_crit = True
+        skill.hp_scaling_bonus = 0.0
+        skill.base_value_source = None
+
+        dmg = damage_svc.calculate_damage(caster, target, skill).total_damage
+        # value=0 → factor 減少なし → dmg=500
+        self.assertEqual(dmg, 500)
+
+    def test_skill_power_down_stacking_extreme_values(self):
+        """極端値の重ね掛け: 10% × 10個 = 100% → factor=0"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            attack=1000, defense=0, crit_rate=0.0)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            attack=0, defense=500)
+
+        for i in range(10):
+            caster.debuffs.append(BuffState(
+                buff_id=f"spd_{i}", name="skill_power_down",
+                effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+                value=10.0, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+                is_debuff=True,
+            ))
+
+        damage_svc = DamageService()
+        skill = MagicMock()
+        skill.power = 100
+        skill.hit_count = 1
+        skill.element = None
+        skill.ignore_defense = 0
+        skill.bonus_crit_rate = 0.0
+        skill.cannot_crit = True
+        skill.hp_scaling_bonus = 0.0
+        skill.base_value_source = None
+
+        dmg = damage_svc.calculate_damage(caster, target, skill).total_damage
+        # 10 * 10% = 100% → factor=0 → 最低保護1
+        self.assertEqual(dmg, 1)
+
+    def test_skill_power_down_fractional_value(self):
+        """小数値: 33.5% → factor = 1 - 0.335 = 0.665 → floor(500*0.665)=332"""
+        svc = self._make_skill_service()
+        caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                            attack=1000, defense=0, crit_rate=0.0)
+        target = _make_unit("target", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            attack=0, defense=500)
+
+        caster.debuffs.append(BuffState(
+            buff_id="spd_frac", name="skill_power_down",
+            effect_type=SkillEffectType.SKILL_POWER_DOWN.value,
+            value=33.5, duration=1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+        ))
+
+        damage_svc = DamageService()
+        skill = MagicMock()
+        skill.power = 100
+        skill.hit_count = 1
+        skill.element = None
+        skill.ignore_defense = 0
+        skill.bonus_crit_rate = 0.0
+        skill.cannot_crit = True
+        skill.hp_scaling_bonus = 0.0
+        skill.base_value_source = None
+
+        dmg = damage_svc.calculate_damage(caster, target, skill).total_damage
+        # factor = 1 - 33.5/100 = 0.665 → 500 * 0.665 = 332.5 → floor=332
+        self.assertEqual(dmg, 332)
+
+
+# =============================================================================
+# 17. 霞光: ラピッドファイア目標選択 (TargetService)
+# =============================================================================
+class TestS6KasumiRapidFireTargeting(unittest.TestCase):
+    """S6 霞光 220370: 最高Atk敵 + 最高Spd敵 各2hit
+    target_type=enemy_single_highest_atk / enemy_single_highest_spd の検証
+    """
+
+    def setUp(self):
+        self.service = TargetService()
+        self.caster = _make_unit("caster", "Caster", Side.ALLY, Position.ALLY_CENTER_FRONT)
+
+    def _skill(self, target_type_name):
+        s = MagicMock()
+        s.display_target_type = DisplayTargetType.ENEMIES.value
+        s.display_target_range = DisplayTargetRange.ONE_PAWN.value
+        s.display_target_priority = DisplayTargetPriority.HIGHEST_ATK.value
+        s.target_type_name = target_type_name
+        return s
+
+    def test_highest_atk_targeting(self):
+        """Atk最高の敵を選択"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, attack=800)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, attack=1200)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_CENTER_BACK, attack=1000)
+        bf = _make_bf(self.caster, e1, e2, e3)
+
+        s = self._skill("enemy_single_highest_atk")
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "e2")
+
+    def test_highest_spd_targeting(self):
+        """Spd最高の敵を選択"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, speed=600)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, speed=300)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_CENTER_BACK, speed=900)
+        bf = _make_bf(self.caster, e1, e2, e3)
+
+        s = self._skill("enemy_single_highest_spd")
+        s.display_target_priority = DisplayTargetPriority.HIGHEST_SPEED.value
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "e3")
+
+    def test_highest_atk_tie_break_by_distance(self):
+        """Atk同点 → 距離で tie-break"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, attack=1000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, attack=1000)
+        bf = _make_bf(self.caster, e1, e2)
+
+        s = self._skill("enemy_single_highest_atk")
+        targets = self.service.select_targets(s, self.caster, bf)
+        # 同点 → より近い方が選ばれる (caster は CENTER_FRONT)
+        # e1 (LEFT_FRONT) と e2 (RIGHT_FRONT) は同距離 → ソート安定性で最初に見つかった方
+        self.assertEqual(len(targets), 1)
+        self.assertIn(targets[0].unit_id, ["e1", "e2"])
+
+    def test_highest_atk_excludes_dead(self):
+        """死亡敵は候補から除外"""
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, attack=2000,
+                        is_alive=False)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, attack=1000)
+        bf = _make_bf(self.caster, e1, e2)
+
+        s = self._skill("enemy_single_highest_atk")
+        targets = self.service.select_targets(s, self.caster, bf)
+        # e1 は死亡 → e2 が選ばれる
+        self.assertEqual(targets[0].unit_id, "e2")
+
+    def test_highest_atk_no_enemies(self):
+        """敵0体 → 空リスト"""
+        bf = _make_bf(self.caster)
+        s = self._skill("enemy_single_highest_atk")
+        targets = self.service.select_targets(s, self.caster, bf)
+        self.assertEqual(len(targets), 0)
+
+
+# =============================================================================
+# 18. 鳴雷: 被ダメ増/与ダメ減 重ね掛け (DamageService)
+# =============================================================================
+class TestS6MeiRaiDebuffStacking(unittest.TestCase):
+    """S6 鳴雷 220365/220366: dmg_taken_up 3.15%重複 / dmg_dealt_down 15%重複
+    これらは既存の RECEIVED_DAMAGE / DEALT_DAMAGE 乘区で処理される。
+    値は百分率 (30 → 30%) で格納され、_normalize_buff_value が /100 する。
+    極端ケース: 重複回数、期限切れ、0%値などを検証。
+    """
+
+    def setUp(self):
+        self.service = DamageService()
+        self.attacker = _make_unit("atk", "Attacker", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                                   attack=1000, defense=0, crit_rate=0.0)
+        self.defender = _make_unit("def", "Defender", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                                   attack=0, defense=500)
+
+    def _skill(self):
+        s = MagicMock()
+        s.power = 100
+        s.hit_count = 1
+        s.element = None
+        s.ignore_defense = 0
+        s.bonus_crit_rate = 0.0
+        s.cannot_crit = True
+        s.hp_scaling_bonus = 0.0
+        s.base_value_source = None
+        return s
+
+    def test_dmg_taken_up_single_application(self):
+        """被ダメ増 30% (1枚) → 受ダメ 1.30 倍 → 500 * 1.30 = 650"""
+        self.defender.debuffs.append(BuffState(
+            buff_id="dtu1", name="dmg_taken_up",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=30, duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # net = buff_val - debuff_val = 0 - 30/100 = -0.30
+        # received_mult = 1.0 - (-0.30) = 1.30 → 500 * 1.30 = 650
+        self.assertEqual(dmg, 650)
+
+    def test_dmg_taken_up_stacks_multiple(self):
+        """被ダメ増 3.15% × 3枚 (stackable) = 9.45% → 受ダメ 1.0945 倍"""
+        for i in range(3):
+            self.defender.debuffs.append(BuffState(
+                buff_id=f"dtu_{i}", name="dmg_taken_up",
+                effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+                value=3.15, duration=1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                is_debuff=True, is_stackable=True,
+            ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # stackable → sum: 3.15*3 = 9.45 → /100 = 0.0945
+        # net = -0.0945 → received_mult = 1.0945 → 500 * 1.0945 = 547.25 → floor=547
+        self.assertEqual(dmg, 547)
+
+    def test_dmg_taken_up_non_stackable_takes_max(self):
+        """非stackableの被ダメ増は最大値のみ適用 (30% と 10% → 30%)"""
+        self.defender.debuffs.append(BuffState(
+            buff_id="dtu_a", name="dmg_taken_up",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=30, duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,  # is_stackable 未指定 → non-stackable
+        ))
+        self.defender.debuffs.append(BuffState(
+            buff_id="dtu_b", name="dmg_taken_up",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=10, duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # non-stackable → max(30, 10) = 30 → 500 * 1.30 = 650 (not 1.40)
+        self.assertEqual(dmg, 650)
+
+    def test_dmg_taken_up_duration_zero_still_applies(self):
+        """duration=0 の debuff も集計対象 (期間チェックは集計関数ではなくライフサイクル管理)"""
+        self.defender.debuffs.append(BuffState(
+            buff_id="dtu_exp", name="dmg_taken_up",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=50, duration=0,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # duration=0 でも集計される → 500 * 1.50 = 750
+        self.assertEqual(dmg, 750)
+
+    def test_dmg_dealt_down_single_application(self):
+        """与ダメ減 15% (1枚) → 500 * 0.85 = 425"""
+        self.attacker.debuffs.append(BuffState(
+            buff_id="ddd1", name="dmg_dealt_down",
+            effect_type=SkillEffectType.DEALT_DAMAGE.value,
+            value=15, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # net = buff_val - debuff_val = 0 - 15/100 = -0.15
+        # dealt_mult = 1.0 + (-0.15) = 0.85 → 500 * 0.85 = 425
+        self.assertEqual(dmg, 425)
+
+    def test_dmg_dealt_down_stacks_two(self):
+        """与ダメ減 15% × 2枚 (stackable) = 30% → 500 * 0.70 = 350"""
+        for i in range(2):
+            self.attacker.debuffs.append(BuffState(
+                buff_id=f"ddd_{i}", name="dmg_dealt_down",
+                effect_type=SkillEffectType.DEALT_DAMAGE.value,
+                value=15, duration=1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                is_debuff=True, is_stackable=True,
+            ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        self.assertEqual(dmg, 350)
+
+    def test_dmg_dealt_down_and_dmg_taken_up_combined(self):
+        """与ダメ減15% + 被ダメ増30% 同時 → 500 * 0.85 * 1.30 = 552.5 → 552"""
+        self.attacker.debuffs.append(BuffState(
+            buff_id="ddd", name="dmg_dealt_down",
+            effect_type=SkillEffectType.DEALT_DAMAGE.value,
+            value=15, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        self.defender.debuffs.append(BuffState(
+            buff_id="dtu", name="dmg_taken_up",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=30, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        dmg = self.service.calculate_damage(self.attacker, self.defender, self._skill()).total_damage
+        # 500 * 0.85 * 1.30 = 552.5 → floor=552
+        self.assertEqual(dmg, 552)
+
+
+# =============================================================================
+# 19. 統合: block_buff_by_type + 後続 buff 付与の完全連鎖
+# =============================================================================
+class TestS6BlockBuffChainIntegration(unittest.TestCase):
+    """block_buff_by_type 付与後の各種 buff 付与の可否を総合検証
+    土雷 220362 の blocked_buff_types=[max_hp_up, atk_up, def_up, spd_up, crit_rate_up] を想定
+    """
+
+    def setUp(self):
+        self.service = AuraService()
+        self.unit = _make_unit("u", "Target", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        # 全ブロック対象の debuff を付与
+        self.block_debuff = BuffState(
+            buff_id="block_all", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[
+                SkillEffectType.STATUS_ATTACK.value,
+                SkillEffectType.STATUS_DEFENSE.value,
+                SkillEffectType.STATUS_SPEED.value,
+                SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            ],
+        )
+        self.unit.debuffs.append(self.block_debuff)
+
+    def _try_add(self, effect_type, value=0.2):
+        buff = BuffState(
+            buff_id=f"test_{effect_type}", name=effect_type,
+            effect_type=effect_type,
+            value=value, duration=2,
+            timing_type=AuraUpdateTiming.EPHEMERAL_MANEUVER_END.value,
+        )
+        return self.service.add_aura(self.unit, buff)
+
+    def test_all_blocked_types_denied(self):
+        """ブロック対象の4種全てが拒否される"""
+        self.assertFalse(self._try_add(SkillEffectType.STATUS_ATTACK.value))
+        self.assertFalse(self._try_add(SkillEffectType.STATUS_DEFENSE.value))
+        self.assertFalse(self._try_add(SkillEffectType.STATUS_SPEED.value))
+        self.assertFalse(self._try_add(SkillEffectType.STATUS_CRITICAL_CHANCE.value))
+        self.assertEqual(len(self.unit.buffs), 0)
+
+    def test_non_blocked_type_allowed(self):
+        """ブロック対象外 (HEAL_RECEIVE 等) は許可される"""
+        ok = self._try_add(SkillEffectType.RECEIVED_HEALING.value, value=0.1)
+        self.assertTrue(ok)
+        self.assertEqual(len(self.unit.buffs), 1)
+
+    def test_block_debuff_can_be_refreshed_while_active(self):
+        """ブロック中に BlockBuffByType 自体は再付与可能 (自己ブロック回避)"""
+        new_block = BuffState(
+            buff_id="block_all", name="buff_block_refresh",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            is_debuff=True,
+            block_status_list=[
+                SkillEffectType.STATUS_ATTACK.value,
+                SkillEffectType.STATUS_DEFENSE.value,
+            ],
+        )
+        ok = self.service.add_aura(self.unit, new_block)
+        self.assertTrue(ok)
+
+    def test_block_removed_after_duration_zero(self):
+        """block debuff の duration を 0 に手動設定 → ブロック無効化"""
+        self.block_debuff.duration = 0
+        ok = self._try_add(SkillEffectType.STATUS_ATTACK.value)
+        self.assertTrue(ok, "atk_up should pass after block debuff duration set to 0")
+
+    def test_block_persists_across_multiple_buff_attempts(self):
+        """ブロック debuff は複数回の buff 付与試行で消費されない"""
+        for _ in range(5):
+            self._try_add(SkillEffectType.STATUS_ATTACK.value)
+        # 5回試行しても debuff は残る
+        self.assertEqual(len(self.unit.debuffs), 1)
+        self.assertEqual(self.block_debuff.duration, 2)
+        self.assertEqual(len(self.unit.buffs), 0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

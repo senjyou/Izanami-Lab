@@ -1,0 +1,452 @@
+"""战术演习/复合战术演习 复活后回忆卡debuff保留验证
+
+Bug: tactical_exercise_controller._resurrect_enemy 无条件 enemy.debuffs.clear()，
+导致回忆卡施加的debuff(如400204 ReceivedDamage易伤)在敌方复活后被清除。
+复合战术演习的 _resurrect_boss 已正确保留回忆卡debuff。
+
+修复: 战术演习复活时保留 is_memory_buff=True 的buff/debuff，仅清除非回忆卡buff/debuff，
+与复合战术演习的 _resurrect_boss 行为一致。
+
+测试覆盖:
+1. 战术演习模式: 敌方复活后回忆卡debuff保留, 普通debuff清除
+2. 复合战术演习模式: BOSS复活后回忆卡debuff保留, 普通debuff清除
+3. 阶段增量buff替换: 旧stage_ buff被新stage_ buff替换(不累积叠加)
+4. 异常状态标志位: 复活后is_stunned/is_frozen根据保留的debuffs重新派生
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.battle_flow_controller import BattleConfig
+from src.combat_v2.tactical_exercise_controller import TacticalExerciseController
+from src.combat_v2.composite_tactic_controller import CompositeTacticController
+
+
+def _make_enemy(unit_id="enemy1", name="敌方BOSS", hp=100000, atk=10000, defense=5000,
+                speed=500, position=Position.ENEMY_CENTER_FRONT):
+    return UnitState(
+        unit_id=unit_id, name=name, side=Side.ENEMY,
+        position=position, character_id=999001, level=10,
+        element=2, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+        current_ap=4, current_pp=4, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_memory_debuff(skill_id, target_unit_id, effect_type="ReceivedDamage",
+                         value=7.5, value_tag=0):
+    """构造回忆卡debuff(is_memory_buff=True)"""
+    return BuffState(
+        buff_id=f"memory_{skill_id}_{target_unit_id}",
+        name="回忆卡debuff",
+        effect_type=effect_type,
+        value=value,
+        duration=-1,
+        timing_type=3,
+        source_unit_id=target_unit_id,
+        is_debuff=True,
+        is_memory_buff=True,
+        value_tag=value_tag,
+    )
+
+
+def _make_normal_debuff(caster_id, target_unit_id, effect_type="DealtDamage",
+                         value=20.0, value_tag=0):
+    """构造普通技能debuff(is_memory_buff=False)"""
+    return BuffState(
+        buff_id=f"{caster_id}_skill_{effect_type}_{target_unit_id}",
+        name="普通debuff",
+        effect_type=effect_type,
+        value=value,
+        duration=1,
+        timing_type=4,
+        source_unit_id=caster_id,
+        is_debuff=True,
+        is_memory_buff=False,
+        value_tag=value_tag,
+    )
+
+
+def _make_memory_buff(skill_id, target_unit_id, effect_type="StatusAttack",
+                       value=4.0, value_tag=0):
+    """构造回忆卡buff(is_memory_buff=True)"""
+    return BuffState(
+        buff_id=f"memory_{skill_id}_{target_unit_id}",
+        name="回忆卡buff",
+        effect_type=effect_type,
+        value=value,
+        duration=-1,
+        timing_type=3,
+        source_unit_id=target_unit_id,
+        is_debuff=False,
+        is_memory_buff=True,
+        value_tag=value_tag,
+    )
+
+
+def _make_normal_buff(caster_id, target_unit_id, effect_type="StatusAttack",
+                       value=10.0, value_tag=0):
+    """构造普通技能buff(is_memory_buff=False)"""
+    return BuffState(
+        buff_id=f"{caster_id}_skill_{effect_type}_{target_unit_id}",
+        name="普通buff",
+        effect_type=effect_type,
+        value=value,
+        duration=2,
+        timing_type=4,
+        source_unit_id=caster_id,
+        is_debuff=False,
+        is_memory_buff=False,
+        value_tag=value_tag,
+    )
+
+
+def _make_knockout_debuff(is_memory=False, skill_id=0, target_unit_id=""):
+    """构造眩晕debuff(Knockout)"""
+    return BuffState(
+        buff_id=(f"memory_{skill_id}_{target_unit_id}_ko" if is_memory
+                 else f"skill_ko_{target_unit_id}"),
+        name="気絶",
+        effect_type=SkillEffectType.KNOCKOUT.value,
+        value=0,
+        duration=1,
+        timing_type=4,
+        source_unit_id=target_unit_id,
+        is_debuff=True,
+        is_memory_buff=is_memory,
+    )
+
+
+class TestTacticalExerciseResurrectMemoryDebuff(unittest.TestCase):
+    """战术演习模式: 敌方复活后回忆卡debuff保留验证"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.enemy = _make_enemy(unit_id="enemy1", name="夕凪舞亜",
+                                  position=Position.ENEMY_CENTER_FRONT)
+        self.bf = BattlefieldState()
+        self.bf.enemy_team = [self.enemy]
+        self.bf.friend_team = []
+        self.controller = TacticalExerciseController(
+            self.bf, config=BattleConfig(max_turns=5),
+            data_loader=self.dl
+        )
+
+    def _simulate_death_and_resurrect(self):
+        """模拟敌方死亡后复活"""
+        self.enemy.current_hp = 0
+        self.enemy.is_alive = False
+        self.controller._resurrect_enemy(self.enemy, skip_narrative=True)
+
+    def test_memory_debuff_preserved_on_resurrect(self):
+        """回忆卡debuff(ReceivedDamage易伤)在敌方复活后应保留
+
+        Bug: 400204 お嬢様直伝マナー講座 对敌方施加7.5%易伤debuff,
+        敌方复活后该debuff被清除, 导致rcvd=1.0(无易伤)而非1.075(易伤)
+        """
+        memory_debuff = _make_memory_debuff(
+            skill_id=400204, target_unit_id="enemy1",
+            effect_type="ReceivedDamage", value=7.5, value_tag=0
+        )
+        self.enemy.debuffs.append(memory_debuff)
+
+        self._simulate_death_and_resurrect()
+
+        # 验证回忆卡debuff保留
+        preserved = [d for d in self.enemy.debuffs
+                     if d.effect_type == "ReceivedDamage" and d.is_memory_buff]
+        self.assertEqual(len(preserved), 1,
+                         "回忆卡ReceivedDamage debuff应保留")
+        self.assertEqual(preserved[0].value, 7.5,
+                         "回忆卡debuff值应为原始7.5")
+
+    def test_normal_debuff_cleared_on_resurrect(self):
+        """普通技能debuff在敌方复活后应清除(如dmg_taken_up)"""
+        normal_debuff = _make_normal_debuff(
+            caster_id="ally1", target_unit_id="enemy1",
+            effect_type="DealtDamage", value=20.0, value_tag=0
+        )
+        self.enemy.debuffs.append(normal_debuff)
+
+        self._simulate_death_and_resurrect()
+
+        # 验证普通debuff被清除
+        remaining_normal = [d for d in self.enemy.debuffs if not d.is_memory_buff]
+        self.assertEqual(len(remaining_normal), 0,
+                         "普通技能debuff应被清除")
+
+    def test_memory_buff_preserved_on_resurrect(self):
+        """回忆卡buff(StatusAttack等)在敌方复活后应保留"""
+        memory_buff = _make_memory_buff(
+            skill_id=400024, target_unit_id="enemy1",
+            effect_type="StatusAttack", value=4.0, value_tag=0
+        )
+        self.enemy.buffs.append(memory_buff)
+
+        self._simulate_death_and_resurrect()
+
+        preserved = [b for b in self.enemy.buffs
+                     if b.effect_type == "StatusAttack" and b.is_memory_buff
+                     and not b.buff_id.startswith("stage_")]
+        self.assertEqual(len(preserved), 1,
+                         "回忆卡StatusAttack buff应保留")
+
+    def test_normal_buff_cleared_on_resurrect(self):
+        """普通技能buff在敌方复活后应清除"""
+        normal_buff = _make_normal_buff(
+            caster_id="ally1", target_unit_id="enemy1",
+            effect_type="StatusAttack", value=10.0, value_tag=0
+        )
+        self.enemy.buffs.append(normal_buff)
+
+        self._simulate_death_and_resurrect()
+
+        remaining_normal = [b for b in self.enemy.buffs
+                            if not b.is_memory_buff and not b.buff_id.startswith("stage_")]
+        self.assertEqual(len(remaining_normal), 0,
+                         "普通技能buff应被清除")
+
+    def test_stage_buff_replaced_not_accumulated(self):
+        """阶段增量buff(stage_开头)应被新阶段buff替换, 不累积叠加"""
+        # 模拟阶段1的stage_ buff已存在
+        stage1_buff = BuffState(
+            buff_id="stage_1_StatusAttack_enemy1",
+            name="阶段增量ATK",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0,
+            duration=-1,
+            timing_type=0,
+            source_unit_id="enemy1",
+            is_debuff=False,
+            is_memory_buff=True,
+            value_tag=0,
+        )
+        self.enemy.buffs.append(stage1_buff)
+
+        self._simulate_death_and_resurrect()  # 进入阶段1
+
+        # 阶段1的stage_ buff应只有1个(新增的), 旧的stage_1应被清除
+        stage_buffs = [b for b in self.enemy.buffs if b.buff_id.startswith("stage_")]
+        self.assertEqual(len(stage_buffs), 3,
+                         f"应有3个阶段增量buff(ATK/DEF/SPD), 实际={len(stage_buffs)}")
+        # 确保没有stage_1_前缀的旧buff(应该被清除, 新增的是stage_1_)
+        # 注: 阶段1复活后n=1, 新buff的buff_id也是stage_1_开头
+        # 所以验证总数而非前缀, 确保不累积
+        stage_atk_buffs = [b for b in stage_buffs
+                           if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(stage_atk_buffs), 1,
+                         "阶段增量ATK buff应只有1个(不累积), 实际="
+                         + str(len(stage_atk_buffs)))
+
+    def test_knockout_debuff_cleared_and_stun_flag_reset(self):
+        """普通眩晕debuff复活后清除, is_stunned标志位重置为False"""
+        knockout_debuff = _make_knockout_debuff(
+            is_memory=False, target_unit_id="enemy1"
+        )
+        self.enemy.debuffs.append(knockout_debuff)
+        self.enemy.is_stunned = True
+
+        self._simulate_death_and_resurrect()
+
+        self.assertFalse(self.enemy.is_stunned,
+                         "普通眩晕debuff清除后is_stunned应为False")
+        knockout_remaining = [d for d in self.enemy.debuffs
+                              if d.effect_type == SkillEffectType.KNOCKOUT.value]
+        self.assertEqual(len(knockout_remaining), 0,
+                         "普通眩晕debuff应被清除")
+
+    def test_memory_knockout_debuff_preserved_and_stun_flag_derived(self):
+        """回忆卡眩晕debuff复活后保留, is_stunned标志位根据保留的debuffs重新派生为True"""
+        memory_knockout = _make_knockout_debuff(
+            is_memory=True, skill_id=400999, target_unit_id="enemy1"
+        )
+        self.enemy.debuffs.append(memory_knockout)
+        self.enemy.is_stunned = True
+
+        self._simulate_death_and_resurrect()
+
+        self.assertTrue(self.enemy.is_stunned,
+                        "回忆卡眩晕debuff保留时is_stunned应保持True")
+        knockout_remaining = [d for d in self.enemy.debuffs
+                              if d.effect_type == SkillEffectType.KNOCKOUT.value]
+        self.assertEqual(len(knockout_remaining), 1,
+                         "回忆卡眩晕debuff应保留")
+
+    def test_received_damage_multiplier_after_resurrect(self):
+        """综合验证: 敌方复活后ReceivedDamage易伤乘区仍生效(rcvd=1.075)"""
+        memory_debuff = _make_memory_debuff(
+            skill_id=400204, target_unit_id="enemy1",
+            effect_type="ReceivedDamage", value=7.5, value_tag=0
+        )
+        self.enemy.debuffs.append(memory_debuff)
+
+        self._simulate_death_and_resurrect()
+
+        dms = self.controller.damage_service
+        rcvd = dms._get_damage_received_multiplier(self.enemy)
+        self.assertAlmostEqual(rcvd, 1.075, places=3,
+                               msg=f"复活后7.5%易伤应使rcvd=1.075, 实际={rcvd}")
+
+    # ─── max_hp_up 跨阶段保留验证 ───
+
+    def test_max_hp_up_preserved_on_resurrect(self):
+        """永久 max_hp_up 增量(如 PS2 わたくしがしっかりしないと+的 +80%)在复活后应保留
+
+        Bug: _resurrect_enemy 计算 new_hp = base["hp"] * stat_multiplier,
+        丢失了死亡前由 max_hp_up 直接修改 max_hp 产生的永久增量。
+        """
+        # 阶段0 base HP = 100000
+        # 模拟 PS2 触发: max_hp_up +80% → max_hp = 180000
+        self.enemy.max_hp = 180000
+        self.enemy.current_hp = 0  # 死亡
+        self.enemy.is_alive = False
+
+        self.controller._resurrect_enemy(self.enemy, skip_narrative=True)
+
+        # 阶段1: stat_multiplier = 1.2, permanent_flat = 80000
+        # new_hp = 100000 * 1.2 + 80000 = 200000
+        self.assertEqual(self.enemy.max_hp, 200000,
+                         "复活后max_hp应保留PS2的+80%增量: 100000*1.2+80000=200000")
+        self.assertEqual(self.enemy.current_hp, 200000,
+                         "复活后current_hp应满血: 200000")
+
+    def test_no_max_hp_up_bonus_without_ps2(self):
+        """无 max_hp_up 增量时, 复活行为不变(permanent_hp_mult=1.0)"""
+        # 阶段0 base HP = 100000, 无 PS2 增量
+        self.enemy.current_hp = 0
+        self.enemy.is_alive = False
+
+        self.controller._resurrect_enemy(self.enemy, skip_narrative=True)
+
+        # 阶段1: stat_multiplier = 1.2, permanent_flat = 0
+        # new_hp = 100000 * 1.2 + 0 = 120000
+        self.assertEqual(self.enemy.max_hp, 120000,
+                         "无PS2增量时复活max_hp应为: 100000*1.2=120000")
+        self.assertEqual(self.enemy.current_hp, 120000,
+                         "复活后current_hp应满血: 120000")
+
+    def test_max_hp_up_preserved_across_multiple_stages(self):
+        """永久 max_hp_up 增量应跨多阶段保留"""
+        # 阶段0 base HP = 100000, PS2 触发 max_hp = 180000
+        self.enemy.max_hp = 180000
+        self.enemy.current_hp = 0
+        self.enemy.is_alive = False
+
+        # 阶段0 → 阶段1
+        self.controller._resurrect_enemy(self.enemy, skip_narrative=True)
+        # permanent_flat = 180000 - 100000*1.0 = 80000
+        # new_hp = 100000 * 1.2 + 80000 = 200000
+        self.assertEqual(self.enemy.max_hp, 200000,
+                         "阶段1 max_hp应保留PS2增量: 200000")
+
+        # 阶段1 → 阶段2
+        self.enemy.current_hp = 0
+        self.enemy.is_alive = False
+        self.controller._resurrect_enemy(self.enemy, skip_narrative=True)
+        # permanent_flat = 200000 - 100000*1.2 = 80000
+        # new_hp = 100000 * 1.4 + 80000 = 220000
+        self.assertEqual(self.enemy.max_hp, 220000,
+                         "阶段2 max_hp应保留PS2增量: 100000*1.4+80000=220000")
+        self.assertEqual(self.enemy.current_hp, 220000,
+                         "阶段2复活后current_hp应满血: 220000")
+
+
+class TestCompositeTacticResurrectMemoryDebuff(unittest.TestCase):
+    """复合战术演习模式: BOSS复活后回忆卡debuff保留验证(回归测试)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.enemy = _make_enemy(unit_id="boss1", name="BOSS",
+                                  position=Position.ENEMY_CENTER_FRONT)
+        self.bf = BattlefieldState()
+        self.bf.enemy_team = [self.enemy]
+        self.bf.friend_team = []
+        # 构造复合战术演习控制器(空teams, 仅测试_resurrect_boss)
+        self.controller = CompositeTacticController(
+            self.bf, config=BattleConfig(max_turns=5),
+            data_loader=self.dl,
+            teams=[], team_memories=[[], [], []],
+            boss_unit_id="boss1"
+        )
+
+    def _simulate_death_and_resurrect(self):
+        """模拟BOSS死亡后复活"""
+        self.enemy.current_hp = 0
+        self.enemy.is_alive = False
+        self.controller._resurrect_boss(self.enemy, skip_narrative=True)
+
+    def test_memory_debuff_preserved_on_boss_resurrect(self):
+        """BOSS复活后回忆卡debuff应保留(回归验证: 复合战术演习原有逻辑)"""
+        memory_debuff = _make_memory_debuff(
+            skill_id=400204, target_unit_id="boss1",
+            effect_type="ReceivedDamage", value=7.5, value_tag=0
+        )
+        self.enemy.debuffs.append(memory_debuff)
+
+        self._simulate_death_and_resurrect()
+
+        preserved = [d for d in self.enemy.debuffs
+                     if d.effect_type == "ReceivedDamage" and d.is_memory_buff]
+        self.assertEqual(len(preserved), 1,
+                         "BOSS复活后回忆卡ReceivedDamage debuff应保留")
+
+    def test_normal_debuff_cleared_on_boss_resurrect(self):
+        """BOSS复活后普通技能debuff应清除"""
+        normal_debuff = _make_normal_debuff(
+            caster_id="ally1", target_unit_id="boss1",
+            effect_type="DealtDamage", value=20.0, value_tag=0
+        )
+        self.enemy.debuffs.append(normal_debuff)
+
+        self._simulate_death_and_resurrect()
+
+        remaining_normal = [d for d in self.enemy.debuffs if not d.is_memory_buff]
+        self.assertEqual(len(remaining_normal), 0,
+                         "BOSS复活后普通技能debuff应被清除")
+
+    def test_stage_buff_replaced_on_boss_resurrect(self):
+        """BOSS复活时旧阶段增量buff应被新阶段buff替换, 不累积"""
+        stage1_buff = BuffState(
+            buff_id="stage_1_StatusAttack_boss1",
+            name="阶段增量ATK",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0,
+            duration=-1,
+            timing_type=0,
+            source_unit_id="boss1",
+            is_debuff=False,
+            is_memory_buff=True,
+            value_tag=0,
+        )
+        self.enemy.buffs.append(stage1_buff)
+
+        self._simulate_death_and_resurrect()
+
+        stage_atk_buffs = [b for b in self.enemy.buffs
+                           if b.buff_id.startswith("stage_")
+                           and b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(stage_atk_buffs), 1,
+                         "BOSS阶段增量ATK buff应只有1个(不累积)")
+
+
+if __name__ == "__main__":
+    unittest.main()

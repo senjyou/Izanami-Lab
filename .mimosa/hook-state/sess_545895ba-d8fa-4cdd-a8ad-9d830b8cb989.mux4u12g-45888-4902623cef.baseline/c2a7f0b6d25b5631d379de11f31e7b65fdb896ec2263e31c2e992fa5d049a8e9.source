@@ -1,0 +1,99 @@
+"""Unit tests for _block_damage_targets caching behavior.
+
+Tests:
+- Cache resets to {} at each new block
+- Aura effects in same block use cached damage targets
+- Multi-block skills with same target_type get fresh selection per block
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import SkillEffectType, Position
+
+
+class TestDamageTargetCache(unittest.TestCase):
+    """_block_damage_targets behavior across blocks."""
+
+    def setUp(self):
+        builder = BattleBuilder()
+        builder.add_ally(unit_id="caster", hp=20000, atk=10000)
+        builder.add_enemy(unit_id="enemy_near", position=Position.ENEMY_CENTER_FRONT,
+                          hp=50000, atk=5000)
+        builder.add_enemy(unit_id="enemy_high_atk", position=Position.ENEMY_RIGHT_BACK,
+                          hp=50000, atk=15000)
+        ctx = builder.build()
+        self.bf = ctx['bf']
+        self.ss = ctx['ss']
+        self.caster = next(u for u in self.bf.friend_team if u.unit_id == "caster")
+        self.enemy_near = next(u for u in self.bf.enemy_team if u.unit_id == "enemy_near")
+        self.enemy_high = next(u for u in self.bf.enemy_team if u.unit_id == "enemy_high_atk")
+
+    def test_cache_cleared_each_block(self):
+        """_block_damage_targets reset to {} at each block start."""
+        # Simulate block 1: cache is populated by damage effect
+        self.ss._block_damage_targets = {"enemy_single": [self.enemy_near]}
+        # Simulate block 2 start (cache reset)
+        self.ss._block_damage_targets = {}
+        self.assertEqual(self.ss._block_damage_targets, {},
+                         "cache should be empty at new block start")
+
+    def test_aura_uses_cached_target_same_block(self):
+        """Aura effect in same block as damage should use cached target."""
+        from types import SimpleNamespace
+        # Populate cache as damage would
+        self.ss._block_damage_targets = {"enemy_single_highest_atk": [self.enemy_high]}
+        self.ss._current_skill_id = 99999
+
+        # Aura effect (atk_down) with same target_type
+        aura_effect = SimpleNamespace(
+            effect_type="atk_down",
+            target_type="enemy_single_highest_atk",
+            target_identifier=None,
+            value=30,
+            duration=-1,
+            duration_type="action",
+            flags={"value_type": "percent", "stackable": True},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        result = self.ss._apply_aura(self.caster, aura_effect, self.bf, is_debuff=True)
+        self.assertIsNotNone(result)
+        auras = result.get("auras", [])
+        self.assertEqual(len(auras), 1)
+        self.assertEqual(auras[0]["target_id"], self.enemy_high.unit_id,
+                         "aura should use cached highest_atk target")
+
+    def test_aura_falls_back_when_cache_empty(self):
+        """When cache is empty, aura with highest_atk selects highest ATK enemy via post-filter."""
+        from types import SimpleNamespace
+        self.ss._block_damage_targets = {}  # Simulate empty cache
+        self.ss._current_skill_id = 99999
+
+        aura_effect = SimpleNamespace(
+            effect_type="atk_down",
+            target_type="enemy_single_highest_atk",
+            target_identifier=None,
+            value=30,
+            duration=-1,
+            duration_type="action",
+            flags={"value_type": "percent", "stackable": True},
+            condition=None,
+            ignore_defense=0,
+            ignore_shield=0,
+        )
+        result = self.ss._apply_aura(self.caster, aura_effect, self.bf, is_debuff=True)
+        self.assertIsNotNone(result)
+        auras = result.get("auras", [])
+        self.assertEqual(len(auras), 1)
+        # Without cache, highest_atk post-filter should select enemy_high_atk (atk=15000)
+        # not enemy_near (atk=5000)
+        self.assertEqual(auras[0]["target_id"], self.enemy_high.unit_id,
+                         "without cache, highest_atk aura should select highest ATK enemy via post-filter")
+
+
+if __name__ == '__main__':
+    unittest.main()

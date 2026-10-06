@@ -1,0 +1,182 @@
+"""Regression: ザ式戦術機動剣術「天崩」(110063) hp_scaling_def_penetrate
+def_down debuff must be temporary (removed at end of caster's action), not permanent.
+
+Bug: The temp_def_down BuffState was created with duration=-1 (permanent) and
+     timing_type=DURABLE_SOURCE_MANEUVER_END. However, AuraService treats
+     duration<0 as permanent (never decrements). process_source_maneuver_end
+     only decrements buffs where b.duration > 0, so the def_down persisted
+     forever, making every subsequent attack on the target use the reduced DEF.
+
+Root cause: duration=-1 in the temp_def_down BuffState constructor at
+     skill_service.py _apply_damage hp_scaling_def_penetrate block.
+
+Fix: Change duration=-1 to duration=1. process_source_maneuver_end decrements
+     it to 0 at the end of the caster's action, then check_expiration removes it.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+TENPO = 110063  # ザ式戦術機動剣術「天崩」 (EX, hp_scaling_def_penetrate)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10, ep=0, max_ep=0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=max_ep,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegTenpoHpScalingDefPenetrateTemporary(unittest.TestCase):
+    """天崩's hp_scaling_def_penetrate def_down must be removed at the end of
+    the caster's action, not persist permanently."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts, aus
+
+    def _find_def_penetrate_debuff(self, unit):
+        """Find the hp_scaling_def_penetrate debuff on the unit."""
+        for b in unit.debuffs:
+            if (b.effect_type == SkillEffectType.STATUS_DEFENSE.value
+                    and 'hp_scaling_def_penetrate' in b.buff_id):
+                return b
+        return None
+
+    def test_def_penetrate_debuff_removed_after_caster_action_ends(self):
+        """After 天崩 executes and the caster's action ends, the
+        hp_scaling_def_penetrate def_down debuff must be removed from the target."""
+        caster = _make_unit("caster", "施法者", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=50000, atk=20000,
+                            defense=5000, speed=900, element=4,
+                            skills=[TENPO], skill_levels={TENPO: 10},
+                            ep=7, max_ep=7)
+        # Target with high HP so HP ratio is high → penetrate_pct near 50%
+        target = _make_unit("target", "目标", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT, hp=100000, atk=1000,
+                            defense=10000, speed=100, element=1)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+        ss, ts, aus = self._make_services(bf)
+
+        # Execute 天崩 (EX skill, skip_cost to bypass EP consumption)
+        result = ss.execute_skill(caster, TENPO, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "天崩 execution should succeed")
+
+        # The def_down debuff should be present on the target right after
+        # skill execution (before caster's action-end processing)
+        debuff = self._find_def_penetrate_debuff(target)
+        self.assertIsNotNone(
+            debuff,
+            "hp_scaling_def_penetrate def_down should be on target during skill execution")
+        self.assertEqual(
+            debuff.timing_type, AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+            "def_down should use DURABLE_SOURCE_MANEUVER_END timing")
+        self.assertGreater(
+            debuff.duration, 0,
+            "def_down duration must be > 0 so it can be decremented; "
+            "duration=-1 is treated as permanent (BUG)")
+
+        # Simulate the end of the caster's action: battle_flow_controller calls
+        # process_maneuver_end(caster) then process_source_maneuver_end(caster, all_units)
+        aus.process_maneuver_end(caster)
+        aus.process_source_maneuver_end(caster, bf.get_all_units())
+
+        # The def_down debuff must now be removed (duration decremented to 0 → expired)
+        debuff_after = self._find_def_penetrate_debuff(target)
+        self.assertIsNone(
+            debuff_after,
+            "hp_scaling_def_penetrate def_down must be removed after caster's "
+            "action ends, not persist permanently")
+
+    def test_def_penetrate_does_not_persist_across_subsequent_attacks(self):
+        """After 天崩's def_down is cleaned up, the target's effective DEF
+        must return to its original value, not stay reduced."""
+        caster = _make_unit("caster", "施法者", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=50000, atk=20000,
+                            defense=5000, speed=900, element=4,
+                            skills=[TENPO], skill_levels={TENPO: 10},
+                            ep=7, max_ep=7)
+        target = _make_unit("target", "目标", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT, hp=1000000, atk=1000,
+                            defense=10000, speed=100, element=1)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+        ss, ts, aus = self._make_services(bf)
+
+        # Execute 天崩
+        ss.execute_skill(caster, TENPO, bf, skip_cost=True)
+
+        # During 天崩: def_down is present, effective DEF should be reduced
+        debuff_during = self._find_def_penetrate_debuff(target)
+        self.assertIsNotNone(debuff_during, "def_down should be present during 天崩")
+        def_during = ss.damage_service._calculate_final_stat(target, "defense")
+        self.assertLess(
+            def_during, 10000,
+            "During 天崩, target DEF should be reduced by def_down. Got %s" % def_during)
+
+        # End caster's action
+        aus.process_maneuver_end(caster)
+        aus.process_source_maneuver_end(caster, bf.get_all_units())
+
+        # After cleanup: def_down gone, effective DEF back to original
+        self.assertIsNone(
+            self._find_def_penetrate_debuff(target),
+            "def_down must be removed after caster's action ends")
+        def_after = ss.damage_service._calculate_final_stat(target, "defense")
+        self.assertEqual(
+            def_after, 10000,
+            "After 天崩's def_down is cleaned up, target DEF must return to "
+            "original (10000), not stay reduced. Got %s" % def_after)
+
+
+if __name__ == '__main__':
+    unittest.main()

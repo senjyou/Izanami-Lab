@@ -1,0 +1,470 @@
+"""Tests for enemy character 201405 - 惨禍：夕凪舞亜.
+
+Skills: 210100(EX), 220373(AS1), 220374(AS2), 230396(PS1), 230397(PS2)
+
+敌方版技能与己方109302(110067/120149/120150/130149/130150)同名同机制，
+差异：
+- active_level_min阈值：敌方DefaultMaxLevel=10，进阶阈值为Lv10/Lv5/Lv10
+- PS1(230396) cure值：0.35%/0.45%（敌方削弱版，己方4.5%）
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import SkillEffectType, Position, Side
+
+POISON = SkillEffectType.POISON.value
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+STATUS_SPEED = SkillEffectType.STATUS_SPEED.value
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+MARK = SkillEffectType.MARK.value
+SHIELD = SkillEffectType.SHIELD.value
+EP_GAIN_DOWN = SkillEffectType.EP_GAIN_DOWN.value
+BLOCK_SPECIFIC_AURA = SkillEffectType.BLOCK_SPECIFIC_AURA.value
+CONFLAGRATION = SkillEffectType.CONFLAGRATION.value
+
+
+# ═══════════════════════════════════════════════════════════════
+# 210100 シャル・ウィ・ダンス？ (EX)
+# ═══════════════════════════════════════════════════════════════
+
+class TestEX210100(unittest.TestCase):
+    """EX：最もHP割合が低い敵単体に威力攻撃 + 敵全体spd_down(20%, 1action)
+    Lv5+: 味方全体spd_up({spd}%, 1action)"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[210100], level=10, ep=10)
+        bb.add_ally(unit_id="a_low", position=Position.ALLY_CENTER_FRONT, hp=30000)
+        bb.add_ally(unit_id="a_high", position=Position.ALLY_RIGHT_BACK, hp=50000)
+        bb.add_ally(unit_id="a_full", position=Position.ALLY_LEFT_BACK, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss = ctx['bf'], ctx['ss']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a_low = next(u for u in self.bf.friend_team if u.unit_id == "a_low")
+        self.a_high = next(u for u in self.bf.friend_team if u.unit_id == "a_high")
+        self.a_full = next(u for u in self.bf.friend_team if u.unit_id == "a_full")
+        self.a_low.current_hp = 12000  # 40%
+        self.a_high.current_hp = 25000  # 50%
+        self.a_full.current_hp = 50000  # 100%
+
+    def test_damage_hits_lowest_hp_ratio(self):
+        """Damage should target ally with lowest HP%."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210100,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        dmg_targets = []
+        for e in result["effects_applied"]:
+            if e.get("effect_type") == "damage":
+                for t in e.get("targets", []):
+                    dmg_targets.append(t.get("target_id"))
+        self.assertEqual(len(dmg_targets), 1)
+        self.assertEqual(dmg_targets[0], self.a_low.unit_id,
+                         "should hit lowest HP% ally (40%)")
+
+    def test_spd_down_all_allies(self):
+        """spd_down should apply to ALL allies (from enemy caster's perspective)."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=210100,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        for aid in ["a_low", "a_high", "a_full"]:
+            ally = next(u for u in self.bf.friend_team if u.unit_id == aid)
+            spd_debuffs = [d for d in ally.debuffs if d.effect_type == STATUS_SPEED]
+            self.assertEqual(len(spd_debuffs), 1, f"{aid} should have 1 spd_down")
+            self.assertEqual(spd_debuffs[0].value, 20.0, f"{aid} spd_down should be 20%")
+
+    def test_spd_up_all_enemies_lv5(self):
+        """Lv5+: spd_up should apply to all enemies including caster (ally_all含自身)."""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[210100], level=5, ep=10)
+        bb.add_enemy(unit_id="c2", hp=20000)
+        bb.add_ally(unit_id="a", hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        ally2 = next(u for u in bf.enemy_team if u.unit_id == "c2")
+        result = ss.execute_skill(caster=caster, skill_id=210100, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        # ally_all含自身（SELF_AND_FRIENDS）：c和c2都应有spd_up
+        c_spd_buffs = [b for b in caster.buffs if b.effect_type == STATUS_SPEED]
+        c2_spd_buffs = [b for b in ally2.buffs if b.effect_type == STATUS_SPEED]
+        self.assertEqual(len(c2_spd_buffs), 1, "c2 should have spd_up")
+        self.assertEqual(len(c_spd_buffs), 1, "caster itself should also have spd_up (ally_all includes self)")
+
+    def test_no_spd_up_below_lv5(self):
+        """Below Lv5: no spd_up."""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[210100], level=4, ep=10)
+        bb.add_ally(unit_id="a", hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        result = ss.execute_skill(caster=caster, skill_id=210100, battlefield=bf, skip_cost=True)
+        spd_buffs = [b for b in caster.buffs if b.effect_type == STATUS_SPEED]
+        self.assertEqual(len(spd_buffs), 0, "no spd_up below Lv5")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 220373 絢爛なるワルツ (AS1)
+# ═══════════════════════════════════════════════════════════════
+
+class TestAS1220373(unittest.TestCase):
+    """AS1：敵2体に乱調mark(2action, skip_if_exists) + 威力攻撃
+    Lv10+: dmg_dealt_down({dmg}%, 1action, stackable, target_count=2)"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[220373], level=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        bb.add_ally(unit_id="a2", position=Position.ALLY_RIGHT_FRONT, hp=50000)
+        bb.add_ally(unit_id="a3", position=Position.ALLY_LEFT_BACK, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss = ctx['bf'], ctx['ss']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.a2 = next(u for u in self.bf.friend_team if u.unit_id == "a2")
+        self.a3 = next(u for u in self.bf.friend_team if u.unit_id == "a3")
+
+    def test_target_selects_2_nearest(self):
+        """Should select 2 nearest allies (target_count=2)."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220373,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        dmg_ids = set()
+        for e in result["effects_applied"]:
+            if e.get("effect_type") == "damage":
+                for t in e.get("targets", []):
+                    dmg_ids.add(t.get("target_id"))
+        self.assertEqual(len(dmg_ids), 2, "should hit 2 nearest allies")
+        self.assertIn(self.a1.unit_id, dmg_ids)
+        self.assertIn(self.a2.unit_id, dmg_ids)
+        self.assertNotIn(self.a3.unit_id, dmg_ids, "back-row ally should not be hit")
+
+    def test_mark_rantyo_applied(self):
+        """Mark '乱調' should be applied to hit targets."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220373,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        for aid in ["a1", "a2"]:
+            ally = next(u for u in self.bf.friend_team if u.unit_id == aid)
+            marks = [d for d in ally.debuffs if getattr(d, 'effect_type', '') == MARK]
+            self.assertTrue(len(marks) > 0, f"{aid} should have 乱調 mark")
+            self.assertEqual(marks[0].name, "乱調")
+
+    def test_mark_skip_if_exists(self):
+        """If target already has 乱調, should not duplicate."""
+        from src.entities_v2.unit_state import BuffState
+        existing = BuffState(
+            buff_id="existing_rantyo", name="乱調", effect_type=MARK, value=1.0,
+            duration=2, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=220373, is_debuff=True, is_stackable=False, is_memory_buff=False,
+        )
+        self.a1.debuffs.append(existing)
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220373,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        marks = [d for d in self.a1.debuffs if getattr(d, 'effect_type', '') == MARK]
+        self.assertEqual(len(marks), 1, "should not duplicate 乱調 mark")
+
+    def test_dmg_dealt_down_lv10(self):
+        """Lv10+: dmg_dealt_down should apply to 2 hit targets."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220373,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        for aid in ["a1", "a2"]:
+            ally = next(u for u in self.bf.friend_team if u.unit_id == aid)
+            debuffs = [d for d in ally.debuffs if d.effect_type == DEALT_DAMAGE]
+            self.assertEqual(len(debuffs), 1, f"{aid} should have dmg_dealt_down")
+            self.assertGreater(debuffs[0].value, 0, "dmg_dealt_down value should be > 0")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 220374 優雅なるロンド (AS2)
+# ═══════════════════════════════════════════════════════════════
+
+class TestAS2220374(unittest.TestCase):
+    """AS2：敵単体に威力攻撃 + spd_down({spd}, 1action, fixed, stackable)
+    Lv5+: ep_gain_down(50%, 1action)"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[220374], level=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss = ctx['bf'], ctx['ss']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+
+    def test_damage_and_spd_down(self):
+        """Should deal damage and apply spd_down (fixed value)."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=220374,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        spd_debuffs = [d for d in self.a1.debuffs if d.effect_type == STATUS_SPEED]
+        self.assertEqual(len(spd_debuffs), 1, "should have spd_down")
+        self.assertGreater(spd_debuffs[0].value, 0, "spd_down value should be > 0")
+
+    def test_ep_gain_down_lv5(self):
+        """Lv5+: ep_gain_down(50%) should apply."""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[220374], level=5)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        a1 = next(u for u in bf.friend_team if u.unit_id == "a1")
+        result = ss.execute_skill(caster=caster, skill_id=220374, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        ep_debuffs = [d for d in a1.debuffs if d.effect_type == EP_GAIN_DOWN]
+        self.assertEqual(len(ep_debuffs), 1, "should have ep_gain_down")
+        self.assertEqual(ep_debuffs[0].value, 50.0)
+
+    def test_no_ep_gain_down_below_lv5(self):
+        """Below Lv5: no ep_gain_down."""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[220374], level=4)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        a1 = next(u for u in bf.friend_team if u.unit_id == "a1")
+        result = ss.execute_skill(caster=caster, skill_id=220374, battlefield=bf, skip_cost=True)
+        ep_debuffs = [d for d in a1.debuffs if d.effect_type == EP_GAIN_DOWN]
+        self.assertEqual(len(ep_debuffs), 0, "no ep_gain_down below Lv5")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 230396 夜会のプレリュード (PS1)
+# ═══════════════════════════════════════════════════════════════
+
+class TestPS1230396(unittest.TestCase):
+    """PS1：AS使用時発動。華舞あり→heal(max_hp×cure%) + max_hp_up(hp%)
+    華舞なし→華舞mark付与 + max_hp_up(hp%)
+    Lv10+: block_specific_aura(1action, 6种状态异常免疫)
+    敌方cure值=0.35%/0.45%（削弱版）"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[230396], level=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss = ctx['bf'], ctx['ss']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+
+    def test_no_kabu_mark_grants_mark_and_max_hp_up(self):
+        """No 華舞: should add 華舞 mark + max_hp_up."""
+        result = self.ss.execute_skill(caster=self.caster, skill_id=230396,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        marks = [b for b in self.caster.buffs if getattr(b, 'effect_type', '') == MARK]
+        self.assertTrue(len(marks) > 0, "should have 華舞 mark")
+        self.assertEqual(marks[0].name, "華舞")
+
+    def test_kabu_mark_heals_and_max_hp_up(self):
+        """Has 華舞: should heal (max_hp * cure%) + max_hp_up."""
+        from src.entities_v2.unit_state import BuffState
+        # 预先施加華舞mark
+        kabu = BuffState(
+            buff_id="kabu_test", name="華舞", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=230396, is_debuff=False, is_stackable=False, is_memory_buff=False,
+        )
+        self.caster.buffs.append(kabu)
+        # 降低current_hp以验证治疗生效（满血时治疗量为0）
+        self.caster.current_hp = 400000
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(caster=self.caster, skill_id=230396,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        # cure=0.45% at Lv5+, max_hp=420374 → heal约 1892
+        # max_hp_up不增加current_hp，所以current_hp增加量来自治疗
+        self.assertGreater(self.caster.current_hp, hp_before, "should heal")
+
+    def test_cure_value_is_weakened(self):
+        """敌方cure值应为0.35%/0.45%（削弱版），不是4.5%."""
+        from src.data.data_loader import DataLoader
+        dl = DataLoader()
+        dl.load_all()
+        skill = dl.get_skill_by_id(230396)
+        cure_tag = skill.template_tags.get("cure")
+        self.assertIsNotNone(cure_tag, "cure tag should exist")
+        # Lv1-4值应为0.35
+        lv1_value = None
+        for v in cure_tag.values:
+            if v.level == 1:
+                lv1_value = v.value
+                break
+        self.assertIsNotNone(lv1_value)
+        self.assertAlmostEqual(lv1_value, 0.35, places=3,
+                               msg="Lv1 cure should be 0.35 (weakened from 4.5)")
+
+    def test_block_specific_aura_lv10(self):
+        """Lv10+: block_specific_aura should apply (1action, 6 status immunity)."""
+        from src.entities_v2.unit_state import BuffState
+        # 先施加華舞mark以走Block1分支
+        kabu = BuffState(
+            buff_id="kabu_test", name="華舞", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=230396, is_debuff=False, is_stackable=False, is_memory_buff=False,
+        )
+        self.caster.buffs.append(kabu)
+        result = self.ss.execute_skill(caster=self.caster, skill_id=230396,
+                                        battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        block_auras = [b for b in self.caster.buffs
+                       if b.effect_type == BLOCK_SPECIFIC_AURA]
+        self.assertEqual(len(block_auras), 1, "should have block_specific_aura at Lv10+")
+
+    def test_block_specific_aura_blocks_burn_from_skill(self):
+        """Bug修复验证: BlockSpecificAura应阻止通过技能施加的炎上.
+
+        场景(对应bug日志): 敌方释放夜会のプレリュード(230396)获得BlockSpecificAura后,
+        己方使用乙女の高ぶり(110011, Lv11+)尝试对敌方施加炎上(burn),
+        炎上应被阻止且不出现在技能结果status_details中、不在敌方debuffs中。
+
+        根因: _apply_add_status未检查add_aura返回值, 即使aura被block仍加入status_details。
+        修复: 检查返回值, 被block时continue跳过status_details。
+        """
+        from src.entities_v2.unit_state import BuffState
+        # 构建战场: 敌方(230396, Lv10) + 己方(110011, Lv15)
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[230396], level=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000,
+                    atk=10000, skills=[110011], level=15, ep=10)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+        ally = next(u for u in bf.friend_team if u.unit_id == "a1")
+
+        # 1. 预施加華舞mark, 敌方执行230396获得BlockSpecificAura
+        kabu = BuffState(
+            buff_id="kabu_test", name="華舞", effect_type=MARK, value=1.0,
+            duration=-1, timing_type=2, source_unit_id=caster.unit_id,
+            source_skill_id=230396, is_debuff=False, is_stackable=False, is_memory_buff=False,
+        )
+        caster.buffs.append(kabu)
+        ps_result = ss.execute_skill(caster=caster, skill_id=230396,
+                                     battlefield=bf, skip_cost=True)
+        self.assertTrue(ps_result["success"])
+        block_auras = [b for b in caster.buffs if b.effect_type == BLOCK_SPECIFIC_AURA]
+        self.assertEqual(len(block_auras), 1, "敌方应持有BlockSpecificAura")
+
+        # 2. 己方使用110011(乙女の高ぶり, Lv15)对敌方全体施加炎上
+        ally_result = ss.execute_skill(caster=ally, skill_id=110011,
+                                       battlefield=bf, skip_cost=True)
+        self.assertTrue(ally_result["success"],
+                        f"110011执行应成功: {ally_result.get('error', '')}")
+
+        # 3. 验证炎上未施加到敌方身上(blocked by BlockSpecificAura)
+        burn_debuffs = [d for d in caster.debuffs if d.effect_type == CONFLAGRATION]
+        self.assertEqual(len(burn_debuffs), 0,
+                         "BlockSpecificAura应阻止炎上施加, 实际debuffs: "
+                         + str([(d.name, d.effect_type) for d in caster.debuffs]))
+
+        # 4. 验证被block的炎上不出现在技能结果的status_details中
+        for e in ally_result.get("effects_applied", []):
+            if e.get("effect_type") != "add_status":
+                continue
+            for s in e.get("statuses", []):
+                self.assertNotEqual(
+                    s.get("target_id"), caster.unit_id,
+                    f"被block的炎上不应出现在技能结果statuses中(目标={caster.unit_id}), "
+                    f"status_detail={s}"
+                )
+
+
+# ═══════════════════════════════════════════════════════════════
+# 230397 ポストリュード (PS2)
+# ═══════════════════════════════════════════════════════════════
+
+class TestPS2230397(unittest.TestCase):
+    """PS2：「乱調」保持敵HP≤60%触发。敵全体威力攻撃 + 乱調全解除"""
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=420374, atk=9815, defense=8528, speed=512,
+                     skills=[230397], level=10, pp=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        bb.add_ally(unit_id="a2", position=Position.ALLY_RIGHT_FRONT, hp=50000)
+        ctx = bb.build()
+        self.bf, self.ss, self.ts = ctx['bf'], ctx['ss'], ctx['ts']
+        self.caster = next(u for u in self.bf.enemy_team if u.unit_id == "c")
+        self.a1 = next(u for u in self.bf.friend_team if u.unit_id == "a1")
+        self.a2 = next(u for u in self.bf.friend_team if u.unit_id == "a2")
+
+    def _apply_rantyo(self, ally):
+        from src.entities_v2.unit_state import BuffState
+        rantyo = BuffState(
+            buff_id=f"rantyo_{ally.unit_id}", name="乱調", effect_type=MARK, value=1.0,
+            duration=2, timing_type=2, source_unit_id=self.caster.unit_id,
+            source_skill_id=220373, is_debuff=True, is_stackable=False, is_memory_buff=False,
+        )
+        ally.debuffs.append(rantyo)
+
+    def test_triggers_when_rantyo_ally_hp_below_60(self):
+        """Should trigger when 乱調-marked ally HP drops to ≤60%."""
+        self._apply_rantyo(self.a1)
+        self.a1.current_hp = 25000  # 50%
+        self.a1.prev_hp_percent = 100.0
+        self.caster.current_pp = 10
+        actions = self.ts.trigger_hp_below(self.bf, [self.a1])
+        ps_actions = [a for a in actions if a.skill_id == 230397]
+        self.assertTrue(len(ps_actions) > 0, "230397 should trigger when 乱調-marked ally HP ≤ 60%")
+
+    def test_not_trigger_without_rantyo(self):
+        """Should NOT trigger if ally has no 乱調 mark."""
+        self.a1.current_hp = 25000  # 50%
+        self.a1.prev_hp_percent = 100.0
+        actions = self.ts.trigger_hp_below(self.bf, [self.a1])
+        ps_actions = [a for a in actions if a.skill_id == 230397]
+        self.assertEqual(len(ps_actions), 0, "should not trigger without 乱調 mark")
+
+    def test_damage_all_allies_when_triggered(self):
+        """When triggered, should damage ALL allies (enemy_all from caster's perspective)."""
+        self._apply_rantyo(self.a1)
+        self.a1.current_hp = 25000
+        self.a1.prev_hp_percent = 100.0
+        self.caster.current_pp = 10
+        hp_before = {self.a1.unit_id: self.a1.current_hp,
+                     self.a2.unit_id: self.a2.current_hp}
+        actions = self.ts.trigger_hp_below(self.bf, [self.a1])
+        ps_acts = [a for a in actions if a.skill_id == 230397]
+        self.assertTrue(len(ps_acts) > 0, "should trigger")
+        self.ss._execute_trigger_actions_inline(ps_acts[:1], self.bf)
+        self.assertLess(self.a1.current_hp, hp_before[self.a1.unit_id],
+                        "a1 should take damage")
+        self.assertLess(self.a2.current_hp, hp_before[self.a2.unit_id],
+                        "a2 should take damage (enemy_all)")
+
+    def test_removes_rantyo_after_attack(self):
+        """After triggered attack, all 乱調 marks should be removed."""
+        self._apply_rantyo(self.a1)
+        self._apply_rantyo(self.a2)
+        self.a1.current_hp = 25000  # 50%
+        self.a1.prev_hp_percent = 100.0
+        self.caster.current_pp = 10
+        actions = self.ts.trigger_hp_below(self.bf, [self.a1])
+        ps_acts = [a for a in actions if a.skill_id == 230397]
+        self.assertTrue(len(ps_acts) > 0, "should trigger")
+        self.ss._execute_trigger_actions_inline(ps_acts[:1], self.bf)
+        for ally in [self.a1, self.a2]:
+            marks = [d for d in ally.debuffs if getattr(d, 'effect_type', '') == MARK
+                     and getattr(d, 'name', '') == "乱調"]
+            self.assertEqual(len(marks), 0, f"{ally.unit_id} should have 乱調 removed")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

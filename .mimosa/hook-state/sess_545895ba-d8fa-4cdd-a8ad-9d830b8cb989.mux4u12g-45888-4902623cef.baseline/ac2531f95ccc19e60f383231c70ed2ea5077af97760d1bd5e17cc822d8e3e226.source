@@ -1,0 +1,587 @@
+"""
+角色145301 心色見つめるムードメーカー (エレーナ・パステルコワ) 专项测试
+- EX: 110069 あったかいの、どうぞ♪ (攻撃力最高味方にatk_up35%+dmg_dealt_up10%+add_damage_to_attack(被附魔者ATK×dmg%, 永続))
+- AS1: 120154 私に任せて！ (現在HP10%消費 + 最低HP味方回復(consume_hp×cure%) + 自身と最低HP敵に回復リンク + 3条件global_condition)
+- AS2: 120155 苦手なのはそこだね！ (対象現在HP×dmg%ダメージ, 上限自身ATK×max%)
+- PS1: 130152 リラックスだよ～♪ (AS4回使用ごとに自身HP回復)
+- PS2: 130153 それはやりすぎ！ (味方撃破反応 + 自身atk_up(stackable, skill duration) + 敵全体威力攻撃)
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+ENCHANT_DAMAGE = SkillEffectType.ENCHANT_DAMAGE.value
+ADD_DAMAGE = SkillEffectType.ADD_DAMAGE.value
+HEAL_LINK = SkillEffectType.HEAL_LINK.value
+
+
+def _find_aura(unit, effect_type, name=None):
+    """在unit.buffs和unit.debuffs中查找指定effect_type的aura"""
+    pools = list(unit.buffs) + list(unit.debuffs)
+    for b in pools:
+        if b.effect_type != effect_type:
+            continue
+        if name is not None and getattr(b, 'name', '') != name:
+            continue
+        return b
+    return None
+
+
+class TestActor145301(unittest.TestCase):
+    """角色145301 心色見つめるムードメーカー 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 145301 エレーナ (土属性, 敏捷型, 后排, 辅助)
+        self.caster = UnitState(
+            unit_id="ally_back", name="エレーナ", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=145301, level=10,
+            element=4, character_type=3,
+            max_hp=15000, current_hp=15000,
+            attack=6000, defense=4000, speed=480,
+            crit_rate=0.10, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=8,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110069, 120154, 120155, 130152, 130153],
+            skill_levels={110069: 10, 120154: 10, 120155: 10, 130152: 10, 130153: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排 (攻击力最高, 用于EX 110069测试)
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999100, level=10,
+            element=1, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=9000, defense=5000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前 (HP比例较低, 用于heal_link测试)
+        self.enemy_left = UnitState(
+            unit_id="enemy_left", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=40000, current_hp=10000,
+            attack=3000, defense=3000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_front]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_left]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: あったかいの、どうぞ♪ ───
+
+    def test_ex_110069_targets_highest_atk_ally(self):
+        """EX(110069) 应选择攻击力最高的友方(ally_front atk=10000 > caster atk=6000)"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # ally_front应有atk_up buff
+        atk_up = _find_aura(self.ally_front, STATUS_ATTACK)
+        self.assertIsNotNone(atk_up, "应对攻击力最高友方施加atk_up")
+        self.assertAlmostEqual(atk_up.value, 35.0)
+
+    def test_ex_110069_dmg_dealt_up_applied(self):
+        """EX(110069) 应施加dmg_dealt_up 10%"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dealt_up = _find_aura(self.ally_front, DEALT_DAMAGE)
+        self.assertIsNotNone(dealt_up, "应对攻击力最高友方施加dmg_dealt_up")
+        self.assertAlmostEqual(dealt_up.value, 10.0)
+
+    def test_ex_110069_enchant_damage_persistent(self):
+        """EX(110069) add_damage应为永続buff(hit_limited=0)"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        add_dmg = _find_aura(self.ally_front, ADD_DAMAGE)
+        self.assertIsNotNone(add_dmg, "应施加add_damage buff")
+        self.assertEqual(add_dmg.hit_limited, 0, "永続追加伤害buff应hit_limited=0")
+        self.assertEqual(add_dmg.duration, -1, "永続追加伤害buff应duration=-1")
+
+    def test_ex_110069_add_damage_buff_placement(self):
+        """EX(110069) 追加伤害buff应施加在buff持有者(ally_front)身上，
+        追加伤害ATK使用buff来源施法时的快照攻击力(ab.caster_attack)，source_unit_id为施法者"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # buff应施加在持有者ally_front身上
+        add_dmg = _find_aura(self.ally_front, ADD_DAMAGE)
+        self.assertIsNotNone(add_dmg, "add_damage buff应在持有者ally_front身上")
+        # source_unit_id为施法者caster，caster_attack快照在_apply_aura时设置
+        self.assertEqual(add_dmg.source_unit_id, self.caster.unit_id,
+                         "ADD_DAMAGE source_unit_id应为施法者(伤害使用caster_attack快照)")
+        self.assertGreater(add_dmg.caster_attack, 0,
+                           "ADD_DAMAGE caster_attack应存储施法时快照ATK")
+
+    def test_ex_110069_buffs_not_on_caster(self):
+        """EX(110069) buff不应施加在施法者身上(ally_highest_atk不含自身)"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        caster_atk_up = _find_aura(self.caster, STATUS_ATTACK)
+        self.assertIsNone(caster_atk_up, "buff不应在施法者身上")
+
+    def test_ex_110069_lv15_buffs_both_high_and_low_atk(self):
+        """EX(110069) Lv15时应同时对最高攻友方(ally_front)和最低攻友方(caster)施加buff"""
+        self.caster.skill_levels[110069] = 15
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # Block 1 (ally_highest_atk): ally_front应有atk_up + dmg_dealt_up + add_damage(dmg)
+            front_atk_up = _find_aura(self.ally_front, STATUS_ATTACK)
+            self.assertIsNotNone(front_atk_up, "Lv15: 最高攻友方应有atk_up")
+            front_dealt = _find_aura(self.ally_front, DEALT_DAMAGE)
+            self.assertIsNotNone(front_dealt, "Lv15: 最高攻友方应有dmg_dealt_up")
+            front_add = _find_aura(self.ally_front, ADD_DAMAGE)
+            self.assertIsNotNone(front_add, "Lv15: 最高攻友方应有add_damage")
+
+            # Block 2 (ally_lowest_atk): caster应有atk_up + dmg_dealt_up + add_damage(dmg2)
+            caster_atk_up = _find_aura(self.caster, STATUS_ATTACK)
+            self.assertIsNotNone(caster_atk_up, "Lv15: 最低攻友方(caster)应有atk_up")
+            caster_dealt = _find_aura(self.caster, DEALT_DAMAGE)
+            self.assertIsNotNone(caster_dealt, "Lv15: 最低攻友方(caster)应有dmg_dealt_up")
+            caster_add = _find_aura(self.caster, ADD_DAMAGE)
+            self.assertIsNotNone(caster_add, "Lv15: 最低攻友方(caster)应有add_damage")
+
+            # dmg tag at Lv15 should cap at 15.0 (max defined at Lv10)
+            self.assertAlmostEqual(front_add.value, 15.0, msg="dmg tag at Lv15 should be 15.0")
+            # dmg2 tag at Lv15 should be 15.0
+            self.assertAlmostEqual(caster_add.value, 15.0, msg="dmg2 tag at Lv15 should be 15.0")
+        finally:
+            self.caster.skill_levels[110069] = 10
+
+    def test_ex_110069_lv15_lowest_atk_target_not_drift(self):
+        """EX(110069) Lv15时Block2的3个effect应作用于同一最低攻友方，
+        不因atk_up buff改变攻击力排序导致后续effect目标漂移"""
+        # 添加第3个友方: atk=7000 (介于caster 6000和ally_front 10000之间)
+        # Block2 atk_up后caster atk=6000*1.35=8100 > 7000,
+        # 若无Block级缓存, dmg_dealt_up和add_damage会错误地给到ally_mid
+        ally_mid = UnitState(
+            unit_id="ally_mid", name="友方中排", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=999101, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=5000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.friend_team = [self.caster, self.ally_front, ally_mid]
+        self.caster.skill_levels[110069] = 15
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # Block 2 (ally_lowest_atk): 3个effect都应作用于caster(初始最低攻6000)
+            # caster获得atk_up后atk=8100 > ally_mid 7000, 但缓存确保目标不漂移
+            caster_atk_up = _find_aura(self.caster, STATUS_ATTACK)
+            self.assertIsNotNone(caster_atk_up, "caster应有atk_up")
+            caster_dealt = _find_aura(self.caster, DEALT_DAMAGE)
+            self.assertIsNotNone(caster_dealt, "caster应有dmg_dealt_up (目标不应漂移到ally_mid)")
+            caster_add = _find_aura(self.caster, ADD_DAMAGE)
+            self.assertIsNotNone(caster_add, "caster应有add_damage (目标不应漂移到ally_mid)")
+
+            # ally_mid不应有Block2的buff
+            mid_atk_up = _find_aura(ally_mid, STATUS_ATTACK)
+            self.assertIsNone(mid_atk_up, "ally_mid不应有atk_up (目标漂移bug)")
+            mid_dealt = _find_aura(ally_mid, DEALT_DAMAGE)
+            self.assertIsNone(mid_dealt, "ally_mid不应有dmg_dealt_up (目标漂移bug)")
+            mid_add = _find_aura(ally_mid, ADD_DAMAGE)
+            self.assertIsNone(mid_add, "ally_mid不应有add_damage (目标漂移bug)")
+        finally:
+            self.caster.skill_levels[110069] = 10
+            self.bf.friend_team = [self.caster, self.ally_front]
+
+    # ─── AS1: 私に任せて！ ───
+
+    def test_as1_120154_consume_hp(self):
+        """AS1(120154) 应消費自身現在HP的10%"""
+        # 需满足global_condition: 有友方HP<70%, 自身HP>=40%
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)  # 50%
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        consumed = hp_before - self.caster.current_hp
+        expected = int(hp_before * 10 / 100)
+        self.assertEqual(consumed, expected, f"应消費HP {expected}, 实际{consumed}")
+
+    def test_as1_120154_heal_lowest_hp_ally(self):
+        """AS1(120154) 应治疗HP最低的友方"""
+        # ally_front满血, caster消耗后HP降低 → caster是最低HP
+        # 但heal目标是ally_single(不含自身) + lowest_hp_priority
+        # 让ally_front受伤使其成为最低HP
+        self.ally_front.current_hp = 5000  # 25% HP
+
+        hp_before = self.ally_front.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # ally_front应被治疗
+        self.assertGreater(self.ally_front.current_hp, hp_before,
+                           "应治疗HP最低的友方")
+
+    def test_as1_120154_heal_link_on_self(self):
+        """AS1(120154) 应对自身施加回復リンク"""
+        # 需满足global_condition
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        link = _find_aura(self.caster, HEAL_LINK, name="回復リンク")
+        self.assertIsNotNone(link, "自身应有回復リンク buff")
+        self.assertAlmostEqual(link.value, 100.0)
+
+    def test_as1_120154_heal_link_on_enemy_lowest_hp(self):
+        """AS1(120154) 应对HP比例最低的敌方施加回復リンク"""
+        # enemy_left HP=10000/40000=25%, enemy_front HP=50000/50000=100%
+        # 需满足global_condition
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        link = _find_aura(self.enemy_left, HEAL_LINK, name="回復リンク")
+        self.assertIsNotNone(link, "HP比例最低的敌方应有回復リンク")
+
+        # enemy_front不应有
+        link_front = _find_aura(self.enemy_front, HEAL_LINK, name="回復リンク")
+        self.assertIsNone(link_front, "HP比例较高的敌方不应有回復リンク")
+
+    def test_as1_120154_heal_link_transfer(self):
+        """AS1(120154) 回復リンク転送: 対象受到回復时転送给施法者"""
+        # 先施放120154建立heal_link
+        self.ally_front.current_hp = 5000  # 让ally_front成为最低HP
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_left身上应有heal_link, link先指向caster
+        link = _find_aura(self.enemy_left, HEAL_LINK, name="回復リンク")
+        self.assertIsNotNone(link)
+        self.assertEqual(link.source_unit_id, self.caster.unit_id)
+
+        # 模拟对enemy_left进行回復: 回復量应転送给caster
+        caster_hp_before = self.caster.current_hp
+
+        # 直接调用_apply_heal对enemy_left进行回復
+        heal_effect = type('obj', (object,), {
+            'effect_type': 'heal',
+            'target_type': 'enemy_single',
+            'target_identifier': None,
+            'value': 1000,
+            'value_tag': None,
+            'flags': {},
+        })()
+        # 临时替换select_targets强制heal打到enemy_left(持有heal_link)
+        original_select = self.tgs.select_targets
+        self.tgs.select_targets = lambda skill_obj, c, bf: [self.enemy_left]
+        try:
+            self.ss._apply_heal(self.caster, heal_effect, self.bf)
+        finally:
+            self.tgs.select_targets = original_select
+
+        # caster应通过heal_link获得転送回復
+        self.assertGreater(self.caster.current_hp, caster_hp_before,
+                           "caster应通过heal_link获得転送回復")
+
+    def test_as1_120154_blocked_no_ally_below_70(self):
+        """AS1(120154) 无HP低于70%的友方时不発動"""
+        # 全员满血
+        self.caster.current_hp = self.caster.max_hp
+        self.ally_front.current_hp = self.ally_front.max_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(result["success"], "无HP低于70%的友方时不应発動")
+        self.assertEqual(result.get("error"), "global_condition not met")
+
+    def test_as1_120154_blocked_self_hp_below_40(self):
+        """AS1(120154) 自身HP低于40%时不発動"""
+        self.caster.current_hp = int(self.caster.max_hp * 0.30)  # 30%
+        self.ally_front.current_hp = int(self.ally_front.max_hp * 0.50)  # 50%
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(result["success"], "自身HP<40%时不应発動")
+        self.assertEqual(result.get("error"), "global_condition not met")
+
+    def test_as1_120154_blocked_no_other_ally_alive(self):
+        """AS1(120154) 自身以外无存活友方时不発動"""
+        self.ally_front.is_alive = False
+        self.ally_front.current_hp = 0
+        # caster需有HP低于70%以满足第一个条件
+        self.caster.current_hp = int(self.caster.max_hp * 0.50)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120154, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(result["success"], "无其他存活友方时不应発動")
+        self.assertEqual(result.get("error"), "global_condition not met")
+
+    # ─── AS2: 苦手なのはそこだね！ ───
+
+    def test_as2_120155_hp_ratio_damage(self):
+        """AS2(120155) 应造成対象現在HP×dmg%的伤害"""
+        enemy_hp_before = self.enemy_front.current_hp  # 50000
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120155, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # dmg at Lv10 = 12.5%, max at Lv10 = 30%
+        # raw_damage = 50000 * 12.5% = 6250
+        # cap = caster_atk(6000) * 30% = 1800
+        # actual = min(6250, 1800) = 1800
+        damage = enemy_hp_before - self.enemy_front.current_hp
+        self.assertGreater(damage, 0, "应造成伤害")
+
+        # 验证伤害不超过ATK上限
+        expected_cap = int(self.caster.attack * 30 / 100)
+        self.assertLessEqual(damage, expected_cap + 1,
+                             f"伤害{damage}不应超过ATK×30%={expected_cap}")
+
+    def test_as2_120155_damage_cap_applied(self):
+        """AS2(120155) 伤害应被ATK×max%上限限制"""
+        # enemy_front HP很高, raw_damage会超过cap
+        # raw = 50000 * 12.5% = 6250, cap = 6000 * 30% = 1800
+        enemy_hp_before = self.enemy_front.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120155, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        damage = enemy_hp_before - self.enemy_front.current_hp
+        expected_cap = int(self.caster.attack * 30 / 100)
+        self.assertLessEqual(damage, expected_cap,
+                             "伤害应被ATK×max%限制")
+
+    def test_as2_120155_triggers_add_damage(self):
+        """AS2(120155) hp_ratio_damage应触发自身ADD_DAMAGE buff的追加伤害
+
+        Bug 5验证: hp_ratio_damage effect_type此前不在_apply_block_enchant_damage
+        的调用条件中，导致追加伤害buff不触发。修复后应正确结算追加伤害。
+        """
+        # 先用EX(110069) Lv15给caster(最低攻)施加add_damage buff
+        self.caster.skill_levels[110069] = 15
+        try:
+            ex_result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110069, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(ex_result["success"])
+            # 确认caster身上有ADD_DAMAGE buff
+            self.assertIsNotNone(_find_aura(self.caster, ADD_DAMAGE),
+                                  "EX Lv15应给caster施加add_damage buff")
+        finally:
+            self.caster.skill_levels[110069] = 10
+
+        # 用AS2(120155)攻击敌方
+        enemy_hp_before = self.enemy_front.current_hp  # 50000
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120155, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # hp_ratio_damage cap = caster_atk(6000) * 30% = 1800
+        hp_ratio_cap = int(self.caster.attack * 30 / 100)
+        total_damage = enemy_hp_before - self.enemy_front.current_hp
+
+        # 若add_damage未触发, total_damage应<=hp_ratio_cap(1800)
+        # 若add_damage触发, total_damage应>hp_ratio_cap
+        self.assertGreater(total_damage, hp_ratio_cap,
+                           f"add_damage应追加伤害: total={total_damage} 应>hp_ratio_cap={hp_ratio_cap}")
+
+    # ─── PS1: リラックスだよ～♪ ───
+
+    def test_ps1_130152_heals_self(self):
+        """PS1(130152) AS4回使用后应回復自身HP"""
+        # 模拟3次AS使用（第4次触发）
+        self.caster.skill_use_count = {120154: 3, 120155: 0}
+        self.caster.current_hp = 5000  # 受伤状态
+
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130152, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertGreater(self.caster.current_hp, hp_before,
+                           "PS1应回復自身HP")
+
+    def test_ps1_130152_not_triggered_before_4_uses(self):
+        """PS1(130152) AS使用不足4次时不発動"""
+        # skill_use_count_modulo=4, 当前0次 → 不满足
+        # 注: PS触发由trigger_service控制, 这里测试global_condition
+        # 直接验证skill_use_count_modulo条件
+        self.caster.skill_use_count = {120154: 2}
+        resolved = self.ss._resolver.resolve(130152, 10)
+        gc = getattr(resolved, 'global_condition', None)
+        self.assertIsNotNone(gc)
+        self.assertEqual(gc.get('type'), 'skill_use_count_modulo')
+        self.assertEqual(gc.get('value'), 4)
+
+    # ─── PS2: それはやりすぎ！ ───
+
+    def test_ps2_130153_trigger_type(self):
+        """PS2(130153) trigger_type应为on_ally_killed"""
+        resolved = self.ss._resolver.resolve(130153, 10)
+        self.assertEqual(resolved.trigger_type, 'on_ally_killed')
+
+    def test_ps2_130153_atk_up_stackable_skill_duration(self):
+        """PS2(130153) atk_up应为stackable + duration_type=skill
+        - 配置: stackable=true, duration_type=skill
+        - 技能执行期间: atk_up生效 (final_atk = base_atk × 1.3)
+        - 技能结束后: atk_up被清除 (duration_type=skill)
+        """
+        # 1. 验证配置: stackable + duration_type=skill
+        resolved = self.ss._resolver.resolve(130153, 10)
+        atk_up_eff = None
+        for block in resolved.effect_blocks:
+            for eff in block.effects:
+                if eff.effect_type == 'atk_up':
+                    atk_up_eff = eff
+                    break
+        self.assertIsNotNone(atk_up_eff, "130153应有atk_up效果")
+        self.assertTrue(atk_up_eff.flags.get('stackable', False),
+                        "atk_up应配置为stackable=true")
+        self.assertEqual(atk_up_eff.duration_type, 'skill',
+                         "atk_up应配置为duration_type=skill")
+
+        # 2. 验证技能期间atk_up生效: final_atk = 6000 × 1.3 = 7800
+        # 设置crit_rate=0消除暴击随机性
+        self.caster.crit_rate = 0.0
+        enemy_front_hp_before = self.enemy_front.current_hp  # 50000
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130153, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # damage = (7800 - 5000) × 0.468 × 1.25 (土vs水) = 1638
+        # 无atk_up时: (6000 - 5000) × 0.468 × 1.25 = 585
+        damage_front = enemy_front_hp_before - self.enemy_front.current_hp
+        expected_with_atk_up = int((7800 - 5000) * (46.8 / 100) * 1.25)  # 1638
+        expected_without_atk_up = int((6000 - 5000) * (46.8 / 100) * 1.25)  # 585
+
+        self.assertGreater(damage_front, expected_without_atk_up,
+                           f"伤害{damage_front}应高于无atk_up基线{expected_without_atk_up}, 证明atk_up生效")
+        self.assertAlmostEqual(damage_front, expected_with_atk_up, delta=2,
+                               msg=f"伤害{damage_front}应匹配atk_up加成后预期{expected_with_atk_up}")
+
+        # 3. 验证duration_type=skill: 技能结束后atk_up应被清除
+        atk_up = _find_aura(self.caster, STATUS_ATTACK)
+        self.assertIsNone(atk_up, "duration_type=skill的atk_up应在技能结束后被清除")
+
+    def test_ps2_130153_damage_enemy_all(self):
+        """PS2(130153) 应对敵全体造成伤害"""
+        enemy_front_hp = self.enemy_front.current_hp
+        enemy_left_hp = self.enemy_left.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130153, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 敌方全体应受到伤害
+        self.assertLess(self.enemy_front.current_hp, enemy_front_hp,
+                        "敌方前排应受到伤害")
+        self.assertLess(self.enemy_left.current_hp, enemy_left_hp,
+                        "敌方左前应受到伤害")
+
+
+if __name__ == '__main__':
+    unittest.main()

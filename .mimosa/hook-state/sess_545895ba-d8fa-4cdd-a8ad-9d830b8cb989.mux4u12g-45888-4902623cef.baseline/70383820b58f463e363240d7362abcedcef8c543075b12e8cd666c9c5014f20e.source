@@ -1,0 +1,263 @@
+# -*- coding: utf-8 -*-
+"""
+回归测试: 角色110301 享楽のワイルドカード 数据配置修复
+- 110018 EX Block2: remove_ap on kill 应仅Lv11+生效 (原缺少active_level_min)
+- 130033 PS1 Block2: shield 应仅Lv11+生效 (原缺少active_level_min)
+- 130049 PS2 Block1: damage/remove_ep 应使用 trigger_attacker (原target_identifier=null)
+- 130049 PS2 Block1: remove_ep 应仅Lv11+生效 (原缺少flags.level_min)
+
+测试要点:
+1. Lv10时这些Lv11+效果不触发
+2. Lv11+时这些效果正常触发
+3. PS2反击目标为攻击者(非最近敌方)
+"""
+import os
+import sys
+import unittest
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, '../../src')
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, Attribute, CharacterType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+SHIELD = SkillEffectType.SHIELD.value
+
+
+class TestReg110301LevelMinFix(unittest.TestCase):
+    """验证110301技能effect_blocks的level_min修复"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.caster = UnitState(
+            unit_id="ally_front", name="享楽のワイルドカード", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=110301, level=10,
+            element=2, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110018, 120025, 120042, 130033, 130049],
+            skill_levels={110018: 10, 120025: 10, 120042: 10, 130033: 10, 130049: 10},
+            skill_cooldowns={},
+        )
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.friend_team = [self.caster]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_back, self.enemy_left_front]
+
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── 配置校验 ───
+
+    def test_config_110018_block2_has_active_level_min(self):
+        """110018 Block2 应有 active_level_min:11"""
+        d = self.dl.get_parsed_skill_data(110018)
+        b2 = d['effect_blocks'][1]
+        cond = b2['condition']
+        self.assertIsNotNone(cond, "110018 Block2 应有condition")
+        # 应为 and 条件包含 target_killed + active_level_min:11
+        self.assertEqual(cond.get('type'), 'and')
+        sub_conds = cond.get('conditions', [])
+        types = [c.get('type') for c in sub_conds]
+        self.assertIn('target_killed', types)
+        self.assertIn('active_level_min', types)
+        for c in sub_conds:
+            if c.get('type') == 'active_level_min':
+                self.assertEqual(c.get('value'), 11)
+
+    def test_config_130033_block2_has_active_level_min(self):
+        """130033 Block2 应有 active_level_min:11"""
+        d = self.dl.get_parsed_skill_data(130033)
+        b2 = d['effect_blocks'][1]
+        cond = b2['condition']
+        self.assertIsNotNone(cond, "130033 Block2 应有condition")
+        self.assertEqual(cond.get('type'), 'active_level_min')
+        self.assertEqual(cond.get('value'), 11)
+
+    def test_config_130049_effects_have_trigger_attacker(self):
+        """130049 所有 effects 的 target_identifier 应为 trigger_attacker"""
+        d = self.dl.get_parsed_skill_data(130049)
+        b1 = d['effect_blocks'][0]
+        for eff in b1['effects']:
+            self.assertEqual(eff.get('target_identifier'), 'trigger_attacker',
+                             f"130049 {eff.get('effect_type')} target_identifier应为trigger_attacker")
+
+    def test_config_130049_remove_ep_has_level_min_11(self):
+        """130049 remove_ep effect 的 flags 应有 level_min:11"""
+        d = self.dl.get_parsed_skill_data(130049)
+        b1 = d['effect_blocks'][0]
+        remove_ep_eff = next(e for e in b1['effects'] if e.get('effect_type') == 'remove_ep')
+        self.assertEqual(remove_ep_eff.get('flags', {}).get('level_min'), 11,
+                         "130049 remove_ep flags.level_min应为11")
+
+    # ─── 行为验证: Lv10 不触发Lv11+效果 ───
+
+    def test_ps2_lv10_no_remove_ep(self):
+        """Lv10时PS2反击不削EP"""
+        ep_before = self.enemy_front.current_ep
+        trigger_actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf, actor=self.enemy_front,
+        )
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130049]
+        self.assertTrue(len(ps2_actions) > 0)
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="after_as_attacked"
+        )
+        self.assertEqual(self.enemy_front.current_ep, ep_before,
+                         "Lv10反击不应削EP")
+
+    def test_ps1_lv10_no_shield(self):
+        """Lv10时PS1击杀不获得护盾"""
+        self.enemy_front.current_hp = 100
+        self.ss.execute_skill(caster=self.caster, skill_id=120042, battlefield=self.bf, skip_cost=True)
+        trigger_actions = self.ts.trigger_pawn_killed(self.caster, self.bf)
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130033]
+        if ps1_actions:
+            self.ss._execute_trigger_actions_inline(ps1_actions, self.bf, trigger_timing="on_kill")
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 0, "Lv10击杀后不应获得护盾")
+
+    def test_ex_lv10_no_remove_ap_on_kill(self):
+        """Lv10时EX击杀不削其他敌方AP"""
+        self.enemy_front.current_hp = 100
+        ap_before_back = self.enemy_back.current_ap
+        ap_before_left = self.enemy_left_front.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110018, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(self.enemy_front.is_alive)
+        self.assertEqual(self.enemy_back.current_ap, ap_before_back,
+                         "Lv10击杀不应削减其他敌方AP")
+        self.assertEqual(self.enemy_left_front.current_ap, ap_before_left,
+                         "Lv10击杀不应削减其他敌方AP")
+
+    # ─── 行为验证: Lv11+ 正常触发 ───
+
+    def test_ps2_lv15_remove_ep(self):
+        """Lv15时PS2反击削EP"""
+        self.caster.skill_levels[130049] = 15
+        ep_before = self.enemy_front.current_ep
+        trigger_actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf, actor=self.enemy_front,
+        )
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130049]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="after_as_attacked"
+        )
+        self.assertLess(self.enemy_front.current_ep, ep_before,
+                        "Lv15反击应削EP")
+
+    def test_ps1_lv15_shield(self):
+        """Lv15时PS1击杀获得护盾"""
+        self.caster.skill_levels[130033] = 15
+        self.enemy_front.current_hp = 100
+        self.ss.execute_skill(caster=self.caster, skill_id=120042, battlefield=self.bf, skip_cost=True)
+        trigger_actions = self.ts.trigger_pawn_killed(self.caster, self.bf)
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130033]
+        if ps1_actions:
+            self.ss._execute_trigger_actions_inline(ps1_actions, self.bf, trigger_timing="on_kill")
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertTrue(len(shield_buffs) > 0, "Lv15击杀后应获得护盾")
+
+    def test_ex_lv15_remove_ap_on_kill(self):
+        """Lv15时EX击杀削其他敌方AP"""
+        self.caster.skill_levels[110018] = 15
+        self.caster.level = 15
+        self.enemy_front.current_hp = 100
+        ap_before_back = self.enemy_back.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110018, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(self.enemy_front.is_alive)
+        self.assertLess(self.enemy_back.current_ap, ap_before_back,
+                        "Lv15击杀应削减其他敌方AP")
+
+    # ─── 行为验证: PS2反击目标为攻击者 ───
+
+    def test_ps2_counter_targets_attacker_not_nearest(self):
+        """PS2反击目标为攻击者(后排),而非最近敌方(前排)"""
+        hp_before_front = self.enemy_front.current_hp
+        hp_before_back = self.enemy_back.current_hp
+        trigger_actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf, actor=self.enemy_back,
+        )
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130049]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="after_as_attacked"
+        )
+        self.assertLess(self.enemy_back.current_hp, hp_before_back,
+                        "反击应命中攻击者(后排)")
+        self.assertEqual(self.enemy_front.current_hp, hp_before_front,
+                         "反击不应误伤最近敌方(前排)")
+
+
+if __name__ == "__main__":
+    unittest.main()

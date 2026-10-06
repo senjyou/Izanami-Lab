@@ -1,0 +1,401 @@
+# -*- coding: utf-8 -*-
+"""角色500301【繋がり合う母娘の絆】オルガ＆ナージャ 技能E2E测试"""
+import pytest
+from tests.helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+def _setup():
+    bb = BattleBuilder()
+    bb.add_ally(unit_id=500301, level=200, skills=[110083, 120178, 120179, 130184, 130185],
+                position=Position.ALLY_CENTER_BACK)
+    bb.add_ally(unit_id=108301, level=200, skills=[120024], position=Position.ALLY_LEFT_FRONT)
+    bb.add_enemy(unit_id=100301, level=200, hp=60000, position=Position.ENEMY_LEFT_FRONT)
+    bb.add_enemy(unit_id=100302, level=200, hp=60000, position=Position.ENEMY_CENTER_FRONT)
+    bb.add_enemy(unit_id=100303, level=200, hp=60000, position=Position.ENEMY_CENTER_BACK)
+    ctx = bb.build()
+    bf, ss, ts = ctx['bf'], ctx['ss'], ctx['ts']
+    c500 = next(u for u in bf.friend_team if u.unit_id == 500301)
+    c108 = next(u for u in bf.friend_team if u.unit_id == 108301)
+    e1 = next(u for u in bf.enemy_team if u.unit_id == 100301)
+    return bf, ss, ts, c500, c108, e1
+
+
+# ================================================================
+# EX 110083 母娘の絆
+# ================================================================
+
+class Test110083EX:
+    def test_ex_hits_both_primary_and_adjacent(self):
+        """EX: 主目标(最高HP) + 邻接2体均受到伤害"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_ep = c500.max_extra_point
+        # 让100302(前排中)HP最高
+        for e in bf.enemy_team:
+            if e.unit_id == 100302:
+                e.current_hp = e.max_hp
+        r = ss.execute_skill(c500, 110083, bf)
+        assert r['success']
+        damages = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage']
+        # 2个damage effect: 主目标 + 邻接
+        assert len(damages) == 2
+        hit_ids = [d['target'] for d in damages[0].get('targets', [])] + \
+                  [d['target'] for d in damages[1].get('targets', [])]
+        assert len(set(hit_ids)) >= 2  # 主目标+至少1邻接
+
+    def test_ex_def_down_on_all_targets_with_source_death_remove(self):
+        """EX: 対象全てdef_down(施法者行动结束type=attacker_action, source_death_remove)"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_ep = c500.max_extra_point
+        r = ss.execute_skill(c500, 110083, bf)
+        def_downs = [t for t in r['effects_applied'] if t.get('effect_type') == 'aura'
+                     and any(a.get('effect') == 'StatusDefense' for a in t.get('auras', []))]
+        assert def_downs
+        total_targets = sum(len(t.get('auras', [])) for t in def_downs)
+        assert total_targets >= 2  # 主目标+邻接
+        # 验证debuff配置中的关键属性
+        for t in def_downs:
+            for a in t.get('auras', []):
+                if a.get('effect') == 'StatusDefense':
+                    assert a.get('dur_type') == 'attacker_action'
+                    assert a.get('value') == 30.0  # Lv200 -> 30%
+
+    def test_ex_lv11_knockout(self):
+        """EX: Lv11+主目标1行动気绝（level_min=11生效）"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[110083] = 15
+        c500.current_ep = c500.max_extra_point
+        r = ss.execute_skill(c500, 110083, bf)
+        statuses = [t for t in r['effects_applied'] if t.get('effect_type') == 'add_status']
+        assert statuses
+        kd = [t for t in statuses if t.get('status') == 'knockout']
+        assert kd and kd[0].get('target_count', 0) >= 1
+
+
+# ================================================================
+# AS 120178 ヴォルコワの血脈∞
+# ================================================================
+
+class Test120178AS:
+    def test_as1_global_condition_hp_below_40(self):
+        """AS1: HP>=40%时技能不发动"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_hp = int(c500.max_hp * 0.5)
+        r = ss.execute_skill(c500, 120178, bf)
+        assert not r['success'] or r.get('error') == 'global_condition not met'
+
+    def test_as1_shield_scales_with_self_hp(self):
+        """AS1: HP30%时盾=ATK*shield%*(1+0.2*(30-10)/30)=5666(Lv15 shield50%,ATK10000)"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[120178] = 15
+        c500.current_hp = int(c500.max_hp * 0.3)
+        r = ss.execute_skill(c500, 120178, bf)
+        assert r['success']
+        # 盾: ATK10000*50%=5000, HP30%→t=(30-10)/30=0.667, factor=1.1333 → 5666 存入target.shield
+        assert 5000 < c500.shield <= 6000, f"盾值异常: {c500.shield}"
+        # 治疗: 威力50%*10000=5000, HP30% t=0.333(reverse=0.667), factor=1.1 → 5500
+        heals = [t for t in r['effects_applied'] if t.get('effect_type') == 'heal']
+        assert heals
+        assert heals[0].get('total_heal') == 5500
+
+    def test_as1_heal_scales_inverse(self):
+        """AS1: HP10%时治疗最大(+30%)=6500，HP40%时最小=5000"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[120178] = 15
+        # HP=10%
+        c500.current_hp = int(c500.max_hp * 0.1)
+        ss.resource_service.restore_ap(c500, 10)
+        c500.skill_cooldowns[120178] = 0
+        r_low = ss.execute_skill(c500, 120178, bf)
+        heal_low = [t for t in r_low['effects_applied'] if t.get('effect_type') == 'heal'][0]['total_heal']
+        # ATK10000*50%=5000 * (1+0.3) = 6500
+        assert heal_low == 6500
+
+
+# ================================================================
+# AS 120179 システマ・ヴラシェーニヤ∞
+# ================================================================
+
+class Test120179AS:
+    def test_as2_hp_above_40_buff(self):
+        """AS2: HP>=40%时atk_up 20% + dmg_dealt_up 5% 且buff限制在本技能内(skill duration)"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_hp = int(c500.max_hp * 0.9)
+        r = ss.execute_skill(c500, 120179, bf)
+        assert r['success']
+        # damage使用buff后的ATK(12000)与dealt_mult(1.05)
+        dmg_entry = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        calc = dmg_entry['targets'][0]['calc_detail']
+        assert calc['atk'] == 12000
+        assert pytest.approx(calc['dealt_mult'], 0.001) == 1.05
+        # buff施加后应立即被skill结束清理（effects_applied中可见aura记录）
+        auras = [t for t in r['effects_applied'] if t.get('effect_type') == 'aura']
+        assert len(auras) == 2
+        for a in auras:
+            assert a['auras'][0]['dur_type'] == 'skill'
+
+    def test_as2_hp_below_40_no_buff(self):
+        """AS2: HP<40%时仅基础攻击，无buff"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_hp = int(c500.max_hp * 0.3)
+        r = ss.execute_skill(c500, 120179, bf)
+        assert r['success']
+        dmg_entry = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        assert dmg_entry['targets'][0]['calc_detail']['atk'] == 10000
+        assert dmg_entry['targets'][0]['calc_detail']['dealt_mult'] == 1.0
+
+
+# ================================================================
+# PS 130184 ストレラ
+# ================================================================
+
+class Test130184PS:
+    def _trigger(self, bf, ss, ts, c500, c108, e1, attacker_element):
+        c108.element = attacker_element
+        c500.current_hp = int(c500.max_hp * 0.8)
+        c500.current_ap = 2
+        actions = ts.trigger_after_ally_as_attack(c108, 120024, [e1], bf, primary_target=e1)
+        for act in actions:
+            act.parameters.setdefault('trigger_attacker', c108)
+            act.parameters.setdefault('primary_target', e1)
+            act.parameters.setdefault('targets', [e1])
+            ss._execute_trigger_actions_inline([act], bf, trigger_timing='AFTER_ALLY_AS_ATTACK')
+        return actions
+
+    def test_ps1_follow_up_damage(self):
+        """PS1: 其它友方AS后追撃EN伤害(即使攻击者不是Cute/Aggressive)"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c108.element = 2  # 水/非触发属性
+        c500.current_pp = 10
+        c500.current_ap = 2
+        hp_before = e1.current_hp
+        actions = self._trigger(bf, ss, ts, c500, c108, e1, 2)
+        assert actions
+        assert e1.current_hp < hp_before  # 追撃造成伤害
+
+    def test_ps1_pp_and_atk_up_when_actor_cute_or_aggressive(self):
+        """PS1: 攻击友方为Aggressive(火=1)时PP+1和atk_up生效"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_pp = 2
+        c500.current_ap = 2
+        c500.max_pp = 10
+        actions = self._trigger(bf, ss, ts, c500, c108, e1, 1)  # 火/Aggressive
+        assert actions
+        # atk_up buff在技能期间被施加（skill duration后清除，验证buff在effects中记录或战后清理）
+        # 验证PP被扣除1(触发消耗)或PP有变化：
+        assert c500.current_pp >= 1  # PP未被错误清空
+        # 验证atk_up是否曾生效 —— 检查battle单位的buff痕迹（skill duration结束时清除）
+        # 伤害target的calc_detail atk包含atk_up（Lv200 tag=35%）→ 若追击生效则ATK提升
+        hp_before = e1.current_hp
+
+    def test_ps1_atk_up_applies_before_damage(self):
+        """PS1: 攻击力上升在伤害结算前生效（先加攻再攻击）—— 伤害使用 10000×1.35=13500"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[130184] = 15
+        c500.current_hp = int(c500.max_hp * 0.8)
+        c500.current_ap = 2
+        c108.element = 1  # 火/Aggressive → 加攻触发
+        ss._trigger_attacker = c108
+        ss._primary_target = e1
+        r = ss.execute_skill(c500, 130184, bf)
+        dmg = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        assert dmg['targets'][0]['calc_detail']['atk'] == 13500
+
+    def test_ps1_no_atk_up_when_actor_not_cute_aggressive(self):
+        """PS1: 攻击友方非Cute/Aggressive时不加攻，伤害使用基础ATK=10000"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[130184] = 15
+        c500.current_hp = int(c500.max_hp * 0.8)
+        c500.current_ap = 2
+        c108.element = 2  # 水/非触发
+        ss._trigger_attacker = c108
+        ss._primary_target = e1
+        r = ss.execute_skill(c500, 130184, bf)
+        dmg = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        assert dmg['targets'][0]['calc_detail']['atk'] == 10000
+
+    def test_ps1_no_pp_when_status_ailment(self):
+        """PS1: 自身状态异常时恢复的PP被扣除(先恢复再扣除, atk_up正常)"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.current_pp = 6
+        c500.current_ap = 2
+        # 正常触发（无状态异常）：PP 6 -> 6-1(消耗)+1(恢复)=6
+        actions_a = self._trigger(bf, ss, ts, c500, c108, e1, 1)
+        assert actions_a
+        pp_normal = c500.current_pp
+        # 重置PP，施毒后触发：PP 6 -> 6-1+1-1(状态异常扣除)=5
+        c500.current_pp = 6
+        import uuid
+        from src.entities_v2.enums import AuraUpdateTiming
+        poison = type('PB', (), {
+            'buff_id': f'poison_{uuid.uuid4().hex[:8]}', 'name': 'Poison',
+            'effect_type': 'poison', 'value': 10, 'duration': 2,
+            'hit_limited': 0, 'attack_limited': 0, 'is_stackable': False,
+            'timing_type': AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            'source_unit_id': c108.unit_id, 'is_debuff': True,
+            'is_memory_buff': False,
+        })()
+        c500.debuffs.append(poison)
+        actions_b = self._trigger(bf, ss, ts, c500, c108, e1, 1)
+        assert actions_b
+        pp_ailment = c500.current_pp
+        # 状态异常时应比正常时少1（恢复的PP被扣除，atk_up仍正常施加）
+        assert pp_ailment == pp_normal - 1, f"PP异常: normal={pp_normal} ailment={pp_ailment}"
+        c500.debuffs = [d for d in c500.debuffs if getattr(d, 'buff_id', '') != poison.buff_id]
+
+
+# ================================================================
+# PS 130185 鉄壁の母娘
+# ================================================================
+
+class Test130185PS:
+    def test_ps2_guard2_when_attacker_shy_or_smart(self):
+        """PS2: 攻击者シャイ(风=3)时guard2率生效"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[130185] = 15
+        e1.element = 3  # 风/Shy
+        ss._trigger_attacker = e1
+        r = ss.execute_skill(c500, 130185, bf)
+        assert r['success']
+        guard_buff = [b for b in getattr(c500, 'buffs', []) if getattr(b, 'effect_type', '') == 'Guard']
+        assert guard_buff
+        assert guard_buff[0].value == 75.0  # Lv15 guard2=75%
+        c500.buffs = [b for b in c500.buffs if getattr(b, 'effect_type', '') != 'Guard']
+        c500.skill_cooldowns[130185] = 0
+
+    def test_ps2_guard_when_attacker_other_element(self):
+        """PS2: 攻击者火(1)时guard率生效（非Shy/Smart）"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[130185] = 15
+        e1.element = 1  # 火
+        ss._trigger_attacker = e1
+        r = ss.execute_skill(c500, 130185, bf)
+        assert r['success']
+        guard_buff = [b for b in getattr(c500, 'buffs', []) if getattr(b, 'effect_type', '') == 'Guard']
+        assert guard_buff
+        assert guard_buff[0].value == 30.0  # Lv15 guard=30%
+
+    def test_ps2_mutually_exclusive_blocks(self):
+        """PS2: 两个guard block互斥执行（仅一个guard buff）"""
+        bf, ss, ts, c500, c108, e1 = _setup()
+        c500.skill_levels[130185] = 15
+        e1.element = 2  # 水/Smart → block1触发
+        ss._trigger_attacker = e1
+        r = ss.execute_skill(c500, 130185, bf)
+        guard_buff = [b for b in getattr(c500, 'buffs', []) if getattr(b, 'effect_type', '') == 'Guard']
+        assert len(guard_buff) == 1
+        assert guard_buff[0].value == 75.0
+
+
+# ================================================================
+# 双属性克制（主土=4 / 副火=1）
+# ================================================================
+
+class Test500301DualAttribute:
+    def _mk(self, atk_elem, atk_sub, def_elem, def_sub=0, bonus=0.0):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="a", element=atk_elem, sub_element=atk_sub)
+        bb.add_enemy(unit_id="e", element=def_elem, sub_element=def_sub)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        a = next(u for u in bf.friend_team if u.unit_id == "a")
+        e = next(u for u in bf.enemy_team if u.unit_id == "e")
+        a.advantage_damage = bonus
+        return ss.damage_service, a, e
+
+    def test_character_data_role_type_and_sub(self):
+        """500301: role_type=5(控制)、attribute=4(土)、sub_attribute=1(火)"""
+        from src.data.data_loader import DataLoader
+        dl = DataLoader()
+        dl.load_all()
+        c = dl.get_character_by_id(500301)
+        assert c is not None
+        assert c.role_type == 5
+        assert c.attribute == 4
+        assert c.sub_attribute == 1
+
+    def test_main_attribute_advantage_1_25(self):
+        """主属性土(4) 克制 敌水(2) → 1.25"""
+        dms, a, e = self._mk(4, 1, 2)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.25)
+
+    def test_sub_attribute_advantage_1_15(self):
+        """副属性火(1) 克制 敌风(3) → 1.15"""
+        dms, a, e = self._mk(4, 1, 3)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.15)
+
+    def test_no_advantage(self):
+        """主土/副火 均不克制 敌光(5) → 1.0"""
+        dms, a, e = self._mk(4, 1, 5)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.0)
+
+    def test_both_advantage_takes_max_main_first(self):
+        """敌主水(2)副风(3): 土克水 & 火克风 → 取最大值1.25（主优先）"""
+        dms, a, e = self._mk(4, 1, 2, def_sub=3)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.25)
+
+    def test_advantage_bonus_applies_to_sub(self):
+        """装备加成advantage_damage同时作用于副属性: 1.15+0.05=1.20"""
+        dms, a, e = self._mk(4, 1, 3, bonus=0.05)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.20)
+
+    def test_advantage_bonus_applies_to_main(self):
+        """装备加成作用于主属性: 1.25+0.10=1.35"""
+        dms, a, e = self._mk(4, 1, 2, bonus=0.10)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.35)
+
+    def test_single_attribute_unchanged(self):
+        """单属性角色行为不变: 主属性克制1.25，无副属性"""
+        dms, a, e = self._mk(4, 0, 2)
+        assert dms._get_attribute_factor(a.element, e.element, a, e) == pytest.approx(1.25)
+        dms2, a2, e2 = self._mk(4, 0, 3)
+        assert dms2._get_attribute_factor(a2.element, e2.element, a2, e2) == pytest.approx(1.0)
+
+    def test_defender_sub_attribute_participates(self):
+        """防守方副属性参与被克制判定: 敌水(2)攻击主土(4)副火(1) → 水克火(副) → 1.25"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="d", element=4, sub_element=1)   # 500301
+        bb.add_enemy(unit_id="atk", element=2)              # 水
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        d = next(u for u in bf.friend_team if u.unit_id == "d")
+        atk = next(u for u in bf.enemy_team if u.unit_id == "atk")
+        # 水(2) 克制 火(1) → 敌方作为攻击者获得1.25
+        assert ss.damage_service._get_attribute_factor(atk.element, d.element, atk, d) == pytest.approx(1.25)
+
+    def test_defender_main_attribute_participates(self):
+        """防守方主属性参与: 敌风(3)攻击主土(4)副火(1) → 风克土(主) → 1.25"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="d", element=4, sub_element=1)
+        bb.add_enemy(unit_id="atk", element=3)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        d = next(u for u in bf.friend_team if u.unit_id == "d")
+        atk = next(u for u in bf.enemy_team if u.unit_id == "atk")
+        assert ss.damage_service._get_attribute_factor(atk.element, d.element, atk, d) == pytest.approx(1.25)
+
+    def test_ex_damage_end_to_end_uses_sub_attribute(self):
+        """E2E: 500301(主土副火) 攻击 敌风(3)，伤害计算attr_factor=1.15"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id=500301, level=200, skills=[120179], element=4, sub_element=1)
+        bb.add_enemy(unit_id=100301, level=200, hp=60000, element=3)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        c = next(u for u in bf.friend_team if u.unit_id == 500301)
+        c.current_hp = int(c.max_hp * 0.9)
+        r = ss.execute_skill(c, 120179, bf)
+        dmg = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        assert dmg['targets'][0]['calc_detail']['attr_factor'] == pytest.approx(1.15)
+
+    def test_ex_damage_end_to_end_main_attribute(self):
+        """E2E: 500301(主土副火) 攻击 敌水(2)，伤害计算attr_factor=1.25"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id=500301, level=200, skills=[120179], element=4, sub_element=1)
+        bb.add_enemy(unit_id=100301, level=200, hp=60000, element=2)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        c = next(u for u in bf.friend_team if u.unit_id == 500301)
+        c.current_hp = int(c.max_hp * 0.9)
+        r = ss.execute_skill(c, 120179, bf)
+        dmg = [t for t in r['effects_applied'] if t.get('effect_type') == 'damage'][0]
+        assert dmg['targets'][0]['calc_detail']['attr_factor'] == pytest.approx(1.25)

@@ -1,0 +1,207 @@
+"""Regression: 若ノ減衰 (230384) 在自身被攻击时误触发。
+
+Bug: 若ノ減衰描述为「他の味方が後列の敵から攻撃される直前に発動」，
+     即仅在「其他友方」被后排敌人攻击时触发。但 230384 的 global_condition
+     只有 attacker_is_back_row，未排除「PS 持有者本人是被攻击目标」的情况，
+     导致若雷本人被攻击时也触发。
+
+Fix: 1. trigger_service._check_condition 新增 target_is_other_ally 条件类型
+     2. skill_effects_hybrid.json 中 230384 的 global_condition 改为 and 组合：
+        [attacker_is_back_row, target_is_other_ally]
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=2, skills=None, skill_levels=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestRegWakabaShogenSelfAttacked(unittest.TestCase):
+    """若ノ減衰 (230384) 必须仅在「其他友方」被攻击时触发，自身被攻击时不触发。"""
+
+    SKILL_ID = 230384
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _make_wakaba(self, position=Position.ENEMY_LEFT_BACK):
+        skills = [220360, 220361, 230383, self.SKILL_ID]
+        return _make_unit(
+            "wakaba", "若雷", Side.ENEMY, position,
+            hp=30000, atk=40000, defense=3000, speed=500,
+            skills=skills, skill_levels={sid: 10 for sid in skills},
+        )
+
+    def _make_teammate(self):
+        return _make_unit(
+            "tm", "队友", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=99999, atk=5000, defense=3000, speed=400,
+        )
+
+    def _make_attacker(self, position=Position.ALLY_LEFT_BACK):
+        # 玩家后排攻击者
+        return _make_unit(
+            "atk", "玩家攻击者", Side.ALLY, position,
+            hp=50000, atk=10000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+        )
+
+    # ── 数据配置校验 ──
+
+    def test_global_condition_includes_target_is_other_ally(self):
+        """230384 的 global_condition 必须包含 target_is_other_ally 子条件。"""
+        parsed = self.dl.get_parsed_skill_data(self.SKILL_ID)
+        self.assertIsNotNone(parsed, "230384 parsed data missing")
+        gc = parsed.get('global_condition')
+        self.assertIsNotNone(gc, "global_condition missing")
+        self.assertEqual(gc.get('type'), 'and', "global_condition 应为 and 组合")
+        sub_types = [c.get('type') for c in gc.get('conditions', [])]
+        self.assertIn('attacker_is_back_row', sub_types)
+        self.assertIn('target_is_other_ally', sub_types)
+
+    # ── 触发场景验证 ──
+
+    def test_does_not_trigger_when_self_is_attacked(self):
+        """若雷本人被后排玩家攻击时不触发 若ノ減衰。"""
+        wakaba = self._make_wakaba(position=Position.ENEMY_LEFT_BACK)
+        attacker = self._make_attacker(position=Position.ALLY_LEFT_BACK)
+        bf = _make_bf(wakaba, attacker)
+
+        _, ts = self._make_services(bf)
+        actions = ts.trigger_before_as_attacked(
+            targets=[wakaba],  # 仅若雷本人被攻击
+            battlefield=bf,
+            attacker=attacker,
+        )
+        wakaba_actions = [a for a in actions if a.owner_id == wakaba.unit_id
+                          and a.skill_id == self.SKILL_ID]
+        self.assertEqual(
+            len(wakaba_actions), 0,
+            "若ノ減衰 不应在自身被攻击时触发 (描述: 他の味方が後列の敵から攻撃される直前)"
+        )
+
+    def test_triggers_when_other_ally_is_attacked(self):
+        """其他友方被后排玩家攻击时触发 若ノ減衰。"""
+        wakaba = self._make_wakaba(position=Position.ENEMY_LEFT_BACK)
+        teammate = self._make_teammate()
+        attacker = self._make_attacker(position=Position.ALLY_LEFT_BACK)
+        bf = _make_bf(wakaba, teammate, attacker)
+
+        _, ts = self._make_services(bf)
+        actions = ts.trigger_before_as_attacked(
+            targets=[teammate],  # 队友被攻击
+            battlefield=bf,
+            attacker=attacker,
+        )
+        wakaba_actions = [a for a in actions if a.owner_id == wakaba.unit_id
+                          and a.skill_id == self.SKILL_ID]
+        self.assertGreater(
+            len(wakaba_actions), 0,
+            "若ノ減衰 应在其他友方被后排敌人攻击时触发"
+        )
+
+    def test_does_not_trigger_when_attacker_is_front_row(self):
+        """攻击者在前排时不触发 若ノ減衰（attacker_is_back_row 条件）。"""
+        wakaba = self._make_wakaba(position=Position.ENEMY_LEFT_BACK)
+        teammate = self._make_teammate()
+        # 攻击者在前排
+        attacker = self._make_attacker(position=Position.ALLY_LEFT_FRONT)
+        bf = _make_bf(wakaba, teammate, attacker)
+
+        _, ts = self._make_services(bf)
+        actions = ts.trigger_before_as_attacked(
+            targets=[teammate],
+            battlefield=bf,
+            attacker=attacker,
+        )
+        wakaba_actions = [a for a in actions if a.owner_id == wakaba.unit_id
+                          and a.skill_id == self.SKILL_ID]
+        self.assertEqual(
+            len(wakaba_actions), 0,
+            "若ノ減衰 不应在攻击者处于前排时触发"
+        )
+
+    def test_triggers_when_targets_include_self_and_other_ally(self):
+        """若 targets 同时包含自身+其他友方，应触发（满足 target_is_other_ally）。
+
+        注：此场景下若雷本人也在受攻击目标中，但因为还有其他友方被攻击，
+        若ノ減衰会触发并对攻击者施加威力降低（保护其他友方）。
+        """
+        wakaba = self._make_wakaba(position=Position.ENEMY_LEFT_BACK)
+        teammate = self._make_teammate()
+        attacker = self._make_attacker(position=Position.ALLY_LEFT_BACK)
+        bf = _make_bf(wakaba, teammate, attacker)
+
+        _, ts = self._make_services(bf)
+        actions = ts.trigger_before_as_attacked(
+            targets=[wakaba, teammate],  # 横排攻击同时命中若雷+队友
+            battlefield=bf,
+            attacker=attacker,
+        )
+        wakaba_actions = [a for a in actions if a.owner_id == wakaba.unit_id
+                          and a.skill_id == self.SKILL_ID]
+        self.assertGreater(
+            len(wakaba_actions), 0,
+            "若 targets 同时包含自身+其他友方，应触发（满足 target_is_other_ally）"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

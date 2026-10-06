@@ -1,0 +1,674 @@
+"""_apply_consume_hp 单元测试。
+
+测试目标：
+1. HP计算基准
+   - current_hp基准（默认）: int(current_hp * pct / 100)
+   - max_hp基准: int(effective_max_hp * pct / 100)（含buff的max_hp）
+2. value_tag解析
+   - value为空时通过value_tag解析动态值
+   - value_tag解析失败时回退到effect.value
+3. 边界场景
+   - 保留1HP: actual_consume = min(consume_amount, current_hp - 1)
+   - consume_amount=0时HP不变
+   - HP=1时actual_consume=0
+4. 累计伤害
+   - cumulative_hp_damage += actual_consume
+5. scoring_tracker
+   - damage_dealt_total / damage_taken_total 更新
+   - record_damage调用
+   - 敌方自残计入_total_damage_to_enemies
+   - 己方自残不计入对敌方伤害
+   - 无tracker时不报错
+6. _per_hit_hp_losses记录
+7. _hp_consumed赋值
+8. 返回值结构
+9. 多次调用累加
+"""
+import sys
+import os
+import pytest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.scoring_tracker import ScoringTracker
+from src.data.data_loader import DataLoader
+
+
+# ─── 工厂函数 ──────────────────────────────────────────────
+
+def make_unit(unit_id="u1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT,
+              hp=50000, max_hp=50000, atk=10000, defense=5000, speed=500,
+              element=2, character_type=1):
+    """创建测试用单位。"""
+    return UnitState(
+        unit_id=unit_id, name=unit_id, side=side, position=position,
+        character_id=999901, level=10, element=element, character_type=character_type,
+        max_hp=max_hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=hp, current_ap=10, current_pp=10, current_ep=10,
+    )
+
+
+def make_buff(name="b", effect_type="max_hp_up", value=10.0, duration=-1,
+              is_stackable=False, is_memory_buff=False, **extra):
+    """创建测试用buff。"""
+    kwargs = dict(
+        buff_id=f"{name}_{id(object())}", name=name, effect_type=effect_type,
+        value=value, duration=duration, timing_type=2, value_tag=0,
+        is_stackable=is_stackable, is_memory_buff=is_memory_buff,
+        hit_limited=0, attack_limited=0, is_debuff=False,
+    )
+    kwargs.update(extra)
+    return BuffState(**kwargs)
+
+
+def make_effect(value=10, hp_base='current_hp', value_tag=None):
+    """创建consume_hp效果对象。"""
+    return SimpleNamespace(
+        effect_type='consume_hp',
+        value=value,
+        flags={'hp_base': hp_base},
+        target_type='self',
+        target_identifier=None,
+        hit_count=None,
+        condition=None,
+        value_tag=value_tag,
+    )
+
+
+def make_data_loader():
+    """创建最小化的DataLoader。"""
+    dl = MagicMock()
+    dl.get_skill_by_id.return_value = None
+    return dl
+
+
+def make_skill_service(dl=None, bf=None):
+    """创建测试用SkillService（带最小依赖）。"""
+    if dl is None:
+        dl = make_data_loader()
+    rs = ResourceService()
+    ts = TriggerService()
+    ts.set_data_loader(dl)
+    asvc = AuraService()
+    dmgsvc = DamageService()
+    tgtsvc = TargetService()
+    stsvc = StatusService()
+    ss = SkillService(dl, rs, target_service=tgtsvc,
+                      damage_service=dmgsvc, aura_service=asvc,
+                      status_service=stsvc, trigger_service=ts)
+    ts.set_skill_service(ss)
+    if bf is not None:
+        ss.set_battlefield(bf)
+    # 初始化_apply_consume_hp可能用到的内部状态
+    ss._hp_consumed = 0
+    ss._per_hit_hp_losses = {}
+    ss._current_skill_id = 0
+    return ss
+
+
+# ─── 测试类 ──────────────────────────────────────────────
+
+class TestConsumeHpBasicFormula:
+    """HP计算基准测试。"""
+
+    def test_current_hp_base_default(self):
+        """默认使用current_hp基准: 100000 * 10% = 10000。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='current_hp')
+
+        hp_before = unit.current_hp
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 10000
+        assert unit.current_hp == hp_before - 10000
+        assert result['hp_base'] == 'current_hp'
+
+    def test_current_hp_base_explicit(self):
+        """显式指定current_hp基准: 50000 * 20% = 10000。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=50000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=20, hp_base='current_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 10000
+        assert unit.current_hp == 40000
+
+    def test_max_hp_base(self):
+        """max_hp基准: 100000 * 10% = 10000（current_hp=50000，仍按max_hp算）。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=50000, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='max_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 10000
+        assert unit.current_hp == 40000  # 50000 - 10000
+        assert result['hp_base'] == 'max_hp'
+
+    def test_max_hp_base_includes_buffs(self):
+        """max_hp基准应包含STATUS_MAX_HP固定值buff: max_hp=100000+20000=120000, 10%=12000。
+
+        value_tag=1表示固定值（点数），value_tag=0表示百分比。
+        """
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000, max_hp=100000)
+        # 添加STATUS_MAX_HP固定值buff（value_tag=1）
+        unit.buffs.append(make_buff(
+            name="mhp_up", effect_type=SkillEffectType.STATUS_MAX_HP.value,
+            value=20000.0, value_tag=1,  # 1=固定值
+        ))
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='max_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # effective_max_hp = 100000 * (1+0) + 20000 = 120000, consume = 12000
+        assert result['consumed'] == 12000
+        assert unit.current_hp == 88000  # 100000 - 12000
+
+
+class TestConsumeHpValueTag:
+    """value_tag解析测试。"""
+
+    def test_value_tag_resolved_when_value_is_none(self):
+        """effect.value=None时通过value_tag解析动态值。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+
+        ss = make_skill_service(bf=bf)
+        # mock _resolve_tag_value_for_caster 返回25
+        ss._resolve_tag_value_for_caster = lambda c, e, t: 25.0
+        effect = make_effect(value=None, value_tag='consume_pct')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # 25% of 100000 = 25000
+        assert result['consumed'] == 25000
+        assert result['pct'] == 25.0
+
+    def test_value_tag_resolved_when_value_is_zero(self):
+        """effect.value=0时也通过value_tag解析动态值。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+
+        ss = make_skill_service(bf=bf)
+        ss._resolve_tag_value_for_caster = lambda c, e, t: 50.0
+        effect = make_effect(value=0, value_tag='consume_pct')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 50000
+        assert result['pct'] == 50.0
+
+    def test_value_tag_returns_none_falls_back_to_value(self):
+        """value_tag解析返回None时回退到effect.value。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+
+        ss = make_skill_service(bf=bf)
+        ss._resolve_tag_value_for_caster = lambda c, e, t: None
+        effect = make_effect(value=15, value_tag='consume_pct')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # 回退到effect.value=15
+        assert result['consumed'] == 15000
+        assert result['pct'] == 15
+
+    def test_value_tag_not_set_uses_value(self):
+        """value_tag=None时直接使用effect.value。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=30, value_tag=None)
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 30000
+        assert result['pct'] == 30
+
+
+class TestConsumeHpBoundary:
+    """边界场景测试。"""
+
+    def test_preserve_1_hp_when_consume_exceeds_current(self):
+        """保留1HP: consume_amount > current_hp - 1 时actual=min(consume, current-1)。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        # current_hp=1000, 50%=500 → 500 < 999, actual=500（无保留触发）
+        unit = make_unit("u1", hp=1000, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=50, hp_base='current_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # 1000 * 50% = 500, min(500, 999) = 500
+        assert result['consumed'] == 500
+        assert unit.current_hp == 500
+
+    def test_preserve_1_hp_when_would_kill(self):
+        """消耗量会致死时保留1HP: max_hp基准下100000*50%=50000 > current_hp-1=4999。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        # current_hp=5000, max_hp=100000, 50% max_hp = 50000 > 4999
+        unit = make_unit("u1", hp=5000, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=50, hp_base='max_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # min(50000, 5000-1=4999) = 4999, 保留1HP
+        assert result['consumed'] == 4999
+        assert unit.current_hp == 1
+
+    def test_zero_pct_consumes_nothing(self):
+        """pct=0时consume_amount=0，HP不变。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=0, hp_base='current_hp')
+
+        hp_before = unit.current_hp
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        assert result['consumed'] == 0
+        assert unit.current_hp == hp_before
+
+    def test_hp_at_1_consumes_nothing(self):
+        """HP=1时consume_amount=int(1*pct/100)=0，actual=min(0, 0)=0。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=1, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='current_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # int(1 * 10 / 100) = 0
+        assert result['consumed'] == 0
+        assert unit.current_hp == 1
+
+    def test_hp_at_2_preserves_1(self):
+        """HP=2时10%=0，但若pct=100%则consume=2，actual=min(2,1)=1保留1HP。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=2, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=100, hp_base='current_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # int(2 * 100 / 100) = 2, min(2, 2-1=1) = 1
+        assert result['consumed'] == 1
+        assert unit.current_hp == 1
+
+    def test_int_truncation(self):
+        """int()截断: 100001 * 10% = 10000.1 → 10000。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100001)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='current_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # int(100001 * 10 / 100) = int(10000.1) = 10000
+        assert result['consumed'] == 10000
+
+
+class TestConsumeHpCumulative:
+    """累计伤害测试。"""
+
+    def test_cumulative_hp_damage_updated(self):
+        """consume_hp必须更新caster.cumulative_hp_damage。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10)
+
+        cumulative_before = unit.cumulative_hp_damage
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.cumulative_hp_damage == cumulative_before + 10000
+
+    def test_zero_consume_no_cumulative_update(self):
+        """consume=0时cumulative_hp_damage不增加。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=0)
+
+        cumulative_before = unit.cumulative_hp_damage
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.cumulative_hp_damage == cumulative_before
+
+    def test_multiple_consume_accumulates_cumulative(self):
+        """多次consume_hp应累加到cumulative_hp_damage。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=1000000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10)
+
+        cumulative_before = unit.cumulative_hp_damage
+        # 第一次: 1000000 * 10% = 100000
+        ss._apply_consume_hp(unit, effect, bf)
+        # 第二次: 900000 * 10% = 90000
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.cumulative_hp_damage == cumulative_before + 100000 + 90000
+
+
+class TestConsumeHpScoringTracker:
+    """scoring_tracker测试。"""
+
+    def _build_context(self, unit):
+        bf = MagicMock()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+        bf.friend_team = [unit] if unit.side == Side.ALLY else []
+        bf.enemy_team = [unit] if unit.side == Side.ENEMY else []
+        bf.units = [unit]
+        ss = make_skill_service(bf=bf)
+        return bf, ss, tracker
+
+    def test_damage_totals_updated_enemy(self):
+        """consume_hp应更新damage_dealt_total和damage_taken_total（敌方）。"""
+        unit = make_unit("enemy", side=Side.ENEMY, position=Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf, ss, tracker = self._build_context(unit)
+        effect = make_effect(value=10)
+
+        dealt_before = unit.damage_dealt_total
+        taken_before = unit.damage_taken_total
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.damage_dealt_total == dealt_before + 10000
+        assert unit.damage_taken_total == taken_before + 10000
+
+    def test_record_damage_called_enemy(self):
+        """敌方自残应被scoring_tracker记录（source=target=enemy）。"""
+        unit = make_unit("enemy", side=Side.ENEMY, position=Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf, ss, tracker = self._build_context(unit)
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(unit, effect, bf)
+
+        stats = tracker._unit_stats.get(unit.unit_id)
+        assert stats is not None
+        assert stats.damage_dealt == 10000
+        assert stats.damage_received == 10000
+
+    def test_enemy_consume_counts_in_score(self):
+        """敌方自残应计入对敌方伤害得分（target_side=enemy）。"""
+        unit = make_unit("enemy", side=Side.ENEMY, position=Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf, ss, tracker = self._build_context(unit)
+        effect = make_effect(value=10)
+
+        score_before = tracker.get_current_score()
+        ss._apply_consume_hp(unit, effect, bf)
+        score_after = tracker.get_current_score()
+
+        assert score_after - score_before == 10000
+
+    def test_ally_consume_not_counted_in_enemy_damage(self):
+        """己方自残不计入对敌方伤害得分（target_side=ally）。"""
+        unit = make_unit("ally", side=Side.ALLY, position=Position.ALLY_CENTER_FRONT, hp=100000)
+        bf, ss, tracker = self._build_context(unit)
+        effect = make_effect(value=10)
+
+        score_before = tracker.get_current_score()
+        ss._apply_consume_hp(unit, effect, bf)
+        score_after = tracker.get_current_score()
+
+        # 己方自残不计入对敌方伤害
+        assert score_after == score_before
+
+    def test_no_tracker_no_error(self):
+        """无scoring_tracker时不报错。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10)
+
+        # 不应抛出异常
+        result = ss._apply_consume_hp(unit, effect, bf)
+        assert result['consumed'] == 10000
+
+    def test_multiple_consume_accumulates_score(self):
+        """多次consume_hp应累加到scoring_tracker得分。"""
+        unit = make_unit("enemy", side=Side.ENEMY, position=Position.ENEMY_CENTER_FRONT, hp=1000000)
+        bf, ss, tracker = self._build_context(unit)
+        effect = make_effect(value=10)
+
+        total_consumed = 0
+        for _ in range(3):
+            hp_before = unit.current_hp
+            ss._apply_consume_hp(unit, effect, bf)
+            total_consumed += (hp_before - unit.current_hp)
+
+        assert tracker.get_current_score() == total_consumed
+
+
+class TestConsumeHpInternalState:
+    """内部状态更新测试。"""
+
+    def test_hp_consumed_set(self):
+        """self._hp_consumed 应被设置为actual_consume。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        ss._hp_consumed = 0
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert ss._hp_consumed == 10000
+
+    def test_hp_consumed_zero_when_consume_zero(self):
+        """consume=0时self._hp_consumed=0。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        ss._hp_consumed = 999  # 预置非0值
+        effect = make_effect(value=0)
+
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert ss._hp_consumed == 0
+
+    def test_per_hit_hp_losses_recorded(self):
+        """actual_consume > 0时记录到_per_hit_hp_losses。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        ss._per_hit_hp_losses = {}
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.unit_id in ss._per_hit_hp_losses
+        assert ss._per_hit_hp_losses[unit.unit_id] == [10000]
+
+    def test_per_hit_hp_losses_not_recorded_when_zero(self):
+        """actual_consume=0时不记录到_per_hit_hp_losses。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000)
+        ss = make_skill_service(bf=bf)
+        ss._per_hit_hp_losses = {}
+        effect = make_effect(value=0)
+
+        ss._apply_consume_hp(unit, effect, bf)
+
+        # actual_consume=0, 不进入 if actual_consume > 0 分支
+        assert unit.unit_id not in ss._per_hit_hp_losses
+
+    def test_multiple_consume_appends_to_per_hit_losses(self):
+        """多次consume_hp应追加到_per_hit_hp_losses列表。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=1000000)
+        ss = make_skill_service(bf=bf)
+        ss._per_hit_hp_losses = {}
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(unit, effect, bf)  # 100000
+        ss._apply_consume_hp(unit, effect, bf)  # 90000
+
+        assert ss._per_hit_hp_losses[unit.unit_id] == [100000, 90000]
+
+
+class TestConsumeHpReturnStructure:
+    """返回值结构测试。"""
+
+    def test_return_dict_contains_all_fields(self):
+        """返回值应包含所有必需字段。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=100000, max_hp=200000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10, hp_base='current_hp')
+
+        hp_before = unit.current_hp
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        required_fields = {
+            'effect_type', 'consumed', 'target', 'target_id',
+            'hp_before', 'hp_after', 'max_hp', 'pct', 'hp_base',
+        }
+        assert set(result.keys()) >= required_fields
+        assert result['effect_type'] == 'consume_hp'
+        assert result['consumed'] == 10000
+        assert result['target'] == unit.unit_id
+        assert result['target_id'] == unit.unit_id
+        assert result['hp_before'] == hp_before
+        assert result['hp_after'] == 90000
+        assert result['max_hp'] == 200000
+        assert result['pct'] == 10
+        assert result['hp_base'] == 'current_hp'
+
+    def test_return_reflects_actual_consume_when_capped(self):
+        """当actual被保留1HP规则截断时，返回值反映actual而非consume_amount。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        # current_hp=5000, max_hp=100000, 50% max_hp = 50000 > 4999
+        unit = make_unit("u1", hp=5000, max_hp=100000)
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=50, hp_base='max_hp')
+
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # actual_consume = min(50000, 4999) = 4999
+        assert result['consumed'] == 4999
+        assert result['hp_before'] == 5000
+        assert result['hp_after'] == 1
+
+
+class TestConsumeHpMultipleCalls:
+    """多次调用累加测试。"""
+
+    def test_multiple_calls_accumulate_correctly(self):
+        """多次consume_hp应正确累加HP损失和cumulative。"""
+        bf = MagicMock()
+        bf.scoring_tracker = None
+        unit = make_unit("u1", hp=1000000)
+        ss = make_skill_service(bf=bf)
+        ss._per_hit_hp_losses = {}
+        effect = make_effect(value=10)
+
+        cumulative_before = unit.cumulative_hp_damage
+        hp_before = unit.current_hp
+
+        # 第一次: 1000000 * 10% = 100000
+        ss._apply_consume_hp(unit, effect, bf)
+        # 第二次: 900000 * 10% = 90000
+        ss._apply_consume_hp(unit, effect, bf)
+        # 第三次: 810000 * 10% = 81000
+        ss._apply_consume_hp(unit, effect, bf)
+
+        assert unit.current_hp == 1000000 - 100000 - 90000 - 81000
+        assert unit.cumulative_hp_damage == cumulative_before + 100000 + 90000 + 81000
+        assert ss._per_hit_hp_losses[unit.unit_id] == [100000, 90000, 81000]
+        assert ss._hp_consumed == 81000  # 最后一次的值
+
+
+class TestConsumeHpSideSpecific:
+    """阵营特定行为测试。"""
+
+    def test_enemy_side_recorded_correctly(self):
+        """敌方单位自残: source_side='enemy', target_side='enemy'。"""
+        bf = MagicMock()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+        enemy = make_unit("enemy", side=Side.ENEMY,
+                          position=Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf.friend_team = []
+        bf.enemy_team = [enemy]
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(enemy, effect, bf)
+
+        stats = tracker._unit_stats.get(enemy.unit_id)
+        assert stats is not None
+        # source_side和target_side均为enemy
+        assert stats.damage_dealt == 10000
+        assert stats.damage_received == 10000
+        # 计入对敌方伤害
+        assert tracker.get_current_score() == 10000
+
+    def test_ally_side_recorded_correctly(self):
+        """己方单位自残: source_side='ally', target_side='ally'。"""
+        bf = MagicMock()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+        ally = make_unit("ally", side=Side.ALLY,
+                         position=Position.ALLY_CENTER_FRONT, hp=100000)
+        bf.friend_team = [ally]
+        bf.enemy_team = []
+        ss = make_skill_service(bf=bf)
+        effect = make_effect(value=10)
+
+        ss._apply_consume_hp(ally, effect, bf)
+
+        stats = tracker._unit_stats.get(ally.unit_id)
+        assert stats is not None
+        assert stats.damage_dealt == 10000
+        assert stats.damage_received == 10000
+        # 己方自残不计入对敌方伤害
+        assert tracker.get_current_score() == 0

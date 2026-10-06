@@ -1,0 +1,482 @@
+"""角色115302 疾走する自由の孤狼 专项E2E测试（「闘志」mark叠加/实时加成 + 烙印 + 回忆卡联动）
+
+技能列表（5个）:
+- EX: 110080 ……私のこと、気になる？（敵単体 → 击杀后敵全体追加攻撃）
+- AS1: 120171 ブレイブバレット（回避不可+敌单+横1列解debuff3+闘志×1+实时加成 atk+4%/crit_dmg+3% per闘志，Lv11+附debuff无効/減傷）
+- AS2: 120172 オーバーバースト（闘志>=4追加攻撃+Lv11+敌前卫；<4仅单体）
+- PS1: 130179 エマージェンシーエイド（持闘志自身被单击傷>=maxHP15%→威力回復+解闘志1，Lv11+反撃）
+- PS2: 130180 ファーストブランド（回合开始先制最低HP敌+烙印mark+30%盾，once_per_battle，回忆卡20089-400247可解除）
+
+回忆卡 20089「父さんの、そして私の願い」:
+- 400246 闘志【ALL】: battle_start → Hiiro闘志×4+其他味方×2，decay_per_action=1（每行动消1）
+- 400247 CT解除敵撃破時: 烙印敵被击杀 → 解除130180冷却
+
+覆盖维度:
+1. EX 击杀后敌全体追加（击杀判断 target_killed）
+2. AS1 闘志付与+实时atk加成（mark数变化→属性即时变化）+解debuff3
+3. AS2 闘志>=4追加/Lv11+敌前卫/<4单体
+4. PS1 单击伤>=15%触发（回复+解闘志1）；低于阈值不触发；Lv11+反击
+5. PS2 先制最低HP+烙印mark+30%盾；once_per_battle第二次不触发
+6. mark_stat_bonus 实时性：移除mark→攻击力同步下降
+7. 回忆卡: battle_start 闘志×分布；decay_per_action 消失；on_any_kill 解除CD
+8. 配置校验
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.entities.memory_card import MemoryCard
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+CRIT_BONUS = SkillEffectType.CRITICAL_BONUS_MODIFICATION.value
+MARK = SkillEffectType.MARK.value
+SHIELD = SkillEffectType.SHIELD.value
+
+TOUSHI = "闘志"
+RAKUIN = "烙印"
+
+
+def _mk_mark(name, source_id="src", stack=1, msb=None):
+    """生成一个mark BuffState；msb=mark_stat_bonus规则（作为carrier再配一个buff）"""
+    return BuffState(
+        buff_id=f"{source_id}_mark_{name}_{id(name)}", name=name,
+        effect_type=MARK, value=0, duration=-1,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=source_id, source_skill_id=0, is_debuff=False,
+        stack_count=stack, is_memory_buff=True,
+    )
+
+
+def _add_toushi_layers(unit, n):
+    """向unit添加n个「闘志」独立实例（模拟120171每次cast追加stackable mark）。"""
+    for i in range(n):
+        unit.buffs.append(_mk_mark(TOUSHI, f"caster_{i}", 1))
+
+
+def _mk_rule_carrier(stat, per_mark_pct, mark_name=TOUSHI, max_marks=8):
+    """生成一个 mark_stat_bonus 规则carrier buff（如 atk_up + mark_stat_bonus）。"""
+    return BuffState(
+        buff_id=f"rule_{stat}_{id(stat)}", name=f"carrier_{stat}",
+        effect_type=STATUS_ATTACK if stat == "attack" else CRIT_BONUS,
+        value=0, duration=-1,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id="src", source_skill_id=0, is_debuff=False,
+        mark_stat_bonus={"mark_name": mark_name, "stat": stat,
+                         "per_mark_pct": per_mark_pct, "max_marks": max_marks},
+    )
+
+
+class TestActor115302(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.dms = DamageService()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        self.caster = UnitState(
+            unit_id="caster", name="孤狼", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=115302, level=10,
+            element=1, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=10, initial_passive_point=10, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=5,
+            skills=[110080, 120171, 120172, 130179, 130180],
+            skill_levels={110080: 10, 120171: 10, 120172: 10,
+                          130179: 10, 130180: 10},
+            skill_cooldowns={},
+        )
+        # 同排友方（横1列 debuff 解盾目标）
+        self.ally_lf = UnitState(
+            unit_id="ally_lf", name="味方左前", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=999001, level=10,
+            element=1, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=8000, defense=5000, speed=450,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.ally_rb = UnitState(
+            unit_id="ally_rb", name="味方右後", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_BACK, character_id=999002, level=10,
+            element=2, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=8000, defense=5000, speed=420,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.enemy_cf = self._mk_enemy("enemy_cf", "敵中前", Position.ENEMY_CENTER_FRONT)
+        self.enemy_lf = self._mk_enemy("enemy_lf", "敵左前", Position.ENEMY_LEFT_FRONT)
+        self.enemy_rf = self._mk_enemy("enemy_rf", "敵右前", Position.ENEMY_RIGHT_FRONT)
+        self.enemy_cb = self._mk_enemy("enemy_cb", "敵中後", Position.ENEMY_CENTER_BACK)
+
+        self.bf.friend_team = [self.caster, self.ally_lf, self.ally_rb]
+        self.bf.enemy_team = [self.enemy_cf, self.enemy_lf, self.enemy_rf, self.enemy_cb]
+
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs, damage_service=self.dms,
+            aura_service=self.aus, status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    def _mk_enemy(self, unit_id, name, position):
+        return UnitState(
+            unit_id=unit_id, name=name, side=Side.ENEMY,
+            position=position, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=99999, current_hp=99999,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+    def _reset(self, level=10):
+        self.caster.current_hp = self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = 10
+        self.caster.current_pp = 10
+        self.caster.current_ep = 5
+        self.caster.level = level
+        self.caster.crit_counter = 0
+        for sid in self.caster.skill_levels:
+            self.caster.skill_levels[sid] = level
+        for u in [self.ally_lf, self.ally_rb]:
+            u.current_hp = u.max_hp
+            u.buffs = []
+            u.debuffs = []
+            u.is_alive = True
+            u._damage_taken_in_action = 0
+        for e in [self.enemy_cf, self.enemy_lf, self.enemy_rf, self.enemy_cb]:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.is_alive = True
+            e.cumulative_hp_damage = 0
+            e._damage_taken_in_action = 0
+
+    def _marks(self, unit, name=TOUSHI):
+        return [b for b in unit.buffs + unit.debuffs
+                if b.effect_type == MARK and b.name == name]
+
+    def _toushi_count(self, unit):
+        return sum(getattr(m, 'stack_count', 1) or 1 for m in self._marks(unit))
+
+    # ─────────────── EX 110080 ───────────────
+
+    def test_ex_110080_all_attack_on_kill(self):
+        """EX: 击杀后敌全体追加攻击。"""
+        self._reset()
+        # 压低 cf 血量使其可被击杀
+        self.enemy_cf.current_hp = 100
+        hp_before = {e.unit_id: e.current_hp for e in [self.enemy_cf, self.enemy_lf, self.enemy_rf]}
+        result = self.ss.execute_skill(caster=self.caster, skill_id=110080,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(self.enemy_cf.current_hp, 0, "低血目标应被击杀")
+        self.assertLess(self.enemy_lf.current_hp, hp_before['enemy_lf'],
+                        "击杀后应敌全体追加攻击")
+        self.assertLess(self.enemy_rf.current_hp, hp_before['enemy_rf'])
+
+    def test_ex_110080_no_extra_on_no_kill(self):
+        """EX: 未击杀时不追加敌全体攻击。"""
+        self._reset()
+        hp_before = {e.unit_id: e.current_hp for e in [self.enemy_cf, self.enemy_lf, self.enemy_rf]}
+        result = self.ss.execute_skill(caster=self.caster, skill_id=110080,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertGreater(self.enemy_cf.current_hp, 0, "满血目标不应被击杀")
+        self.assertEqual(self.enemy_lf.current_hp, hp_before['enemy_lf'],
+                         "未击杀时不追加敌全体攻击")
+        self.assertEqual(self.enemy_rf.current_hp, hp_before['enemy_rf'])
+
+    # ─────────────── AS1 120171 ───────────────
+
+    def test_as1_120171_buff_and_toushi_realtime(self):
+        """AS1: 回避不可+敵单+横1列解debuff3+闘志×1（atk+4%/crit_dmg+3%实时）。"""
+        self._reset()
+        # 给 ally_lf 挂 3 个 debuff（横1列）
+        for i in range(3):
+            self.ally_lf.debuffs.append(BuffState(
+                buff_id=f"db_{i}", name=f"debuff{i}", effect_type=RECEIVED_DAMAGE,
+                value=10.0, duration=3,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id="enemy_cf", source_skill_id=0, is_debuff=True,
+            ))
+        atk_before = self.dms._calculate_final_stat(self.caster, "attack")
+        result = self.ss.execute_skill(caster=self.caster, skill_id=120171,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(len(self.ally_lf.debuffs), 0, "横1列应解除3个debuff")
+        # 闘志×1 → 攻击力+4%
+        self.assertEqual(self._toushi_count(self.caster), 1, "应获得闘志×1")
+        atk_after = self.dms._calculate_final_stat(self.caster, "attack")
+        self.assertEqual(atk_after, int(atk_before * 1.04), "闘志1个攻击力应+4%")
+        # 再付2个闘志（模拟叠加）→ +12%
+        self.caster.buffs.append(_mk_mark(TOUSHI, "extra", 2))
+        atk_after3 = self.dms._calculate_final_stat(self.caster, "attack")
+        self.assertEqual(atk_after3, int(atk_before * 1.12), "闘志3个攻击力应+12%")
+
+    def test_as1_120171_realtime_reflects_mark_removal(self):
+        """闘志实时性: 移除闘志后攻击力即时下降。"""
+        self._reset()
+        # 闘志4层 + atk rule carrier（atk+4%/枚）
+        self.caster.buffs.append(_mk_mark(TOUSHI, "pre", 4))
+        self.caster.buffs.append(_mk_rule_carrier("attack", 4))
+        atk_4 = self.dms._calculate_final_stat(self.caster, "attack")
+        # 移除闘志后
+        self.caster.buffs = [b for b in self.caster.buffs
+                             if not (b.effect_type == MARK and b.name == TOUSHI)]
+        atk_0 = self.dms._calculate_final_stat(self.caster, "attack")
+        self.assertEqual(atk_0, self.caster.attack, "无闘志时攻击力=基础值")
+        self.assertGreater(atk_4, atk_0, "闘志4个攻击应更高")
+
+    def test_as1_120171_lv11_extra_defense(self):
+        """AS1 Lv11+: 额外debuff无効+次次受击减伤。"""
+        self._reset(level=11)
+        result = self.ss.execute_skill(caster=self.caster, skill_id=120171,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        immunes = [b for b in self.caster.buffs
+                   if b.effect_type in ("debuff_immune", "DebuffImmune")]
+        self.assertGreaterEqual(len(immunes), 1, "Lv11+应获得debuff_immune")
+        downs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertGreaterEqual(len(downs), 1, "Lv11+应获得被ダメ減（tag dmg Lv11=7.5）")
+
+    # ─────────────── AS2 120172 ───────────────
+
+    def test_as2_120172_toushi_ge4_extra(self):
+        """AS2: 闘志>=4追加攻击威力2（同目标），<4仅单体。"""
+        self._reset()
+        self.caster.buffs.append(_mk_mark(TOUSHI, "pre", 4))
+        before = self.enemy_cf.current_hp
+        result = self.ss.execute_skill(caster=self.caster, skill_id=120172,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"], "闘志>=4应执行追加攻击分支")
+        dmg_ge4 = before - self.enemy_cf.current_hp
+        # <4 对比
+        self._reset()
+        self.caster.buffs.append(_mk_mark(TOUSHI, "pre", 2))
+        before2 = self.enemy_cf.current_hp
+        self.ss.execute_skill(caster=self.caster, skill_id=120172,
+                              battlefield=self.bf, skip_cost=True)
+        dmg_lt4 = before2 - self.enemy_cf.current_hp
+        self.assertGreater(dmg_ge4, dmg_lt4, "闘志>=4时追加攻击使伤害更高")
+        # 威力tag 70(威力) vs 70+30(威力+威力2) 的近似关系（同面板无atk加成时）
+        self.assertAlmostEqual(dmg_ge4, dmg_lt4 * 100 / 70,
+                               delta=max(10, dmg_lt4 * 0.2),
+                               msg="威力70+30=100 对比 威力70")
+
+    # ─────────────── PS1 130179 ───────────────
+
+    def _trigger_ps1(self, dmg):
+        """模拟持闘志自身被攻击 dmg 点（单次）。"""
+        self.caster._damage_taken_in_action = dmg
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            actor=self.enemy_cf, primary_target=self.caster,
+        )
+        return [a for a in actions if a.skill_id == 130179]
+
+    def test_ps1_130179_heal_and_remove_mark_on_15pct(self):
+        """PS1: 持闘志自身受单击伤>=15%→回復+解闘志1。"""
+        self._reset()
+        _add_toushi_layers(self.caster, 3)  # 3个独立闘志实例（现实叠加方式）
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        hp_before = self.caster.current_hp
+        dmg = int(self.caster.max_hp * 0.2)  # 20% >= 15%
+        ps1 = self._trigger_ps1(dmg)
+        self.assertGreater(len(ps1), 0, "受单击伤>=15%应触发")
+        self.ss._execute_trigger_actions_inline(ps1, self.bf)
+        # 回复: 威力 tag Lv10=25 → 攻击力×25%
+        expected_heal = int(self.caster.attack * 0.25)
+        self.assertEqual(self.caster.current_hp - hp_before, expected_heal,
+                         "回复量应为威力25%×攻击力")
+        # 闘志 3→2（移除1个实例）
+        self.assertEqual(len(self._marks(self.caster)), 2, "应解除1个闘志")
+
+    def test_ps1_130179_no_trigger_below_15pct(self):
+        """PS1: 受单击伤<15%不触发。"""
+        self._reset()
+        self.caster.buffs.append(_mk_mark(TOUSHI, "pre", 2))
+        dmg = int(self.caster.max_hp * 0.05)  # 5% < 15%
+        ps1 = self._trigger_ps1(dmg)
+        self.assertEqual(len(ps1), 0, "受单击伤<15%不应触发")
+
+    # ─────────────── PS2 130180 ───────────────
+
+    def test_ps2_130180_preemptive_lowest_hp_brand_shield(self):
+        """PS2: 回合开始先制打最低HP敌+烙印mark+30%伤盾。"""
+        self._reset()
+        self.enemy_cb.current_hp = int(self.enemy_cb.max_hp * 0.1)  # 最低HP
+        cf_before = self.enemy_cf.current_hp
+        cb_before = self.enemy_cb.current_hp
+        self.caster.skill_cooldowns = {}
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2 = [a for a in actions if a.skill_id == 130180]
+        self.assertGreater(len(ps2), 0, "回合开始应触发PS2")
+        self.ss._execute_trigger_actions_inline(ps2, self.bf, trigger_timing="on_turn_start")
+        self.assertLess(self.enemy_cb.current_hp, cb_before, "应打最低HP敌cb")
+        self.assertEqual(self.enemy_cf.current_hp, cf_before, "不应打其他敌")
+        # 烙印mark在 cb 上
+        rakuin = [b for b in self.enemy_cb.buffs + self.enemy_cb.debuffs
+                  if b.effect_type == MARK and b.name == RAKUIN]
+        self.assertGreaterEqual(len(rakuin), 1, "cb应获得烙印mark")
+        # 30% 伤盾
+        self.assertGreater(self.caster.shield, 0, "应获得伤害30%的盾")
+        # once_per_battle
+        self.assertIn(130180, self.caster.once_per_battle_triggered, "应记录once_per_battle")
+
+    def test_ps2_130180_once_per_battle(self):
+        """PS2: once_per_battle 第二次回合不再触发。"""
+        self._reset()
+        self.caster.skill_cooldowns = {}
+        actions = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2 = [a for a in actions if a.skill_id == 130180]
+        self.assertGreater(len(ps2), 0)
+        self.ss._execute_trigger_actions_inline(ps2, self.bf)
+        # 下一回合
+        self.bf.turn_number = 2
+        actions2 = self.ts.trigger_turn_start_preemptive(self.bf)
+        ps2_2 = [a for a in actions2 if a.skill_id == 130180]
+        self.assertEqual(len(ps2_2), 0, "once_per_battle后不再触发")
+
+    # ─────────────── 回忆卡 20089 ───────────────
+
+    def _make_card(self, card_id):
+        mem_info = self.dl.load_memories().get(card_id)
+        return MemoryCard(
+            card_id=card_id, name=mem_info.name,
+            description=mem_info.description, rarity=mem_info.rarity,
+            highlights=mem_info.highlights,
+        )
+
+    def test_memory_20089_battle_start_toushi_distribution(self):
+        """回忆卡400246: battle_start → Hiiro闘志×4+其他味方×2。"""
+        self._reset()
+        bf = BattlefieldState()
+        bf.friend_team = [self.caster, self.ally_lf, self.ally_rb]
+        bf.enemy_team = [self.enemy_cf]
+        bf.memory_cards = [self._make_card(20089)]
+        ctl = BattleFlowController(bf, self.dl)
+        ctl.aura_service = self.aus
+        ctl.damage_service = self.dms
+        ctl.skill_service = self.ss
+        ctl._apply_memory_card_effects()
+        self.assertEqual(self._toushi_count(self.caster), 4, "Hiiro应获得闘志×4")
+        self.assertEqual(self._toushi_count(self.ally_lf), 2, "其他味方应获得闘志×2")
+        self.assertEqual(self._toushi_count(self.ally_rb), 2, "其他味方应获得闘志×2")
+
+    def test_memory_20089_decay_per_action(self):
+        """回忆卡400246: 闘志每行动消1（decay_per_action）。"""
+        self._reset()
+        bf = BattlefieldState()
+        bf.friend_team = [self.caster, self.ally_lf]
+        bf.enemy_team = [self.enemy_cf]
+        bf.memory_cards = [self._make_card(20089)]
+        ctl = BattleFlowController(bf, self.dl)
+        ctl.aura_service = self.aus
+        ctl._apply_memory_card_effects()
+        self.assertEqual(self._toushi_count(self.caster), 4)
+        # 行动结束 → 减1层
+        self.aus.process_maneuver_end(self.caster)
+        self.assertEqual(self._toushi_count(self.caster), 3, "行动结束闘志应减1")
+
+    def test_memory_20089_reset_firebrand_cd_on_rakuin_kill(self):
+        """回忆卡400247: 烙印敌被击杀→解除130180冷却。"""
+        self._reset()
+        # 130180 冷却中（once_per_battle 已触发，CD=99 模拟）
+        self.caster.skill_cooldowns[130180] = 99
+        bf = BattlefieldState()
+        bf.friend_team = [self.caster, self.ally_lf]
+        bf.enemy_team = [self.enemy_cf]
+        bf.memory_cards = [self._make_card(20089)]
+        ctl = BattleFlowController(bf, self.dl)
+        ctl.aura_service = self.aus
+        ctl.skill_service = self.ss
+        ctl.damage_service = self.dms
+        ctl.battlefield = bf
+        # 击杀烙印敌（模拟死亡结算后调用 on_any_kill）
+        self.enemy_cf.debuffs.append(_mk_mark(RAKUIN, "caster", 1))
+        self.enemy_cf.is_alive = False
+        ctl._apply_memory_card_effects_by_trigger("on_any_kill", actor=self.caster, target=self.enemy_cf)
+        self.assertNotIn(130180, self.caster.skill_cooldowns, "烙印敌被击杀应解除130180冷却")
+
+    def test_memory_20089_no_reset_without_rakuin(self):
+        """回忆卡400247: 无烙印敌被击杀不解除冷却。"""
+        self._reset()
+        self.caster.skill_cooldowns[130180] = 99
+        bf = BattlefieldState()
+        bf.friend_team = [self.caster, self.ally_lf]
+        bf.enemy_team = [self.enemy_cf]
+        bf.memory_cards = [self._make_card(20089)]
+        ctl = BattleFlowController(bf, self.dl)
+        ctl.aura_service = self.aus
+        ctl.skill_service = self.ss
+        ctl.damage_service = self.dms
+        ctl.battlefield = bf
+        self.enemy_cf.is_alive = False  # 无烙印
+        ctl._apply_memory_card_effects_by_trigger("on_any_kill", actor=self.caster, target=self.enemy_cf)
+        self.assertIn(130180, self.caster.skill_cooldowns, "无烙印敌被击杀不应解除冷却")
+
+    # ─────────────── 配置校验 ───────────────
+
+    def test_config_validation(self):
+        """配置校验: 触发条件/依赖已注册。"""
+        p172 = self.dl.get_parsed_skill_data(120172)
+        conds = [b.get('condition', {}).get('type') for b in p172['effect_blocks']]
+        self.assertTrue(any('self_mark_count' in c for c in conds), "AS2应使用self_mark_count条件")
+        p179 = self.dl.get_parsed_skill_data(130179)
+        self.assertEqual(p179['trigger_type'], 'after_as_attacked')
+        p180 = self.dl.get_parsed_skill_data(130180)
+        self.assertTrue(p180.get('once_per_battle'), "130180应配置once_per_battle")
+        me246 = self.dl.get_memory_effect(400246)
+        self.assertEqual(me246['trigger']['type'], 'battle_start')
+        self.assertEqual(me246['blocks'][0]['effects'][0]['count'], 4, "Hiiro应×4闘志")
+        me247 = self.dl.get_memory_effect(400247)
+        self.assertEqual(me247['trigger']['type'], 'on_any_kill')
+        self.assertEqual(me247['trigger']['required_mark_on_target'], RAKUIN)
+
+
+if __name__ == '__main__':
+    unittest.main()

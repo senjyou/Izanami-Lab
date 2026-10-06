@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""批量模拟「日志开关」对照基准
+用法:
+    python .dbg/batch_log_benchmark.py --tag before   (当前版本, 日志默认开)
+    python .dbg/batch_log_benchmark.py --tag after    (改后, 日志关)
+输出: .dbg/batch_log_{tag}.json, 包含速率与逐场结果(用于一致性校验)
+"""
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(r"f:\MGG\muv_luv_girlsgardenx_cl\MGGBattleSimulation")
+sys.path.insert(0, str(ROOT))
+
+from src.utils import batch_simulator as bs
+from src.config.panel_config import PanelConfig
+from src.config.player_config import SchoolLevels
+from src.entities_v2.enums import Position
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tag", default="run", help="before/after")
+    ap.add_argument("--battles", type=int, default=100)
+    args = ap.parse_args()
+    N = args.battles
+
+    with open(ROOT / "data" / "global_config.default.json", encoding="utf-8") as f:
+        sl = json.load(f)["school_levels"]
+
+    panel = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=sl["physical_level"], en_level=sl["en_level"],
+            agility_level=sl["agility_level"], fire_level=sl["fire_level"],
+            water_level=sl["water_level"], wind_level=sl["wind_level"],
+            earth_level=sl["earth_level"], light_level=sl["light_level"],
+            dark_level=sl["dark_level"],
+        ),
+        equipment_enabled=True,
+    )
+
+    ids = [110301, 110302, 110303]
+    bs._worker_init(
+        data_dir=str(ROOT / "data"),
+        panel_config=panel,
+        friends_chars=list(ids),
+        friend_positions=list(ids),
+        enemies_chars=list(ids),
+        enemy_positions=list(ids),
+        max_turns=30,
+        positions_ally=[Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+                        Position.ALLY_RIGHT_FRONT],
+        positions_enemy=[Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT,
+                         Position.ENEMY_RIGHT_FRONT],
+        mem_cards_data=None,
+        enable_rdps=True,
+    )
+
+    seeds = list(range(12345, 12345 + N))
+    bs._worker_run_batch([seeds[0]])  # warmup(DataLoader懒加载)
+
+    t0 = time.perf_counter()
+    res = bs._worker_run_batch(seeds)
+    elapsed = time.perf_counter() - t0
+    rate = N / elapsed
+
+    results = [{
+        "winner": r["winner"],
+        "total_turns": r["total_turns"],
+        "ally_damage": r["ally_total_damage_dealt"],
+        "enemy_damage": r["enemy_total_damage_dealt"],
+    } for r in res]
+    wins = sum(1 for r in results if r["winner"] == "FRIEND")
+
+    out = {"tag": args.tag, "battles": N,
+           "elapsed": round(elapsed, 3), "rate": round(rate, 2),
+           "wins": wins, "results": results}
+    out_path = ROOT / ".dbg" / f"batch_log_{args.tag}.json"
+    out_path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    print(f"[{args.tag}] {N} 场: {elapsed:.2f}s, 速率 {rate:.1f} 场/s, "
+          f"胜 {wins}/{N} -> {out_path.name}")
+
+    # 与另一侧对比
+    other = "after" if args.tag == "before" else "before"
+    other_path = ROOT / ".dbg" / f"batch_log_{other}.json"
+    if other_path.exists():
+        o = json.loads(other_path.read_text(encoding="utf-8"))
+        same = (o["battles"] == N and
+                all(a == b for a, b in zip(out["results"], o["results"])))
+        print(f"对比 {other} -> {args.tag}: 速率 {o['rate']} -> {rate} "
+              f"(x{rate / o['rate']:.2f}) | 逐场结果一致: {same}")
+
+
+if __name__ == "__main__":
+    main()

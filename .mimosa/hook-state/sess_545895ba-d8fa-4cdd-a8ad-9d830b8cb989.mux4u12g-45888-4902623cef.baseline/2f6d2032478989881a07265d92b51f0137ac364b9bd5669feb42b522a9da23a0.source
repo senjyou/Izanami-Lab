@@ -1,0 +1,124 @@
+"""Regression: 期待に応えたい (130119) trigger not firing for non-damage AS skills.
+
+Bug: skill_use_count update was inside `if damaged_targets:` block, so non-damage
+     AS skills (like 120111 幸運のデコイ, 120112 仲間想いのリカバリー) never updated
+     skill_use_count. This meant on_skill_use_count triggers (130119/130081) never
+     fired when only support AS skills were used.
+
+Fix: Moved skill_use_count update to BEFORE `if damaged_targets:` block for all AS
+     skills, and added a new else-block for non-damage AS skills to collect/execute
+     after_self_as, crit triggers, and skill_count_actions.
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.data.data_loader import DataLoader
+
+
+def _make_char_unit(dl, char_id, side, pos, level=200, hp_mult=1.0, atk_mult=1.0):
+    """Create a real-character unit for battle flow testing."""
+    char = dl.get_character_by_id(char_id)
+    if not char:
+        raise ValueError(f"Character {char_id} not found")
+    skills = dl.load_character_skills().get(char_id, [])
+    lerp = dl.load_level_lerp_data().get(level, 1.0)
+    ms, xs = char.min_level_stats, char.max_level_stats
+    max_ep = 8
+    for sid in skills:
+        sk = dl.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = sk.resource_cost
+            break
+    side_prefix = "F" if side == Side.ALLY else "E"
+    max_hp = int(ms.hp + (xs.hp - ms.hp) * lerp)
+    atk = int(ms.attack + (xs.attack - ms.attack) * lerp)
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}", name=char.name, side=side,
+        position=pos, character_id=char_id, level=level,
+        element=char.attribute, character_type=char.character_type,
+        max_hp=int(max_hp * hp_mult),
+        current_hp=int(max_hp * hp_mult),
+        attack=int(atk * atk_mult),
+        defense=int(ms.defense + (xs.defense - ms.defense) * lerp),
+        speed=int(ms.speed + (xs.speed - ms.speed) * lerp),
+        crit_rate=ms.crit_rate + (xs.crit_rate - ms.crit_rate) * lerp,
+        crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=char.action_point,
+        initial_passive_point=char.passive_point,
+        max_extra_point=max_ep,
+        current_ap=char.action_point, current_pp=char.passive_point,
+        current_ep=0, skills=skills, skill_levels={s: 15 for s in skills},
+        skill_cooldowns={},
+    )
+
+
+class TestRegNonDamageAsSkillCount(unittest.TestCase):
+    """Regression: non-damage AS skills must update skill_use_count so that
+    on_skill_use_count PS triggers (130119/130081) fire correctly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _run_battle(self, ally_char_id, hp_mult=10.0, atk_mult=1.0):
+        """Run a full battle with a weak high-HP enemy to maximize turn count."""
+        ally = _make_char_unit(self.dl, ally_char_id, Side.ALLY,
+                               Position.ALLY_CENTER_FRONT,
+                               level=200, hp_mult=hp_mult, atk_mult=atk_mult)
+        # Enemy: high HP, very low ATK -> ally survives many turns
+        enemy = _make_char_unit(self.dl, 133301, Side.ENEMY,
+                                Position.ENEMY_CENTER_FRONT,
+                                level=200, hp_mult=50.0, atk_mult=0.01)
+        bf = BattlefieldState()
+        bf.add_unit(ally)
+        bf.add_unit(enemy)
+        controller = BattleFlowController(bf, data_loader=self.dl)
+        result = controller.execute_battle()
+        ally_after = next(u for u in bf.get_all_units() if u.unit_id == ally.unit_id)
+        return result, ally_after
+
+    def test_130119_fires_in_full_battle_with_nondamage_as(self):
+        """130119 (期待に応えたい) should fire in full battle flow even when
+        the character uses non-damage AS skills (120111/120112).
+
+        Bug: Before fix, skill_use_count was only updated inside
+        `if damaged_targets:` block, so non-damage AS skills never counted.
+        130119 trigger condition (skill_use_count_modulo value=2) never matched.
+        """
+        # Character 104302 has: 110050(EX), 120111(AS1 support), 120112(AS2 heal),
+        #                       130119(PS1 on_skill_use_count mod 2), 130120(PS2 guard)
+        result, ally = self._run_battle(104302)
+
+        self.assertIn(result["result"], ("FINISHED", "TIMEOUT"),
+                      f"Battle should end normally, got {result['result']}")
+
+        # 130119 should have fired at least once (its own count appears in skill_use_count)
+        ps_130119_count = ally.skill_use_count.get(130119, 0)
+        self.assertGreater(ps_130119_count, 0,
+                           "130119 (期待に応えたい) should fire at least once in battle; "
+                           f"skill_use_count={dict(ally.skill_use_count)}")
+
+    def test_nondamage_as_updates_skill_use_count(self):
+        """Non-damage AS skills (120111, 120112) should appear in skill_use_count
+        during battle (before being cleared by PS execution).
+
+        We verify indirectly: if 130119 fires, it means the count reached 2,
+        which requires non-damage AS skills to be counted.
+        """
+        result, ally = self._run_battle(104302)
+
+        # If 130119 fired multiple times, non-damage AS counting works
+        ps_count = ally.skill_use_count.get(130119, 0)
+        self.assertGreaterEqual(ps_count, 1,
+                                "130119 firing proves non-damage AS skills are counted")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,180 @@
+"""Regression: 若ノ掃射 (220360) / 若ノ双弾 (220361) 的 split_heal_by_damage
+效果虽然实际生效（HP 改变），但叙事日志未输出 [治疗] 行。
+
+Bug: _apply_split_heal_by_damage 返回的 details 仅含 heal/per_target 字段，
+     缺少 hp_before/hp_after/amount；battle_flow_controller._log_narrative_effects
+     中无 split_heal_by_damage 分支，导致 [治疗] 叙事日志被静默跳过。
+
+Fix: 1. _apply_split_heal_by_damage 返回新增 heals 列表，结构对齐 _apply_heal
+     2. _log_narrative_effects 增加 split_heal_by_damage 叙事分支
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=2, skills=None, skill_levels=None,
+               current_hp=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestRegWakabaSplitHealNarrative(unittest.TestCase):
+    """若ノ掃射/若ノ双弾 split_heal_by_damage 必须输出 [治疗] 叙事日志。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _make_wakaba(self):
+        skills = [220360, 220361, 230383, 230384]
+        return _make_unit(
+            "wakaba", "若雷", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=30000, atk=40000, defense=3000, speed=500,
+            skills=skills, skill_levels={sid: 10 for sid in skills},
+        )
+
+    def _make_enemy_ally(self, unit_id, name, current_hp):
+        return _make_unit(
+            unit_id, name, Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=20000, atk=5000, defense=3000, speed=400,
+            current_hp=current_hp,
+        )
+
+    def _make_dummy(self, unit_id, name, position):
+        return _make_unit(
+            unit_id, name, Side.ALLY, position,
+            hp=2000000, atk=100, defense=10000, speed=300,
+        )
+
+    # ── 单元层：验证 _apply_split_heal_by_damage 返回结构 ──
+
+    def test_split_heal_returns_heals_list_with_hp_fields(self):
+        """_apply_split_heal_by_damage 返回 heals 列表，每项含 hp_before/hp_after/amount。"""
+        wakaba = self._make_wakaba()
+        ally_a = self._make_enemy_ally("e_a", "友军A", current_hp=5000)
+        ally_b = self._make_enemy_ally("e_b", "友军B", current_hp=8000)
+        dummy1 = self._make_dummy("d1", "木桩1", Position.ALLY_LEFT_FRONT)
+        dummy2 = self._make_dummy("d2", "木桩2", Position.ALLY_RIGHT_FRONT)
+        bf = _make_bf(wakaba, ally_a, ally_b, dummy1, dummy2)
+
+        ss, _ = self._make_services(bf)
+        result = ss.execute_skill(wakaba, 220360, bf)
+
+        applied = result.get("effects_applied", [])
+        split_applied = next(
+            (a for a in applied if a.get("effect_type") == "split_heal_by_damage"),
+            None,
+        )
+        self.assertIsNotNone(split_applied, "split_heal_by_damage should be in effects_applied")
+
+        heals = split_applied.get("heals", [])
+        self.assertEqual(len(heals), 3, "应有3个被治疗目标 (若雷+2友军)")
+
+        for h in heals:
+            self.assertIn("hp_before", h, "heals 项缺少 hp_before")
+            self.assertIn("hp_after", h, "heals 项缺少 hp_after")
+            self.assertIn("amount", h, "heals 项缺少 amount")
+            self.assertIn("heal_formula", h, "heals 项缺少 heal_formula")
+            self.assertGreaterEqual(h["hp_after"], h["hp_before"],
+                                    "hp_after 应 >= hp_before")
+            self.assertLessEqual(h["hp_after"], h["hp_before"] + h["heal"] if "heal" in h else h["hp_after"],
+                                 "amount 应为实际回复量(不含溢出)")
+
+        # 验证 actual_heal 受 max_hp 上限
+        ally_a_heal = next(h for h in heals if h["target_id"] == "e_a")
+        self.assertEqual(ally_a_heal["hp_before"], 5000)
+        self.assertEqual(ally_a_heal["hp_after"], 20000)  # capped at max
+        self.assertEqual(ally_a_heal["amount"], 15000)  # actual = 15000, not raw 18719
+
+    # ── 集成层：验证 BattleFlowController 输出 [治疗] 叙事 ──
+
+    def test_narrative_outputs_heal_log_for_220360(self):
+        """若ノ掃射 (220360) 叙事日志必须包含 [治疗] 行。"""
+        wakaba = self._make_wakaba()
+        ally_a = self._make_enemy_ally("e_a", "友军A", current_hp=5000)
+        ally_b = self._make_enemy_ally("e_b", "友军B", current_hp=8000)
+        dummy1 = self._make_dummy("d1", "木桩1", Position.ALLY_LEFT_FRONT)
+        dummy2 = self._make_dummy("d2", "木桩2", Position.ALLY_RIGHT_FRONT)
+        bf = _make_bf(wakaba, ally_a, ally_b, dummy1, dummy2)
+
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        # 构建 display_names 以让叙事日志使用 unit.name 而非 repr(unit)
+        ctrl._build_display_names()
+
+        # 直接调用 _log_narrative_effects 验证叙事输出
+        ss = ctrl.skill_service
+        result = ss.execute_skill(wakaba, 220360, bf)
+        ctrl._log_narrative_effects(wakaba, result, "若ノ掃射", 1, 220360)
+
+        narrative_text = "\n".join(writer._lines)
+        self.assertIn("[治疗]", narrative_text,
+                      "若ノ掃射 split_heal_by_damage 必须输出 [治疗] 叙事日志")
+        self.assertIn("友军A", narrative_text)
+        self.assertIn("友军B", narrative_text)
+        # 验证治疗量出现在日志中
+        heal_lines = [line for line in narrative_text.split("\n") if "[治疗]" in line]
+        self.assertGreaterEqual(len(heal_lines), 2,
+                                "至少应有2行 [治疗] (友军A + 友军B 实际回复)")
+
+
+if __name__ == '__main__':
+    unittest.main()

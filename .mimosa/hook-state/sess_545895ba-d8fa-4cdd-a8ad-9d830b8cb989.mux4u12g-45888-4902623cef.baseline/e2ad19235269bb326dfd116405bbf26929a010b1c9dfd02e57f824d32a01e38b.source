@@ -1,0 +1,574 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+回忆卡增量导入脚本
+
+从原始解包数据增量导入新回忆卡到模拟器项目。
+不允许覆盖已导入的数据，以保护已修正的bug修复。
+
+使用方法:
+    python scripts/import_memory.py <memory_id> [memory_id2 ...]
+    python scripts/import_memory.py 10001
+    python scripts/import_memory.py 10001 10002 10005
+    python scripts/import_memory.py --force 10001   # 强制覆盖已有数据
+
+工作流程:
+    1. 从MemoryMaster.json查找回忆卡原始数据
+    2. 从MemorySkillMaster.json查找回忆卡关联的技能映射
+    3. 收集所有关联的SkillMasterId，从SkillMaster.json获取技能数据
+    4. 增量更新 memories.json（不覆盖已有回忆卡）
+    5. 增量更新 skills.json / skill_tag_values.json（不覆盖已有技能）
+    6. 增量更新 skill_data.db（不覆盖已有记录）
+
+注意：回忆卡效果不走skill_effects_hybrid.json，而是通过battle_flow_controller的
+_apply_memory_card_direct_effect回退路径工作，因此不需要生成解析数据。
+"""
+
+import sys
+import os
+import json
+import sqlite3
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Set, Any, Optional, Tuple
+from collections import defaultdict
+
+# 添加项目根目录到Python路径
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+# 路径配置
+SPLIT_DATA_DIR = PROJECT_ROOT / "split_data"
+DATA_DIR = PROJECT_ROOT / "data"
+DB_SKILL = PROJECT_ROOT / "db" / "skill_data.db"
+
+
+class MemoryImporter:
+    """回忆卡增量导入器"""
+
+    def __init__(self, force: bool = False, extra_skills: Dict[int, List[int]] = None):
+        self.force = force
+        self.extra_skills = extra_skills or {}  # memory_id -> [skill_ids]
+        self.stats = {
+            'memories_added': 0,
+            'memories_skipped': 0,
+            'memories_forced': 0,
+            'skills_added': 0,
+            'skills_skipped': 0,
+            'skill_tags_added': 0,
+            'db_skills_added': 0,
+            'db_skill_tags_added': 0,
+        }
+        self.warnings: List[str] = []
+
+    # ========================================================================
+    # 数据加载工具
+    # ========================================================================
+
+    def _load_split_data(self, filename: str) -> List[Dict]:
+        """加载split_data中的原始数据"""
+        filepath = SPLIT_DATA_DIR / filename
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def _load_data_json(self, filename: str) -> Dict:
+        """加载data目录中的转换后数据"""
+        filepath = DATA_DIR / filename
+        if not filepath.exists():
+            return {}
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def _save_data_json(self, data: Any, filename: str):
+        """保存数据到data目录"""
+        filepath = DATA_DIR / filename
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        safe_print(f"  已保存: {filename}")
+
+    # ========================================================================
+    # 原始数据查找
+    # ========================================================================
+
+    def _find_memory_raw(self, memory_id: int) -> Optional[Dict]:
+        """在MemoryMaster.json中查找回忆卡原始数据"""
+        raw_data = self._load_split_data("MemoryMaster.json")
+        for item in raw_data:
+            if item["Id"] == memory_id:
+                return item
+        return None
+
+    def _find_memory_skills_raw(self, memory_id: int) -> List[Dict]:
+        """在MemorySkillMaster.json中查找回忆卡关联的技能映射"""
+        raw_data = self._load_split_data("MemorySkillMaster.json")
+        skills = []
+        for item in raw_data:
+            if item["MemoryMasterId"] == memory_id:
+                skills.append(item)
+        return sorted(skills, key=lambda x: x.get("Order", 0))
+
+    def _find_skill_raw(self, skill_id: int) -> Optional[Dict]:
+        """在SkillMaster.json中查找技能原始数据"""
+        raw_data = self._load_split_data("SkillMaster.json")
+        for item in raw_data:
+            if item["Id"] == skill_id:
+                return item
+        return None
+
+    # ========================================================================
+    # 数据转换（复用DataDumper的逻辑）
+    # ========================================================================
+
+    @staticmethod
+    def _norm_filter(value):
+        """过滤字段归一化：原始数据中0表示「无过滤」，转换为None
+
+        memories.json的既有约定：无过滤条件时字段为null（而非0）。
+        _match_memory_card_unit按 `is not None` 判断是否过滤，
+        若保留0值会导致 attribute/role/type 匹配检查误判（如 unit.element != 0 恒真），
+        highlight永不匹配任何单位。
+        """
+        return None if value == 0 else value
+
+    # CharacterAttributeFlags(位掩码) → CharacterAttributes(元素ID) 对照
+    # 原始MemoryHighlight.CharacterAttribute是Flags枚举(Aggressive=1,Smart=2,Shy=4,Cute=8,
+    # Comical=16,Clever=32)，而memories.json/UnitState.element使用元素ID(Aggressive=1,
+    # Smart=2,Shy=3,Cute=4,Comical=5,Clever=6)。_match_memory_card_unit直接比较
+    # unit.element，若存位掩码则永不匹配（如シャイ卡存4会误命中キュート角色，存8则无人命中）。
+    # 组合掩码（如48=コミカル|クレバー）按位拆分为多个highlight（与既有卡30035一致）。
+    _FLAG_TO_ELEMENT = {1: 1, 2: 2, 4: 3, 8: 4, 16: 5, 32: 6}
+
+    @classmethod
+    def _convert_attribute_flags(cls, value) -> List[int]:
+        """位掩码转元素ID列表；0/None（无过滤）返回[None]"""
+        if not value:
+            return [None]
+        ids = [elem for bit, elem in sorted(cls._FLAG_TO_ELEMENT.items()) if value & bit]
+        return ids or [None]
+
+    def _convert_memory(self, raw: Dict, memory_skills: List[Dict], memory_id: int) -> Dict:
+        """将原始回忆卡数据转换为项目格式（与DataDumper.dump_memory_data一致）"""
+        # 从MemoryMaster提取Highlights
+        highlights = []
+        for hl in raw.get("Highlights", []):
+            attr_ids = self._convert_attribute_flags(hl.get("CharacterAttribute"))
+            if len(attr_ids) > 1:
+                safe_print(f"    [拆分] 回忆卡 {memory_id} 属性掩码 {hl.get('CharacterAttribute')} "
+                           f"-> 元素 {attr_ids}")
+            for attr_id in attr_ids:
+                highlights.append({
+                    "character_attribute": attr_id,
+                    "character_base_master_id": self._norm_filter(hl.get("CharacterBaseMasterId")),
+                    "character_master_id": self._norm_filter(hl.get("CharacterMasterId")),
+                    "character_role": self._norm_filter(hl.get("CharacterRole")),
+                    "character_team_master_id": self._norm_filter(hl.get("CharacterTeamMasterId")),
+                    "character_type": self._norm_filter(hl.get("CharacterType")),
+                    "is_targeting_friendly_party": hl.get("IsTargetingFriendlyParty", True),
+                    "party_position": self._norm_filter(hl.get("PartyPosition")),
+                    "skill_master_id": hl.get("SkillMasterId"),
+                })
+
+        # 从MemorySkillMaster补充缺失的技能高亮
+        existing_skill_ids = {hl["skill_master_id"] for hl in highlights if hl["skill_master_id"]}
+        for ms in memory_skills:
+            skill_id = ms["SkillMasterId"]
+            if skill_id in existing_skill_ids:
+                continue
+            highlights.append({
+                "character_attribute": None,
+                "character_base_master_id": None,
+                "character_master_id": None,
+                "character_role": None,
+                "character_team_master_id": None,
+                "character_type": None,
+                "is_targeting_friendly_party": True,
+                "party_position": None,
+                "skill_master_id": skill_id,
+            })
+            safe_print(f"    [补充] 回忆卡 {memory_id} 添加缺失技能 {skill_id}")
+
+        # 从手动指定的extra_skills补充
+        extra = self.extra_skills.get(memory_id, [])
+        for skill_id in extra:
+            if skill_id in existing_skill_ids:
+                continue
+            highlights.append({
+                "character_attribute": None,
+                "character_base_master_id": None,
+                "character_master_id": None,
+                "character_role": None,
+                "character_team_master_id": None,
+                "character_type": None,
+                "is_targeting_friendly_party": True,
+                "party_position": None,
+                "skill_master_id": skill_id,
+            })
+            safe_print(f"    [手动补充] 回忆卡 {memory_id} 添加技能 {skill_id}")
+
+        return {
+            "memory_id": memory_id,
+            "name": raw["Name"],
+            "description": raw.get("Description", ""),
+            "rarity": raw["Rarity"],
+            "highlights": highlights,
+        }
+
+    def _convert_skill(self, raw: Dict) -> Dict:
+        """将原始技能数据转换为项目格式（与DataDumper.dump_skill_data一致）"""
+        skill_id = raw["Id"]
+
+        # 转换描述模板
+        descriptions = []
+        for tmpl in raw.get("DescriptionTemplates", []):
+            descriptions.append({
+                "min_level": tmpl.get("Level", 1),
+                "template": tmpl.get("Template", ""),
+            })
+
+        # 转换模板标签
+        template_tags = {}
+        for tag in raw.get("TemplateTags", []):
+            tag_name = tag.get("TagName", "")
+            if not tag_name:
+                continue
+            values = []
+            for v in tag.get("Values", []):
+                values.append({
+                    "level": v.get("Level", 1),
+                    "value": v.get("Value", 0),
+                })
+            template_tags[tag_name] = {
+                "interpolation_mode": tag.get("InterpolationMode", 1),
+                "values": values,
+            }
+
+        # 转换附加种类
+        additional_kinds = []
+        for ak in raw.get("AdditionalKinds", []):
+            additional_kinds.append({
+                "level": ak.get("Level", 1),
+                "value": ak.get("Value", 0),
+            })
+
+        return {
+            "skill_id": skill_id,
+            "name": raw["Name"],
+            "skill_type": raw.get("Type", 0),
+            "skill_kind": raw.get("Kind", 0),
+            "resource_cost": raw.get("ResourceCost", 0),
+            "cooldown": raw.get("CoolTime") or 0,
+            "cooldown_update_timing": raw.get("CoolTimeUpdateTiming"),
+            "default_max_level": raw.get("DefaultMaxLevel", 10),
+            "features": raw.get("Features", 0),
+            "skill_level_pattern_id": raw.get("SkillLevelPatternMasterId", 0),
+            "additional_kinds": additional_kinds,
+            "descriptions": descriptions,
+            "template_tags": template_tags,
+            "display_info": {},
+        }
+
+    # ========================================================================
+    # 导入管线
+    # ========================================================================
+
+    def import_memory(self, memory_id: int):
+        """导入单个回忆卡"""
+        safe_print(f"\n{'='*60}")
+        safe_print(f"导入回忆卡: {memory_id}")
+        safe_print(f"{'='*60}")
+
+        # 1. 查找回忆卡原始数据
+        raw = self._find_memory_raw(memory_id)
+        if not raw:
+            safe_print(f"  [错误] 在MemoryMaster.json中未找到回忆卡 {memory_id}")
+            self.warnings.append(f"回忆卡 {memory_id} 未找到")
+            return
+
+        # 2. 查找回忆卡关联的技能映射
+        memory_skills = self._find_memory_skills_raw(memory_id)
+        safe_print(f"  回忆卡: {raw['Name']} (稀有度={raw['Rarity']})")
+        safe_print(f"  MemorySkillMaster映射: {len(memory_skills)} 条")
+
+        # 3. 收集所有关联的技能ID
+        skill_ids = set()
+        # 从Highlights获取
+        for hl in raw.get("Highlights", []):
+            sid = hl.get("SkillMasterId")
+            if sid:
+                skill_ids.add(sid)
+        # 从MemorySkillMaster获取
+        for ms in memory_skills:
+            sid = ms.get("SkillMasterId")
+            if sid:
+                skill_ids.add(sid)
+        # 从手动指定的extra_skills获取
+        extra = self.extra_skills.get(memory_id, [])
+        for sid in extra:
+            skill_ids.add(sid)
+            safe_print(f"  [手动补充] 技能ID {sid}")
+
+        safe_print(f"  关联技能ID: {sorted(skill_ids)}")
+
+        # 4. 转换回忆卡数据
+        memory_data = self._convert_memory(raw, memory_skills, memory_id)
+
+        # 5. 更新 memories.json
+        self._update_memories_json(memory_id, memory_data)
+
+        # 6. 更新技能数据
+        for sid in sorted(skill_ids):
+            self._import_skill(sid)
+
+        safe_print(f"\n  回忆卡 {memory_id} 导入完成")
+
+    def _update_memories_json(self, memory_id: int, memory_data: Dict):
+        """增量更新 memories.json"""
+        memories = self._load_data_json("memories.json")
+        mid_str = str(memory_id)
+
+        if mid_str in memories:
+            if self.force:
+                safe_print(f"  [强制覆盖] 回忆卡 {memory_id} 已存在，强制覆盖")
+                self.stats['memories_forced'] += 1
+            else:
+                safe_print(f"  [跳过] 回忆卡 {memory_id} 已存在，跳过（使用 --force 强制覆盖）")
+                self.stats['memories_skipped'] += 1
+                return
+
+        memories[mid_str] = memory_data
+        self._save_data_json(memories, "memories.json")
+        self.stats['memories_added'] += 1
+        safe_print(f"  [新增] 回忆卡 {memory_id}: {memory_data['name']}")
+
+    def _import_skill(self, skill_id: int):
+        """导入单个技能数据"""
+        raw = self._find_skill_raw(skill_id)
+        if not raw:
+            safe_print(f"  [警告] 在SkillMaster.json中未找到技能 {skill_id}")
+            self.warnings.append(f"技能 {skill_id} 未找到")
+            return
+
+        skill_data = self._convert_skill(raw)
+
+        # 更新 skills.json
+        skills = self._load_data_json("skills.json")
+        sid_str = str(skill_id)
+
+        if sid_str in skills:
+            if self.force:
+                safe_print(f"    [强制覆盖] 技能 {skill_id} 已存在，强制覆盖")
+            else:
+                safe_print(f"    [跳过] 技能 {skill_id} 已存在")
+                self.stats['skills_skipped'] += 1
+                # 即使技能已存在，仍需更新数据库中的tag（如果缺失）
+                self._update_skill_db_tags(skill_id, raw)
+                return
+
+        skills[sid_str] = skill_data
+        self._save_data_json(skills, "skills.json")
+        self.stats['skills_added'] += 1
+        safe_print(f"    [新增] 技能 {skill_id}: {raw['Name']}")
+
+        # 更新 skill_tag_values.json
+        self._update_skill_tag_values(skill_id, raw)
+
+        # 更新数据库
+        self._update_skill_db(skill_id, skill_data, raw)
+
+    def _update_skill_tag_values(self, skill_id: int, raw: Dict):
+        """增量更新 skill_tag_values.json"""
+        tag_values = self._load_data_json("skill_tag_values.json")
+        sid_str = str(skill_id)
+
+        if sid_str in tag_values:
+            if not self.force:
+                return
+
+        # 从TemplateTags提取tag值
+        tags = {}
+        for tag in raw.get("TemplateTags", []):
+            tag_name = tag.get("TagName", "")
+            if not tag_name:
+                continue
+            values = []
+            for v in tag.get("Values", []):
+                values.append({
+                    "level": v.get("Level", 1),
+                    "value": v.get("Value", 0),
+                })
+            tags[tag_name] = {
+                "interpolation_mode": tag.get("InterpolationMode", 1),
+                "values": values,
+            }
+
+        if tags:
+            tag_values[sid_str] = tags
+            self._save_data_json(tag_values, "skill_tag_values.json")
+            self.stats['skill_tags_added'] += len(tags)
+
+    def _update_skill_db(self, skill_id: int, skill_data: Dict, raw: Dict):
+        """增量更新 skill_data.db"""
+        if not DB_SKILL.exists():
+            safe_print(f"  [警告] 数据库 {DB_SKILL} 不存在，跳过数据库更新")
+            return
+
+        conn = sqlite3.connect(str(DB_SKILL))
+        try:
+            cursor = conn.cursor()
+
+            # 检查技能是否已存在
+            cursor.execute("SELECT 1 FROM skills WHERE skill_id = ?", (skill_id,))
+            if cursor.fetchone():
+                if self.force:
+                    # 强制模式下更新
+                    cursor.execute("""
+                        UPDATE skills SET name=?, skill_type_id=?, base_kind=?,
+                            cost_ap=?, cooldown_value=?, default_max_level=?,
+                            cooldown_timing=?
+                        WHERE skill_id=?
+                    """, (
+                        skill_data["name"], skill_data["skill_type"],
+                        skill_data["skill_kind"], skill_data["resource_cost"],
+                        skill_data["cooldown"], skill_data["default_max_level"],
+                        skill_data.get("cooldown_update_timing"),
+                        skill_id,
+                    ))
+                else:
+                    return
+
+            else:
+                cursor.execute("""
+                    INSERT INTO skills (skill_id, name, skill_type_id, base_kind,
+                        cost_ap, cooldown_value, default_max_level, cooldown_timing)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    skill_id, skill_data["name"], skill_data["skill_type"],
+                    skill_data["skill_kind"], skill_data["resource_cost"],
+                    skill_data["cooldown"], skill_data["default_max_level"],
+                    skill_data.get("cooldown_update_timing"),
+                ))
+                self.stats['db_skills_added'] += 1
+
+            # 更新skill_tag_values表
+            self._update_skill_db_tags(skill_id, raw)
+
+            conn.commit()
+        except Exception as e:
+            safe_print(f"  [警告] 数据库更新失败: {e}")
+            self.warnings.append(f"数据库更新失败: {e}")
+        finally:
+            conn.close()
+
+    def _update_skill_db_tags(self, skill_id: int, raw: Dict):
+        """更新数据库中的技能tag值"""
+        if not DB_SKILL.exists():
+            return
+
+        conn = sqlite3.connect(str(DB_SKILL))
+        try:
+            cursor = conn.cursor()
+
+            for tag in raw.get("TemplateTags", []):
+                tag_name = tag.get("TagName", "")
+                if not tag_name:
+                    continue
+                interpolation_mode = tag.get("InterpolationMode", 1)
+                for v in tag.get("Values", []):
+                    level = v.get("Level", 1)
+                    value = v.get("Value", 0)
+
+                    # 检查是否已存在
+                    cursor.execute(
+                        "SELECT 1 FROM skill_tag_values WHERE skill_id=? AND tag_name=? AND skill_level=?",
+                        (skill_id, tag_name, level)
+                    )
+                    if cursor.fetchone():
+                        if self.force:
+                            cursor.execute("""
+                                UPDATE skill_tag_values SET tag_value=?, interpolation_mode=?
+                                WHERE skill_id=? AND tag_name=? AND skill_level=?
+                            """, (value, interpolation_mode, skill_id, tag_name, level))
+                        continue
+
+                    cursor.execute("""
+                        INSERT INTO skill_tag_values (skill_id, tag_name, skill_level, tag_value, interpolation_mode)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (skill_id, tag_name, level, value, interpolation_mode))
+                    self.stats['db_skill_tags_added'] += 1
+
+            conn.commit()
+        except Exception as e:
+            safe_print(f"  [警告] 数据库tag更新失败: {e}")
+        finally:
+            conn.close()
+
+    # ========================================================================
+    # 汇总
+    # ========================================================================
+
+    def print_summary(self):
+        """打印导入汇总"""
+        safe_print(f"\n{'='*60}")
+        safe_print("导入汇总")
+        safe_print(f"{'='*60}")
+        safe_print(f"  回忆卡新增: {self.stats['memories_added']}")
+        safe_print(f"  回忆卡跳过(已存在): {self.stats['memories_skipped']}")
+        safe_print(f"  回忆卡强制覆盖: {self.stats['memories_forced']}")
+        safe_print(f"  技能新增: {self.stats['skills_added']}")
+        safe_print(f"  技能跳过(已存在): {self.stats['skills_skipped']}")
+        safe_print(f"  技能Tag新增: {self.stats['skill_tags_added']}")
+        safe_print(f"  数据库技能新增: {self.stats['db_skills_added']}")
+        safe_print(f"  数据库Tag新增: {self.stats['db_skill_tags_added']}")
+        if self.warnings:
+            safe_print(f"\n  警告 ({len(self.warnings)}):")
+            for w in self.warnings:
+                safe_print(f"    - {w}")
+
+
+def main():
+    force = "--force" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--force"]
+
+    if not args:
+        safe_print("用法: python scripts/import_memory.py <memory_id> [memory_id2 ...]")
+        safe_print("      python scripts/import_memory.py 30031:400203,400204  # 手动指定技能ID")
+        safe_print("      python scripts/import_memory.py --force <memory_id>  # 强制覆盖")
+        sys.exit(1)
+
+    memory_ids = []
+    extra_skills = {}  # memory_id -> [skill_ids]
+
+    for arg in args:
+        # 解析格式: memory_id 或 memory_id:skill_id1,skill_id2
+        if ":" in arg:
+            parts = arg.split(":")
+            try:
+                memory_id = int(parts[0])
+                skill_ids = [int(sid) for sid in parts[1].split(",")]
+                memory_ids.append(memory_id)
+                extra_skills[memory_id] = skill_ids
+                safe_print(f"[参数解析] 回忆卡 {memory_id} 手动指定技能: {skill_ids}")
+            except ValueError:
+                safe_print(f"[错误] 无效的参数格式: {arg}")
+                sys.exit(1)
+        else:
+            try:
+                memory_ids.append(int(arg))
+            except ValueError:
+                safe_print(f"[错误] 无效的回忆卡ID: {arg}")
+                sys.exit(1)
+
+    importer = MemoryImporter(force=force, extra_skills=extra_skills)
+
+    for mid in memory_ids:
+        importer.import_memory(mid)
+
+    importer.print_summary()
+
+
+if __name__ == "__main__":
+    main()

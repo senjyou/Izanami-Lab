@@ -1,0 +1,204 @@
+"""Regression: 仲間想いのリカバリー (120112) full-HP tiebreaker for lowest_hp_priority.
+
+History:
+  Skill 120112 「仲間想いのリカバリー」 uses lowest_hp_priority targeting:
+  prioritize allies other than self, then sort by lowest HP ratio.
+
+  Bug: When all allies are at full HP (same HP ratio), the sort by HP ratio
+  alone preserves the team-list order, which may not match the nearest-ally
+  order. The skill should select the NEAREST ally as a tiebreaker when HP
+  ratios are equal.
+
+  Fix: Added distance-to-caster as a secondary sort key in the heal path's
+  lowest_hp_priority sorting:
+    others.sort(key=lambda u: (hp_ratio, distance_key))
+  Self priority remains lowest (two-layer logic: others first, self fallback).
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+class TestRegLowestHpFullHpTiebreaker(unittest.TestCase):
+    """仲間想いのリカバリー (120112) must select nearest ally when all
+    allies are at full HP (HP ratio tiebreaker)."""
+
+    def _build_full_hp_battlefield(self):
+        """Build battlefield with all allies at full HP.
+
+        Caster at CENTER_BACK. Allies placed at varying distances:
+          - ally_near  at CENTER_FRONT (nearest to CB)
+          - ally_mid   at LEFT_FRONT   (mid distance)
+          - ally_far   at RIGHT_FRONT  (farthest)
+
+        Team list order is deliberately [caster, far, mid, near] to ensure
+        that without the distance tiebreaker, the wrong ally would be selected.
+        """
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_CENTER_BACK,
+                    hp=20000, atk=10000, defense=4000, speed=500,
+                    skills=[120112], level=15, ap=10, pp=10, ep=10)
+        # Deliberately add in reverse distance order to expose missing tiebreaker
+        bb.add_ally(unit_id="ally_far", position=Position.ALLY_RIGHT_FRONT,
+                   hp=12000, atk=9000, defense=4500, speed=380)
+        bb.add_ally(unit_id="ally_mid", position=Position.ALLY_LEFT_FRONT,
+                   hp=15000, atk=8000, defense=5000, speed=400)
+        bb.add_ally(unit_id="ally_near", position=Position.ALLY_CENTER_FRONT,
+                   hp=10000, atk=7000, defense=3500, speed=420)
+        bb.add_enemy(unit_id="dummy_enemy", position=Position.ENEMY_CENTER_FRONT,
+                     hp=999999, atk=100, defense=99999, speed=100)
+        ctx = bb.build()
+        return ctx
+
+    def _get_heal_target_ids(self, result):
+        """Extract heal target unit_ids from execute_skill result."""
+        target_ids = []
+        for eff in result.get("effects_applied", []):
+            if eff.get("effect_type") == "heal":
+                for h in eff.get("heals", []):
+                    target_ids.append(h["target_id"])
+        return target_ids
+
+    def test_all_full_hp_lv10_selects_nearest_non_self_ally(self):
+        """Lv10 (1 target): All allies at full HP → nearest non-self ally.
+
+        From CB, nearest ally priority: [CB, CF, LB, RB, LF, RF].
+        Excluding caster(CB), nearest = CF (ally_near).
+        Team list order is [caster, far, mid, near] — without tiebreaker,
+        stable sort would pick ally_far (first in list). With tiebreaker,
+        ally_near (nearest to caster) is correctly selected.
+        """
+        ctx = self._build_full_hp_battlefield()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        # All allies should be at full HP
+        for u in bf.friend_team:
+            self.assertEqual(u.current_hp, u.max_hp,
+                             f"{u.unit_id} should be at full HP")
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=120112,
+            battlefield=bf, skip_cost=True)
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        # _last_primary_target should be ally_near (nearest to caster at CB)
+        self.assertEqual(ss._last_primary_target.unit_id, "ally_near",
+                         "When all allies at full HP, should select nearest "
+                         "non-self ally (ally_near at CF)")
+
+        heal_targets = self._get_heal_target_ids(result)
+        self.assertIn("ally_near", heal_targets,
+                      "ally_near should be healed")
+        self.assertNotIn("caster", heal_targets,
+                         "Caster should NOT be selected (self priority lowest)")
+
+    def test_all_full_hp_lv15_selects_two_nearest_non_self_allies(self):
+        """Lv15 (2 targets): All allies at full HP → 2 nearest non-self allies.
+
+        From CB, nearest ally priority: [CB, CF, LB, RB, LF, RF].
+        Excluding caster(CB): CF(ally_near) → LF(ally_mid) → RF(ally_far).
+        Expected: ally_near + ally_mid (2 nearest to caster).
+        """
+        ctx = self._build_full_hp_battlefield()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=120112,
+            battlefield=bf, skip_cost=True)
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        heal_targets = self._get_heal_target_ids(result)
+
+        # Should heal 2 targets: ally_near + ally_mid (2 nearest to caster)
+        self.assertIn("ally_near", heal_targets,
+                      "ally_near (nearest) should be healed")
+        self.assertIn("ally_mid", heal_targets,
+                      "ally_mid (2nd nearest) should be healed")
+        self.assertNotIn("ally_far", heal_targets,
+                         "ally_far (farthest) should NOT be healed")
+        self.assertNotIn("caster", heal_targets,
+                         "Caster should NOT be selected (self priority lowest)")
+
+    def test_all_full_hp_self_not_selected_when_other_allies_exist(self):
+        """When all allies are at full HP and other allies exist, caster
+        must NOT be selected (self priority is lowest)."""
+        ctx = self._build_full_hp_battlefield()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=120112,
+            battlefield=bf, skip_cost=True)
+
+        self.assertTrue(result.get("success", False))
+
+        heal_targets = self._get_heal_target_ids(result)
+        self.assertNotIn("caster", heal_targets,
+                         "Caster must NOT be in heal targets when other "
+                         "allies exist, even at full HP")
+
+    def test_partial_hp_still_prioritizes_lowest_hp(self):
+        """Verify the tiebreaker doesn't break normal lowest_hp_priority:
+        when one ally has lower HP ratio, it should still be selected
+        regardless of distance."""
+        ctx = self._build_full_hp_battlefield()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        # Make ally_far (farthest) have the lowest HP ratio
+        ally_far = next(u for u in bf.friend_team if u.unit_id == "ally_far")
+        ally_far.current_hp = 1000  # 1000/12000 = 8.3% (lowest)
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=120112,
+            battlefield=bf, skip_cost=True)
+
+        self.assertTrue(result.get("success", False))
+
+        # ally_far has lowest HP ratio → should be selected despite being farthest
+        self.assertEqual(ss._last_primary_target.unit_id, "ally_far",
+                         "Lowest HP ratio ally should be selected regardless "
+                         "of distance (HP ratio is primary sort key)")
+
+    def test_equal_hp_ratio_but_not_full_selects_nearest(self):
+        """When allies have equal HP ratio (but not full HP), the nearest
+        should still be selected as tiebreaker."""
+        ctx = self._build_full_hp_battlefield()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        # Set all non-self allies to 50% HP (equal ratio, not full)
+        for uid in ["ally_near", "ally_mid", "ally_far"]:
+            u = next(u for u in bf.friend_team if u.unit_id == uid)
+            u.current_hp = u.max_hp // 2
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=120112,
+            battlefield=bf, skip_cost=True)
+
+        self.assertTrue(result.get("success", False))
+
+        # All have same HP ratio → nearest (ally_near) should be selected
+        self.assertEqual(ss._last_primary_target.unit_id, "ally_near",
+                         "When HP ratios are equal (not just full HP), "
+                         "nearest ally should be selected as tiebreaker")
+
+
+if __name__ == '__main__':
+    unittest.main()

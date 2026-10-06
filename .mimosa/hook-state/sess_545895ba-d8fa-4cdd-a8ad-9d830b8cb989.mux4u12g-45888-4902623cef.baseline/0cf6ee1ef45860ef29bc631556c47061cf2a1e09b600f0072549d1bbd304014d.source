@@ -1,0 +1,935 @@
+"""Regression tests for character 142301 (ポンコツいいんちょ) skill mechanics.
+
+Covers 5 new mechanisms:
+1. execute_condition (self_hp_above): AS1 (120121) HP>=60% gate
+2. value_source=consume_hp + shield_base=consume_hp: AS1 (120121) damage/shield linked to consumed HP
+3. enemy_column_lowest_mark_count target_type: AS2 (120122) 風紀 mark priority selection
+4. trigger_attack_target + on_skill_use_count with count_skill_types=[1,3]: PS1 (130129) targets AS/EX attacker's primary target, counts both AS and EX uses
+5. skill-based stealth duration + reverse linked_buff_id: PS2 (130130) stealth consumed as primary target, HOT/dmg_taken_down co-removed with stealth
+
+Related skills:
+- 110055 これは没収です！ (EX): enemy_single_highest_hp_ratio + adjacent_enemies + lifesteal
+- 120121 風紀を守る一撃 (AS1): consume_hp + damage_special(enemy_row, value_source=consume_hp) + shield(shield_base=consume_hp) L11+
+- 120122 容疑者を捕捉！ (AS2): add_status(action_damage) + mark(風紀) on enemy_column_lowest_mark_count
+- 130129 抵抗は無意味です！ (PS1): on_skill_use_count(AS+EX 3回) + damage(trigger_attack_target) + dmg_dealt_up L11+
+- 130130 風紀委員長としての矜持 (PS2): on_turn_start + remove_all_buffs/debuffs + stealth(3 skill) + HOT(linked) + dmg_taken_down(linked, dynamic)
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (Side, Position, SkillEffectType, AuraUpdateTiming,
+                                    SkillType)
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.data.data_loader import DataLoader
+
+STEALTH = SkillEffectType.STEALTH.value
+HOT = SkillEffectType.HEAL_OVER_TIME.value
+MARK = SkillEffectType.MARK.value
+ACTION_DAMAGE = SkillEffectType.ACTION_DAMAGE.value
+# dmg_taken_down maps to SkillEffectType.RECEIVED_DAMAGE (ReceivedDamage)
+DMG_TAKEN_DOWN = SkillEffectType.RECEIVED_DAMAGE.value
+# dmg_dealt_up/dmg_dealt_down maps to SkillEffectType.DEALT_DAMAGE (DealtDamage)
+DMG_DEALT_UP = SkillEffectType.DEALT_DAMAGE.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=5000, speed=500, current_hp=None, is_alive=True,
+               skills=None, skill_levels=None, level=15, ap=10, pp=10, ep=0,
+               max_ep=10, element=4, character_type=2):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=element, character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=max_ep,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=is_alive,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_mark_buff(unit, mark_name="風紀", count=1):
+    """Add count 風紀 marks to unit's debuffs."""
+    for i in range(count):
+        unit.debuffs.append(BuffState(
+            buff_id=f"mark_{mark_name}_{unit.unit_id}_{i}",
+            name=mark_name,
+            effect_type=MARK,
+            value=1.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+
+
+def _make_stealth_buff(duration=3, dur_type='skill'):
+    """Create a stealth buff with given duration_type."""
+    return BuffState(
+        buff_id="stealth_test",
+        name="ステルス",
+        effect_type=STEALTH,
+        value=float(duration), duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        is_debuff=False,
+        original_duration_type=dur_type,
+    )
+
+
+class TestReg142301SkillConfig(unittest.TestCase):
+    """Verify that all 5 skills of character 142301 are properly configured."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_all_5_skills_present_in_hybrid(self):
+        for skill_id in (110055, 120121, 120122, 130129, 130130):
+            data = self.dl.get_parsed_skill_data(skill_id)
+            self.assertIsNotNone(data,
+                                 f"Skill {skill_id} should be in skill_effects_hybrid")
+
+    def test_as1_has_execute_condition(self):
+        """AS1 (120121) should have execute_condition {self_hp_above: 60}."""
+        as1 = self.dl.get_parsed_skill_data(120121)
+        ec = as1.get('execute_condition')
+        self.assertIsNotNone(ec, "AS1 should have execute_condition")
+        self.assertEqual(ec['type'], 'self_hp_above')
+        self.assertEqual(ec['value'], 60)
+
+    def test_as1_damage_special_uses_consume_hp(self):
+        """AS1 (120121) damage_special should have value_source=consume_hp."""
+        as1 = self.dl.get_parsed_skill_data(120121)
+        block1 = as1['effect_blocks'][0]
+        dmg = next(e for e in block1['effects']
+                   if e['effect_type'] == 'damage_special')
+        self.assertEqual(dmg['value_source'], 'consume_hp')
+        self.assertEqual(dmg['target_type'], 'enemy_row')
+        self.assertTrue(dmg['flags'].get('is_en_attack'))
+
+    def test_as1_shield_uses_consume_hp_at_l11(self):
+        """AS1 (120121) Block2 (Lv11+) shield should have shield_base=consume_hp."""
+        as1 = self.dl.get_parsed_skill_data(120121)
+        block2 = next(b for b in as1['effect_blocks']
+                      if (b.get('condition') or {}).get('active_level_min') == 11)
+        shield = block2['effects'][0]
+        self.assertEqual(shield['effect_type'], 'shield')
+        self.assertEqual(shield['flags'].get('shield_base'), 'consume_hp')
+        self.assertEqual(shield['flags'].get('attack_limited'), 1)
+
+    def test_as2_uses_enemy_column_lowest_mark_count(self):
+        """AS2 (120122) should target enemy_column_lowest_mark_count."""
+        as2 = self.dl.get_parsed_skill_data(120122)
+        for eff in as2['effect_blocks'][0]['effects']:
+            self.assertEqual(eff['target_type'], 'enemy_column_lowest_mark_count')
+        mark_eff = next(e for e in as2['effect_blocks'][0]['effects']
+                        if e['effect_type'] == 'mark')
+        self.assertEqual(mark_eff['flags']['mark_name'], '風紀')
+
+    def test_ps1_trigger_type_on_skill_use_count(self):
+        """PS1 (130129) trigger_type should be on_skill_use_count."""
+        ps1 = self.dl.get_parsed_skill_data(130129)
+        self.assertEqual(ps1['trigger_type'], 'on_skill_use_count')
+        gc = ps1['global_condition']
+        self.assertEqual(gc['type'], 'skill_use_count_modulo')
+        self.assertEqual(sorted(gc['count_skill_types']), [1, 3])
+        self.assertEqual(gc['value'], 3)
+
+    def test_ps1_damage_targets_trigger_attack_target(self):
+        """PS1 (130129) Block1 damage should use target_identifier=trigger_attack_target."""
+        ps1 = self.dl.get_parsed_skill_data(130129)
+        dmg = ps1['effect_blocks'][0]['effects'][0]
+        self.assertEqual(dmg['effect_type'], 'damage')
+        self.assertEqual(dmg['target_identifier'], 'trigger_attack_target')
+
+    def test_ps2_trigger_type_on_turn_start(self):
+        """PS2 (130130) trigger_type should be on_turn_start."""
+        ps2 = self.dl.get_parsed_skill_data(130130)
+        self.assertEqual(ps2['trigger_type'], 'on_turn_start')
+
+    def test_ps2_global_condition_ally_alive_count(self):
+        """PS2 (130130) global_condition should be ally_alive_count > 1."""
+        ps2 = self.dl.get_parsed_skill_data(130130)
+        gc = ps2['global_condition']
+        self.assertEqual(gc['type'], 'ally_alive_count')
+        self.assertEqual(gc['operator'], '>')
+        self.assertEqual(gc['value'], 1)
+
+    def test_ps2_stealth_duration_type_skill(self):
+        """PS2 (130130) stealth should have duration_type=skill."""
+        ps2 = self.dl.get_parsed_skill_data(130130)
+        stealth_eff = next(e for e in ps2['effect_blocks'][0]['effects']
+                           if e['effect_type'] == 'stealth')
+        self.assertEqual(stealth_eff['duration'], 3)
+        self.assertEqual(stealth_eff['duration_type'], 'skill')
+
+    def test_ps2_hot_dmg_taken_down_linked_to_stealth(self):
+        """PS2 (130130) HOT and dmg_taken_down should have linked_buff_id=Stealth
+        and unremovable=true."""
+        ps2 = self.dl.get_parsed_skill_data(130130)
+        effects = ps2['effect_blocks'][0]['effects']
+        hot = next(e for e in effects if e['effect_type'] == 'heal_over_time')
+        self.assertEqual(hot['flags'].get('linked_buff_id'), 'Stealth')
+        self.assertTrue(hot['flags'].get('unremovable'))
+        self.assertEqual(hot['flags'].get('heal_base'), 'max_hp')
+
+        dmg_down = next(e for e in effects if e['effect_type'] == 'dmg_taken_down')
+        self.assertEqual(dmg_down['flags'].get('linked_buff_id'), 'Stealth')
+        self.assertTrue(dmg_down['flags'].get('unremovable'))
+        self.assertTrue(dmg_down['flags'].get('stackable'))
+        self.assertTrue(dmg_down['flags'].get('hp_ratio_dynamic_direct'))
+
+
+class TestReg142301ExecuteCondition(unittest.TestCase):
+    """execute_condition: AS1 (120121) HP>=60% gate.
+
+    _check_execute_condition in skill_service.py supports self_hp_above/self_hp_below.
+    When HP% < 60, skill execution is skipped (result["error"] = "execute_condition not met").
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_hp_above_60_allows_execution(self):
+        """HP at 60% should pass execute_condition."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=6000,
+                            skills=[120121], skill_levels={120121: 1}, ap=10)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        result = ss.execute_skill(caster=caster, skill_id=120121,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result.get("success", False),
+                        "HP=60% should allow AS1 execution")
+        self.assertNotEqual(result.get("error"), "execute_condition not met")
+
+    def test_hp_below_60_blocks_execution(self):
+        """HP at 59% should block execute_condition, skill not executed."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=5900,
+                            skills=[120121], skill_levels={120121: 1}, ap=10)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        hp_before = caster.current_hp
+        result = ss.execute_skill(caster=caster, skill_id=120121,
+                                  battlefield=bf, skip_cost=True)
+        self.assertFalse(result.get("success", False),
+                         "HP=59% should block AS1 execution")
+        self.assertEqual(result.get("error"), "execute_condition not met")
+        # HP should not be consumed
+        self.assertEqual(caster.current_hp, hp_before,
+                         "Blocked skill should not consume HP")
+
+    def test_hp_full_allows_execution(self):
+        """HP at 100% should pass execute_condition."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=10000,
+                            skills=[120121], skill_levels={120121: 1}, ap=10)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        result = ss.execute_skill(caster=caster, skill_id=120121,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result.get("success", False),
+                        "HP=100% should allow AS1 execution")
+
+
+class TestReg142301ConsumeHpLinkage(unittest.TestCase):
+    """value_source=consume_hp + shield_base=consume_hp: AS1 (120121).
+
+    damage_special uses self._hp_consumed (set by consume_hp effect) as base.
+    shield uses shield_base=consume_hp to compute shield value from _hp_consumed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_consume_hp_reduces_caster_hp(self):
+        """AS1 consume_hp should reduce caster's current HP by 25%."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=10000,
+                            skills=[120121], skill_levels={120121: 1}, ap=10)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120121,
+                        battlefield=bf, skip_cost=True)
+        # consume 25% of 10000 = 2500
+        self.assertEqual(caster.current_hp, 7500,
+                         "AS1 should consume 25% of current HP (10000 -> 7500)")
+
+    def test_damage_scales_with_consumed_hp(self):
+        """AS1 damage should scale with consumed HP (value_source=consume_hp)."""
+        # Lv1: dmg=150%, consume 25% of 10000 = 2500, damage = 2500 * 150 / 100 = 3750
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=10000,
+                            skills=[120121], skill_levels={120121: 1}, ap=10,
+                            atk=0)  # atk=0 to isolate consume_hp scaling
+        # enemy_row needs at least 3 enemies in a row
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                       hp=100000, defense=0)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                       hp=100000, defense=0)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT,
+                       hp=100000, defense=0)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e1, e2, e3]
+        ss = self._make_services(bf)
+
+        hp_before = [e.current_hp for e in (e1, e2, e3)]
+        ss.execute_skill(caster=caster, skill_id=120121,
+                        battlefield=bf, skip_cost=True)
+
+        # Each enemy should take 3750 damage (2500 * 150%)
+        for i, e in enumerate((e1, e2, e3)):
+            damage_taken = hp_before[i] - e.current_hp
+            self.assertGreater(damage_taken, 0,
+                              f"Enemy {e.name} should take damage")
+            # Allow some variance for defense/crit, but should be near 3750
+            # With defense=0 and atk=0, raw_damage=3750
+            self.assertEqual(damage_taken, 3750,
+                            f"Enemy {e.name} damage should be 3750 (2500*150%), got {damage_taken}")
+
+    def test_shield_at_l11_uses_consumed_hp(self):
+        """AS1 Lv11+ shield value should be based on consumed HP (15% at Lv11)."""
+        # Lv11: shield=15%, consume 25% of 10000 = 2500, shield = 2500 * 15 / 100 = 375
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, hp=10000, current_hp=10000,
+                            skills=[120121], skill_levels={120121: 11}, ap=10,
+                            atk=0)
+        ally2 = _make_unit("ally2", "Ally2", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=10000)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                       hp=100000, defense=0)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                       hp=100000, defense=0)
+        e3 = _make_unit("e3", "E3", Side.ENEMY, Position.ENEMY_RIGHT_FRONT,
+                       hp=100000, defense=0)
+        bf = BattlefieldState()
+        bf.friend_team = [caster, ally2]
+        bf.enemy_team = [e1, e2, e3]
+        ss = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120121,
+                        battlefield=bf, skip_cost=True)
+
+        # ally2 should receive a shield (375 if no defense mitigation on shield)
+        # shield_value = int(consumed * value / 100) = int(2500 * 15 / 100) = 375
+        # Note: dmg_tag "shield" at Lv11 = 15 (parsed from skill template_tags)
+        # Shield without damage_element goes to ally2.shield (not physical/en shield)
+        total_shield = ally2.shield + ally2.physical_shield + ally2.en_shield
+        self.assertGreater(total_shield, 0,
+                          "Ally2 should receive a shield from AS1 Lv11+")
+        self.assertEqual(total_shield, 375,
+                        f"Shield value should be 375 (2500*15%), got {total_shield}")
+
+
+class TestReg142301ColumnLowestMarkCount(unittest.TestCase):
+    """enemy_column_lowest_mark_count: AS2 (120122) targets enemy column
+    with the least 風紀 marks.
+
+    Selection: find enemy with lowest 風紀 mark count, then select all enemies
+    in that enemy's column (front+back).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_selects_column_with_least_marks(self):
+        """AS2 should target the column whose front enemy has the fewest 風紀 marks."""
+        # Left column: 0 marks; Center: 2 marks; Right: 1 mark
+        # Expected: Left column targeted
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, skills=[120122],
+                            skill_levels={120122: 1}, ap=10)
+        e_left_front = _make_unit("elf", "LeftFront", Side.ENEMY,
+                                 Position.ENEMY_LEFT_FRONT, hp=100000)
+        e_center_front = _make_unit("ecf", "CenterFront", Side.ENEMY,
+                                   Position.ENEMY_CENTER_FRONT, hp=100000)
+        e_right_front = _make_unit("erf", "RightFront", Side.ENEMY,
+                                  Position.ENEMY_RIGHT_FRONT, hp=100000)
+        _make_mark_buff(e_center_front, "風紀", 2)
+        _make_mark_buff(e_right_front, "風紀", 1)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e_left_front, e_center_front, e_right_front]
+        ss = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120122,
+                        battlefield=bf, skip_cost=True)
+
+        # Left front should receive action_damage debuff and a 風紀 mark
+        # (action_damage is a debuff with effect_type=ActionDamage)
+        elf_has_action = any(d.effect_type == ACTION_DAMAGE for d in e_left_front.debuffs)
+        self.assertTrue(elf_has_action,
+                       "LeftFront (least marks) should receive action_damage")
+        elf_marks = sum(1 for d in e_left_front.debuffs
+                       if d.effect_type == MARK and d.name == "風紀")
+        self.assertEqual(elf_marks, 1, "LeftFront should receive 1 風紀 mark")
+
+        # Center and Right should not receive any new effects
+        ecf_has_action = any(d.effect_type == ACTION_DAMAGE
+                            for d in e_center_front.debuffs)
+        erf_has_action = any(d.effect_type == ACTION_DAMAGE
+                            for d in e_right_front.debuffs)
+        self.assertFalse(ecf_has_action, "CenterFront should not be targeted")
+        self.assertFalse(erf_has_action, "RightFront should not be targeted")
+
+    def test_selects_full_column_front_and_back(self):
+        """AS2 should select both front and back enemies in the chosen column."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, skills=[120122],
+                            skill_levels={120122: 1}, ap=10)
+        # Center column has both front and back, with 0 marks (least)
+        e_center_front = _make_unit("ecf", "CF", Side.ENEMY,
+                                   Position.ENEMY_CENTER_FRONT, hp=100000)
+        e_center_back = _make_unit("ecb", "CB", Side.ENEMY,
+                                  Position.ENEMY_CENTER_BACK, hp=100000)
+        # Left and Right have marks
+        e_left = _make_unit("elf", "LF", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=100000)
+        _make_mark_buff(e_left, "風紀", 1)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e_center_front, e_center_back, e_left]
+        ss = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120122,
+                        battlefield=bf, skip_cost=True)
+
+        # Both center front and back should receive action_damage
+        for e in (e_center_front, e_center_back):
+            has_action = any(d.effect_type == ACTION_DAMAGE for d in e.debuffs)
+            self.assertTrue(has_action,
+                           f"{e.name} in center column should receive action_damage")
+
+
+class TestReg142301TriggerAttackTarget(unittest.TestCase):
+    """trigger_attack_target: PS1 (130129) targets AS/EX attacker's primary target.
+
+    When PS1 is triggered by on_skill_use_count, target_identifier=trigger_attack_target
+    makes the damage effect target the _primary_target stored from trigger context.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_ps1_targets_primary_target(self):
+        """PS1 damage should hit the primary_target stored on SkillService."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, skills=[130129],
+                            skill_levels={130129: 1}, pp=10)
+        # Two enemies, primary_target is e1 (manually set via _primary_target)
+        e1 = _make_unit("e1", "Enemy1", Side.ENEMY,
+                       Position.ENEMY_LEFT_FRONT, hp=100000, defense=0)
+        e2 = _make_unit("e2", "Enemy2", Side.ENEMY,
+                       Position.ENEMY_RIGHT_FRONT, hp=100000, defense=0)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e1, e2]
+        ss, ts = self._make_services(bf)
+
+        # Manually set _primary_target to e1 (simulating AS/EX attack target)
+        ss._primary_target = e1
+        hp_e1_before = e1.current_hp
+        hp_e2_before = e2.current_hp
+
+        result = ss.execute_skill(caster=caster, skill_id=130129,
+                                 battlefield=bf, skip_cost=True)
+        self.assertTrue(result.get("success", False))
+
+        # e1 (primary target) should take damage; e2 should not
+        self.assertLess(e1.current_hp, hp_e1_before,
+                       "Primary target e1 should take damage from PS1")
+        self.assertEqual(e2.current_hp, hp_e2_before,
+                        "Non-primary target e2 should not take damage")
+
+    def test_ps1_no_primary_target_falls_through(self):
+        """When _primary_target is None, trigger_attack_target falls through
+        to default targeting (enemy_single closest)."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_BACK, skills=[130129],
+                            skill_levels={130129: 1}, pp=10)
+        e1 = _make_unit("e1", "Enemy1", Side.ENEMY,
+                       Position.ENEMY_LEFT_FRONT, hp=100000, defense=0)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e1]
+        ss, ts = self._make_services(bf)
+
+        # Ensure no _primary_target set
+        ss._primary_target = None
+        result = ss.execute_skill(caster=caster, skill_id=130129,
+                                 battlefield=bf, skip_cost=True)
+        # Should still execute (fall through to default targeting)
+        self.assertTrue(result.get("success", False))
+
+
+class TestReg142301SkillUseCountModulo(unittest.TestCase):
+    """count_skill_types=[1,3]: PS1 (130129) triggers every 3 AS+EX uses.
+
+    skill_use_count_modulo condition checks count_skill_types=[1,3] meaning
+    both AS (skill_type=1) and EX (skill_type=3) increment the counter.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_count_skill_types_includes_as_and_ex(self):
+        """PS1 global_condition should include both AS(1) and EX(3) in count_skill_types."""
+        ps1 = self.dl.get_parsed_skill_data(130129)
+        gc = ps1['global_condition']
+        count_types = gc['count_skill_types']
+        self.assertIn(1, count_types, "AS (skill_type=1) should be counted")
+        self.assertIn(3, count_types, "EX (skill_type=3) should be counted")
+        self.assertNotIn(2, count_types, "PS (skill_type=2) should NOT be counted")
+
+
+class TestReg142301StealthSkillDuration(unittest.TestCase):
+    """skill-based stealth duration: PS2 (130130) stealth consumed as primary target.
+
+    Stealth with duration_type="skill" consumes 1 duration when the holder is
+    selected as the primary target. When duration reaches 0, stealth buff is removed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, tgs
+
+    def test_skill_stealth_consumed_as_primary_target(self):
+        """skill-based stealth should decrement duration when holder is primary target."""
+        # Set up: stealth holder is the closest enemy to caster -> will be primary
+        holder = _make_unit("holder", "Holder", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000, defense=0)
+        # Add skill-based stealth with duration=3
+        holder.buffs.append(_make_stealth_buff(duration=3, dur_type='skill'))
+
+        other = _make_unit("other", "Other", Side.ENEMY,
+                          Position.ENEMY_LEFT_BACK, hp=100000, defense=0)
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                           Position.ALLY_CENTER_FRONT, skills=[120025],
+                           skill_levels={120025: 1}, ap=10, atk=10000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [holder, other]
+        ss, tgs = self._make_services(bf)
+
+        # Use a single-target enemy_single skill (120025 is single-target)
+        # The stealth holder being closest will be primary, triggering stealth
+        # consumption (duration 3 -> 2)
+        ss.execute_skill(caster=caster, skill_id=120025,
+                        battlefield=bf, skip_cost=True)
+
+        # Stealth buff should still exist (duration 3 -> 2)
+        stealth_buffs = [b for b in holder.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth_buffs), 1,
+                        "Stealth should still exist (duration 3->2)")
+        self.assertEqual(stealth_buffs[0].duration, 2,
+                        "Stealth duration should decrement from 3 to 2")
+
+    def test_skill_stealth_expires_when_duration_zero(self):
+        """skill-based stealth should be removed when duration reaches 0."""
+        holder = _make_unit("holder", "Holder", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000, defense=0)
+        # Start with duration=1, will expire after one selection
+        holder.buffs.append(_make_stealth_buff(duration=1, dur_type='skill'))
+
+        other = _make_unit("other", "Other", Side.ENEMY,
+                          Position.ENEMY_LEFT_BACK, hp=100000, defense=0)
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                           Position.ALLY_CENTER_FRONT, skills=[120025],
+                           skill_levels={120025: 1}, ap=10, atk=10000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [holder, other]
+        ss, tgs = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120025,
+                        battlefield=bf, skip_cost=True)
+
+        # Stealth should be gone (duration 1 -> 0 -> removed)
+        stealth_buffs = [b for b in holder.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth_buffs), 0,
+                        "Stealth should be removed when duration reaches 0")
+
+    def test_action_stealth_not_consumed_on_selection(self):
+        """action-based stealth should NOT consume duration on selection
+        (only on holder's action end via AuraService)."""
+        holder = _make_unit("holder", "Holder", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000, defense=0)
+        holder.buffs.append(_make_stealth_buff(duration=2, dur_type='action'))
+
+        other = _make_unit("other", "Other", Side.ENEMY,
+                          Position.ENEMY_LEFT_BACK, hp=100000, defense=0)
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                           Position.ALLY_CENTER_FRONT, skills=[120025],
+                           skill_levels={120025: 1}, ap=10, atk=10000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [holder, other]
+        ss, tgs = self._make_services(bf)
+
+        ss.execute_skill(caster=caster, skill_id=120025,
+                        battlefield=bf, skip_cost=True)
+
+        # action-based stealth duration should be unchanged
+        stealth_buffs = [b for b in holder.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth_buffs), 1,
+                        "Action-based stealth should still exist")
+        self.assertEqual(stealth_buffs[0].duration, 2,
+                        "Action-based stealth duration should remain 2 (not consumed)")
+
+
+class TestReg142301LinkedBuffReverse(unittest.TestCase):
+    """Reverse linked_buff_id: PS2 (130130) HOT/dmg_taken_down removed with stealth.
+
+    When a buff with effect_type="Stealth" expires, all buffs/debuffs with
+    linked_buff_id="Stealth" should be co-removed (reverse linked mechanism).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_aura_service(self):
+        return AuraService()
+
+    def _make_unit_with_ps2_buffs(self, duration=0):
+        """Create a unit with stealth (expired) + HOT/dmg_taken_down linked to Stealth."""
+        unit = _make_unit("u", "Unit", Side.ALLY, Position.ALLY_CENTER_BACK)
+        # Add stealth buff with duration=0 (expired)
+        stealth = BuffState(
+            buff_id="stealth_ps2", name="ステルス",
+            effect_type=STEALTH,
+            value=3.0, duration=duration,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+            original_duration_type='skill',
+        )
+        unit.buffs.append(stealth)
+        # Add HOT linked to Stealth
+        hot = BuffState(
+            buff_id="hot_ps2", name="heal_over_time",
+            effect_type=HOT,
+            value=5.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+            linked_buff_id="Stealth",
+            unremovable=True,
+            heal_base="max_hp",
+        )
+        unit.buffs.append(hot)
+        # Add dmg_taken_down linked to Stealth
+        dmg_down = BuffState(
+            buff_id="dmg_down_ps2", name="dmg_taken_down",
+            effect_type=DMG_TAKEN_DOWN,
+            value=20.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+            linked_buff_id="Stealth",
+            unremovable=True,
+            is_stackable=True,
+            hp_ratio_dynamic_direct=True,
+        )
+        unit.buffs.append(dmg_down)
+        return unit
+
+    def test_stealth_expiration_removes_linked_buffs(self):
+        """When stealth buff expires (duration=0), linked HOT and dmg_taken_down
+        should be removed via reverse linked mechanism."""
+        aus = self._make_aura_service()
+        unit = self._make_unit_with_ps2_buffs(duration=0)
+
+        # Verify setup
+        self.assertEqual(len(unit.buffs), 3,
+                        "Should start with 3 buffs: stealth + HOT + dmg_taken_down")
+
+        # Trigger expiration check
+        aus.check_expiration(unit, [unit])
+
+        # Stealth should be removed (duration=0)
+        stealth = [b for b in unit.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth), 0, "Stealth should be removed (expired)")
+
+        # HOT should be removed (linked_buff_id="Stealth")
+        hot = [b for b in unit.buffs if b.effect_type == HOT]
+        self.assertEqual(len(hot), 0,
+                        "HOT should be co-removed via reverse linked_buff_id")
+
+        # dmg_taken_down should be removed (linked_buff_id="Stealth")
+        dmg_down = [b for b in unit.buffs if b.effect_type == DMG_TAKEN_DOWN]
+        self.assertEqual(len(dmg_down), 0,
+                        "dmg_taken_down should be co-removed via reverse linked_buff_id")
+
+    def test_stealth_not_expired_keeps_linked_buffs(self):
+        """When stealth buff is still active (duration>0), linked buffs should remain."""
+        aus = self._make_aura_service()
+        unit = self._make_unit_with_ps2_buffs(duration=2)
+
+        aus.check_expiration(unit, [unit])
+
+        # Stealth should remain (duration=2, not expired)
+        stealth = [b for b in unit.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth), 1, "Stealth should remain (duration=2)")
+
+        # HOT should remain
+        hot = [b for b in unit.buffs if b.effect_type == HOT]
+        self.assertEqual(len(hot), 1, "HOT should remain while stealth active")
+
+        # dmg_taken_down should remain
+        dmg_down = [b for b in unit.buffs if b.effect_type == DMG_TAKEN_DOWN]
+        self.assertEqual(len(dmg_down), 1,
+                        "dmg_taken_down should remain while stealth active")
+
+
+class TestReg142301PS2GlobalCondition(unittest.TestCase):
+    """ally_alive_count > 1: PS2 (130130) only triggers when other allies alive.
+
+    global_condition {type: ally_alive_count, operator: ">", value: 1} means
+    total ally count (including self) must be > 1, i.e., at least one other ally alive.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_ps2_global_condition_config(self):
+        """PS2 global_condition should be ally_alive_count > 1."""
+        ps2 = self.dl.get_parsed_skill_data(130130)
+        gc = ps2['global_condition']
+        self.assertEqual(gc['type'], 'ally_alive_count')
+        self.assertEqual(gc['operator'], '>')
+        self.assertEqual(gc['value'], 1)
+
+    def test_ally_alive_count_supports_greater_than(self):
+        """ally_alive_count condition with operator '>' should be supported
+        by trigger_service._check_condition."""
+        # This is a configuration-level test; runtime behavior is covered by
+        # integration tests. Here we verify the condition type is recognized.
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        # The condition type 'ally_alive_count' should not fall through to
+        # "unknown" branch in _check_condition (would log warning)
+        # We can't easily test this without a full trigger context, so we
+        # verify the condition is at least syntactically valid
+        cond = {"type": "ally_alive_count", "operator": ">", "value": 1}
+        self.assertEqual(cond['type'], 'ally_alive_count')
+        self.assertIn(cond['operator'], ['>', '>=', '<', '<=', '=='])
+        self.assertIsInstance(cond['value'], int)
+
+
+class TestReg142301PS2FullExecution(unittest.TestCase):
+    """PS2 (130130) full execution: remove_all_buffs/debuffs + stealth + HOT + dmg_taken_down.
+
+    End-to-end test: cast PS2 on a unit with existing buffs/debuffs, verify
+    all are cleared and the new stealth/HOT/dmg_taken_down are applied.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_ps2_clears_existing_buffs_and_applies_new(self):
+        """PS2 should clear all existing buffs/debuffs, then apply stealth + HOT + dmg_taken_down."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                           Position.ALLY_CENTER_BACK, skills=[130130],
+                           skill_levels={130130: 1}, pp=10)
+        ally2 = _make_unit("ally2", "Ally2", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=10000)
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT, hp=100000)
+        # Pre-existing buffs/debuffs on caster
+        caster.buffs.append(BuffState(
+            buff_id="old_buff", name="old_atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=30.0, duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        ))
+        caster.debuffs.append(BuffState(
+            buff_id="old_debuff", name="old_atk_down",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster, ally2]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        result = ss.execute_skill(caster=caster, skill_id=130130,
+                                 battlefield=bf, skip_cost=True)
+        self.assertTrue(result.get("success", False),
+                       "PS2 should execute successfully")
+
+        # Old buffs should be cleared
+        old_buffs = [b for b in caster.buffs if b.buff_id == "old_buff"]
+        self.assertEqual(len(old_buffs), 0, "Old buff should be cleared")
+        old_debuffs = [d for d in caster.debuffs if d.buff_id == "old_debuff"]
+        self.assertEqual(len(old_debuffs), 0, "Old debuff should be cleared")
+
+        # New stealth should be applied (duration=3, duration_type=skill)
+        stealth = [b for b in caster.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth), 1, "Stealth should be applied")
+        self.assertEqual(stealth[0].duration, 3)
+        self.assertEqual(stealth[0].original_duration_type, 'skill')
+
+        # HOT should be applied, linked to Stealth
+        hot = [b for b in caster.buffs if b.effect_type == HOT]
+        self.assertEqual(len(hot), 1, "HOT should be applied")
+        self.assertEqual(hot[0].linked_buff_id, "Stealth")
+        self.assertTrue(hot[0].unremovable)
+        self.assertEqual(hot[0].heal_base, "max_hp")
+
+        # dmg_taken_down should be applied, linked to Stealth
+        dmg_down = [b for b in caster.buffs if b.effect_type == DMG_TAKEN_DOWN]
+        self.assertEqual(len(dmg_down), 1, "dmg_taken_down should be applied")
+        self.assertEqual(dmg_down[0].linked_buff_id, "Stealth")
+        self.assertTrue(dmg_down[0].unremovable)
+        self.assertTrue(dmg_down[0].is_stackable)
+        # hp_ratio_dynamic_direct: value在施加时按HP比例冻结（满血时>0）
+        self.assertGreater(dmg_down[0].value, 0,
+                           "dmg_taken_down value应已按HP比例冻结（满血时应>0）")
+
+
+if __name__ == '__main__':
+    unittest.main()

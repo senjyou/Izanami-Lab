@@ -1,0 +1,1050 @@
+"""TriggerService._match_trigger_timing单元测试。
+
+覆盖_match_trigger_timing方法中20+种时机匹配逻辑：
+- 基础匹配：trigger_type映射/未知类型/timing不匹配
+- BEFORE_SKILL_USE: 自身AS技能使用前（仅owner==actor，仅AS）
+- AFTER_SKILL_USE: 自身AS技能使用后（仅owner==actor，仅AS，allow_ex_trigger标志）
+- BEFORE_AS_ATTACKED: 被AS攻击前（攻击者异阵营，cover PS需其他友方）
+- BEFORE_ANY_ATTACKED: 任意攻击前（同上）
+- BEFORE_ENEMY_AS_ATTACK: 敌方AS攻击前（攻击者异阵营，技能含damage）
+- BEFORE_ALLY_AS_ATTACK: 友方AS攻击前（同阵营非自身，AS含damage，ally_front限制）
+- AFTER_AS_ATTACKED: 被AS攻击后（owner是primary_target）
+- AFTER_ALLY_ATTACKED: 友方被攻击后（攻击者敌方，主目标友方）
+- AFTER_SELF_ATTACKED: 自身被攻击后（攻击者敌方，owner在targets中）
+- AFTER_AS_ATTACKED_ALLY: 友方被AS攻击后（攻击者敌方，主目标友方）
+- AFTER_ALLY_AS_ATTACK: 其他友方AS攻击后（同阵营非自身，主目标存活且敌方）
+- AFTER_PS_RECEIVED: 接受他人PS后（同阵营非自身，owner在targets中）
+- PAWN_DIED: 单位死亡（on_ally_killed/on_pawn_died/on_linked_enemy_killed分支）
+- PAWN_KILLED: 击杀者触发
+- PAWN_ANY_KILL: 任意击杀
+- PAWN_CAUSED_CRITICAL: 暴击者触发
+- PAWN_RECEIVED_AURA: 获得aura（按global_condition分支）
+- SKILL_USE_COUNT: 仅owner自身
+- ALLY_CHARGE_USE: 友方（非自身）
+- 通用时机：BATTLE_START/TURN_START等 + HP_BELOW ally_filter
+- _is_cover_ps辅助函数
+"""
+import sys
+import os
+import pytest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState, DamageLinkEntry
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillType, TriggerTiming
+from src.combat_v2.services.trigger_service import (
+    TriggerService, TriggerContext, TRIGGER_TYPE_MAP,
+)
+
+
+# ─── 工厂函数 ──────────────────────────────────────────────
+
+def make_unit(unit_id="u1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT,
+              hp=50000, max_hp=50000, atk=10000, defense=5000, speed=500,
+              element=2, character_type=1, is_alive=True):
+    """创建测试用单位。"""
+    u = UnitState(
+        unit_id=unit_id, name=unit_id, side=side, position=position,
+        character_id=999901, level=10, element=element, character_type=character_type,
+        max_hp=max_hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=hp, current_ap=10, current_pp=10, current_ep=10,
+    )
+    u.is_alive = is_alive
+    return u
+
+
+def make_context(timing=TriggerTiming.AFTER_AS_ATTACKED, battlefield=None,
+                 actor=None, targets=None, triggered_by=None, primary_target=None,
+                 skill=None, new_knockout_target_ids=None):
+    """创建测试用TriggerContext。"""
+    if battlefield is None:
+        battlefield = BattlefieldState()
+    ctx = TriggerContext(
+        timing=timing,
+        battlefield=battlefield,
+        actor=actor,
+        targets=targets or [],
+        triggered_by=triggered_by,
+        primary_target=primary_target,
+        skill=skill,
+    )
+    if new_knockout_target_ids:
+        ctx.new_knockout_target_ids = new_knockout_target_ids
+    return ctx
+
+
+def make_trigger_service(data_loader=None):
+    """创建TriggerService实例。"""
+    ts = TriggerService()
+    if data_loader:
+        ts.data_loader = data_loader
+    return ts
+
+
+def make_data_loader(skill_type_map=None, parsed_skill_map=None):
+    """创建mock data_loader。
+
+    Args:
+        skill_type_map: {skill_id: skill_type} 用于get_skill_by_id
+        parsed_skill_map: {skill_id: parsed_dict} 用于get_parsed_skill_data
+    """
+    skill_type_map = skill_type_map or {}
+    parsed_skill_map = parsed_skill_map or {}
+
+    dl = MagicMock()
+    def get_skill_by_id(sid):
+        if sid in skill_type_map:
+            return SimpleNamespace(skill_type=skill_type_map[sid])
+        return None
+    dl.get_skill_by_id = get_skill_by_id
+    dl.get_parsed_skill_data = lambda sid: parsed_skill_map.get(sid)
+    return dl
+
+
+def make_parsed(trigger_type, effect_blocks=None, global_condition=None,
+                allow_ex_trigger=False):
+    """创建parsed PS配置。"""
+    return {
+        'trigger_type': trigger_type,
+        'effect_blocks': effect_blocks or [],
+        'global_condition': global_condition,
+        'allow_ex_trigger': allow_ex_trigger,
+    }
+
+
+def call_match(ts, parsed, timing, context, owner):
+    """便捷调用_match_trigger_timing的wrapper。"""
+    return ts._match_trigger_timing(parsed, timing, context, owner)
+
+
+# ─── 1. 基础匹配 ─────────────────────────────────────────
+
+class TestBasicMatching:
+
+    def test_no_trigger_type_returns_false(self):
+        """无trigger_type字段返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        assert call_match(ts, {}, TriggerTiming.AFTER_AS_ATTACKED, ctx, owner) is False
+
+    def test_unknown_trigger_type_returns_false(self):
+        """未知trigger_type返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        parsed = make_parsed("totally_unknown_trigger_type")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_AS_ATTACKED, ctx, owner) is False
+
+    def test_timing_mismatch_returns_false(self):
+        """timing不匹配返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.TURN_START)
+        parsed = make_parsed("after_as_attacked")  # 期望AFTER_AS_ATTACKED
+        assert call_match(ts, parsed, TriggerTiming.TURN_START, ctx, owner) is False
+
+    def test_timing_match_returns_true_for_simple_timing(self):
+        """简单时机匹配返回True（如TURN_END）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.TURN_END)
+        parsed = make_parsed("on_turn_end")
+        assert call_match(ts, parsed, TriggerTiming.TURN_END, ctx, owner) is True
+
+
+# ─── 2. BEFORE_SKILL_USE ─────────────────────────────────
+
+class TestBeforeSkillUse:
+
+    def test_owner_is_actor_returns_true(self):
+        """owner==actor且为AS技能时触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.BEFORE_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("before_skill_use")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_SKILL_USE, ctx, owner) is True
+
+    def test_owner_not_actor_returns_false(self):
+        """owner!=actor时不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        other = make_unit("other")
+        ctx = make_context(timing=TriggerTiming.BEFORE_SKILL_USE,
+                           actor=other, skill=1001)
+        parsed = make_parsed("before_skill_use")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_SKILL_USE, ctx, owner) is False
+
+    def test_no_actor_returns_false(self):
+        """无actor时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.BEFORE_SKILL_USE)
+        parsed = make_parsed("before_skill_use")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_SKILL_USE, ctx, owner) is False
+
+    def test_non_as_skill_blocked(self):
+        """非AS技能（PS/EX）不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.PS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.BEFORE_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("before_skill_use")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_SKILL_USE, ctx, owner) is False
+
+
+# ─── 3. AFTER_SKILL_USE ──────────────────────────────────
+
+class TestAfterSkillUse:
+
+    def test_owner_is_actor_as_skill_returns_true(self):
+        """owner==actor且为AS技能时触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.AFTER_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("after_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SKILL_USE, ctx, owner) is True
+
+    def test_ex_skill_blocked_without_flag(self):
+        """EX技能无allow_ex_trigger标志时不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.EX.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.AFTER_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("after_as_attack", allow_ex_trigger=False)
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SKILL_USE, ctx, owner) is False
+
+    def test_ex_skill_allowed_with_flag(self):
+        """EX技能+allow_ex_trigger=True时触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.EX.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.AFTER_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("after_as_attack", allow_ex_trigger=True)
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SKILL_USE, ctx, owner) is True
+
+    def test_ps_skill_blocked_even_with_flag(self):
+        """PS技能即使有allow_ex_trigger也不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.PS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.AFTER_SKILL_USE,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("after_as_attack", allow_ex_trigger=True)
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SKILL_USE, ctx, owner) is False
+
+    def test_debuff_applied_target_dead_primary_blocked(self):
+        """debuff_applied_target PS在主目标阵亡时不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner")
+        dead_target = make_unit("t1", is_alive=False)
+        ctx = make_context(timing=TriggerTiming.AFTER_SKILL_USE,
+                           actor=owner, skill=1001, primary_target=dead_target)
+        parsed = make_parsed("after_as_attack", effect_blocks=[
+            {'effects': [{'target_type': 'debuff_applied_target'}]}
+        ])
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SKILL_USE, ctx, owner) is False
+
+
+# ─── 4. BEFORE_AS_ATTACKED / BEFORE_ANY_ATTACKED ────────
+
+class TestBeforeAsAttacked:
+
+    def test_enemy_attacker_returns_true(self):
+        """敌方攻击者+有targets时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        target = make_unit("t1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=enemy, targets=[target])
+        parsed = make_parsed("before_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is True
+
+    def test_same_side_attacker_blocked(self):
+        """同阵营攻击者不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally_attacker = make_unit("a1", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=ally_attacker, targets=[target])
+        parsed = make_parsed("before_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is False
+
+    def test_no_targets_returns_false(self):
+        """无targets时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=enemy, targets=[])
+        parsed = make_parsed("before_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is False
+
+    def test_cover_ps_no_other_ally_blocked(self):
+        """援护PS但无其他友方可保护时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        # targets只有owner自己
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=enemy, targets=[owner])
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'cover', 'target_type': 'ally_single'}]}
+        ])
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is False
+
+    def test_cover_ps_with_other_ally_triggers(self):
+        """援护PS且有其他友方时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=enemy, targets=[other_ally])
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'cover', 'target_type': 'ally_single'}]}
+        ])
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is True
+
+    def test_self_guard_not_blocked_by_cover_check(self):
+        """self-guard（target_type=self）不受援护检查限制。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_AS_ATTACKED,
+                           actor=enemy, targets=[owner])
+        parsed = make_parsed("before_as_attacked",
+            global_condition={'type': 'target_is_self'},
+            effect_blocks=[{'effects': [{'effect_type': 'guard', 'target_type': 'self'}]}])
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_AS_ATTACKED, ctx, owner) is True
+
+
+# ─── 5. BEFORE_ENEMY_AS_ATTACK ──────────────────────────
+
+class TestBeforeEnemyAsAttack:
+
+    def test_enemy_actor_with_damage_skill_triggers(self):
+        """敌方攻击者+技能含damage时触发。"""
+        dl = make_data_loader(
+            skill_type_map={1001: SkillType.AS.value},
+            parsed_skill_map={1001: {'effect_blocks': [{'effects': [{'effect_type': 'damage'}]}]}}
+        )
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ENEMY_AS_ATTACK,
+                           actor=enemy, skill=1001)
+        parsed = make_parsed("before_enemy_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ENEMY_AS_ATTACK, ctx, owner) is True
+
+    def test_same_side_actor_blocked(self):
+        """同阵营攻击者不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ENEMY_AS_ATTACK,
+                           actor=ally, skill=1001)
+        parsed = make_parsed("before_enemy_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ENEMY_AS_ATTACK, ctx, owner) is False
+
+    def test_no_actor_blocked(self):
+        """无攻击者不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.BEFORE_ENEMY_AS_ATTACK, skill=1001)
+        parsed = make_parsed("before_enemy_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ENEMY_AS_ATTACK, ctx, owner) is False
+
+    def test_skill_without_damage_blocked(self):
+        """技能不含damage效果时不触发。"""
+        dl = make_data_loader(
+            skill_type_map={1001: SkillType.AS.value},
+            parsed_skill_map={1001: {'effect_blocks': [{'effects': [{'effect_type': 'heal'}]}]}}
+        )
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ENEMY_AS_ATTACK,
+                           actor=enemy, skill=1001)
+        parsed = make_parsed("before_enemy_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ENEMY_AS_ATTACK, ctx, owner) is False
+
+
+# ─── 6. BEFORE_ALLY_AS_ATTACK ───────────────────────────
+
+class TestBeforeAllyAsAttack:
+
+    def test_other_ally_as_with_damage_triggers(self):
+        """其他友方AS+含damage时触发。"""
+        dl = make_data_loader(
+            skill_type_map={1001: SkillType.AS.value},
+            parsed_skill_map={1001: {'effect_blocks': [{'effects': [{'effect_type': 'damage'}]}]}}
+        )
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        other_ally = make_unit("a1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK,
+                           actor=other_ally, skill=1001)
+        parsed = make_parsed("before_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx, owner) is True
+
+    def test_self_actor_blocked(self):
+        """owner==actor时不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK,
+                           actor=owner, skill=1001)
+        parsed = make_parsed("before_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx, owner) is False
+
+    def test_enemy_actor_blocked(self):
+        """敌方攻击者不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.AS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK,
+                           actor=enemy, skill=1001)
+        parsed = make_parsed("before_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx, owner) is False
+
+    def test_non_as_skill_blocked(self):
+        """非AS技能不触发。"""
+        dl = make_data_loader(skill_type_map={1001: SkillType.PS.value})
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK,
+                           actor=other_ally, skill=1001)
+        parsed = make_parsed("before_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx, owner) is False
+
+    def test_ally_front_target_restriction(self):
+        """PS target_type=ally_front时，actor必须在owner正前方。"""
+        dl = make_data_loader(
+            skill_type_map={1001: SkillType.AS.value},
+            parsed_skill_map={1001: {'effect_blocks': [{'effects': [{'effect_type': 'damage'}]}]}}
+        )
+        ts = make_trigger_service(dl)
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        # actor在中央前排（非owner正前方）
+        wrong_actor = make_unit("a1", side=Side.ALLY, position=Position.ALLY_CENTER_FRONT)
+        ctx = make_context(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK,
+                           actor=wrong_actor, skill=1001)
+        parsed = make_parsed("before_ally_as_attack", effect_blocks=[
+            {'effects': [{'effect_type': 'damage', 'target_type': 'ally_front'}]}
+        ])
+        assert call_match(ts, parsed, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx, owner) is False
+
+
+# ─── 7. AFTER_AS_ATTACKED ───────────────────────────────
+
+class TestAfterAsAttacked:
+
+    def test_owner_is_primary_target_triggers(self):
+        """owner是primary_target时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_AS_ATTACKED,
+                           actor=enemy, targets=[owner], primary_target=owner)
+        parsed = make_parsed("after_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_AS_ATTACKED, ctx, owner) is True
+
+    def test_owner_not_primary_blocked(self):
+        """owner不是primary_target时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        other = make_unit("other")
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_AS_ATTACKED,
+                           actor=enemy, targets=[other], primary_target=other)
+        parsed = make_parsed("after_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_AS_ATTACKED, ctx, owner) is False
+
+    def test_no_targets_blocked(self):
+        """无targets时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.AFTER_AS_ATTACKED, targets=[])
+        parsed = make_parsed("after_as_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_AS_ATTACKED, ctx, owner) is False
+
+
+# ─── 8. AFTER_ALLY_ATTACKED / AFTER_AS_ATTACKED_ALLY ────
+
+class TestAfterAllyAttacked:
+
+    def test_enemy_attacks_ally_triggers(self):
+        """敌方攻击友方时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ally_target = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_ATTACKED,
+                           actor=enemy, targets=[ally_target], primary_target=ally_target)
+        parsed = make_parsed("after_ally_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_ATTACKED, ctx, owner) is True
+
+    def test_ally_attacker_blocked(self):
+        """同阵营攻击者不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally_attacker = make_unit("a1", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_ATTACKED,
+                           actor=ally_attacker, targets=[target], primary_target=target)
+        parsed = make_parsed("after_ally_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_ATTACKED, ctx, owner) is False
+
+    def test_enemy_primary_target_blocked(self):
+        """主目标为敌方时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy_attacker = make_unit("e1", side=Side.ENEMY)
+        enemy_target = make_unit("e2", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_ATTACKED,
+                           actor=enemy_attacker, targets=[enemy_target], primary_target=enemy_target)
+        parsed = make_parsed("after_ally_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_ATTACKED, ctx, owner) is False
+
+
+# ─── 9. AFTER_SELF_ATTACKED ─────────────────────────────
+
+class TestAfterSelfAttacked:
+
+    def test_owner_in_targets_triggers(self):
+        """owner在targets中时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_SELF_ATTACKED,
+                           actor=enemy, targets=[owner])
+        parsed = make_parsed("after_self_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SELF_ATTACKED, ctx, owner) is True
+
+    def test_owner_not_in_targets_blocked(self):
+        """owner不在targets中时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        other = make_unit("other", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_SELF_ATTACKED,
+                           actor=enemy, targets=[other])
+        parsed = make_parsed("after_self_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SELF_ATTACKED, ctx, owner) is False
+
+    def test_same_side_attacker_blocked(self):
+        """同阵营攻击者不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally_attacker = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_SELF_ATTACKED,
+                           actor=ally_attacker, targets=[owner])
+        parsed = make_parsed("after_self_attacked")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_SELF_ATTACKED, ctx, owner) is False
+
+
+# ─── 10. AFTER_ALLY_AS_ATTACK ───────────────────────────
+
+class TestAfterAllyAsAttack:
+
+    def test_other_ally_attacks_enemy_triggers(self):
+        """其他友方AS攻击敌方存活目标时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        enemy_target = make_unit("e1", side=Side.ENEMY, is_alive=True)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_AS_ATTACK,
+                           actor=other_ally, targets=[enemy_target], primary_target=enemy_target)
+        parsed = make_parsed("after_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx, owner) is True
+
+    def test_self_actor_blocked(self):
+        """owner==actor时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_AS_ATTACK,
+                           actor=owner, targets=[enemy], primary_target=enemy)
+        parsed = make_parsed("after_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx, owner) is False
+
+    def test_dead_primary_target_blocked(self):
+        """主目标阵亡时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        dead_enemy = make_unit("e1", side=Side.ENEMY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_AS_ATTACK,
+                           actor=other_ally, targets=[dead_enemy], primary_target=dead_enemy)
+        parsed = make_parsed("after_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx, owner) is False
+
+    def test_ally_primary_target_blocked(self):
+        """主目标为友方时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ally_target = make_unit("a2", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_ALLY_AS_ATTACK,
+                           actor=other_ally, targets=[ally_target], primary_target=ally_target)
+        parsed = make_parsed("after_ally_as_attack")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_ALLY_AS_ATTACK, ctx, owner) is False
+
+
+# ─── 11. AFTER_PS_RECEIVED ──────────────────────────────
+
+class TestAfterPsReceived:
+
+    def test_other_ally_ps_targets_owner_triggers(self):
+        """其他友方PS以owner为目标时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_PS_RECEIVED,
+                           actor=other_ally, targets=[owner])
+        parsed = make_parsed("after_ps_received")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_PS_RECEIVED, ctx, owner) is True
+
+    def test_self_actor_blocked(self):
+        """owner==actor时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_PS_RECEIVED,
+                           actor=owner, targets=[owner])
+        parsed = make_parsed("after_ps_received")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_PS_RECEIVED, ctx, owner) is False
+
+    def test_enemy_actor_blocked(self):
+        """敌方actor不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.AFTER_PS_RECEIVED,
+                           actor=enemy, targets=[owner])
+        parsed = make_parsed("after_ps_received")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_PS_RECEIVED, ctx, owner) is False
+
+    def test_owner_not_in_targets_blocked(self):
+        """owner不在targets中时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.AFTER_PS_RECEIVED,
+                           actor=other_ally, targets=[target])
+        parsed = make_parsed("after_ps_received")
+        assert call_match(ts, parsed, TriggerTiming.AFTER_PS_RECEIVED, ctx, owner) is False
+
+
+# ─── 12. PAWN_DIED ───────────────────────────────────────
+
+class TestPawnDied:
+
+    def test_on_ally_killed_ally_dies(self):
+        """on_ally_killed: 同阵营单位死亡时触发（owner非死亡者）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_ally = make_unit("a1", side=Side.ALLY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_ally])
+        parsed = make_parsed("on_ally_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is True
+
+    def test_on_ally_killed_enemy_dies_blocked(self):
+        """on_ally_killed: 敌方死亡时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_enemy = make_unit("e1", side=Side.ENEMY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_enemy])
+        parsed = make_parsed("on_ally_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is False
+
+    def test_on_ally_killed_self_dies_blocked(self):
+        """on_ally_killed: owner自身死亡时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[owner])
+        parsed = make_parsed("on_ally_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is False
+
+    def test_on_pawn_died_other_unit(self):
+        """on_pawn_died: 任意单位死亡时触发（owner非死亡者）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_enemy = make_unit("e1", side=Side.ENEMY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_enemy])
+        parsed = make_parsed("on_pawn_died")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is True
+
+    def test_on_pawn_died_self_dies_blocked(self):
+        """on_pawn_died: owner自身死亡时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[owner])
+        parsed = make_parsed("on_pawn_died")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is False
+
+    def test_on_linked_enemy_killed_with_link(self):
+        """on_linked_enemy_killed: 敌方带damage_link死亡时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_enemy = make_unit("e1", side=Side.ENEMY, is_alive=False)
+        dead_enemy.damage_links = [DamageLinkEntry(
+            link_id="l1", partner_unit_id="owner", value=50.0,
+            source_skill_id=99999, source_unit_id="e1"
+        )]
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_enemy])
+        parsed = make_parsed("on_linked_enemy_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is True
+
+    def test_on_linked_enemy_killed_no_link_blocked(self):
+        """on_linked_enemy_killed: 敌方无damage_link时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_enemy = make_unit("e1", side=Side.ENEMY, is_alive=False)
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_enemy])
+        parsed = make_parsed("on_linked_enemy_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is False
+
+    def test_on_linked_enemy_killed_ally_dies_blocked(self):
+        """on_linked_enemy_killed: 友方死亡不触发（仅敌方死亡触发）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        dead_ally = make_unit("a1", side=Side.ALLY, is_alive=False)
+        dead_ally.damage_links = [DamageLinkEntry(
+            link_id="l1", partner_unit_id="owner", value=50.0,
+            source_skill_id=99999, source_unit_id="a1"
+        )]
+        ctx = make_context(timing=TriggerTiming.PAWN_DIED, targets=[dead_ally])
+        parsed = make_parsed("on_linked_enemy_killed")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_DIED, ctx, owner) is False
+
+
+# ─── 13. PAWN_KILLED / PAWN_ANY_KILL / PAWN_CAUSED_CRITICAL ──
+
+class TestPawnKillTriggers:
+
+    def test_pawn_killed_owner_is_actor(self):
+        """PAWN_KILLED: owner==击杀者时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.PAWN_KILLED, actor=owner)
+        parsed = make_parsed("on_kill")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_KILLED, ctx, owner) is True
+
+    def test_pawn_killed_other_actor_blocked(self):
+        """PAWN_KILLED: owner!=击杀者时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        other = make_unit("other")
+        ctx = make_context(timing=TriggerTiming.PAWN_KILLED, actor=other)
+        parsed = make_parsed("on_kill")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_KILLED, ctx, owner) is False
+
+    def test_pawn_any_kill_always_triggers(self):
+        """PAWN_ANY_KILL: 任意击杀都触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.PAWN_ANY_KILL)
+        parsed = make_parsed("on_any_kill")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_ANY_KILL, ctx, owner) is True
+
+    def test_pawn_caused_critical_owner_is_actor(self):
+        """PAWN_CAUSED_CRITICAL: owner==暴击者时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.PAWN_CAUSED_CRITICAL, actor=owner)
+        parsed = make_parsed("on_critical")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_CAUSED_CRITICAL, ctx, owner) is True
+
+    def test_pawn_caused_critical_other_actor_blocked(self):
+        """PAWN_CAUSED_CRITICAL: owner!=暴击者时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        other = make_unit("other")
+        ctx = make_context(timing=TriggerTiming.PAWN_CAUSED_CRITICAL, actor=other)
+        parsed = make_parsed("on_critical")
+        assert call_match(ts, parsed, TriggerTiming.PAWN_CAUSED_CRITICAL, ctx, owner) is False
+
+
+# ─── 14. PAWN_RECEIVED_AURA ─────────────────────────────
+
+class TestPawnReceivedAura:
+
+    def test_debuff_type_knockout_new_target(self):
+        """on_debuff_applied+debuff_type=knockout+new_knockout_target: 敌方获得新眩晕时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA,
+                           targets=[enemy], new_knockout_target_ids={"e1"})
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'debuff_type', 'value': 'knockout'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is True
+
+    def test_debuff_type_knockout_no_new_target_blocked(self):
+        """on_debuff_applied+debuff_type=knockout但无new_knockout_target时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA,
+                           targets=[enemy], new_knockout_target_ids=set())
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'debuff_type', 'value': 'knockout'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is False
+
+    def test_debuff_type_non_knockout_enemy_target(self):
+        """on_debuff_applied+debuff_type(非knockout): 敌方目标时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[enemy])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'debuff_type', 'value': 'poison'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is True
+
+    def test_debuff_type_ally_target_blocked(self):
+        """on_debuff_applied+debuff_type: 友方目标时不触发（仅敌方）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[ally])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'debuff_type', 'value': 'poison'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is False
+
+    def test_target_is_self_condition(self):
+        """on_debuff_applied+target_is_self: owner在targets中时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[owner])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'target_is_self'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is True
+
+    def test_is_status_ailment_enemy_filter(self):
+        """on_debuff_applied+is_status_ailment+ally_filter=enemy: 敌方获得状态异常时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[enemy])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'is_status_ailment', 'ally_filter': 'enemy'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is True
+
+    def test_target_is_ally_condition(self):
+        """on_debuff_applied+target_is_ally: 友方获得debuff时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[other_ally])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'target_is_ally'})
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is True
+
+    def test_target_is_ally_exclude_self(self):
+        """on_debuff_applied+target_is_ally+exclude_self: 仅其他友方获得debuff时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.PAWN_RECEIVED_AURA, targets=[owner])
+        parsed = make_parsed("on_debuff_applied",
+            global_condition={'type': 'target_is_ally', 'exclude_self': 1})
+        # owner在targets但exclude_self=True，应不触发
+        assert call_match(ts, parsed, TriggerTiming.PAWN_RECEIVED_AURA, ctx, owner) is False
+
+
+# ─── 15. SKILL_USE_COUNT / ALLY_CHARGE_USE ──────────────
+
+class TestSkillUseCountAndCharge:
+
+    def test_skill_use_count_owner_is_actor(self):
+        """SKILL_USE_COUNT: owner==actor时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.SKILL_USE_COUNT, actor=owner)
+        parsed = make_parsed("on_skill_use_count")
+        assert call_match(ts, parsed, TriggerTiming.SKILL_USE_COUNT, ctx, owner) is True
+
+    def test_skill_use_count_other_actor_blocked(self):
+        """SKILL_USE_COUNT: owner!=actor时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        other = make_unit("other")
+        ctx = make_context(timing=TriggerTiming.SKILL_USE_COUNT, actor=other)
+        parsed = make_parsed("on_skill_use_count")
+        assert call_match(ts, parsed, TriggerTiming.SKILL_USE_COUNT, ctx, owner) is False
+
+    def test_ally_charge_use_other_ally(self):
+        """ALLY_CHARGE_USE: 其他友方使用充能时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.ALLY_CHARGE_USE, actor=other_ally)
+        parsed = make_parsed("on_ally_charge_use")
+        assert call_match(ts, parsed, TriggerTiming.ALLY_CHARGE_USE, ctx, owner) is True
+
+    def test_ally_charge_use_self_blocked(self):
+        """ALLY_CHARGE_USE: owner自身使用充能时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.ALLY_CHARGE_USE, actor=owner)
+        parsed = make_parsed("on_ally_charge_use")
+        assert call_match(ts, parsed, TriggerTiming.ALLY_CHARGE_USE, ctx, owner) is False
+
+    def test_ally_charge_use_enemy_blocked(self):
+        """ALLY_CHARGE_USE: 敌方使用充能时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.ALLY_CHARGE_USE, actor=enemy)
+        parsed = make_parsed("on_ally_charge_use")
+        assert call_match(ts, parsed, TriggerTiming.ALLY_CHARGE_USE, ctx, owner) is False
+
+
+# ─── 16. 通用时机 + HP_BELOW ally_filter ────────────────
+
+class TestGenericTimings:
+
+    def test_battle_start_triggers(self):
+        """BATTLE_START触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.BATTLE_START)
+        parsed = make_parsed("on_battle_start")
+        assert call_match(ts, parsed, TriggerTiming.BATTLE_START, ctx, owner) is True
+
+    def test_turn_start_triggers(self):
+        """TURN_START触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.TURN_START)
+        parsed = make_parsed("on_turn_start")
+        assert call_match(ts, parsed, TriggerTiming.TURN_START, ctx, owner) is True
+
+    def test_turn_start_with_status_ailment_condition_blocked(self):
+        """TURN_START + is_status_ailment condition 不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.TURN_START)
+        parsed = make_parsed("on_turn_start",
+            global_condition={'type': 'is_status_ailment'})
+        assert call_match(ts, parsed, TriggerTiming.TURN_START, ctx, owner) is False
+
+    def test_turn_end_with_debuff_type_condition_blocked(self):
+        """TURN_END + debuff_type condition 不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(timing=TriggerTiming.TURN_END)
+        parsed = make_parsed("on_turn_end",
+            global_condition={'type': 'debuff_type', 'value': 'poison'})
+        assert call_match(ts, parsed, TriggerTiming.TURN_END, ctx, owner) is False
+
+    def test_hp_below_ally_filter_ally_triggered_by(self):
+        """HP_BELOW + ally_filter=ally + triggered_by同阵营时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ally = make_unit("a1", side=Side.ALLY)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=ally)
+        parsed = make_parsed("on_hp_below",
+            global_condition={'type': 'self_hp_percent', 'operator': '<=', 'value': 30,
+                              'ally_filter': 'ally'})
+        assert call_match(ts, parsed, TriggerTiming.HP_BELOW, ctx, owner) is True
+
+    def test_hp_below_ally_filter_enemy_triggered_by(self):
+        """HP_BELOW + ally_filter=ally + triggered_by敌方时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=enemy)
+        parsed = make_parsed("on_hp_below",
+            global_condition={'type': 'self_hp_percent', 'operator': '<=', 'value': 30,
+                              'ally_filter': 'ally'})
+        assert call_match(ts, parsed, TriggerTiming.HP_BELOW, ctx, owner) is False
+
+    def test_hp_below_enemy_filter_enemy_triggered_by(self):
+        """HP_BELOW + ally_filter=enemy + triggered_by敌方时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=enemy)
+        parsed = make_parsed("on_hp_below",
+            global_condition={'type': 'self_hp_percent', 'operator': '<=', 'value': 30,
+                              'ally_filter': 'enemy'})
+        assert call_match(ts, parsed, TriggerTiming.HP_BELOW, ctx, owner) is True
+
+
+# ─── 17. _is_cover_ps辅助函数 ───────────────────────────
+
+class TestIsCoverPs:
+
+    def test_no_guard_cover_effects_returns_false(self):
+        """无cover/guard effect时返回False。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'damage'}]}
+        ])
+        assert ts._is_cover_ps(parsed) is False
+
+    def test_cover_effect_returns_true(self):
+        """含cover effect时返回True。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'cover', 'target_type': 'ally_single'}]}
+        ])
+        assert ts._is_cover_ps(parsed) is True
+
+    def test_guard_effect_returns_true(self):
+        """含guard effect时返回True。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'guard', 'target_type': 'ally_single'}]}
+        ])
+        assert ts._is_cover_ps(parsed) is True
+
+    def test_self_guard_all_self_target_returns_false(self):
+        """所有guard/cover effect都target_type=self时返回False（self-guard）。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked", effect_blocks=[
+            {'effects': [{'effect_type': 'guard', 'target_type': 'self'}]}
+        ])
+        assert ts._is_cover_ps(parsed) is False
+
+    def test_self_guard_global_condition_target_is_self(self):
+        """global_condition=target_is_self时返回False（self-guard）。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked",
+            global_condition={'type': 'target_is_self'},
+            effect_blocks=[{'effects': [{'effect_type': 'guard', 'target_type': 'ally_single'}]}])
+        assert ts._is_cover_ps(parsed) is False
+
+    def test_self_guard_and_condition_with_target_is_self(self):
+        """and组合条件中包含target_is_self时返回False（self-guard）。"""
+        ts = make_trigger_service()
+        parsed = make_parsed("before_as_attacked",
+            global_condition={
+                'type': 'and',
+                'conditions': [
+                    {'type': 'target_is_self'},
+                    {'type': 'self_hp_percent', 'operator': '<=', 'value': 50}
+                ]
+            },
+            effect_blocks=[{'effects': [{'effect_type': 'guard', 'target_type': 'ally_single'}]}])
+        assert ts._is_cover_ps(parsed) is False
