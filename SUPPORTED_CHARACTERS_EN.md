@@ -103,6 +103,8 @@ The simulator currently supports a limited set of characters. More will be added
 | 疾走する自由の孤狼      | 榊野ヒイロ        |
 | 穹を駆ける不屈の翼      | 朽葉ラミ         |
 | 繋がり合う母娘の絆      | オルガ＆ナージャ     |
+| 双翼のフロントランナー    | ニーナジーナ・ミーシナ  |
+| 隣歩む想い          | 桃園める         |
 
 ## Tactical Exercise Enemies
 
@@ -121,4 +123,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 生駒葵         |
 | アニス・ベネット    |
 | 一条白奈        |
+| リディア・エルドリッジ |
+| ロージー・ヒューズ   |
+| レイラ・ジェンキンス  |
 

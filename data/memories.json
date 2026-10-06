@@ -4332,5 +4332,185 @@
         "skill_master_id": 400254
       }
     ]
+  },
+  "30040": {
+    "memory_id": 30040,
+    "name": "Красна",
+    "description": "オルガをリーダーとするチーム。チームの連携力は、他チームを凌ぐと言われている。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": 601,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400252
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400057
+      }
+    ]
+  },
+  "20091": {
+    "memory_id": 20091,
+    "name": "今、この瞬間が全て",
+    "description": "ニーナ「えっと……私は、ジーナがここ最近無理をしてると思ったんだ」 \\nジーナ「我はパイロットとして、戦士としての責務を果たしているだけだ」",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 147,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400250
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400251
+      }
+    ]
+  },
+  "20072": {
+    "memory_id": 20072,
+    "name": "暴力は突然に。",
+    "description": "それは―――無慈悲な一撃だった。魅力は無限大。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400182
+      },
+      {
+        "character_attribute": 2,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400027
+      }
+    ]
+  },
+  "20071": {
+    "memory_id": 20071,
+    "name": "がんばるいいんちょ",
+    "description": "いいんちょはいつもがんばってて、サボらないし……\\n委員長のことはウチがぜったいに助けるから―――",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": 3,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400086
+      },
+      {
+        "character_attribute": 4,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400198
+      }
+    ]
+  },
+  "30042": {
+    "memory_id": 30042,
+    "name": "小さくて、大きくて、大切な約束",
+    "description": "これから先もずっと、\\nあなたの隣でたくさんの思い出を作らせてくださいね。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 7,
+        "skill_master_id": 400258
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 56,
+        "skill_master_id": 400259
+      }
+    ]
+  },
+  "20093": {
+    "memory_id": 20093,
+    "name": "夜空に想いを馳せて",
+    "description": "すみません……でも、その……\\n今のことは、あまり意識しないでください……",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 100,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400000
+      },
+      {
+        "character_attribute": 3,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400036
+      }
+    ]
   }
 }

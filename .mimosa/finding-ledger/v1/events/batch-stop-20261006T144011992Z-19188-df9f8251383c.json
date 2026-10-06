@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261006T144011992Z-19188-df9f8251383c",
+  "runId": "20261006T144011992Z-19188-df9f8251383c",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_partial",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline_partial: baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "b5278c90e47efedd2b64840442aa59d28c4ce980",
+  "diffHash": "78b169e0e3174222092e01418cfe8e1de94f5bba96d56bcf26992f356dc0de41",
+  "rulesVersion": "unavailable",
+  "sessionHash": "3b56a98d6285a9badca77f398fadd457bcaa0e09368d3a0ef51517f01006a9ae",
+  "reportRef": ".mimosa/reports/task-review-sess_7412a406-60c4-4f86-b81b-de1096f01b45-20261006T144011992Z-19188-df9f8251383c.json",
+  "events": [
+    {
+      "eventId": "hook-b66060238c5a7c47d91a42d6ac973936",
+      "findingId": "mimosa-85dc6f0e70ed98d7fc396824",
+      "type": "finding_blocked",
+      "at": "2026-10-06T14:20:41.391Z",
+      "identity": {
+        "projectRelativeFile": "scripts/apply_100303_effects.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "e99bc5f99d5ca6807c2ce155e3a13779ad170c7c49e0290075fcb6cb27258808",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 234,
+      "endLine": 234,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "e99bc5f99d5ca6807c2ce155e3a13779ad170c7c49e0290075fcb6cb27258808"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-56ee93d727864b35e04dd166839f7713",
+      "findingId": "mimosa-85dc6f0e70ed98d7fc396824",
+      "type": "finding_blocked",
+      "at": "2026-10-06T14:21:43.036Z",
+      "identity": {
+        "projectRelativeFile": "scripts/apply_100303_effects.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "e99bc5f99d5ca6807c2ce155e3a13779ad170c7c49e0290075fcb6cb27258808",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 236,
+      "endLine": 236,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "e99bc5f99d5ca6807c2ce155e3a13779ad170c7c49e0290075fcb6cb27258808"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-d0584bcda8b4852854055aaf67d91fc7",
+      "findingId": "mimosa-da563bd7bb9d31dd7bfe5ce4",
+      "type": "finding_blocked",
+      "at": "2026-10-06T14:22:55.093Z",
+      "identity": {
+        "projectRelativeFile": "scripts/apply_100303_effects.py",
+        "ruleId": "security",
+        "codeEvidenceHash": "c0b5cdc37804fedb83dc17ae336085215c8b58d071236680bca4b3744a6f48ce",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 238,
+      "endLine": 238,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "c0b5cdc37804fedb83dc17ae336085215c8b58d071236680bca4b3744a6f48ce"
+      },
+      "sequence": 2
+    }
+  ],
+  "observedFindingIds": [
+    "mimosa-f87a756daa7551f7c37aa1cd",
+    "mimosa-c6eaa2728fe7698bfb82fd5f",
+    "mimosa-0993d7ff038106d06179b683",
+    "mimosa-34d4d6c1544880e22c792574",
+    "mimosa-697e994518188bed80ac142a"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/combat_v2/services/target_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/services/skill_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/services/damage_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/test_100303.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-06T14:40:12.286Z"
+}

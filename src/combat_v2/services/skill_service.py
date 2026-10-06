@@ -1009,6 +1009,7 @@ class SkillService:
                                     "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
                                     "enemy_column_lowest_mark_count",
+                                    "enemy_row_of_lowest_mark_count",
                                 }
                                 if _pre_target_type in _SPECIAL_POSTFILTER_TYPES:
                                     _pre_range = self._resolve_target_range("enemies")  # ALL_PAWNS
@@ -2650,6 +2651,32 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         _log.info("[SKILL_EXEC] %s: column_lowest_mark_count filter -> mark=%s col=%d targets=%s",
                                   caster.name, mark_name, anchor_col, [t.name for t in dmg_targets])
+                    elif effect.target_type == "enemy_row_of_lowest_mark_count" and dmg_targets:
+                        # 优先选择指定mark数量最少的敌方所在横一列
+                        # 用于AS2 120177 軍靴の調べにすくめ！「「刻痕」が最も少ない敵を優先して敵横一列に攻撃」
+                        # mark数相同时按距离最近 tiebreak
+                        mark_name = effect_flags_block.get('mark_priority', '刻痕')
+                        def _row_mark_count(u):
+                            return sum(1 for b in ((u.buffs or []) + (u.debuffs or []))
+                                      if getattr(b, 'name', '') == mark_name
+                                      and getattr(b, 'effect_type', '').lower() == 'mark')
+                        anchor = self.target_service.select_min_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (_row_mark_count(u), self._get_distance_key(caster, u)),
+                            consume=True
+                        )
+                        if anchor is None:
+                            dmg_targets = []
+                        else:
+                            _anchor_is_front = self.target_service._is_front_row(anchor)
+                            dmg_targets = [u for u in dmg_targets
+                                           if self.target_service._is_front_row(u) == _anchor_is_front]
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: row_lowest_mark_count filter -> mark=%s anchor=%s row=%s targets=%s",
+                                  caster.name, mark_name,
+                                  anchor.name if anchor else None,
+                                  ("FRONT" if anchor and self.target_service._is_front_row(anchor) else "BACK"),
+                                  [t.name for t in dmg_targets])
                     elif effect.target_type == "enemy_column_highest_atk" and dmg_targets:
                         # 先找攻击力最高的敌方，然后选其所在的列（前后列/纵列）
                         # ステルス重定向应用于锚点选择
@@ -3262,6 +3289,7 @@ class SkillService:
             'bonus_crit_rate': 0.0,
             'skill_id': self._current_skill_id,
             'name': self._get_skill_name(self._current_skill_id),
+            'hit_count_per_mark': effect_flags.get('hit_count_per_mark'),
             'base_value_source': getattr(effect, 'value_source', None)
                                  or effect_flags.get('value_source')
                                  or effect_flags.get('damage_base'),
@@ -7452,6 +7480,7 @@ class SkillService:
             "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
+            "enemy_row_of_lowest_mark_count",
         }
         if effect.target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
             from ...entities_v2.enums import DisplayTargetRange
@@ -8888,8 +8917,22 @@ class SkillService:
         if mapped_effect_type == SkillEffectType.HEAL_OVER_TIME.value:
             hot_heal_base = effect_flags_aura.get('heal_base', 'atk') if effect_flags_aura else 'atk'
             aura.heal_base = hot_heal_base
-            _log.info("[AURA_APPLY] %s -> %s: HOT heal_base=%s",
-                      caster.name, target.name, aura.heal_base)
+            # 快照模式: 记录「効果付与時」的基数，后续每tick按此固定值计算（实时HP变化不影响）
+            # 如120176「効果付与時の不足HPの{cure}%を継続回復」→ 付与瞬间的不足HP
+            if effect_flags_aura and effect_flags_aura.get('heal_base_snapshot'):
+                if hot_heal_base == 'lost_hp':
+                    aura.hot_base_snapshot = max(0, target.max_hp - target.current_hp)
+                elif hot_heal_base == 'max_hp':
+                    aura.hot_base_snapshot = target.max_hp
+                else:
+                    aura.hot_base_snapshot = int(getattr(target, 'attack', 0))
+                    _log.info("[AURA_APPLY] %s -> %s: HOT heal_base_snapshot unsupported for base=%s (fallback atk)",
+                              caster.name, target.name, hot_heal_base)
+                _log.info("[AURA_APPLY] %s -> %s: HOT heal_base=%s SNAPSHOT=%d (付与時固定)",
+                          caster.name, target.name, aura.heal_base, aura.hot_base_snapshot)
+            else:
+                _log.info("[AURA_APPLY] %s -> %s: HOT heal_base=%s",
+                          caster.name, target.name, aura.heal_base)
 
         return aura, final_value, resolved_value_tag
 
@@ -9124,6 +9167,7 @@ class SkillService:
             "enemy_single_lowest_def",
             "enemy_single_highest_mark_count",
             "enemy_single_lowest_mark_count",
+            "enemy_row_of_lowest_mark_count",
         }
         if target_type in _AURA_SPECIAL_POSTFILTER_TYPES:
             _resolved_range = DisplayTargetRange.ALL_PAWNS.value
@@ -9233,6 +9277,7 @@ class SkillService:
             "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
             "enemy_column_lowest_mark_count",
+            "enemy_row_of_lowest_mark_count",
         }
         _st_range = self._resolve_target_range("enemies") if effect.target_type in _SPECIAL_POSTFILTER_TYPES \
                     else self._resolve_target_range(effect.target_type)
@@ -10427,7 +10472,29 @@ class SkillService:
                 _log.info("[RESOURCE_EFFECT] %s: add_ep value_source=max_ep, filling %d EP",
                           caster.name, value)
             ep_targets = []
-            if effect.target_type in ("ally_all", "self_and_friends", "ally_single", "ally_back", "ally_front", "ally_front_row", "friends", "friend"):
+            ep_target_identifier = getattr(effect, 'target_identifier', None)
+            # 100303 めるPS1: add_ep to trigger_attacker（「攻撃した味方」にEXゲージ加算）
+            if ep_target_identifier == "trigger_attacker":
+                _ta = getattr(self, '_trigger_attacker', None)
+                _ta_alive = [_ta] if (_ta and _ta.is_alive and _ta.side == caster.side) else []
+                if not _ta_alive:
+                    _log.info("[RESOURCE_EFFECT] %s: add_ep trigger_attacker unavailable, no targets",
+                              caster.name)
+                for target in _ta_alive:
+                    old_ep = target.current_ep
+                    self.resource_service.generate_ep(target, value)
+                    actual_gain = target.current_ep - old_ep
+                    ep_targets.append({
+                        "target": target.name,
+                        "target_id": target.unit_id,
+                        "amount": actual_gain,
+                        "ep_after": target.current_ep,
+                        "ep_max": target.max_extra_point,
+                    })
+                    _log.info("[RESOURCE_EFFECT] %s -> %s: add_ep +%d (EP=%d/%d)",
+                              caster.name, target.name, actual_gain, target.current_ep, target.max_extra_point)
+            elif effect.target_type in ("ally_all", "self_and_friends", "ally_single", "ally_back", "ally_front", "ally_front_row", "friends", "friend",
+                                        "ally_highest_atk", "ally_single_lowest_hp", "ally_single_highest_damage_dealt"):
                 target_skill_obj = type('obj', (object,), {
                     'display_target_type': self._resolve_target_type(effect.target_type),
                     'display_target_range': self._resolve_target_range(effect.target_type),
@@ -10455,6 +10522,25 @@ class SkillService:
                             alive_targets = [nearest]
                             _log.info("[RESOURCE_EFFECT] %s: add_ep nearest_ally -> %s",
                                       caster.name, nearest.name)
+
+                # ally_highest_atk: 从全体友方候选中过滤攻击力最高者（与_apply_aura同款过滤）
+                if effect.target_type == "ally_highest_atk" and alive_targets:
+                    alive_targets = [max(alive_targets,
+                                         key=lambda u: self.damage_service._calculate_final_stat(u, "attack")
+                                         if self.damage_service else u.attack)]
+                    _log.info("[RESOURCE_EFFECT] %s: add_ep highest_atk filter -> %s",
+                              caster.name, alive_targets[0].name)
+
+                # effect级条件检查（如100187 募る想い的 target_has_mark/target_without_mark）
+                _ep_effect_condition = getattr(effect, 'condition', None)
+                if _ep_effect_condition and isinstance(_ep_effect_condition, dict):
+                    _filtered = [t for t in alive_targets
+                                 if self._check_target_condition(t, _ep_effect_condition)]
+                    if len(_filtered) != len(alive_targets):
+                        _log.info("[RESOURCE_EFFECT] %s: add_ep condition %s filtered %d -> %d targets",
+                                  caster.name, _ep_effect_condition.get('type'),
+                                  len(alive_targets), len(_filtered))
+                    alive_targets = _filtered
 
                 # distribute模式：将EP总值平均分配给目标
                 flags = getattr(effect, 'flags', {}) or {}
@@ -11012,6 +11098,11 @@ class SkillService:
                     for b in target.buffs
                 )
             return has_mark
+        if cond_type == 'target_without_mark':
+            # target_has_mark 的反条件（同样使用技能执行前的mark快照）
+            # 如130187 募る想い「対象が「真心」状態でない場合「真心」を1つ付与し」
+            return not self._check_target_condition(target, {'type': 'target_has_mark',
+                                                             'mark_name': effect_condition.get('mark_name', '')})
         if cond_type == 'target_is_front_row':
             # 检查目标是否为前排
             pos_name = target.position.name if hasattr(target, 'position') else ''
@@ -11095,17 +11186,20 @@ class SkillService:
                  "enemy_back_center_single",
                  "enemy_all_exclude_primary",
                  "attacker_row",
+                 "enemy_single_lowest_hp",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
         if t in ("friends", "friend", "ally_single"):
             return DisplayTargetType.FRIENDS.value
-        if t in ("ally_single_include_self", "ally_single_lowest_hp_x2"):
+        if t in ("ally_single_include_self", "ally_single_lowest_hp_x2",
+                 "ally_single_lowest_hp", "ally_single_highest_damage_dealt"):
             return DisplayTargetType.SELF_AND_FRIENDS.value
         # [GAME_BUG_SIMULATION] 技能「装いを新たに」(110050) 两阶段链式最近索敌
         # 候选池必须含自身（自身在前排时 A=自身），故映射到 SELF_AND_FRIENDS
         if t in ("ally_single_chained_nearest",):
             return DisplayTargetType.SELF_AND_FRIENDS.value
         if t in ("ally_front", "ally_front_row", "ally_back", "ally_column", "ally_row",
+                 "ally_row_exclude_self",
                  "ally_highest_atk", "ally_lowest_atk", "ally_adjacent",
                  "self_and_same_row_allies"):
             return DisplayTargetType.SELF_AND_FRIENDS.value
@@ -11133,10 +11227,15 @@ class SkillService:
                  "enemy_single_lowest_hp_ratio",
                  "enemy_single_highest_mark_count",
                  "enemy_single_lowest_mark_count",
-                 "enemy_back_center_single"): return DisplayTargetRange.ONE_PAWN.value
+                 "enemy_back_center_single",
+                 "enemy_single_lowest_hp",
+                 "ally_single_lowest_hp",
+                 "ally_single_highest_damage_dealt"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
+                 "ally_row_exclude_self",
                  "enemy_back_row", "enemy_front_row",
                  "enemy_row_of_lowest_def",
+                 "enemy_row_of_lowest_mark_count",
                  "enemy_row_highest_atk",
                  "enemy_row_others",
                  "attacker_row"):
@@ -11355,6 +11454,24 @@ class SkillService:
             else:
                 anchor_col = self.target_service._get_column_index(anchor)
                 dmg_targets = [u for u in dmg_targets if self.target_service._get_column_index(u) == anchor_col]
+        elif target_type == "enemy_row_of_lowest_mark_count":
+            # 优先选择指定mark数量最少的敌方所在横一列（120177 軍靴の調べにすくめ！「刻痕」）
+            mark_name = effect_flags.get('mark_priority', '刻痕')
+            def _row_mark_count_aura(u):
+                return sum(1 for b in ((u.buffs or []) + (u.debuffs or []))
+                          if getattr(b, 'name', '') == mark_name
+                          and getattr(b, 'effect_type', '').lower() == 'mark')
+            anchor = self.target_service.select_min_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (_row_mark_count_aura(u), self._get_distance_key(caster, u)),
+                consume=consume_stealth
+            )
+            if anchor is None:
+                dmg_targets = []
+            else:
+                _anchor_front = self.target_service._is_front_row(anchor)
+                dmg_targets = [u for u in dmg_targets
+                               if self.target_service._is_front_row(u) == _anchor_front]
         elif target_type == "enemy_column_highest_atk":
             # 先找攻击力最高的敌方，然后选其所在的列（前后列/纵列）
             anchor = self.target_service.select_max_with_stealth(
@@ -12357,8 +12474,17 @@ class SkillService:
         add_status_info = effect_flags.get('add_status_to_attack', None)
 
         # Calculate sub-unit HP
-        effective_max_hp = self.damage_service._calculate_final_stat(caster, "max_hp")
-        sub_unit_max_hp = int(effective_max_hp * hp_pct / 100.0)
+        # sub_unit_hp_from_damage_pct: HP基于技能已造成的伤害（如100084 めるEX「願い星」
+        # 「与えたダメージの125%分のHP」），优先于默认的 caster maxHP × hp_pct
+        hp_from_damage_pct = effect_flags.get('sub_unit_hp_from_damage_pct', None)
+        if hp_from_damage_pct:
+            recent_dmg = getattr(self, '_most_recent_damage', 0)
+            sub_unit_max_hp = max(1, int(recent_dmg * float(hp_from_damage_pct) / 100.0))
+            _log.info("[SUB_UNIT] %s: sub_unit_hp_from_damage_pct=%s -> HP=%d (recent_damage=%d)",
+                      caster.name, hp_from_damage_pct, sub_unit_max_hp, recent_dmg)
+        else:
+            effective_max_hp = self.damage_service._calculate_final_stat(caster, "max_hp")
+            sub_unit_max_hp = int(effective_max_hp * hp_pct / 100.0)
         if sub_unit_max_hp <= 0:
             sub_unit_max_hp = 1
 
@@ -13225,7 +13351,31 @@ class SkillService:
 
         shield_pct = effect.value or 0
         shield_value = int(recent_dmg * shield_pct / 100)
-        caster.shield += shield_value
+
+        # 目标解析：默认自身；支持任意target_type（如110084 めるEX「最も残りHPの少ない味方単体」）
+        # 优先复用_block_damage_targets缓存（与damage效果共享索敌），否则select_targets
+        sf_target_type = getattr(effect, 'target_type', 'self') or 'self'
+        sf_targets = []
+        if sf_target_type == "self":
+            sf_targets = [caster]
+        else:
+            cached_targets = getattr(self, '_block_damage_targets', None)
+            if cached_targets is not None and isinstance(cached_targets, dict) and sf_target_type in cached_targets:
+                sf_targets = list(cached_targets[sf_target_type])
+                _log.info("[SHIELD_FROM_DMG] %s: using cached targets (%d) for %s",
+                          caster.name, len(sf_targets), sf_target_type)
+            elif self.target_service:
+                sf_skill_obj = type('obj', (object,), {
+                    'display_target_type': self._resolve_target_type(sf_target_type),
+                    'display_target_range': self._resolve_target_range(sf_target_type),
+                    'display_target_priority': self._current_skill_priority,
+                    'target_type_name': sf_target_type,
+                })()
+                sf_targets = self.target_service.select_targets(sf_skill_obj, caster, battlefield)
+        sf_targets = [t for t in sf_targets if t.is_alive]
+        if not sf_targets:
+            _log.info("[SHIELD_FROM_DMG] %s: no valid target for %s, skip", caster.name, sf_target_type)
+            return None
 
         dur = getattr(effect, 'duration', None)
         if dur is None:
@@ -13240,24 +13390,34 @@ class SkillService:
         mapped_effect_type = _JSON_EFFECT_TO_ENUM.get(effect.effect_type, effect.effect_type)
         mapped_effect_type = _MASTERDATA_STATUS_MAP.get(effect.effect_type, mapped_effect_type)
 
-        aura = BuffState(
-            buff_id=f"{caster.unit_id}_{mapped_effect_type}_{caster.unit_id}",
-            name=mapped_effect_type,
-            effect_type=mapped_effect_type,
-            value=shield_value,
-            duration=dur,
-            timing_type=timing,
-            source_unit_id=caster.unit_id,
-            caster_attack=self.damage_service._calculate_final_stat(caster, "attack"),
-            is_debuff=False,
-            shield_amount=shield_value,
-        )
-        self.aura_service.add_aura(caster, aura)
+        applied_shields = []
+        for sf_target in sf_targets:
+            sf_target.shield += shield_value
 
-        _log.info("[SHIELD_FROM_DMG] %s: +shield %d (%.0f%% of %d dmg), total=%d",
-                  caster.name, shield_value, shield_pct, recent_dmg, caster.shield)
+            aura = BuffState(
+                buff_id=f"{caster.unit_id}_{mapped_effect_type}_{sf_target.unit_id}",
+                name=mapped_effect_type,
+                effect_type=mapped_effect_type,
+                value=shield_value,
+                duration=dur,
+                timing_type=timing,
+                source_unit_id=caster.unit_id,
+                caster_attack=self.damage_service._calculate_final_stat(caster, "attack"),
+                is_debuff=False,
+                shield_amount=shield_value,
+            )
+            self.aura_service.add_aura(sf_target, aura)
+
+            _log.info("[SHIELD_FROM_DMG] %s -> %s: +shield %d (%.0f%% of %d dmg), total=%d",
+                      caster.name, sf_target.name, shield_value, shield_pct, recent_dmg, sf_target.shield)
+            applied_shields.append({
+                "target": sf_target.name,
+                "target_id": sf_target.unit_id,
+                "shield_value": shield_value,
+            })
 
         return {
             "effect_type": "shield_from_damage",
+            "targets": applied_shields,
             "shield_value": shield_value,
         }

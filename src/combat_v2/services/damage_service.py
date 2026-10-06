@@ -328,6 +328,23 @@ class DamageService:
         
         # 8. 多Hit + 暴击计算
         hit_count = getattr(skill_data, "hit_count", 1) or 1
+
+        # 动态hit数：按目标持有的mark数追加hit（120176「断罪の時だ！」刻痕1つにつき1ヒット追加、上限+9）
+        _hcpm = getattr(skill_data, "hit_count_per_mark", None)
+        if _hcpm and isinstance(_hcpm, dict) and defender is not None:
+            _hcpm_mark = _hcpm.get('mark_name', '')
+            _hcpm_max_extra = int(_hcpm.get('max_extra', 0) or 0)
+            if _hcpm_mark:
+                _hcpm_cnt = 0
+                for _m in defender.buffs + defender.debuffs:
+                    if (_m.effect_type == SkillEffectType.MARK.value
+                            and getattr(_m, 'name', '') == _hcpm_mark):
+                        _hcpm_cnt += int(getattr(_m, 'stack_count', 1) or 1)
+                _hcpm_extra = min(_hcpm_cnt, _hcpm_max_extra) if _hcpm_max_extra > 0 else _hcpm_cnt
+                if _hcpm_extra > 0:
+                    hit_count += _hcpm_extra
+                    _log.info("[DMG_CALC] %s -> %s: hit_count_per_mark '%s' count=%d extra=%d -> hit_count=%d",
+                              attacker.name, defender.name, _hcpm_mark, _hcpm_cnt, _hcpm_extra, hit_count)
         
         total_damage = 0
         hits = []
@@ -658,37 +675,72 @@ class DamageService:
           返回值为「1.0=100%」单位的小数（如4枚×3=12ポイント=0.12），
           由 _get_crit_damage_bonus 直接加进暴击倍率（1.5+bonus）。
           不能返回 total_pct 原始值（会把12ポイント误当+1200%翻倍暴击伤害，fix: 3x bug）
+        - dealt_damage: 与ダメージ乘区加数（正=增伤，负=减伤），返回 total_pct/100
+        - heal_efficacy: 受疗乘区加数（正=受疗增加），返回 total_pct/100，
+          由 _get_heal_received_multiplier 加进 net（100303「真心」前列 HP回復量+10%/枚）
+        - taken_damage: 被ダメージ乘区加数（**正=减伤**，与 RECEIVED_DAMAGE 乘区
+          「buff=减伤正值」约定一致），返回 total_pct/100，
+          由 _get_damage_received_multiplier 加进 net（100303「真心」前列 被ダメージ-2.5%/枚）
+        规则可选字段 row: "front"/"back" —— 仅当持有者处于对应前后排时该规则生效
+        （100303「真心」按付与された味方の前列/後列編成切换加成组；站位战斗中不变）
         """
         total_pct = 0.0
         seen_rules = set()  # 同名mark_stat_bonusのcarrierが複数あっても1回だけ適用
         for b in unit.buffs + unit.debuffs:
             msb = getattr(b, 'mark_stat_bonus', None)
-            if not msb or not isinstance(msb, dict):
+            if not msb:
                 continue
-            if msb.get('stat', 'attack') != stat_name:
-                continue
-            mark_name = msb.get('mark_name', '')
-            per_pct = float(msb.get('per_mark_pct', 0) or 0)
-            max_marks = int(msb.get('max_marks', 0) or 0)
-            if not mark_name or per_pct == 0:
-                continue
-            rule_key = (mark_name, stat_name, per_pct, max_marks)
-            if rule_key in seen_rules:
-                continue
-            seen_rules.add(rule_key)
-            cnt = 0
-            for m in unit.buffs + unit.debuffs:
-                if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
-                    cnt += int(getattr(m, 'stack_count', 1) or 1)
-            if max_marks > 0:
-                cnt = min(cnt, max_marks)
-            total_pct += per_pct * cnt
+            # 支持单规则(dict)或多规则(list of dict)：如「刻痕」同时降低攻撃力与与ダメージ
+            rules = msb if isinstance(msb, list) else [msb]
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                if rule.get('stat', 'attack') != stat_name:
+                    continue
+                # row 条件：规则仅对持有者对应前后排生效（如「真心」前列/後列两组加成）
+                rule_row = rule.get('row')
+                if rule_row:
+                    pos_name = getattr(getattr(unit, 'position', None), 'name', '') or ''
+                    is_front = 'FRONT' in pos_name
+                    if rule_row == 'front' and not is_front:
+                        continue
+                    if rule_row == 'back' and is_front:
+                        continue
+                mark_name = rule.get('mark_name', '')
+                per_pct = float(rule.get('per_mark_pct', 0) or 0)
+                max_marks = int(rule.get('max_marks', 0) or 0)
+                if not mark_name or per_pct == 0:
+                    continue
+                rule_key = (mark_name, stat_name, per_pct, max_marks, rule_row)
+                if rule_key in seen_rules:
+                    continue
+                seen_rules.add(rule_key)
+                cnt = 0
+                for m in unit.buffs + unit.debuffs:
+                    if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
+                        cnt += int(getattr(m, 'stack_count', 1) or 1)
+                if max_marks > 0:
+                    cnt = min(cnt, max_marks)
+                total_pct += per_pct * cnt
         if total_pct == 0:
             return 0.0
         # crit_damage は絶対ポイントとして加算（per_mark_pct をポイントとみなす）
         # 但返回值必须是「1.0=100%」单位（/100），与attack路径返回绝对值加数的语义对齐。
         if stat_name == "crit_damage":
             _log.info("[DMG_CALC] %s mark_stat_bonus crit_damage: +%.1f pts", unit.name, total_pct)
+            return total_pct / 100.0
+        # dealt_damage: 与ダメージ乘区的加数（1.0=100%单位，正=增伤，负=减伤）
+        # 如「刻痕」per_mark_pct=-5 → 每枚 -0.05，由 _get_damage_dealt_multiplier 加进 mult
+        if stat_name == "dealt_damage":
+            _log.info("[DMG_CALC] %s mark_stat_bonus dealt_damage: %.1f%%", unit.name, total_pct)
+            return total_pct / 100.0
+        # heal_efficacy: 受疗乘区加数（正=受疗增加）
+        if stat_name == "heal_efficacy":
+            _log.info("[DMG_CALC] %s mark_stat_bonus heal_efficacy: +%.2f%%", unit.name, total_pct)
+            return total_pct / 100.0
+        # taken_damage: 被ダメージ乘区加数（正=减伤，与RECEIVED_DAMAGE乘区buff约定一致）
+        if stat_name == "taken_damage":
+            _log.info("[DMG_CALC] %s mark_stat_bonus taken_damage: %.2f%%", unit.name, total_pct)
             return total_pct / 100.0
         base_val = getattr(unit, stat_name, 0)
         _log.info("[DMG_CALC] %s mark_stat_bonus %s: +%.1f%% (base=%d -> +%.0f)",
@@ -799,6 +851,10 @@ class DamageService:
                         _log.info("[DMG_DEALT_COND] %s: %s skipped (defender hp_pct=%.4f <= attacker=%.4f)",
                                   unit.name, buff.name, defender_hp_pct, attacker_hp_pct)
 
+        # mark_stat_bonus(dealt_damage): 「刻痕」等mark按层降低/提升持有者的与ダメージ
+        # per_mark_pct=-5 → mult 累加 -0.05×层数，实现「1つにつき与ダメージ5%減少」
+        mult += self._calc_mark_stat_bonus(unit, 'dealt_damage')
+
         return 1.0 + mult
 
     def _get_damage_received_multiplier(self, unit: UnitState, damage_element: int = 0,
@@ -822,6 +878,10 @@ class DamageService:
                 unit.buffs, unit.debuffs, target_type, damage_element, unit=unit, attacker=attacker)
         else:
             net = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_type, unit=unit, attacker=attacker)
+
+        # mark_stat_bonus(taken_damage): 「真心」等mark按层数减伤（100303前列-2.5%/枚）
+        # 正值=减伤（与buff约定一致，net增加→result=1-net减小）
+        net += self._calc_mark_stat_bonus(unit, 'taken_damage')
 
         # 条件性dmg_taken_down buff：根据攻击者与受击者HP比例关系决定是否生效
         # - attacker_hp_ratio_gt_self: 仅当攻击者HP比例高于受击者时生效 (130103)
@@ -856,6 +916,8 @@ class DamageService:
         """
         target_type = SkillEffectType.RECEIVED_HEALING.value
         net = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, target_type)
+        # mark_stat_bonus(heal_efficacy): 「真心」等mark按层数提升受疗（100303前列+10%/枚）
+        net += self._calc_mark_stat_bonus(unit, 'heal_efficacy')
         result = max(0.0, 1.0 + net)
         _log.info("[HEAL_RCVD] %s: heal_efficacy net=%.4f result=%.4f",
                   unit.name, net, result)

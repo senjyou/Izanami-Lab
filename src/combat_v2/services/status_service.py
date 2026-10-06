@@ -124,7 +124,14 @@ class StatusService:
 
                 # 根据heal_base计算治疗基数
                 hot_heal_base = getattr(buff, 'heal_base', '') or 'atk'
-                if hot_heal_base == 'max_hp':
+                hot_snapshot = getattr(buff, 'hot_base_snapshot', -1)
+                if hot_snapshot is not None and hot_snapshot >= 0:
+                    # 快照模式: 按「効果付与時」固定基数计算（实时HP变化不影响）
+                    # 如120176「効果付与時の不足HPの{cure}%を継続回復」
+                    heal = int(hot_snapshot * buff.value / 100)
+                    _log.info("[STATUS] %s REGEN: snapshot base=%d x %.1f%% = %d (heal_base=%s)",
+                              unit.name, hot_snapshot, buff.value, heal, hot_heal_base)
+                elif hot_heal_base == 'max_hp':
                     heal = int(unit.max_hp * buff.value / 100)
                 elif hot_heal_base == 'lost_hp':
                     lost_hp = unit.max_hp - unit.current_hp

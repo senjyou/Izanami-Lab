@@ -289,6 +289,12 @@
       "name_ruby": "おるが&なーじゃ",
       "team_id": 601,
       "team_name": "クラスナ"
+    },
+    "147": {
+      "name": "ニーナ／ジーナ・ミーシナ",
+      "name_ruby": "にーな／じーなみーしな",
+      "team_id": 601,
+      "team_name": "クラスナ"
     }
   },
   "character_variants": {
@@ -299,6 +305,10 @@
       },
       {
         "character_id": 100301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 100303,
         "rarity": "N/A"
       }
     ],
@@ -657,6 +667,12 @@
     "500": [
       {
         "character_id": 500301,
+        "rarity": "N/A"
+      }
+    ],
+    "147": [
+      {
+        "character_id": 147301,
         "rarity": "N/A"
       }
     ]

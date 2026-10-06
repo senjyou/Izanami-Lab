@@ -330478,5 +330478,38 @@
       "230433": 10,
       "230434": 10
     }
+  },
+  "283105": {
+    "enemy_id": 283105,
+    "name": "惨禍：榊野ヒイロ",
+    "asset_id": "115302",
+    "hp": 371172,
+    "attack": 9991,
+    "defense": 6058,
+    "speed": 707,
+    "hp_grade": 4,
+    "attack_grade": 3,
+    "defense_grade": 4,
+    "speed_grade": 5,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 1,
+    "type": 3,
+    "role_type": 1,
+    "rarity": 9,
+    "skill_ids": [
+      210126,
+      220464,
+      220465,
+      230494,
+      230495
+    ],
+    "skill_levels": {
+      "210126": 10,
+      "220464": 10,
+      "220465": 10,
+      "230494": 10,
+      "230495": 10
+    }
   }
 }

@@ -1714,5 +1714,38 @@
     ],
     "position": 5,
     "party_id": 400245
+  },
+  "283105": {
+    "enemy_id": 283105,
+    "name": "惨禍：榊野ヒイロ",
+    "character_name": "榊野ヒイロ",
+    "asset_id": "115302",
+    "hp": 371172,
+    "attack": 9991,
+    "defense": 6058,
+    "speed": 707,
+    "hp_grade": 4,
+    "attack_grade": 3,
+    "defense_grade": 4,
+    "speed_grade": 5,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 1,
+    "type": 3,
+    "role_type": 1,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 202,
+    "skill_ids": [
+      210126,
+      220464,
+      220465,
+      230494,
+      230495
+    ],
+    "position": 2,
+    "party_id": 400265
   }
 }

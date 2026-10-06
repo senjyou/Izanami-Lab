@@ -492,6 +492,48 @@ class TargetService:
                       [(u.name, u.current_hp) for u in result])
             return result
 
+        # 100303 める: 最も残りHPの少ない味方単体（残りHP绝对值，非比例）
+        if target_type_name == 'ally_single_lowest_hp':
+            if not ordered:
+                return []
+            # 按当前HP升序排序（同HP按距离），取首位；友方目标不触发stealth
+            sorted_by_hp = sorted(ordered, key=lambda u: (u.current_hp, self._get_sort_key(caster, u)))
+            result = sorted_by_hp[:1]
+            _log.info("[TARGET]   ally_single_lowest_hp: -> %s",
+                      [(u.name, u.current_hp) for u in result])
+            return result
+
+        # 100303 める: 最も残りHPの少ない敵単体（残りHP绝对值，非比例）
+        if target_type_name == 'enemy_single_lowest_hp':
+            if not ordered:
+                return []
+            # 按当前HP升序排序（同HP按距离），应用ステルス重定向，取首位
+            sorted_by_hp = sorted(ordered, key=lambda u: (u.current_hp, self._get_sort_key(caster, u)))
+            self.apply_stealth_redirection(sorted_by_hp, consume=True)
+            result = sorted_by_hp[:1]
+            _log.info("[TARGET]   enemy_single_lowest_hp: -> %s",
+                      [(u.name, u.current_hp) for u in result])
+            return result
+
+        # 100303 める: 自身以外を優先し、最も累計与ダメージの多い味方単体
+        # 优先非自身（有其他存活友方时排除自身），按 damage_dealt_total 降序，同值按距离
+        if target_type_name == 'ally_single_highest_damage_dealt':
+            if not ordered:
+                return []
+            pool = [u for u in ordered if u.is_alive and u.unit_id != caster.unit_id]
+            if not pool:
+                pool = [u for u in ordered if u.is_alive]
+            if not pool:
+                return []
+            sorted_by_dealt = sorted(
+                pool,
+                key=lambda u: (-getattr(u, 'damage_dealt_total', 0), self._get_sort_key(caster, u)))
+            result = sorted_by_dealt[:1]
+            _log.info("[TARGET]   ally_single_highest_damage_dealt: -> %s (dealt=%s)",
+                      [(u.name, u.current_hp) for u in result],
+                      [getattr(u, 'damage_dealt_total', 0) for u in result])
+            return result
+
         if r_type == DisplayTargetRange.ONE_PAWN:
             # ステルス消費：第一優先対象がステルス所持時、末尾に移動してステルス消費
             # (S6 土雷 220362: stealth 2 actions → 2回の単体攻撃対象選択を回避)
@@ -513,6 +555,14 @@ class TargetService:
                 caster_is_front = self._is_front_row(caster)
                 result = [u for u in candidates if self._is_front_row(u) == caster_is_front]
                 _log.info("[TARGET]   LINE: ally_row -> same row as caster (%s, %d units): %s",
+                          "FRONT" if caster_is_front else "BACK", len(result), [u.name for u in result])
+                return result
+            # ally_row_exclude_self: 与施法者同排的「他の味方」（排除自身，如130182 Lv11+ 同横一列の他の味方）
+            if target_type_name == 'ally_row_exclude_self':
+                caster_is_front = self._is_front_row(caster)
+                result = [u for u in candidates
+                          if self._is_front_row(u) == caster_is_front and u.unit_id != caster.unit_id]
+                _log.info("[TARGET]   LINE: ally_row_exclude_self -> same row excl. self (%s, %d units): %s",
                           "FRONT" if caster_is_front else "BACK", len(result), [u.name for u in result])
                 return result
             # ally_front: 仅返回正前方单一单位（如再起律動的代疗对象）

@@ -64,6 +64,7 @@ class BuffState:
     block_debuffs: bool = False  # BlockBuffByType扩展: True=阻止全debuff新付与（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
     block_buffs: bool = False  # BlockBuffByType扩展: True=阻止全buff新付与（如230169 バフシャット「対象に向けられるバフを無効にする」）
     heal_base: str = ""  # HOT专用: 治疗基数来源（"atk"/"max_hp"/"lost_hp"），空=默认atk
+    hot_base_snapshot: int = -1  # HOT快照基数: >=0时按付与瞬间的基数固定计算（-1=无快照，每tick实时计算）。如120176「効果付与時の不足HP」
     skip_restore: bool = False  # 跳过恢复逻辑: 当次行动新施加的buff在行动结束时正常递减duration（如「再起律動」)
     just_applied: bool = False  # 当次行动中由add_aura施加/刷新/忽略的buff标记，process_maneuver_end跳过递减
     confusion_dmg_reduction: float = 0.0  # 混乱专用: 伤害减免百分比（如50表示减免50%）

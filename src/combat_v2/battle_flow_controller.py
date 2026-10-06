@@ -3744,6 +3744,16 @@ class BattleFlowController:
             _log.info("[MEMORY]     skill=%d [%s] on_any_kill 目标 %s 持有「%s」mark，触发",
                       skill_id, skill_name, getattr(target, 'name', '?'), required_mark)
 
+        # require_highlight_match 前置条件：highlight 未命中任何单位时，整个技能不发动
+        # （如400246「榊野ヒイロ[疾走する自由の孤狼]が編成されていない場合、このスキルは発動しない」）
+        # 必要性：该技能含「他の味方全体」block，若仅靠 highlight_targets 无匹配自然跳过，
+        # 第二block仍会生效给全员付与mark，与描述不符
+        if trigger.get("require_highlight_match"):
+            if not self._resolve_memory_card_targets(highlight):
+                _log.info("[MEMORY]     skill=%d [%s] highlight 无匹配单位，技能不发动（require_highlight_match）",
+                          skill_id, skill_name)
+                return True  # 已处理（不发动），不回退旧路径
+
         blocks = effect_data.get("blocks", [])
         if not blocks:
             _log.info("[MEMORY]     skill=%d 无blocks定义，回退旧路径", skill_id)

@@ -1980,6 +1980,24 @@ class TriggerService:
                       owner.name, actor.name, self._is_back_row(actor), result)
             return result
 
+        if cond_type == "self_is_front_row":
+            # 自身（PS持有者）必须编成在前排（130183 我が雄姿を見よ！「自身が前列に編成されていない場合、このスキルは発動しない」）
+            result = not self._is_back_row(owner)
+            _log.info("[TRIGGER_COND] %s: self_is_front_row => %s", owner.name, result)
+            return result
+
+        if cond_type == "actor_is_same_row":
+            # 触发攻击的友方（actor）必须与PS持有者同排（130183「自身と同じ横一列の他の味方」）
+            actor = context.actor
+            if actor is None:
+                return False
+            if actor.unit_id == owner.unit_id:
+                return False  # 「他の味方」排除自身
+            result = self._is_back_row(actor) == self._is_back_row(owner)
+            _log.info("[TRIGGER_COND] %s: actor_is_same_row actor=%s same_row=%s => %s",
+                      owner.name, actor.name, result, result)
+            return result
+
         if cond_type == "is_debuff":
             # For PAWN_RECEIVED_AURA trigger: check if the applied aura is a debuff
             result = bool(val)

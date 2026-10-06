@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261006T181229726Z-22660-8f1b5c4427dc",
+  "runId": "20261006T181229726Z-22660-8f1b5c4427dc",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "b5278c90e47efedd2b64840442aa59d28c4ce980",
+  "diffHash": "704f08a07a52fe06d4458559ac6910016cd6fdea7a64e8a9b5b7b5717a7b96d4",
+  "rulesVersion": "unavailable",
+  "sessionHash": "3b56a98d6285a9badca77f398fadd457bcaa0e09368d3a0ef51517f01006a9ae",
+  "reportRef": ".mimosa/reports/task-review-sess_7412a406-60c4-4f86-b81b-de1096f01b45-20261006T181229726Z-22660-8f1b5c4427dc.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "tests/test_memory_20093_effects.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-06T18:12:30.008Z"
+}
