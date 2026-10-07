@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261007T142256243Z-50936-576834e27a32",
+  "runId": "20261007T142256243Z-50936-576834e27a32",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "tests/unit/test_account_manager.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "src/utils/account_manager.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "gui/dialogs/account_dialog.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "tests/unit/test_account_manager.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "src/utils/account_manager.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "gui/dialogs/account_dialog.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "f034353b1af4450c90d9eb7d269b76acfad3375c",
+  "diffHash": "d16d017fbdbf2d0bd19370cc56b836ff031631b390c3e1825ec07a8677b865fc",
+  "rulesVersion": "unavailable",
+  "sessionHash": "4519422682351e254bd8d0e7485f4e626d3770ff4be348c6fe9aa2c859b2ef2a",
+  "reportRef": ".mimosa/reports/task-review-sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3-20261007T142256243Z-50936-576834e27a32.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-0993d7ff038106d06179b683",
+    "mimosa-34d4d6c1544880e22c792574",
+    "mimosa-697e994518188bed80ac142a",
+    "mimosa-56d824f46753d4800f29e62e",
+    "mimosa-e6a78d810c5d4edad072177c"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/combat_v2/services/damage_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/rdps_tracker.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/regression/test_reg_rdps_element_buff_attribution.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui_app.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/unit/test_account_manager.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/account_manager.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/app.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/constants.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/utils.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/dialogs/account_dialog.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-07T14:22:56.566Z"
+}

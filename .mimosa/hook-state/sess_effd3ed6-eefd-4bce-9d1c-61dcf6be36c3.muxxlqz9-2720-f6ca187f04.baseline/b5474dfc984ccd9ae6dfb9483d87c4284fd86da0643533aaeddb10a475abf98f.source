@@ -1,9 +1,0 @@
-namespace Assets.Api.Client;
-
-public enum CharacterTypes
-{
-	Unknown = 0,
-	Physical = 1,
-	Energy = 2,
-	Agility = 3
-}

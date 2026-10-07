@@ -623,7 +623,7 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
             out.append(_build_rdps_summary(rdps_avg))
             tables.extend(_build_rdps_tables(rdps_avg))
 
-        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        # 特殊备注信息（心色EX / 隣歩む想いAS2 追踪）
         if score_stats:
             all_scores = score_stats.get("all_scores", [])
             n = len(all_scores) if all_scores else 0
@@ -752,7 +752,7 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
             out.append(_build_rdps_summary(rdps_data))
             tables.extend(_build_rdps_tables(rdps_data))
 
-        # 特殊备注信息（心色見つめるムードメーカー EX追踪）
+        # 特殊备注信息（心色EX / 隣歩む想いAS2 追踪）
         notes_lines = _format_special_notes_single(special_notes)
         if notes_lines:
             out.append("")

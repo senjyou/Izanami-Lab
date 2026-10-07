@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261007T162049703Z-48416-7dd15bc101a0",
+  "runId": "20261007T162049703Z-48416-7dd15bc101a0",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_partial",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline_partial: baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "f034353b1af4450c90d9eb7d269b76acfad3375c",
+  "diffHash": "61367265762a46c00b0207d0bb4e25ec85a9d43e51ac4166f57ffe6140572d8d",
+  "rulesVersion": "unavailable",
+  "sessionHash": "8d6a5b4c7f95c06c36c6fad80d4bacf1a9fde803e8dec26a97edfbe16cef1179",
+  "reportRef": ".mimosa/reports/task-review-sess_0957a2df-49b5-4eb3-b15f-9265a1ad5e38-20261007T162049703Z-48416-7dd15bc101a0.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-594843ee485bdc98fe5f3c15",
+    "mimosa-8b303016dfbc3d18cc486f7e",
+    "mimosa-e384264bf915bec77ee80a8e",
+    "mimosa-c894cf50986fb5726dea102c"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "tests/regression/test_reg_magokoro_as2_target_notes.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/tabs/circle_battle.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/tabs/composite_tactic.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/tabs/tactical_exercise.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/tabs/team_battle.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-07T16:20:50.019Z"
+}

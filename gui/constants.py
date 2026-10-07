@@ -7,6 +7,7 @@
 from pathlib import Path
 
 from src.entities_v2.enums import Position
+from src.utils.account_manager import AccountRegistry
 
 from .utils import get_base_path, get_user_data_path
 
@@ -14,6 +15,9 @@ from .utils import get_base_path, get_user_data_path
 # ─────────────────── 基础路径 ───────────────────
 
 _BASE_PATH = get_base_path()
+# 应用根（固定）：存放注册表 accounts.json、全局 ui_config.json、update/ 状态
+APP_DATA_ROOT = AccountRegistry.default_app_root()
+# 当前账号的配置目录（随注册表 current 切换）
 _USER_DATA = get_user_data_path()
 
 
@@ -42,12 +46,12 @@ ENEMY_SLOT_POSITION_MAP = {
 # ─────────────────── 战术演习敌方白名单 ───────────────────
 
 # 用户模式下可选的敌方ID（经过debug验证可正常模拟的单位）
-ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205, 713405, 722305, 652105, 152205, 161418, 242305, 361215, 293405, 451305, 463105, 283105, 761305}
+ALLOWED_ENEMY_IDS = {232315, 672105, 682205, 703405, 201405, 163205, 713405, 722305, 652105, 152205, 161418, 242305, 361215, 293405, 451305, 463105, 283105, 761305, 381305, 772405}
 
 # 当期敌方数量（取JSON文件最后添加的N个为当期敌方，其余为往期）
-# 当期敌方：283105（惨禍：榊野ヒイロ）、761305（惨禍：ニーナ／ジーナ・ミーシナ）
-# ——本期4名中已导入2名，其余2名导入后逐步调大
-CURRENT_EXERCISE_ENEMY_COUNT = 2
+# 当期敌方：283105（惨禍：榊野ヒイロ）、761305（惨禍：ニーナ／ジーナ・ミーシナ）、
+#          381305（惨禍：鳴滝七彩）、772405（惨禍：オルガ＆ナージャ）
+CURRENT_EXERCISE_ENEMY_COUNT = 4
 
 # 敌方ID → 同名角色ID（用于获取头像）
 ENEMY_AVATAR_MAP = {
@@ -82,6 +86,8 @@ ENEMY_AVATAR_MAP = {
     463105: 120302,   # 惨禍：ロージー・ヒューズ（蠱惑のキャンペーンガール）
     283105: 115302,   # 惨禍：榊野ヒイロ（疾走する自由の孤狼）
     761305: 147301,   # 惨禍：ニーナ／ジーナ・ミーシナ（ニーナ／ジーナ・ミーシナ）
+    381305: 101302,   # 惨禍：鳴滝七彩（鳴滝七彩）
+    772405: 500301,   # 惨禍：オルガ＆ナージャ（オルガ＆ナージャ）
 }
 
 
@@ -187,7 +193,8 @@ COMPOSITE_PRESET_DIR = _USER_DATA / "composite_presets"
 GLOBAL_CONFIG_PATH = _USER_DATA / "global_config.json"
 CHAR_CONFIG_PATH = _USER_DATA / "char_config.json"
 CRIT_SEQUENCE_DIR = _USER_DATA / "crit_sequences"
-UI_CONFIG_PATH = _USER_DATA / "ui_config.json"
+# ui_config（主题/开发者模式）全局化：不随账号切换
+UI_CONFIG_PATH = APP_DATA_ROOT / "ui_config.json"
 
 
 # ─────────────────── 图片资源目录 ───────────────────

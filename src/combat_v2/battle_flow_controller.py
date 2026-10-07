@@ -36,6 +36,10 @@ _log = battle_logger()
 _MOODMAKER_EX_SKILL_ID = 110069
 _MOODMAKER_CHAR_BASE_ID = 145  # character_id // 1000 == 145
 
+# 100303 隣歩む想い 的 AS2技能 ID「献身的な愛」（真心付与对象追踪）
+_MAGOKORO_AS2_SKILL_ID = 120181
+_MAGOKORO_CHAR_ID = 100303  # 隣歩む想い（base 100 下有多个角色，必须精确匹配）
+
 
 class BattleConfig:
     def __init__(self, max_turns: int = 15, enable_rdps: bool = True,
@@ -106,6 +110,9 @@ class BattleFlowController:
 
         # 追踪 心色見つめるムードメーカー EX技能110069「あったかいの、どうぞ♪」的目标选择
         self._ex_target_notes: list = []
+
+        # 追踪 100303隣歩む想い AS2技能120181「献身的な愛」的目标选择
+        self._as2_target_notes: list = []
 
         # 为 RDPS 追踪器注入 damage_service 和 battlefield 引用
         if self._rdps_tracker is not None:
@@ -217,7 +224,7 @@ class BattleFlowController:
             "score": score_result.to_dict(),
         }
 
-        # 构建特殊备注信息（心色見つめるムードメーカー EX技能追踪）
+        # 构建特殊备注信息（心色EX / 隣歩む想いAS2 等多角色追踪）
         result_dict["special_notes"] = self._build_special_notes()
 
         # 构建 RDPS 结果（若启用）
@@ -262,29 +269,75 @@ class BattleFlowController:
                 return u
         return None
 
-    def _build_special_notes(self) -> Optional[Dict[str, Any]]:
-        """构建特殊备注信息：心色見つめるムードメーカー EX技能追踪。
+    def _track_magokoro_as2_targets(self, skill_result: Dict[str, Any]):
+        """追踪100303隣歩む想い AS2技能120181「献身的な愛」的目标选择。
 
-        返回结构:
-            {
-                "char_name": str,
-                "ex_skill_name": str,
-                "ex_uses": [{"targets": [str, ...]}, ...],  # 每次EX使用的目标列表
-                "died": bool,        # 角色是否阵亡
-                "used_ex": bool,     # 是否使用过EX
-            }
-        若角色不在己方阵容则返回 None。
+        从 skill_result 的 effects_applied 中提取 mark（标记「真心」）效果的目标名（去重），
+        记录到 _as2_target_notes 列表（每次使用一条，目标可能为空如黑暗MISS时）。
+        该技能使用频率高，GUI按目标聚合展示使用序号，此处保持逐次记录的原始数据。
         """
+        targets = []
+        seen_ids = set()
+        for applied in skill_result.get("effects_applied", []):
+            if applied.get("effect_type") != "aura":
+                continue
+            for aura in applied.get("auras", []):
+                # 献身的な愛的非self效果均为对同一友方单体（真心/回避/必中），以mark效果为准
+                if not str(aura.get("effect", "")).startswith("标记「"):
+                    continue
+                tid = aura.get("target_id")
+                tname = aura.get("target")
+                if tname and tid not in seen_ids:
+                    seen_ids.add(tid)
+                    targets.append(tname)
+        self._as2_target_notes.append({"targets": targets})
+
+    def _find_magokoro_char(self) -> Optional[UnitState]:
+        """查找己方阵容中的隣歩む想い（character_id == 100303）。"""
+        for u in self.battlefield.friend_team:
+            if getattr(u, 'character_id', 0) == _MAGOKORO_CHAR_ID:
+                return u
+        return None
+
+    def _build_special_notes(self) -> Optional[Dict[str, Any]]:
+        """构建特殊备注信息（多角色追踪，按在场角色生成）。
+
+        返回结构（无任何追踪角色在场时为 None）:
+            {
+                "moodmaker_ex": {  # 心色見つめるムードメーカー EX技能追踪
+                    "char_name": str,
+                    "ex_skill_name": str,
+                    "ex_uses": [{"targets": [str, ...]}, ...],  # 每次EX使用的目标列表
+                    "died": bool,        # 角色是否阵亡
+                    "used_ex": bool,     # 是否使用过EX
+                },
+                "magokoro_as2": {  # 100303隣歩む想い AS2技能追踪
+                    "char_name": str,
+                    "skill_name": str,   # 献身的な愛
+                    "skill_uses": [{"targets": [str, ...]}, ...],  # 每次AS2使用的目标列表
+                    "used_skill": bool,  # 是否使用过AS2
+                },
+            }
+        """
+        notes: Dict[str, Any] = {}
         moodmaker = self._find_moodmaker()
-        if not moodmaker:
-            return None
-        return {
-            "char_name": moodmaker.name,
-            "ex_skill_name": "あったかいの、どうぞ♪",
-            "ex_uses": list(self._ex_target_notes),
-            "died": not moodmaker.is_alive,
-            "used_ex": len(self._ex_target_notes) > 0,
-        }
+        if moodmaker:
+            notes["moodmaker_ex"] = {
+                "char_name": moodmaker.name,
+                "ex_skill_name": "あったかいの、どうぞ♪",
+                "ex_uses": list(self._ex_target_notes),
+                "died": not moodmaker.is_alive,
+                "used_ex": len(self._ex_target_notes) > 0,
+            }
+        magokoro = self._find_magokoro_char()
+        if magokoro:
+            notes["magokoro_as2"] = {
+                "char_name": magokoro.name,
+                "skill_name": "献身的な愛",
+                "skill_uses": list(self._as2_target_notes),
+                "used_skill": len(self._as2_target_notes) > 0,
+            }
+        return notes or None
 
     def _execute_turn(self, turn_number: int) -> bool:
         _log.info("[TURN] ==================================================")
@@ -584,6 +637,11 @@ class BattleFlowController:
         # 追踪 心色見つめるムードメーカー EX技能110069 的目标选择
         if selected_skill == _MOODMAKER_EX_SKILL_ID and skill_result.get("success"):
             self._track_moodmaker_ex_targets(skill_result)
+
+        # 追踪 100303隣歩む想い AS2技能120181「献身的な愛」的目标选择
+        if (selected_skill == _MAGOKORO_AS2_SKILL_ID and skill_result.get("success")
+                and getattr(unit, 'character_id', 0) == _MAGOKORO_CHAR_ID):
+            self._track_magokoro_as2_targets(skill_result)
 
         # Guard cleanup: AS技能执行完毕后立即清理由该攻击者触发的Guard buff
         # Guard效果只在触发它的那次技能攻击中生效，后续PS技能不应享受Guard减伤

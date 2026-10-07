@@ -330544,5 +330544,71 @@
       "230496": 10,
       "230497": 10
     }
+  },
+  "381305": {
+    "enemy_id": 381305,
+    "name": "惨禍：鳴滝七彩",
+    "asset_id": "101302",
+    "hp": 420063,
+    "attack": 10663,
+    "defense": 6155,
+    "speed": 552,
+    "hp_grade": 5,
+    "attack_grade": 3,
+    "defense_grade": 3,
+    "speed_grade": 3,
+    "critical_rate": 0.12999999523162842,
+    "critical_rate_grade": 2,
+    "attribute": 3,
+    "type": 1,
+    "role_type": 3,
+    "rarity": 9,
+    "skill_ids": [
+      210129,
+      220470,
+      230500,
+      230501,
+      230502
+    ],
+    "skill_levels": {
+      "210129": 10,
+      "220470": 10,
+      "230500": 10,
+      "230501": 10,
+      "230502": 10
+    }
+  },
+  "772405": {
+    "enemy_id": 772405,
+    "name": "惨禍：オルガ＆ナージャ",
+    "asset_id": "500301",
+    "hp": 550453,
+    "attack": 8685,
+    "defense": 6791,
+    "speed": 619,
+    "hp_grade": 5,
+    "attack_grade": 2,
+    "defense_grade": 3,
+    "speed_grade": 4,
+    "critical_rate": 0.23000000417232513,
+    "critical_rate_grade": 4,
+    "attribute": 4,
+    "type": 2,
+    "role_type": 5,
+    "rarity": 9,
+    "skill_ids": [
+      210128,
+      220468,
+      220469,
+      230498,
+      230499
+    ],
+    "skill_levels": {
+      "210128": 10,
+      "220468": 10,
+      "220469": 10,
+      "230498": 10,
+      "230499": 10
+    }
   }
 }

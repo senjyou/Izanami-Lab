@@ -621,6 +621,9 @@ class DamageService:
             "received_mult": damage_received_mult,
             "guard_mult": guard_mult,
             "hp_scaling": hp_scaling_factor,
+            # 伤害属性（1=物理/2=EN，随攻击者character_type）：供RDPS归因按属性过滤
+            # DealtDamage/ReceivedDamage乘区buff（如回忆卡30037的物理/EN各1.75%增伤）
+            "damage_element": skill_damage_element,
         }
 
         return DamageResult(

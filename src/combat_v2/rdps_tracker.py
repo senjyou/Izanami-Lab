@@ -442,15 +442,19 @@ class RDPSTracker:
             baseline_crit_factor = 1.0
 
         # === 给予伤害乘区 ===
-        enemy_dealt_pct = damage_service._aggregate_buff_value_signed(
+        # 伤害属性（1=物理/2=EN）：与damage_service结算同规则过滤DealtDamage乘区buff
+        # （如回忆卡30037的物理/EN各1.75%——物理攻击不应计入EN专属buff，
+        #   否则基线偏高、归因权重池失真：EN buff会被错误分摊物理攻击的share）
+        damage_element = calc.get("damage_element", 0) or 0
+        enemy_dealt_pct = damage_service._aggregate_buff_value_signed_filtered(
             enemy_only(caster.buffs, caster), enemy_only(caster.debuffs, caster),
-            SET.DEALT_DAMAGE.value, unit=caster)
+            SET.DEALT_DAMAGE.value, damage_element=damage_element, unit=caster)
         baseline_dealt_mult = 1.0 + enemy_dealt_pct
 
         # === 受击伤害乘区（公式: 1 - net） ===
-        enemy_received_net = damage_service._aggregate_buff_value_signed(
+        enemy_received_net = damage_service._aggregate_buff_value_signed_filtered(
             enemy_only(target.buffs, caster), enemy_only(target.debuffs, caster),
-            SET.RECEIVED_DAMAGE.value, unit=target, attacker=caster)
+            SET.RECEIVED_DAMAGE.value, damage_element=damage_element, unit=target, attacker=caster)
         baseline_received_mult = max(0.0, 1.0 - enemy_received_net)
 
         # === 计算 baseline_ally ===
@@ -516,18 +520,24 @@ class RDPSTracker:
             # 触发 fallback 将同一 share 再计入 direct_damage。
             # mark_stat_bonus 的 dealt_damage（如「真心」+10%/枚）同样参与实际
             # dealt 乘区，必须作为伪源归因到 mark 授予者，否则泄漏给 DealtDamage buff。
+            # damage_element：按攻击属性过滤乘区buff（如回忆卡30037物理/EN各1.75%），
+            # 物理攻击不得把EN专属buff计入归因权重池（与damage_service结算过滤同规则）。
+            damage_element = calc.get("damage_element", 0) or 0
             self._attribute_buffs_by_value(
                 caster, caster.buffs, caster.debuffs,
                 SET.DEALT_DAMAGE.value,
                 share, "buff_contribution", "dealt_dmg_contribution",
                 battlefield, damage_service,
-                mark_stat_name="dealt_damage")
+                mark_stat_name="dealt_damage",
+                damage_element=damage_element)
         elif zone_name == "received":
+            damage_element = calc.get("damage_element", 0) or 0
             self._attribute_buffs_by_value(
                 caster, target.buffs, target.debuffs,
                 SET.RECEIVED_DAMAGE.value,
                 share, "debuff_contribution", "received_dmg_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                damage_element=damage_element)
 
     def _attribute_atk_def_penetrate(self, caster: 'UnitState', target: 'UnitState',
                                      share: float, baseline: dict, calc: dict,
@@ -637,7 +647,8 @@ class RDPSTracker:
                                   base_stat_unit: Optional['UnitState'] = None,
                                   debuff_effect_type: Optional[str] = None,
                                   debuff_contribution_field: Optional[str] = None,
-                                  mark_stat_name: Optional[str] = None):
+                                  mark_stat_name: Optional[str] = None,
+                                  damage_element: int = 0):
         """按 buff 值比例归因到具体施加者
 
         Args:
@@ -661,10 +672,19 @@ class RDPSTracker:
         buff_eff = effect_type
         debuff_eff = debuff_effect_type or effect_type
 
+        # damage_element 属性过滤（0=不过滤/未知）：与damage_service结算同规则，
+        # 仅保留 damage_element=0(全属性) 或与本次攻击属性匹配的乘区buff/debuff。
+        # 否则物理攻击会把EN专属buff计入权重池（如回忆卡30037物理/EN各1.75%，
+        # 每次攻击两条buff都被分摊share，导致30037归因虚高超过30006）。
+        def _elem_ok(b) -> bool:
+            if damage_element == 0:
+                return True
+            return getattr(b, 'damage_element', 0) in (0, damage_element)
+
         ally_buffs = [b for b in buffs if b.effect_type == buff_eff
-                      and self._is_ally_source(b, caster)]
+                      and self._is_ally_source(b, caster) and _elem_ok(b)]
         ally_debuffs = [d for d in debuffs if d.effect_type == debuff_eff
-                        and self._is_ally_source(d, caster)]
+                        and self._is_ally_source(d, caster) and _elem_ok(d)]
 
         all_sources = []
         for b in ally_buffs:

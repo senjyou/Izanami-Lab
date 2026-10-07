@@ -10,6 +10,7 @@
   5. 角色单位构建（_create_unit）
 """
 
+import subprocess
 import sys
 import json
 import threading
@@ -30,6 +31,7 @@ from version import __version__, __repository__, __release_url__
 from src.utils.update_daemon import UpdateDaemon, UpdateProgress
 from src.utils.version_checker import UpdateType
 from src.utils.cold_updater import ColdUpdater
+from src.utils.account_manager import AccountRegistry
 
 # ── gui 包：常量、工具函数、主题配色 ──
 from gui.utils import (
@@ -41,6 +43,7 @@ from gui.utils import (
 from gui.constants import (
     _BASE_PATH,
     _USER_DATA,
+    APP_DATA_ROOT,
     PRESET_DIR,
     TACTICAL_PRESET_DIR,
     GLOBAL_CONFIG_PATH,
@@ -51,6 +54,8 @@ from gui.constants import (
     THEME_OPTIONS,
 )
 from gui.widgets.result_table import ResultTablePanel
+# ── gui 包：弹窗 ──
+from gui.dialogs.account_dialog import AccountManagerDialog
 # ── gui 包：战斗 Tab（阶段4抽取） ──
 from gui.tabs.team_battle import TeamBattleTab
 from gui.tabs.tactical_exercise import TacticalExerciseTab
@@ -85,10 +90,10 @@ class MGGBattleSimulatorGUI:
         if _icon_path.exists():
             self.root.iconbitmap(str(_icon_path))
 
-        # 更新守护进程
+        # 更新守护进程（更新状态全局化：指向应用根，不随账号切换）
         self.update_daemon = UpdateDaemon(
             app_data_dir=str(_BASE_PATH),
-            user_data_dir=str(_USER_DATA),
+            user_data_dir=str(APP_DATA_ROOT),
             repository=__repository__,
             current_version=__version__,
             release_url=__release_url__,
@@ -158,6 +163,18 @@ class MGGBattleSimulatorGUI:
         # 检查更新按钮
         self._update_btn = ttk.Button(self.root, text="检查更新", command=self._check_updates_ui)
         self._update_btn.place(relx=1.0, y=5, anchor="ne", x=-110)
+
+        # 账号切换下拉框 + 账号管理按钮（置于检查更新按钮左侧）
+        self.account_registry = AccountRegistry()
+        self.account_registry.touch_current()
+        self._account_combo = ttk.Combobox(self.root, state="readonly", width=10,
+                                           values=self._account_names())
+        self._account_combo.set(self.account_registry.get_current_name() or "")
+        self._account_combo.bind("<<ComboboxSelected>>", self._on_account_switch_selected)
+        self._account_combo.place(relx=1.0, y=5, anchor="ne", x=-200)
+
+        self._account_btn = ttk.Button(self.root, text="账号管理", command=self._open_account_manager)
+        self._account_btn.place(relx=1.0, y=5, anchor="ne", x=-295)
 
         # 启动时刷新原生组件颜色（确保浅色主题等非默认主题生效）
         self._refresh_native_widgets()
@@ -700,6 +717,70 @@ class MGGBattleSimulatorGUI:
         self._save_char_config()
         self.data_loader.save_custom_dummies()
         self.root.destroy()
+
+    # ────────────────────────────── 账号切换 ──────────────────────────────
+
+    def _account_names(self):
+        return [a["name"] for a in self.account_registry.list_accounts()]
+
+    def _refresh_account_combo(self):
+        names = self._account_names()
+        self._account_combo["values"] = names
+        current = self.account_registry.get_current_name()
+        self._account_combo.set(current if current in names else (current or ""))
+
+    def _on_account_switch_selected(self, event=None):
+        target = self._account_combo.get()
+        current = self.account_registry.get_current_name()
+        if not target or target == current:
+            self._refresh_account_combo()
+            return
+        if not messagebox.askyesno(
+                "切换账号",
+                f"切换到账号「{target}」将重启应用，\n运行中的战斗任务将会中止。是否继续？"):
+            self._refresh_account_combo()
+            return
+        self._switch_account_and_restart(target)
+
+    def _open_account_manager(self):
+        AccountManagerDialog(self.root, self)
+
+    def _switch_account_and_restart(self, target_name):
+        """写注册表 → 保存当前状态 → 分离启动新实例 → 退出当前进程。"""
+        try:
+            self.account_registry.set_current(target_name)
+        except Exception as e:
+            messagebox.showerror("切换失败", str(e))
+            self._refresh_account_combo()
+            return
+        self.update_daemon.stop()
+        self._save_char_config()
+        self.data_loader.save_custom_dummies()
+        self._spawn_new_instance()
+        self.root.destroy()
+
+    def _spawn_new_instance(self):
+        """经 cmd start 分离启动新 GUI 实例（打包版重启 exe，开发版走 gui_app.py）。
+
+        与冷更新器的启动方式同族：参数列表以字面量开头，不经过 shell 拼接。
+        """
+        no_window = (subprocess.CREATE_NO_WINDOW
+                     if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
+        if getattr(sys, "frozen", False):
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", sys.executable],
+                cwd=str(Path(sys.executable).parent),
+                creationflags=no_window,
+                close_fds=True,
+            )
+        else:
+            app_root = Path(__file__).resolve().parent.parent
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", sys.executable, str(app_root / "gui_app.py")],
+                cwd=str(app_root),
+                creationflags=no_window,
+                close_fds=True,
+            )
 
     def _save_char_config(self):
         try:

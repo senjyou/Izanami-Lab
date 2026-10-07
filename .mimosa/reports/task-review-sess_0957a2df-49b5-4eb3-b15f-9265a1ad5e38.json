@@ -1,6 +1,6 @@
 {
   "schema_version": "mimosa-task-review/v2",
-  "run_id": "20261007T145550235Z-52376-e86b2d620dd5",
+  "run_id": "20261007T162049703Z-48416-7dd15bc101a0",
   "run_status": "inconclusive",
   "errors": [
     {
@@ -15,31 +15,31 @@
     "scope": "hook_observed_diff",
     "baseline": {
       "complete": false,
-      "captured_files": 3,
+      "captured_files": 5,
       "candidate_limit": 5000,
       "truncated": false,
       "enumeration_error_count": 0,
       "snapshot_error_count": 0,
-      "compensated_target_count": 3
+      "compensated_target_count": 5
     },
     "change_tracking": {
-      "touched_observed": 3,
-      "touched_retained": 3,
+      "touched_observed": 5,
+      "touched_retained": 5,
       "truncated": false,
       "bash_mutation": true,
-      "bash_discovered": 3,
+      "bash_discovered": 5,
       "bash_discovery_limit": 80,
       "bash_discovery_truncated": false
     },
     "candidates": {
-      "eligible_files": 3,
-      "selected_files": 3,
+      "eligible_files": 5,
+      "selected_files": 5,
       "limit": 20,
       "truncated": false
     },
     "scanning": {
-      "required_files": 3,
-      "scanned_files": 3,
+      "required_files": 5,
+      "scanned_files": 5,
       "skipped_files": 0,
       "failed_files": 0,
       "project_checks_required": 0,
@@ -73,63 +73,93 @@
     ],
     "reasons_truncated": false
   },
-  "generated_at": "2026-10-07T14:55:50.235Z",
-  "session_id": "sess_1277301f-cadf-4ecb-bfab-9090e3da867d",
+  "generated_at": "2026-10-07T16:20:49.703Z",
+  "session_id": "sess_0957a2df-49b5-4eb3-b15f-9265a1ad5e38",
   "target": ".",
   "revision": "f034353b1af4450c90d9eb7d269b76acfad3375c",
   "rules_version": "unavailable",
-  "diff_hash": "74a0bf5b32dc347aaae3f078781bd22d411c00e9be5ea975594d9ac819f3db62",
+  "diff_hash": "61367265762a46c00b0207d0bb4e25ec85a9d43e51ac4166f57ffe6140572d8d",
   "diff": {
     "algorithm": "sha256",
-    "changed_file_count": 3,
+    "changed_file_count": 5,
     "changed_files": [
       {
-        "file": "gui/constants.py",
+        "file": "gui/tabs/circle_battle.py",
         "ranges": [
           {
-            "start": 49,
-            "end": 49
+            "start": 780,
+            "end": 780
           },
           {
-            "start": 52,
-            "end": 54
+            "start": 1055,
+            "end": 1055
+          }
+        ],
+        "before_hash": "2b3e496ece6e8c542d21358c035eee2de74fd0671740a7b66a4ab084c49edd13",
+        "after_hash": "4102e5645ce585e9d4bc3efb41c4e65659b0e7b4d98e15ddeae1e9998c3f0cab"
+      },
+      {
+        "file": "gui/tabs/composite_tactic.py",
+        "ranges": [
+          {
+            "start": 842,
+            "end": 842
           },
           {
-            "start": 89,
-            "end": 90
+            "start": 1111,
+            "end": 1111
           }
         ],
-        "before_hash": "96719cf52860d87ce9b5393bc5b973c9222116c2e7cd52878b2ef454aadd486b",
-        "after_hash": "ba3787e619633cb0503ffd9cb0dd4c688da21e10a97625199bf4b5e3717c3847"
+        "before_hash": "5f97aeac05f9ce6cd4ef6b678c71b715eb934c1dca04c2c0008eb617e6ffcfef",
+        "after_hash": "2db2e29913e96c2023b2dbe160d593f8c55e29eaccb094c6efb79d7a62740cb2"
       },
       {
-        "file": "tests/test_actor_381305.py",
+        "file": "gui/tabs/tactical_exercise.py",
         "ranges": [
           {
-            "start": 1,
-            "end": 320
+            "start": 626,
+            "end": 626
+          },
+          {
+            "start": 755,
+            "end": 755
           }
         ],
-        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "796f91d527b8e9440c102fb1a8714f8b9b0551cd3fd54f46cef02a360baf83b4"
+        "before_hash": "a845f59f6bfbf0aa927e00639d22db88cc8f4efc65ec9b8b2ff10cc2cc20c042",
+        "after_hash": "54dbdf76a268c642a44f7d9003136f15e3829d4e47ebd19adb1b424d0f06b95a"
       },
       {
-        "file": "tests/test_actor_772405.py",
+        "file": "gui/tabs/team_battle.py",
         "ranges": [
           {
-            "start": 1,
-            "end": 290
+            "start": 746,
+            "end": 746
+          },
+          {
+            "start": 935,
+            "end": 935
           }
         ],
-        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "after_hash": "ea6ac6d5c5e67dd95bab57f41b9cf9983fd0dc4ed49917bc11db53b8a354859e"
+        "before_hash": "096d18039c90650d4b8a4b7b19020e09443d5bf1243867075ab20b7118b396fb",
+        "after_hash": "7e0991a7dc2e48c4d29e794afbdffdfc580c306944e6d2fc1227ebbdd68a1a99"
+      },
+      {
+        "file": "tests/regression/test_reg_magokoro_as2_target_notes.py",
+        "ranges": [
+          {
+            "start": 196,
+            "end": 196
+          }
+        ],
+        "before_hash": "4d782dc3b4e8efb4a2dbc3c01acf04f89898c980727cbc63711b947a49c4332c",
+        "after_hash": "62f2c69da531e444c0f8313872c18b6e96f90c686397e31f97344ebd77c51fec"
       }
     ]
   },
   "timing": {
-    "started_at": "2026-10-07T14:55:49.356Z",
-    "completed_at": "2026-10-07T14:55:50.235Z",
-    "duration_ms": 879,
+    "started_at": "2026-10-07T16:20:48.636Z",
+    "completed_at": "2026-10-07T16:20:49.703Z",
+    "duration_ms": 1067,
     "measurement": "hook_wall_clock"
   },
   "tokens": {
@@ -144,10 +174,10 @@
     "profile": "gate",
     "operation": "Stop",
     "outcome": "partial/INCONCLUSIVE",
-    "latencyMs": 879,
-    "peakMemoryBytes": 178438144,
+    "latencyMs": 1067,
+    "peakMemoryBytes": 185585664,
     "memoryMeasurement": "max-observed-process-rss",
-    "scannedFiles": 3,
+    "scannedFiles": 5,
     "cache": {
       "hits": 0,
       "misses": 0,
@@ -172,8 +202,8 @@
   "finding_events": [],
   "findings": [],
   "artifacts": {
-    "immutable_report": ".mimosa/reports/task-review-sess_1277301f-cadf-4ecb-bfab-9090e3da867d-20261007T145550235Z-52376-e86b2d620dd5.json",
-    "latest_report": ".mimosa/reports/task-review-sess_1277301f-cadf-4ecb-bfab-9090e3da867d.json",
-    "history_summary": ".mimosa/history/run-20261007T145550235Z-52376-e86b2d620dd5.json"
+    "immutable_report": ".mimosa/reports/task-review-sess_0957a2df-49b5-4eb3-b15f-9265a1ad5e38-20261007T162049703Z-48416-7dd15bc101a0.json",
+    "latest_report": ".mimosa/reports/task-review-sess_0957a2df-49b5-4eb3-b15f-9265a1ad5e38.json",
+    "history_summary": ".mimosa/history/run-20261007T162049703Z-48416-7dd15bc101a0.json"
   }
 }

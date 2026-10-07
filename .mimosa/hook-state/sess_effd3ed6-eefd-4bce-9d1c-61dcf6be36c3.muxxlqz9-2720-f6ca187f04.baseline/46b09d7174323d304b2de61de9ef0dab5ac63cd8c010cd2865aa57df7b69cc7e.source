@@ -1,9 +1,0 @@
-namespace Assets.Api.Client;
-
-public enum CharacterPositionTypes
-{
-	Unknown = 0,
-	Front = 1,
-	Back = 2,
-	FrontBack = 3
-}
