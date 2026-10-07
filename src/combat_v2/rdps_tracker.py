@@ -378,7 +378,8 @@ class RDPSTracker:
                     caster, caster.buffs, caster.debuffs,
                     "CriticalBonusModification",
                     crit_dmg_up_share, "buff_contribution", "crit_contribution",
-                    battlefield, damage_service)
+                    battlefield, damage_service,
+                    mark_stat_name="crit_damage")
 
             # crit_rate_up 归因
             if crit_rate_up_share > 0.5:
@@ -509,11 +510,14 @@ class RDPSTracker:
             # 原实现错误地额外调用 SKILL_POWER_DOWN 归因（使用相同 share），
             # 导致 share 双重计入：第一次归因到 DealtDamage buff，第二次因无 buff
             # 触发 fallback 将同一 share 再计入 direct_damage。
+            # mark_stat_bonus 的 dealt_damage（如「真心」+10%/枚）同样参与实际
+            # dealt 乘区，必须作为伪源归因到 mark 授予者，否则泄漏给 DealtDamage buff。
             self._attribute_buffs_by_value(
                 caster, caster.buffs, caster.debuffs,
                 SET.DEALT_DAMAGE.value,
                 share, "buff_contribution", "dealt_dmg_contribution",
-                battlefield, damage_service)
+                battlefield, damage_service,
+                mark_stat_name="dealt_damage")
         elif zone_name == "received":
             self._attribute_buffs_by_value(
                 caster, target.buffs, target.debuffs,
@@ -579,7 +583,8 @@ class RDPSTracker:
                 SET.STATUS_ATTACK.value,
                 atk_share, "buff_contribution", "atk_buff_contribution",
                 battlefield, damage_service,
-                base_stat_unit=caster)
+                base_stat_unit=caster,
+                mark_stat_name="attack")
             self._attribute_buffs_by_value(
                 caster, target.buffs, target.debuffs,
                 SET.STATUS_DEFENSE.value,
@@ -627,7 +632,8 @@ class RDPSTracker:
                                   damage_service: 'DamageService',
                                   base_stat_unit: Optional['UnitState'] = None,
                                   debuff_effect_type: Optional[str] = None,
-                                  debuff_contribution_field: Optional[str] = None):
+                                  debuff_contribution_field: Optional[str] = None,
+                                  mark_stat_name: Optional[str] = None):
         """按 buff 值比例归因到具体施加者
 
         Args:
@@ -637,6 +643,13 @@ class RDPSTracker:
                 DealtDamage buff 与 SKILL_POWER_DOWN debuff），必须通过此参数
                 在单次调用中合并归因，避免多次调用导致 share 双重计入。
             debuff_contribution_field: debuff 的角色归因字段（默认与 contribution_field 相同）
+            mark_stat_name: mark_stat_bonus 乘区对应的 stat（'attack'/'dealt_damage'/'crit_damage'）。
+                mark 的实时属性加成不属于任何 Status*/DealtDamage 类型 buff，若不作为
+                伪源加入归因池，其贡献会泄漏给同乘区的其他 buff（如「真心」的
+                dealt/crit 加成被误记到心色/回忆卡头上）。mark 池总量由
+                damage_service._calc_mark_stat_bonus 精确给出；mark 池内部按各授予者
+                的 mark 实例 stack_count 占比分配——回忆卡授予的 mark 归因到回忆卡，
+                单位授予的归因到授予单位。
         """
         if abs(share) < 0.5:
             return
@@ -659,10 +672,22 @@ class RDPSTracker:
             if val > 0:
                 all_sources.append((d, val, "debuff"))
 
-        total_val = sum(v for _, v, _ in all_sources)
+        buff_total = sum(v for _, v, _ in all_sources)
+
+        # mark_stat_bonus 伪源池
+        mark_total = 0.0
+        mark_pools: List[tuple] = []
+        if mark_stat_name:
+            mark_total = self._mark_pool_weight(caster, mark_stat_name, damage_service)
+            if mark_total > 0:
+                mark_pools = self._collect_mark_granter_pools(caster, mark_stat_name)
+                if not mark_pools:
+                    # 找不到我方授予者（如敌方来源mark）：不归因，份额留在 buff 池比例之外
+                    mark_total = 0.0
+        total_val = buff_total + mark_total
 
         # 追踪日志：buff 权重明细（诊断回忆卡/混合buff归因问题的关键点）
-        if self._tracking_enabled and all_sources:
+        if self._tracking_enabled and (all_sources or mark_pools):
             base_desc = (f"base={base_stat_unit.name}(atk={base_stat_unit.attack})"
                          if base_stat_unit else "base=None")
             eff_desc = (f"buff_eff={buff_eff} debuff_eff={debuff_eff}"
@@ -674,7 +699,9 @@ class RDPSTracker:
                 card_mark = f" card_skill={buff.source_skill_id}" if buff.is_memory_buff else ""
                 self._track(f"    - {kind} '{buff.name}' val_tag={getattr(buff,'value_tag',0)} "
                             f"raw_val={buff.value} weight={val:.2f} src={src}{card_mark}")
-            self._track(f"    total_weight={total_val:.2f}")
+            for m_key, m_w in mark_pools:
+                self._track(f"    - mark_pool {m_key} weight={m_w}")
+            self._track(f"    total_weight={total_val:.2f} (buff={buff_total:.2f} mark={mark_total:.2f})")
 
         if total_val == 0:
             if abs(share) > 0.5:
@@ -706,6 +733,75 @@ class RDPSTracker:
             self._track(f"    -> unit {source_id} += {contribution:.1f} ({unit_field})")
             self._add_contribution(source_id, unit_field, contribution,
                                    detail_field, contribution)
+
+        # mark_stat_bonus 伪源池分配：按各授予者 mark 实例 stack_count 占比
+        if mark_pools and mark_total > 0 and abs(share) > 0.5:
+            mark_share = share * mark_total / total_val
+            pool_sum = sum(w for _, w in mark_pools)
+            if pool_sum > 0 and abs(mark_share) > 0.5:
+                for m_key, m_w in mark_pools:
+                    part = mark_share * m_w / pool_sum
+                    if abs(part) < 0.01:
+                        continue
+                    kind, key = m_key
+                    if kind == "card":
+                        per_card = part / len(key)
+                        for cid in key:
+                            self._track(f"    -> mark card {cid} += {per_card:.1f} "
+                                        f"({contribution_field})")
+                            self._add_memory_card_contribution(cid, contribution_field,
+                                                               per_card)
+                    else:
+                        self.ensure_unit(key, self._get_unit_name(key, battlefield),
+                                         caster.side.value)
+                        self._track(f"    -> mark unit {key} += {part:.1f} "
+                                    f"({contribution_field})")
+                        self._add_contribution(key, contribution_field, part,
+                                               detail_field, part)
+
+    def _mark_pool_weight(self, unit: 'UnitState', stat_name: str,
+                          damage_service: 'DamageService') -> float:
+        """mark_stat_bonus 在归因池中的权重（与同乘区 buff 权重同尺度）
+
+        - attack/defense/speed/max_hp: 绝对值加数，与固值buff权重（value）、
+          百分比buff权重（value/100×base_stat）同尺度
+        - dealt_damage/crit_damage（及 heal_efficacy/taken_damage）: mark 权重须与
+          _compute_buff_weight 对 DealtDamage/CriticalBonusModification 百分比buff
+          的输出同尺度——后者经 _normalize_buff_value 返回小数（8.4%→0.084），
+          _calc_mark_stat_bonus 返回值同为小数（10%/枚×5枚→0.5），直接使用即可
+        """
+        return damage_service._calc_mark_stat_bonus(unit, stat_name)
+
+    def _collect_mark_granter_pools(self, unit: 'UnitState',
+                                    stat_name: str) -> List[tuple]:
+        """收集 unit 身上持有指定 stat 的 mark_stat_bonus 的我方授予者池
+
+        返回 [(("unit", source_unit_id) | ("card", (card_id, ...)), stack_weight)]
+        - 回忆卡授予的 mark（is_memory_buff 且 source_skill_id 在 _skill_to_card）→ 归因到回忆卡
+        - 单位授予的 mark → 归因到 source_unit_id（自身施加则归自身）
+        权重为 mark 实例的 stack_count 之和，仅用于 mark 池内部的二次分配。
+        """
+        pools: dict = {}
+        for b in list(unit.buffs) + list(unit.debuffs):
+            msb = getattr(b, 'mark_stat_bonus', None)
+            if not msb:
+                continue
+            rules = msb if isinstance(msb, list) else [msb]
+            if not any(isinstance(r, dict) and r.get('stat', 'attack') == stat_name
+                       for r in rules):
+                continue
+            if not self._is_ally_source(b, unit):
+                continue
+            stack = int(getattr(b, 'stack_count', 1) or 1)
+            if b.is_memory_buff and b.source_skill_id:
+                card_ids = self._skill_to_card.get(b.source_skill_id)
+                if card_ids:
+                    key = ("card", tuple(card_ids))
+                    pools[key] = pools.get(key, 0) + stack
+                    continue
+            key = ("unit", b.source_unit_id or unit.unit_id)
+            pools[key] = pools.get(key, 0) + stack
+        return list(pools.items())
 
     # ========== 附魔/追加/子单位伤害 ==========
 

@@ -660,6 +660,41 @@ class DamageService:
         # ATK/DEF/SPD等属性最低为0，不允许负数
         return max(0, int(final_val))
 
+    @staticmethod
+    def _resolve_mark_rule(rule: dict, stat_name: str, unit: UnitState, seen_rules: set) -> float:
+        """解析单条 mark_stat_bonus 规则，返回该规则的加成（已按 seen_rules 去重）。
+
+        row 条件：规则仅对持有者对应前后排生效（如「真心」前列/後列两组加成）；
+        mark 层数按同名 MARK 的 stack_count 之和统计，受 max_marks 钳制。
+        """
+        rule_row = rule.get('row')
+        if rule_row:
+            pos_name = getattr(getattr(unit, 'position', None), 'name', '') or ''
+            is_front = 'FRONT' in pos_name
+            if rule_row == 'front' and not is_front:
+                return 0.0
+            if rule_row == 'back' and is_front:
+                return 0.0
+        mark_name = rule.get('mark_name', '')
+        per_pct = float(rule.get('per_mark_pct', 0) or 0)
+        max_marks = int(rule.get('max_marks', 0) or 0)
+        if not mark_name or per_pct == 0:
+            return 0.0
+        rule_key = (mark_name, stat_name, per_pct, max_marks, rule_row)
+        if rule_key in seen_rules:
+            return 0.0
+        seen_rules.add(rule_key)
+        cnt = 0
+        for m in unit.buffs:
+            if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
+                cnt += int(getattr(m, 'stack_count', 1) or 1)
+        for m in unit.debuffs:
+            if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
+                cnt += int(getattr(m, 'stack_count', 1) or 1)
+        if max_marks > 0:
+            cnt = min(cnt, max_marks)
+        return per_pct * cnt
+
     def _calc_mark_stat_bonus(self, unit: UnitState, stat_name: str) -> float:
         """mark_stat_bonus实时加成（按持有mark数×每枚加成，受max_marks钳制）
 
@@ -686,7 +721,8 @@ class DamageService:
         """
         total_pct = 0.0
         seen_rules = set()  # 同名mark_stat_bonusのcarrierが複数あっても1回だけ適用
-        for b in unit.buffs + unit.debuffs:
+        # 热路径：每场战斗调用数十万次，直接遍历两个列表避免 buffs+debuffs 拼接分配
+        for b in unit.buffs:
             msb = getattr(b, 'mark_stat_bonus', None)
             if not msb:
                 continue
@@ -697,31 +733,20 @@ class DamageService:
                     continue
                 if rule.get('stat', 'attack') != stat_name:
                     continue
-                # row 条件：规则仅对持有者对应前后排生效（如「真心」前列/後列两组加成）
-                rule_row = rule.get('row')
-                if rule_row:
-                    pos_name = getattr(getattr(unit, 'position', None), 'name', '') or ''
-                    is_front = 'FRONT' in pos_name
-                    if rule_row == 'front' and not is_front:
-                        continue
-                    if rule_row == 'back' and is_front:
-                        continue
-                mark_name = rule.get('mark_name', '')
-                per_pct = float(rule.get('per_mark_pct', 0) or 0)
-                max_marks = int(rule.get('max_marks', 0) or 0)
-                if not mark_name or per_pct == 0:
+                total_pct += DamageService._resolve_mark_rule(
+                    rule, stat_name, unit, seen_rules)
+        for b in unit.debuffs:
+            msb = getattr(b, 'mark_stat_bonus', None)
+            if not msb:
+                continue
+            rules = msb if isinstance(msb, list) else [msb]
+            for rule in rules:
+                if not isinstance(rule, dict):
                     continue
-                rule_key = (mark_name, stat_name, per_pct, max_marks, rule_row)
-                if rule_key in seen_rules:
+                if rule.get('stat', 'attack') != stat_name:
                     continue
-                seen_rules.add(rule_key)
-                cnt = 0
-                for m in unit.buffs + unit.debuffs:
-                    if m.effect_type == SkillEffectType.MARK.value and getattr(m, 'name', '') == mark_name:
-                        cnt += int(getattr(m, 'stack_count', 1) or 1)
-                if max_marks > 0:
-                    cnt = min(cnt, max_marks)
-                total_pct += per_pct * cnt
+                total_pct += DamageService._resolve_mark_rule(
+                    rule, stat_name, unit, seen_rules)
         if total_pct == 0:
             return 0.0
         # crit_damage は絶対ポイントとして加算（per_mark_pct をポイントとみなす）

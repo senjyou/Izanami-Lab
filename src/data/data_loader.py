@@ -72,6 +72,7 @@ class DataLoader:
         self._custom_skills: Dict[int, SkillData] = {}
         self._custom_parsed_skills: Dict[str, Any] = {}
         self._custom_character_skills: Dict[int, List[int]] = {}
+        self._character_skills_resolved: Dict[int, List[SkillData]] = {}  # get_character_skills 热路径缓存
         self._custom_dummy_configs: Dict[int, CustomDummyConfig] = {}
         self._custom_dummy_count: int = 0
 
@@ -253,13 +254,19 @@ class DataLoader:
             self.load_character_skills()
         if self._skills is None:
             self.load_skills()
+        # 热路径缓存：触发检查每场战斗调用上万次，避免每次重建列表（调用方均为只读或重新绑定）
+        cached = self._character_skills_resolved.get(character_id)
+        if cached is not None:
+            return cached
         skill_ids = self._character_skills.get(character_id, [])
         # 如果character_skills中找不到，尝试从enemy_skills中查找（敌方单位）
         if not skill_ids:
             if self._enemy_skills is None:
                 self.load_enemy_skills()
             skill_ids = self._enemy_skills.get(character_id, [])
-        return [self._skills[sid] for sid in skill_ids if sid in self._skills]
+        resolved = [self._skills[sid] for sid in skill_ids if sid in self._skills]
+        self._character_skills_resolved[character_id] = resolved
+        return resolved
 
     def load_enemy_skills(self) -> Dict[int, List[int]]:
         """加载敌方技能映射"""
