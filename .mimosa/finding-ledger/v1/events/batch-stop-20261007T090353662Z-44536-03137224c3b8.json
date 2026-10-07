@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261007T090353662Z-44536-03137224c3b8",
+  "runId": "20261007T090353662Z-44536-03137224c3b8",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "e9a42958a5467ee3d409dbf4cb44adb243b64bdf",
+  "diffHash": "f79a73b793e3eee435d45287c6092f23dd17809a057d411aa1757282cff043a4",
+  "rulesVersion": "unavailable",
+  "sessionHash": "4519422682351e254bd8d0e7485f4e626d3770ff4be348c6fe9aa2c859b2ef2a",
+  "reportRef": ".mimosa/reports/task-review-sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3-20261007T090353662Z-44536-03137224c3b8.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-594843ee485bdc98fe5f3c15",
+    "mimosa-c894cf50986fb5726dea102c"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "gui/tabs/circle_battle.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "gui/tabs/team_battle.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "version.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-07T09:03:54.015Z"
+}

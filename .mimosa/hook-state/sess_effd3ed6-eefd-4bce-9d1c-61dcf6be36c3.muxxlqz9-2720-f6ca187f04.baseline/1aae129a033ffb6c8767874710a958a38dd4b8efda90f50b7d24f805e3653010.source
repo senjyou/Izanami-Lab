@@ -1,0 +1,249 @@
+"""Regression: 捲土重来 (130046, after_as_attacked) must target the trigger_attacker
+(攻击してきた敵), not the nearest enemy.
+
+Bug: 捲土重来's effects had target_identifier=null, causing default targeting
+     (nearest enemy via select_targets). When the attacker is NOT the nearest
+     enemy to the 捲土重来 holder, the counterattack hits the wrong target.
+
+Symptom (from battle log):
+     霞光 used AS on 厳格な規律の守護者, 捲土重来 triggered but targeted 大雷
+     (nearest enemy) instead of 霞光 (the attacker).
+
+Root cause: All 4 effects (damage, add_status, remove_pp x2) had
+     target_identifier=null. Code at skill_service._apply_damage L2109 only
+     uses _trigger_attacker when target_identifier == "trigger_attacker".
+     With null, it falls through to default targeting (nearest enemy).
+
+Fix: Set target_identifier="trigger_attacker" for all 4 effects in
+     skill_effects_hybrid.json so the counterattack targets the attacker.
+     Skill description: "攻撃してきた敵単体に対して...反撃" (counterattack against
+     the enemy unit that attacked).
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+GANDO_CHORAI = 130046  # 捲土重来 (after_as_attacked, counter-attack)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegGandoChoraiTargetAttacker(unittest.TestCase):
+    """捲土重来 must target the trigger_attacker (AS attacker), not the nearest enemy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_gando_chorai_config_has_trigger_attacker(self):
+        """All damage/add_status/remove_pp effects in 捲土重来 must have
+        target_identifier="trigger_attacker" so the counterattack targets
+        the attacker, not the nearest enemy."""
+        parsed = self.dl.get_parsed_skill_data(GANDO_CHORAI)
+        self.assertIsNotNone(parsed, "捲土重来 must exist in parsed data")
+
+        for block in parsed.get('effect_blocks', []):
+            for eff in block.get('effects', []):
+                etype = eff.get('effect_type')
+                if etype in ('damage', 'add_status', 'remove_pp'):
+                    tid = eff.get('target_identifier')
+                    self.assertEqual(
+                        tid, 'trigger_attacker',
+                        "捲土重来 effect_type=%s must have target_identifier="
+                        "'trigger_attacker', got: %s" % (etype, tid)
+                    )
+
+    def test_gando_chorai_targets_trigger_attacker_not_nearest(self):
+        """捲土重来 must deal damage to the trigger_attacker (AS attacker),
+        not the nearest enemy.
+
+        Setup:
+        - Holder (ally) at ALLY_CENTER_FRONT
+        - Attacker (enemy) at ENEMY_LEFT_FRONT (2nd nearest to holder)
+        - Other enemy at ENEMY_CENTER_FRONT (nearest to holder)
+
+        Without fix: damage targets ENEMY_CENTER_FRONT (nearest) → wrong.
+        With fix: damage targets ENEMY_LEFT_FRONT (trigger_attacker) → correct.
+        """
+        holder = _make_unit("holder", "持有人(捲土重来)", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000,
+                            skills=[GANDO_CHORAI],
+                            skill_levels={GANDO_CHORAI: 10})
+        attacker = _make_unit("attacker", "攻击者", Side.ENEMY,
+                              Position.ENEMY_LEFT_FRONT, hp=100000, atk=5000)
+        nearest_enemy = _make_unit("nearest", "最近敌方", Side.ENEMY,
+                                   Position.ENEMY_CENTER_FRONT, hp=100000, atk=5000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [holder]
+        bf.enemy_team = [attacker, nearest_enemy]
+        ss, ts = self._make_services(bf)
+
+        # Simulate: holder was attacked by attacker, received 10000 damage
+        holder.last_received_damage = 10000
+
+        # Set trigger_attacker (as _execute_trigger_actions would)
+        ss._trigger_attacker = attacker
+        ss._trigger_total_damage = 10000
+
+        result = ss.execute_skill(holder, GANDO_CHORAI, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "捲土重来 execution should succeed")
+
+        # Verify: damage should target attacker, not nearest_enemy
+        damage_effects = [
+            e for e in result.get("effects_applied", [])
+            if e.get("effect_type") == "damage"
+        ]
+        self.assertGreater(len(damage_effects), 0,
+                           "捲土重来 should deal damage")
+
+        for dmg in damage_effects:
+            for t in dmg.get("targets", []):
+                target_id = t.get('target_id', t.get('target'))
+                self.assertEqual(
+                    target_id, attacker.unit_id,
+                    "捲土重来 damage must target trigger_attacker (%s=%s), "
+                    "not nearest enemy (%s=%s). Got: %s"
+                    % (attacker.name, attacker.unit_id,
+                       nearest_enemy.name, nearest_enemy.unit_id, target_id)
+                )
+
+    def test_gando_chorai_stun_applied_to_trigger_attacker(self):
+        """捲土重来's stun (add_status) must be applied to the trigger_attacker,
+        not the nearest enemy."""
+        holder = _make_unit("holder", "持有人(捲土重来)", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000,
+                            skills=[GANDO_CHORAI],
+                            skill_levels={GANDO_CHORAI: 10})
+        attacker = _make_unit("attacker", "攻击者", Side.ENEMY,
+                              Position.ENEMY_LEFT_FRONT, hp=100000, atk=5000)
+        nearest_enemy = _make_unit("nearest", "最近敌方", Side.ENEMY,
+                                   Position.ENEMY_CENTER_FRONT, hp=100000, atk=5000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [holder]
+        bf.enemy_team = [attacker, nearest_enemy]
+        ss, ts = self._make_services(bf)
+
+        holder.last_received_damage = 10000
+        ss._trigger_attacker = attacker
+        ss._trigger_total_damage = 10000
+
+        result = ss.execute_skill(holder, GANDO_CHORAI, bf, skip_cost=True)
+
+        # Verify: stun should be applied to attacker, not nearest_enemy
+        stun_effects = [
+            e for e in result.get("effects_applied", [])
+            if e.get("effect_type") == "add_status"
+        ]
+        self.assertGreater(len(stun_effects), 0,
+                           "捲土重来 should apply stun")
+
+        for stun in stun_effects:
+            for t in stun.get("targets", []):
+                target_id = t.get('target_id', t.get('target'))
+                self.assertEqual(
+                    target_id, attacker.unit_id,
+                    "捲土重来 stun must target trigger_attacker (%s), "
+                    "not nearest enemy (%s). Got: %s"
+                    % (attacker.unit_id, nearest_enemy.unit_id, target_id)
+                )
+
+        # Verify: attacker should have Knockout debuff, nearest_enemy should NOT
+        self.assertTrue(
+            any(d.effect_type == 'Knockout' for d in attacker.debuffs),
+            "Attacker should have Knockout debuff from 捲土重来"
+        )
+        self.assertFalse(
+            any(d.effect_type == 'Knockout' for d in nearest_enemy.debuffs),
+            "Nearest enemy should NOT have Knockout debuff"
+        )
+
+    def test_gando_chorai_does_not_target_nearest_when_attacker_differs(self):
+        """Explicit verification: when trigger_attacker is at ENEMY_LEFT_FRONT
+        and nearest enemy is at ENEMY_CENTER_FRONT, 捲土重来 must NOT damage
+        the nearest enemy.
+
+        This is the inverse check of test_gando_chorai_targets_trigger_attacker_not_nearest,
+        ensuring the nearest enemy is unharmed.
+        """
+        holder = _make_unit("holder", "持有人", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000,
+                            skills=[GANDO_CHORAI],
+                            skill_levels={GANDO_CHORAI: 10})
+        attacker = _make_unit("attacker", "攻击者", Side.ENEMY,
+                              Position.ENEMY_LEFT_FRONT, hp=100000, atk=5000)
+        nearest_enemy = _make_unit("nearest", "最近敌方", Side.ENEMY,
+                                   Position.ENEMY_CENTER_FRONT, hp=100000, atk=5000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [holder]
+        bf.enemy_team = [attacker, nearest_enemy]
+        ss, ts = self._make_services(bf)
+
+        hp_before = nearest_enemy.current_hp
+        holder.last_received_damage = 10000
+        ss._trigger_attacker = attacker
+        ss._trigger_total_damage = 10000
+
+        ss.execute_skill(holder, GANDO_CHORAI, bf, skip_cost=True)
+
+        # Nearest enemy should NOT take any damage
+        self.assertEqual(
+            nearest_enemy.current_hp, hp_before,
+            "捲土重来 must NOT damage the nearest enemy (got %d -> %d)"
+            % (hp_before, nearest_enemy.current_hp)
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

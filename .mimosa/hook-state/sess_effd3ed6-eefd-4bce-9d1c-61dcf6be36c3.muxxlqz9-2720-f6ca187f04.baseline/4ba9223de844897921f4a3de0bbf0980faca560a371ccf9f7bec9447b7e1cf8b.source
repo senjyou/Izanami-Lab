@@ -1,0 +1,222 @@
+"""Regression: prescan must use COLUMN range for enemy_column, not display_target_range.
+
+Bug: Skill 210099 (衣擦れの調べ) has display_target_range=6 (LINE) but its damage
+     effect uses target_type="enemy_column" with mark_priority="浮足". The prescan
+     used display_target_range (LINE) to select targets, but the actual damage
+     execution used _resolve_target_range("enemy_column") = COLUMN (7).
+
+     This mismatch caused the prescan to select LINE targets (same row) while
+     the actual damage hit COLUMN targets (same column). The before_as_attacked
+     trigger's target_is_front_ally condition checked prescan targets, found the
+     front ally of 代助一避 holder among them (even though that ally was NOT
+     actually attacked), and 代助一避 triggered incorrectly.
+
+     Scenario from battle log step_crit_console_tactical_20260711_005756.txt:
+     - Enemy 生駒葵 uses 衣擦れの調べ (210099, enemy_column + mark_priority=浮足)
+     - Column anchor = 唯一無二の幼なじみ (has 浮足 marks), column = center
+     - Actual damage targets: 唯一無二の幼なじみ + 体育祭のサポート役 (center column)
+     - Prescan (buggy) targets: 唯一無二の幼なじみ + 世界への反逆者 (front row LINE)
+     - 世界への反逆者 is at ALLY_RIGHT_FRONT = front of 代助一避 holder (混沌の立役者)
+     - 代助一避 incorrectly triggered because prescan included 世界への反逆者
+
+Fix: For enemy_column/ally_column target types, prescan must use
+     _resolve_target_range(target_type) = COLUMN, not display_target_range.
+     This ensures prescan targets match actual damage targets.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+DAISU_HITOMONO_YO = 130013   # 代助一避 (before_as_attacked, target_is_front_ally)
+IRAZURE_NO_SHIRABE = 210099  # 衣擦れの調べ (enemy_column + mark_priority=浮足)
+
+MARK = SkillEffectType.MARK.value
+EVADE = SkillEffectType.EVADE.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ep=0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=ep,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegPrescanColumnTarget(unittest.TestCase):
+    """Prescan for enemy_column must use COLUMN range, not display_target_range."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _add_furutori_mark(self, unit, caster_id, count=1):
+        """Add 浮足 marks to a unit."""
+        for i in range(count):
+            unit.buffs.append(BuffState(
+                buff_id=f"test_mark_{i}_{unit.unit_id}", name="浮足",
+                effect_type=MARK, value=1.0,
+                duration=-1, timing_type=2, source_unit_id=caster_id,
+                source_skill_id=IRAZURE_NO_SHIRABE,
+                is_debuff=True, is_stackable=True, is_memory_buff=False,
+            ))
+
+    def test_daisu_does_not_trigger_when_front_ally_not_in_column(self):
+        """代助一避 must NOT trigger when enemy column attack targets a different
+        column than the front ally of 代助一避 holder.
+
+        Setup:
+            - ally_center_front (CENTER_FRONT): has 浮足 marks → column anchor
+            - ally_center_back (CENTER_BACK): same column as ally_center_front
+            - ally_right_front (RIGHT_FRONT): front ally of daisu_owner
+            - daisu_owner (RIGHT_BACK): 代助一避 holder
+            - enemy (CENTER_FRONT): uses 衣擦れの調べ (enemy_column + mark_priority=浮足)
+
+        Expected:
+            - Column attack targets center column (ally_center_front + ally_center_back)
+            - ally_right_front is NOT attacked
+            - 代助一避 does NOT trigger (no ReceivedDamage on daisu_owner)
+        """
+        ally_center_front = _make_unit("acf", "中前列", Side.ALLY,
+                                       Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_center_back = _make_unit("acb", "中後列", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000)
+        ally_right_front = _make_unit("arf", "右前列", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu", "代助一避持有者", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=600,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[IRAZURE_NO_SHIRABE],
+                           skill_levels={IRAZURE_NO_SHIRABE: 10})
+
+        # Give ally_center_front 浮足 marks so column anchor is center column
+        self._add_furutori_mark(ally_center_front, enemy.unit_id, count=2)
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_center_front, ally_center_back, ally_right_front, daisu_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, IRAZURE_NO_SHIRABE, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "Skill execution should succeed")
+
+        # 代助一避 should NOT trigger: no ReceivedDamage debuff on daisu_owner
+        daisu_received_dmg = any(
+            b.effect_type == RECEIVED_DAMAGE for b in daisu_owner.debuffs
+        )
+        self.assertFalse(daisu_received_dmg,
+                         "代助一避 should NOT trigger when front ally is not in "
+                         "the column attack targets (prescan must use COLUMN range)")
+
+        # ally_right_front should NOT have Evade buff (代助一避 didn't trigger)
+        arf_evade = any(b.effect_type == EVADE for b in ally_right_front.buffs)
+        self.assertFalse(arf_evade,
+                         "ally_right_front should NOT have Evade buff "
+                         "(代助一避 should not have triggered)")
+
+    def test_daisu_triggers_when_front_ally_in_column(self):
+        """代助一避 SHOULD trigger when enemy column attack targets the same
+        column as the front ally of 代助一避 holder.
+
+        Setup:
+            - ally_right_front (RIGHT_FRONT): has 浮足 marks → column anchor
+            - daisu_owner (RIGHT_BACK): 代助一避 holder, same column as ally_right_front
+            - ally_center_front (CENTER_FRONT): not in targeted column
+            - ally_center_back (CENTER_BACK): not in targeted column
+            - enemy (CENTER_FRONT): uses 衣擦れの調べ (enemy_column + mark_priority=浮足)
+
+        Expected:
+            - Column attack targets right column (ally_right_front + daisu_owner)
+            - ally_right_front IS attacked
+            - 代助一避 DOES trigger (ReceivedDamage on daisu_owner, Evade on ally_right_front)
+        """
+        ally_right_front = _make_unit("arf", "右前列", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu", "代助一避持有者", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=600,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        ally_center_front = _make_unit("acf", "中前列", Side.ALLY,
+                                       Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_center_back = _make_unit("acb", "中後列", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000)
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[IRAZURE_NO_SHIRABE],
+                           skill_levels={IRAZURE_NO_SHIRABE: 10})
+
+        # Give ally_right_front 浮足 marks so column anchor is right column
+        self._add_furutori_mark(ally_right_front, enemy.unit_id, count=2)
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_center_front, ally_center_back, ally_right_front, daisu_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, IRAZURE_NO_SHIRABE, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "Skill execution should succeed")
+
+        # 代助一避 SHOULD trigger: ReceivedDamage debuff on daisu_owner
+        daisu_received_dmg = any(
+            b.effect_type == RECEIVED_DAMAGE for b in daisu_owner.debuffs
+        )
+        self.assertTrue(daisu_received_dmg,
+                        "代助一避 SHOULD trigger when front ally is in "
+                        "the column attack targets")
+
+        # ally_right_front HP should be unchanged (Evade buff consumed the hit).
+        # The Evade buff is consumed after evading (hit_limited decremented to 0
+        # and removed), so we verify via HP preservation rather than buff presence.
+        self.assertEqual(ally_right_front.current_hp, ally_right_front.max_hp,
+                         "ally_right_front HP should be unchanged "
+                         "(代助一避's Evade buff should have consumed the hit)")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

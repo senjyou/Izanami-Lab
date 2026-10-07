@@ -1,0 +1,293 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""技能130035 再起律動 DOT/HOT交互bug修复测试
+
+Bug场景:
+- 世界への反逆者 (154301) 站位 ally_right_front, HP=49171/76331 (64.4%, 高于50%)
+- 混沌の立役者 (111301) 站位 ally_right_back, 持有PS「再起律動」(front_ally_hp_below 50%)
+- 行动开始时:
+  1. 炎上伤害 -11521 → HP=37650 (49.3%, 低于50%, 阈值跨越)
+  2. HOT回复 +11418 → HP=49068 (64.3%, 回到50%以上)
+- 修复前: trigger_hp_below在HOT之后检查, prev=64.4% current=64.3% 都>50%, 未检测到跨越
+- 修复后: trigger_hp_below在HOT之前检查, prev=64.4% current=49.3% 检测到跨越, PS触发
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+
+def _make_ally_unit(unit_id, name, position, **kwargs):
+    defaults = dict(
+        side=Side.ALLY, character_id=999011, level=15,
+        element=2, character_type=3,
+        max_hp=12000, current_hp=12000,
+        attack=6000, defense=4000, speed=400,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+        current_ap=4, current_pp=4, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    defaults.update(kwargs)
+    return UnitState(unit_id=unit_id, name=name, position=position, **defaults)
+
+
+class TestSaikiRhythmDotHotBug(unittest.TestCase):
+    """再起律動 DOT/HOT交互bug修复测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.config = BattleConfig()
+        self.config.max_turns = 2
+
+        # 世界への反逆者 (暗属性, 敏捷型, 前排右)
+        # max_hp=76331, 初始HP=49171 (64.4%, 高于50%)
+        self.front_ally = UnitState(
+            unit_id="ally_front", name="世界への反逆者", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_FRONT, character_id=154301, level=15,
+            element=6, character_type=3,  # 暗属性, 敏捷型
+            max_hp=76331, current_hp=49171,
+            attack=10000, defense=5000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110051, 120113, 120114, 130121, 130122],
+            skill_levels={110051: 15, 120113: 15, 120114: 15, 130121: 15, 130122: 15},
+            skill_cooldowns={},
+        )
+        # 设置prev_hp_percent为当前HP百分比 (64.4%)
+        self.front_ally.prev_hp_percent = (49171 / 76331) * 100
+
+        # 混沌の立役者 (火属性, EN型, 后排右) - 持有再起律動
+        self.back_ally = UnitState(
+            unit_id="ally_back", name="混沌の立役者", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_BACK, character_id=111301, level=15,
+            element=1, character_type=2,  # 火属性, EN型
+            max_hp=132990, current_hp=132990,
+            attack=10000, defense=79872, speed=999,
+            crit_rate=0.1, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[110020, 120027, 130013, 130035, 130051],
+            skill_levels={110020: 15, 120027: 15, 130013: 15, 130035: 15, 130051: 15},
+            skill_cooldowns={},
+        )
+
+        # 敌方单位 (仅用于战场合法性)
+        self.enemy = _make_ally_unit(
+            "enemy_1", "敌方", Position.ENEMY_CENTER_FRONT,
+            side=Side.ENEMY, character_id=999001,
+            max_hp=999999, current_hp=999999,
+        )
+
+        self.bf.friend_team = [self.front_ally, self.back_ally]
+        self.bf.enemy_team = [self.enemy]
+
+        # 创建控制器 (使用真实服务)
+        self.controller = BattleFlowController(self.bf, self.config, data_loader=self.dl)
+        self.controller.skill_service.set_battlefield(self.bf)
+
+    def _add_burn_debuff(self, unit, damage_value, source_unit_id="enemy_1"):
+        """添加炎上debuff"""
+        burn = BuffState(
+            buff_id="burn_test",
+            name="炎上",
+            effect_type=SkillEffectType.CONFLAGRATION.value,
+            value=float(damage_value),
+            duration=1,
+            timing_type=2,  # 行动制
+            source_unit_id=source_unit_id,
+            source_skill_id=0,
+            is_debuff=True,
+            is_stackable=True,
+            is_memory_buff=False,
+        )
+        unit.debuffs.append(burn)
+
+    def _add_hot_buff(self, unit, heal_pct, source_unit_id="ally_back", caster_attack=10000):
+        """添加HOT buff (基于max_hp百分比)"""
+        hot = BuffState(
+            buff_id="hot_test",
+            name="継続回復",
+            effect_type=SkillEffectType.HEAL_OVER_TIME.value,
+            value=float(heal_pct),
+            duration=1,
+            timing_type=2,  # 行动制
+            source_unit_id=source_unit_id,
+            source_skill_id=0,
+            is_debuff=False,
+            is_stackable=False,
+            is_memory_buff=False,
+        )
+        hot.heal_base = 'max_hp'
+        hot.caster_attack = caster_attack
+        unit.buffs.append(hot)
+
+    def test_dot_crosses_threshold_then_hot_restores_triggers_ps(self):
+        """
+        DOT将HP打到50%以下, HOT又拉回50%以上, PS应正常触发
+        这是bug报告的核心场景
+        """
+        # 炎上伤害=11521, 将HP从49171打到37650 (49.3%, 低于50%)
+        self._add_burn_debuff(self.front_ally, 11521)
+        # HOT基于max_hp 15%, heal=int(76331*15/100)=11449, 将HP从37650拉到49099 (64.3%, 高于50%)
+        self._add_hot_buff(self.front_ally, 15)
+
+        pp_before = self.back_ally.current_pp
+
+        # 执行状态效果处理 (包含DOT/HOT/触发器检查)
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        # 验证: PS「再起律動」应被触发, 混沌の立役者PP应减少1
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before - 1,
+            f"再起律動应被触发, PP应从{pp_before}减至{pp_before-1}, 实际={self.back_ally.current_pp}"
+        )
+
+    def test_dot_crosses_threshold_without_hot_triggers_ps(self):
+        """
+        DOT将HP打到50%以下, 无HOT, PS应正常触发
+        这是正常场景, 确保修复未破坏原有逻辑
+        """
+        self._add_burn_debuff(self.front_ally, 11521)
+        # 不添加HOT
+
+        pp_before = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before - 1,
+            f"再起律動应被触发, PP应从{pp_before}减至{pp_before-1}, 实际={self.back_ally.current_pp}"
+        )
+
+    def test_dot_does_not_cross_threshold_no_trigger(self):
+        """
+        DOT未将HP打到50%以下, PS不应触发
+        """
+        # 炎上伤害=5000, HP从49171降到44171 (57.9%, 仍高于50%)
+        self._add_burn_debuff(self.front_ally, 5000)
+
+        pp_before = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before,
+            f"再起律動不应触发(HP未跨越50%), PP应保持{pp_before}, 实际={self.back_ally.current_pp}"
+        )
+
+    def test_hot_only_does_not_trigger_ps(self):
+        """
+        只有HOT没有DOT, PS不应触发 (HOT不会导致HP降低)
+        """
+        self._add_hot_buff(self.front_ally, 15)
+
+        pp_before = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before,
+            f"再起律動不应触发(只有HOT), PP应保持{pp_before}, 实际={self.back_ally.current_pp}"
+        )
+
+    def test_heal_between_actions_then_dot_triggers_ps(self):
+        """
+        上一轮DOT将HP打到50%以下触发PS, HOT回复到50%以上,
+        本轮DOT再次将HP打到50%以下, PS应再次触发
+        (修复prev_hp_percent在行动间治疗后未更新的bug)
+        """
+        # === 模拟上一轮行动 ===
+        # HP=49171 (64.4%), DOT伤害=11521 → HP=37650 (49.3%, 低于50%)
+        self._add_burn_debuff(self.front_ally, 11521)
+        pp_before_round1 = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        # 验证上一轮PS触发
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before_round1 - 1,
+            f"上一轮再起律動应触发, PP应从{pp_before_round1}减至{pp_before_round1-1}"
+        )
+        # 此时prev_hp_percent被更新为49.3% (低于50%)
+
+        # === 模拟上一轮HOT回复 ===
+        # 清除已处理的DOT, 模拟HOT将HP从37650回复到49171 (64.4%)
+        self.front_ally.debuffs.clear()
+        self.front_ally.current_hp = 49171  # 回复到64.4%
+        # 注意: 此时prev_hp_percent仍为49.3% (bug: 未更新)
+
+        # 清除PS cooldown以排除干扰
+        self.back_ally.skill_cooldowns.pop(130035, None)
+        # 恢复PP
+        self.back_ally.current_pp = self.back_ally.initial_passive_point
+
+        # === 模拟本轮行动开始 ===
+        # 修复: _execute_unit_action开始时更新prev_hp_percent为当前HP百分比
+        for u in self.bf.get_all_units():
+            if u.is_alive and u.max_hp > 0:
+                u.prev_hp_percent = (u.current_hp / u.max_hp) * 100
+        # 此时prev_hp_percent=64.4% (修复后正确反映治疗后的HP)
+
+        # === 模拟本轮DOT ===
+        # DOT伤害=11521 → HP从49171降到37650 (49.3%, 低于50%)
+        self._add_burn_debuff(self.front_ally, 11521)
+        pp_before_round2 = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        # 验证本轮PS应再次触发 (修复后prev_hp_percent=64.4% > 50, 检测到跨越)
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before_round2 - 1,
+            f"再起律動应再次触发(治疗后DOT降血跨越阈值), PP应从{pp_before_round2}减至{pp_before_round2-1}, "
+            f"实际={self.back_ally.current_pp}"
+        )
+
+    def test_heal_between_actions_without_fix_no_trigger(self):
+        """
+        对照测试: 上一轮DOT触发PS后HOT回复, 本轮DOT降血,
+        若不更新prev_hp_percent (模拟bug), PS不应触发
+        """
+        # === 模拟上一轮行动 ===
+        self._add_burn_debuff(self.front_ally, 11521)
+        self.controller._check_and_apply_status_effects(self.front_ally)
+        # prev_hp_percent被更新为49.3%
+
+        # === 模拟HOT回复 ===
+        self.front_ally.debuffs.clear()
+        self.front_ally.current_hp = 49171  # 回复到64.4%
+        # 不更新prev_hp_percent (模拟bug)
+
+        # 清除PS cooldown
+        self.back_ally.skill_cooldowns.pop(130035, None)
+        self.back_ally.current_pp = self.back_ally.initial_passive_point
+
+        # === 模拟本轮DOT (不应用修复, prev_hp_percent仍为49.3%) ===
+        self._add_burn_debuff(self.front_ally, 11521)
+        pp_before = self.back_ally.current_pp
+
+        self.controller._check_and_apply_status_effects(self.front_ally)
+
+        # 验证: 不更新prev_hp_percent时, PS不应触发 (bug行为)
+        self.assertEqual(
+            self.back_ally.current_pp, pp_before,
+            f"未修复时(prev_hp_percent过期), 再起律動不应触发, PP应保持{pp_before}"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

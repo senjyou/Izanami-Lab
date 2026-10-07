@@ -1,0 +1,517 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+ 
+ JSON SQLite 
+"""
+
+import sys
+import json
+import sqlite3
+from pathlib import Path
+from typing import Dict, Any
+
+#  
+def safe_print(text: str):
+    """ Unicode """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode('utf-8', errors='replace').decode('utf-8'))
+
+#  
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+SPLIT_DATA_DIR = PROJECT_ROOT / "split_data"
+DB_DIR = PROJECT_ROOT / "db"
+SQL_SCRIPT = PROJECT_ROOT / "scripts" / "db" / "init_character_stats_db.sql"
+DB_FILE = DB_DIR / "character_stats.db"
+
+
+def load_json(file_path: Path) -> Dict[str, Any]:
+    """ JSON """
+    print(f"[LOAD] {file_path.name}")
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def initialize_database(conn: sqlite3.Connection):
+    """ SQL """
+    print("[INIT] Database structure...")
+    
+    with open(SQL_SCRIPT, 'r', encoding='utf-8') as f:
+        sql_script = f.read()
+    
+    conn.executescript(sql_script)
+    conn.commit()
+    print("[OK] Database initialized")
+
+
+def migrate_level_lerp(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "level_lerp.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for level_str, coefficient in data.items():
+        level = int(level_str)
+        cursor.execute(
+            "INSERT OR REPLACE INTO level_lerp_coefficients (level, lerp_coefficient) VALUES (?, ?)",
+            (level, coefficient)
+        )
+        count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_equipment(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "equipment.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for eq_id_str, eq_data in data.items():
+        cursor.execute("""
+            INSERT OR REPLACE INTO equipment 
+            (equipment_id, name, character_type, equipment_type, 
+             hp_bonus, attack_bonus, defense_bonus, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            eq_data['equipment_id'],
+            eq_data['name'],
+            eq_data['character_type'],
+            eq_data['equipment_type'],
+            eq_data['hp_bonus'],
+            eq_data['attack_bonus'],
+            eq_data['defense_bonus'],
+            eq_data['description']
+        ))
+        count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_modules(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "modules.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for mod_id_str, mod_data in data.items():
+        cursor.execute("""
+            INSERT OR REPLACE INTO modules 
+            (module_id, name, character_type, module_type)
+            VALUES (?, ?, ?, ?)
+        """, (
+            mod_data['module_id'],
+            mod_data['name'],
+            mod_data['character_type'],
+            mod_data['module_type']
+        ))
+        count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_module_tiers(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "module_status.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for mod_id_str, tiers in data.items():
+        module_id = int(mod_id_str)
+        
+        for tier_str, tier_data in tiers.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO module_tiers 
+                (module_id, tier, 
+                 hp_base, attack_base, defense_base,
+                 hp_per_level, attack_per_level, defense_per_level,
+                 hp_rate, attack_rate, defense_rate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                module_id,
+                tier_data['tier'],
+                tier_data['hp_base'],
+                tier_data['attack_base'],
+                tier_data['defense_base'],
+                tier_data['hp_per_level'],
+                tier_data['attack_per_level'],
+                tier_data['defense_per_level'],
+                tier_data['hp_rate'],
+                tier_data['attack_rate'],
+                tier_data['defense_rate']
+            ))
+            count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_affection_bonuses(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "affection_bonuses.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for char_type_str, levels in data.items():
+        for level_str, bonus_data in levels.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO affection_bonuses 
+                (character_type, affection_level,
+                 additional_hp, additional_attack, additional_defense, additional_speed,
+                 additional_action_point, additional_passive_point)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                bonus_data['character_type'],
+                bonus_data['affection_level'],
+                bonus_data['additional_hp'],
+                bonus_data['additional_attack'],
+                bonus_data['additional_defense'],
+                bonus_data['additional_speed'],
+                bonus_data['additional_action_point'],
+                bonus_data['additional_passive_point']
+            ))
+            count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_school_systems(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "school_systems.json")
+    
+    cursor = conn.cursor()
+    
+    #  
+    definitions = data['definitions']
+    def_count = 0
+    
+    for act_id_str, def_data in definitions.items():
+        cursor.execute("""
+            INSERT OR REPLACE INTO school_system_definitions 
+            (actuator_id, name, character_type, character_attribute, description)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            def_data['actuator_id'],
+            def_data['name'],
+            def_data['character_type'],
+            def_data['character_attribute'],
+            def_data['description']
+        ))
+        def_count += 1
+    
+    safe_print(f"      {def_count}  ")
+    
+    #  
+    bonuses = data['bonuses']
+    bonus_count = 0
+    
+    for act_id_str, levels in bonuses.items():
+        actuator_id = int(act_id_str)
+        for level_str, bonus_data in levels.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO school_system_bonuses 
+                (actuator_id, level, hp_bonus, attack_bonus, defense_bonus)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                actuator_id,
+                bonus_data['level'],
+                bonus_data['hp_bonus'],
+                bonus_data['attack_bonus'],
+                bonus_data['defense_bonus']
+            ))
+            bonus_count += 1
+    
+    conn.commit()
+    safe_print(f"      {bonus_count}  ")
+
+
+def migrate_rarity_bonuses(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "rarity_bonuses.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for char_id_str, rarities in data.items():
+        character_id = int(char_id_str)
+        
+        for rarity_str, bonus_data in rarities.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO rarity_bonuses 
+                (character_id, rarity,
+                 additional_hp, additional_attack, additional_defense, additional_speed,
+                 additional_crit_rate, additional_action_point, additional_passive_point)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                character_id,
+                bonus_data['rarity'],
+                bonus_data['additional_hp'],
+                bonus_data['additional_attack'],
+                bonus_data['additional_defense'],
+                bonus_data['additional_speed'],
+                bonus_data['additional_crit_rate'],
+                bonus_data['additional_action_point'],
+                bonus_data['additional_passive_point']
+            ))
+            count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def migrate_module_gear_system(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    cursor = conn.cursor()
+    
+    # 1.  
+    gear_master = load_json(SPLIT_DATA_DIR / "ModuleGearMaster.json")
+    type_count = 0
+    
+    NAME_CN_MAP = {
+        ' ': ' ',
+        'HP ': 'HP ',
+        ' ': ' ',
+        ' ': ' ',
+        ' ': ' ',
+        ' ': ' ',
+        ' ': ' ',
+        ' ': ' '
+    }
+    
+    for gear in gear_master:
+        cursor.execute("""
+            INSERT OR REPLACE INTO module_gear_types 
+            (gear_type_id, effect_type, name_jp, name_cn, drop_rate)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            gear['Id'],
+            gear['EffectType'],
+            gear['Title'],
+            NAME_CN_MAP.get(gear['Title'], gear['Title']),
+            gear['Rate']
+        ))
+        type_count += 1
+    
+    safe_print(f"      {type_count}  ")
+    
+    # 2.  
+    gear_item = load_json(SPLIT_DATA_DIR / "ModuleGearItemMaster.json")
+    
+    RARITY_NAMES = {1: ' ', 2: ' ', 3: ' '}
+    RARITY_COLORS = {1: '#FFFFFF', 2: '#FFD700', 3: '#FF69B4'}
+    
+    for item in gear_item:
+        cursor.execute("""
+            INSERT OR REPLACE INTO module_gear_rarities 
+            (rarity_id, name, loss_rate, color_code)
+            VALUES (?, ?, ?, ?)
+        """, (
+            item['Id'],
+            RARITY_NAMES[item['Id']],
+            item['LossRate'],
+            RARITY_COLORS[item['Id']]
+        ))
+    
+    safe_print(f"      3  ")
+    
+    # 3.  
+    gear_effect = load_json(SPLIT_DATA_DIR / "ModuleGearEffectMaster.json")
+    effect_count = 0
+    
+    for effect in gear_effect:
+        cursor.execute("""
+            INSERT OR REPLACE INTO module_gear_effects 
+            (gear_type_id, rank, base_effect_value)
+            VALUES (?, ?, ?)
+        """, (
+            effect['ModuleGearMasterId'],
+            effect['Rank'],
+            effect['EffectValue']
+        ))
+        effect_count += 1
+    
+    conn.commit()
+    safe_print(f"      {effect_count}  ")
+
+
+def migrate_characters(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    data = load_json(DATA_DIR / "characters.json")
+    
+    cursor = conn.cursor()
+    count = 0
+    
+    for char_id_str, char_data in data.items():
+        cursor.execute("""
+            INSERT OR REPLACE INTO characters 
+            (character_id, name, character_base_id, default_rarity,
+             character_type, attribute, position_type, role_type,
+             action_point, passive_point,
+             min_level, min_hp, min_attack, min_defense, min_speed, min_crit_rate,
+             max_level, max_hp, max_attack, max_defense, max_speed, max_crit_rate,
+             bonus_hp_per_level, bonus_attack_per_level, bonus_defense_per_level,
+             bonus_speed_per_level, bonus_crit_rate_per_level,
+             hp_grade, attack_grade, defense_grade, speed_grade, crit_rate_grade,
+             is_released, is_default_character)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            char_data['character_id'],
+            char_data['name'],
+            char_data['character_base_id'],
+            char_data['default_rarity'],
+            char_data['character_type'],
+            char_data['attribute'],
+            char_data['position_type'],
+            char_data['role_type'],
+            char_data['action_point'],
+            char_data['passive_point'],
+            char_data['min_level_stats']['level'],
+            char_data['min_level_stats']['hp'],
+            char_data['min_level_stats']['attack'],
+            char_data['min_level_stats']['defense'],
+            char_data['min_level_stats']['speed'],
+            char_data['min_level_stats']['crit_rate'],
+            char_data['max_level_stats']['level'],
+            char_data['max_level_stats']['hp'],
+            char_data['max_level_stats']['attack'],
+            char_data['max_level_stats']['defense'],
+            char_data['max_level_stats']['speed'],
+            char_data['max_level_stats']['crit_rate'],
+            char_data['bonus_per_level']['hp'],
+            char_data['bonus_per_level']['attack'],
+            char_data['bonus_per_level']['defense'],
+            char_data['bonus_per_level']['speed'],
+            char_data['bonus_per_level']['crit_rate'],
+            char_data['grades']['hp_grade'],
+            char_data['grades']['attack_grade'],
+            char_data['grades']['defense_grade'],
+            char_data['grades']['speed_grade'],
+            char_data['grades']['crit_rate_grade'],
+            char_data['raw_data'].get('IsReleased', True),
+            char_data['raw_data'].get('IsDefaultCharacter', False)
+        ))
+        count += 1
+    
+    conn.commit()
+    safe_print(f"    {count}  ")
+
+
+def verify_migration(conn: sqlite3.Connection):
+    """ """
+    safe_print("\n   ...")
+    
+    cursor = conn.cursor()
+    
+    tables = [
+        ('characters', ' '),
+        ('level_lerp_coefficients', ' '),
+        ('affection_bonuses', ' '),
+        ('equipment', ' '),
+        ('school_system_definitions', ' '),
+        ('school_system_bonuses', ' '),
+        ('modules', ' '),
+        ('module_tiers', ' '),
+        ('rarity_bonuses', ' '),
+        ('module_gear_types', ' '),
+        ('module_gear_rarities', ' '),
+        ('module_gear_effects', ' '),
+    ]
+    
+    safe_print("\n   :")
+    for table_name, table_desc in tables:
+        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cursor.fetchone()[0]
+        safe_print(f"  {table_desc:12} : {count:6}  ")
+    
+    #  
+    cursor.execute("SELECT * FROM game_constants")
+    constants = cursor.fetchall()
+    safe_print("\n   :")
+    for const in constants:
+        safe_print(f"  {const[0]:25} = {const[1]}")
+
+
+def main():
+    """ """
+    safe_print("=" * 80)
+    safe_print("MGG Battle Simulation -  ")
+    safe_print("=" * 80)
+    
+    #  
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    
+    #  
+    safe_print(f"\n   : {DB_FILE}")
+    conn = sqlite3.connect(DB_FILE)
+    
+    try:
+        # 1.  
+        initialize_database(conn)
+        
+        # 2. Migrate config data (Priority 1)
+        migrate_level_lerp(conn)
+        migrate_equipment(conn)
+        migrate_modules(conn)
+        
+        # 3. Migrate bonus system data (Priority 2)
+        migrate_module_tiers(conn)
+        migrate_affection_bonuses(conn) 
+        migrate_school_systems(conn)
+        migrate_module_gear_system(conn)
+        
+        # 4. Migrate character data (Priority 3 - must be before rarity)
+        migrate_characters(conn)
+        
+        # 5. Migrate rarity bonuses (depends on characters)
+        migrate_rarity_bonuses(conn)
+        
+        # 6. Verify migration
+        verify_migration(conn)
+        
+        safe_print("\n" + "=" * 80)
+        safe_print("   ")
+        safe_print("=" * 80)
+        
+    except Exception as e:
+        safe_print(f"\n   : {e}")
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        sys.exit(1)
+    
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()

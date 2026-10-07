@@ -1,0 +1,821 @@
+"""
+角色106301 臆病な褒められたがり少女 专项测试
+- EX: 110002 一日一不憫（5hit全体EN攻击 + 暴击时临时易伤100% + 追加1hit，易伤仅技能内生效）
+- AS1: 120014 エクスペクトボーダー（横列EN攻击 + 暴击时永久易伤5% + Lv11+降低会心率）
+- PS1: 130010 アフターライズ（AS攻击后自身会心率UP + Lv11+攻击力最高友方会心率UP）
+- PS2: 130023 ハイサポート（回合开始时攻击力最高友方ATK+会心率UP，第1回合不发动）
+- PS3: 130039 スキルリレイティブ（自身被赋予debuff时会心率UP + Lv11+对施加者易伤）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+CRIT_RATE_UP = SkillEffectType.STATUS_CRITICAL_CHANCE.value
+ATK_UP = SkillEffectType.STATUS_ATTACK.value
+DMG_TAKEN_UP = SkillEffectType.RECEIVED_DAMAGE.value
+# crit_rate_down 映射到 STATUS_CRITICAL_CHANCE（is_debuff=True）
+CRIT_RATE_DOWN = SkillEffectType.STATUS_CRITICAL_CHANCE.value
+
+
+class TestActor106301(unittest.TestCase):
+    """角色106301 臆病な褒められたがり少女 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 106301 臆病な褒められたがり少女 (火属性, EN型, 后排)
+        self.caster = UnitState(
+            unit_id="ally_back", name="臆病な褒められたがり少女", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=106301, level=10,
+            element=1, character_type=2,
+            max_hp=15000, current_hp=15000,
+            attack=10000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=8,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110002, 120014, 130010, 130023, 130039],
+            skill_levels={110002: 10, 120014: 10, 130010: 10, 130023: 10, 130039: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排（攻击力最高，用于PS2测试）
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999100, level=10,
+            element=2, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=12000, defense=6000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=8000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=7000, defense=2500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前
+        self.enemy_right_front = UnitState(
+            unit_id="enemy_right_front", name="敌方右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=5, character_type=2,
+            max_hp=25000, current_hp=25000,
+            attack=5000, defense=2000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=1,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=6000, defense=2000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=5, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_front]
+        self.bf.enemy_team = [
+            self.enemy_front, self.enemy_left_front, self.enemy_right_front,
+            self.enemy_back,
+        ]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: 一日一不憫 ───
+
+    def test_ex_5hit_damage(self):
+        """EX(110002) 5hit全体EN攻击"""
+        hp_before = self.enemy_front.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.enemy_front.current_hp, hp_before, "EX应对敌方造成伤害")
+
+    def test_ex_crit_applies_temporary_dmg_taken_up(self):
+        """EX(110002) 暴击时赋予临时易伤(100%)，仅技能内生效"""
+        # 设置100%暴击率确保暴击
+        self.caster.crit_rate = 1.0
+        hp_before = self.enemy_front.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 技能执行期间应该有dmg_taken_up debuff（EPHEMERAL_SKILL_END类型）
+        # 技能结束后应该被清除
+        dmg_taken_up_buffs = [b for b in self.enemy_front.debuffs
+                              if b.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(dmg_taken_up_buffs), 0,
+                         "EX易伤应在技能结束后被清除")
+
+    def test_ex_crit_adds_extra_hit(self):
+        """EX(110002) 暴击时追加1hit EN攻击"""
+        # 设置100%暴击率
+        self.caster.crit_rate = 1.0
+        hp_no_crit = self.enemy_front.current_hp
+
+        # 暴击时执行
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        hp_with_crit = self.enemy_front.current_hp
+        dmg_with_crit = hp_no_crit - hp_with_crit
+
+        # 重置敌方HP，无暴击时执行
+        self.caster.crit_rate = 0.0
+        self.enemy_front.current_hp = hp_no_crit
+        result2 = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result2["success"])
+        dmg_no_crit = hp_no_crit - self.enemy_front.current_hp
+
+        # 暴击时伤害应显著高于无暴击（追加1hit + 易伤加成）
+        self.assertGreater(dmg_with_crit, dmg_no_crit,
+                           "暴击时应因追加1hit+易伤造成更多伤害")
+
+    def test_ex_crit_pursuit_damage_in_effects_applied(self):
+        """EX(110002) 暴击时追撃伤害应出现在effects_applied中（供叙事日志显示）"""
+        # 设置100%暴击率
+        self.caster.crit_rate = 1.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # effects_applied中应至少有2个damage效果：主5hit伤害 + 追撃伤害
+        damage_effects = [e for e in result["effects_applied"]
+                          if e.get("effect_type") == "damage"]
+        self.assertGreaterEqual(len(damage_effects), 2,
+                                "暴击时effects_applied应包含主伤害和追撃伤害两个damage效果")
+
+        # 追撃伤害效果（第2个damage效果）应有目标且造成伤害
+        pursuit_effect = damage_effects[1]
+        self.assertGreater(len(pursuit_effect.get("targets", [])), 0,
+                           "追撃伤害效果应包含目标")
+        for t in pursuit_effect["targets"]:
+            self.assertGreater(t["actual_damage"], 0,
+                               f"追撃应对目标{t['target']}造成伤害")
+
+    def test_ex_no_crit_no_pursuit_in_effects_applied(self):
+        """EX(110002) 无暴击时effects_applied中不应有追撃伤害效果"""
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 无暴击时应有且仅有1个damage效果（主5hit伤害），无追撃
+        damage_effects = [e for e in result["effects_applied"]
+                          if e.get("effect_type") == "damage"]
+        self.assertEqual(len(damage_effects), 1,
+                         "无暴击时effects_applied应只有主伤害1个damage效果")
+
+    def test_ex_no_crit_no_extra_hit(self):
+        """EX(110002) 无暴击时不追加hit，不赋予易伤"""
+        self.caster.crit_rate = 0.0
+        hp_before = self.enemy_front.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 无暴击时不应有dmg_taken_up debuff
+        dmg_taken_up_buffs = [b for b in self.enemy_front.debuffs
+                              if b.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(dmg_taken_up_buffs), 0,
+                         "无暴击时不应赋予易伤")
+
+    # ─── EX: 一日一不憫 (复数敌人专项) ───
+
+    def _mock_crit_targets(self, crit_target_ids):
+        """Mock _check_crit 使指定unit_id的目标暴击，其他不暴击。
+        返回 (mock_func, original_func) 用于try/finally恢复。
+        """
+        original_check_crit = self.dms._check_crit
+
+        def mock_check_crit(crit_rate):
+            ctx = getattr(self.dms, '_crit_context', {})
+            target_id = ctx.get('target_id')
+            return target_id in crit_target_ids
+
+        self.dms._check_crit = mock_check_crit
+        return mock_check_crit, original_check_crit
+
+    def _get_vuln_targets(self, result):
+        """从effects_applied中提取易伤(dmg_taken_up)效果的目标unit_id集合。
+        易伤以aura形式施加，is_debuff=True，effect为RECEIVED_DAMAGE的value。
+        """
+        targets = set()
+        for e in result.get("effects_applied", []):
+            if e.get("effect_type") != "aura" or not e.get("is_debuff"):
+                continue
+            for aura in e.get("auras", []):
+                if aura.get("effect") == DMG_TAKEN_UP:
+                    targets.add(aura.get("target_id"))
+        return targets
+
+    def test_ex_multi_enemy_crit_only_on_some_targets(self):
+        """EX(110002) 复数敌人时，暴击仅对部分目标生效，易伤和追撃应per-target独立计算"""
+        # mock: 仅 enemy_front 和 enemy_left_front 暴击
+        crit_targets = {self.enemy_front.unit_id, self.enemy_left_front.unit_id}
+        mock_func, original = self._mock_crit_targets(crit_targets)
+
+        hp_before = {
+            self.enemy_front.unit_id: self.enemy_front.current_hp,
+            self.enemy_left_front.unit_id: self.enemy_left_front.current_hp,
+            self.enemy_right_front.unit_id: self.enemy_right_front.current_hp,
+            self.enemy_back.unit_id: self.enemy_back.current_hp,
+        }
+
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # 验证: 易伤应仅施加给暴击目标（从effects_applied中提取）
+            self.assertEqual(
+                self._get_vuln_targets(result), crit_targets,
+                "易伤应仅施加给暴击目标"
+            )
+
+            # 暴击目标应受到更多伤害（暴击 + 易伤 + 追撃）
+            dmg_front = hp_before[self.enemy_front.unit_id] - self.enemy_front.current_hp
+            dmg_left = hp_before[self.enemy_left_front.unit_id] - self.enemy_left_front.current_hp
+            # 非暴击目标应受到基础伤害（5hit，无暴击/易伤/追撃）
+            dmg_right = hp_before[self.enemy_right_front.unit_id] - self.enemy_right_front.current_hp
+            dmg_back = hp_before[self.enemy_back.unit_id] - self.enemy_back.current_hp
+
+            self.assertGreater(dmg_front, dmg_right,
+                               "暴击目标(前排)应比非暴击目标(右前)受到更多伤害")
+            self.assertGreater(dmg_left, dmg_right,
+                               "暴击目标(左前)应比非暴击目标(右前)受到更多伤害")
+
+            # 非暴击目标之间伤害应相近（仅基础5hit，无暴击加成）
+            # 注：由于属性克制可能略有差异，但都应远小于暴击目标
+            self.assertLess(dmg_right, dmg_front,
+                            "非暴击目标不应享受暴击目标的易伤/追撃")
+            self.assertLess(dmg_back, dmg_front,
+                            "非暴击目标不应享受暴击目标的易伤/追撃")
+        finally:
+            self.dms._check_crit = original
+
+    def test_ex_multi_enemy_all_crit(self):
+        """EX(110002) 复数敌人全部暴击时，所有目标都应获得易伤和追撃"""
+        crit_targets = {
+            self.enemy_front.unit_id,
+            self.enemy_left_front.unit_id,
+            self.enemy_right_front.unit_id,
+            self.enemy_back.unit_id,
+        }
+        mock_func, original = self._mock_crit_targets(crit_targets)
+
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.enemy_team}
+
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # 所有敌方单位都应获得易伤（从effects_applied中提取）
+            self.assertEqual(
+                self._get_vuln_targets(result), crit_targets,
+                "全部暴击时，所有敌方单位都应获得易伤"
+            )
+
+            # 所有目标都应受到暴击级伤害（含追撃）
+            for u in self.bf.enemy_team:
+                dmg = hp_before[u.unit_id] - u.current_hp
+                self.assertGreater(dmg, 0, f"{u.name}应受到伤害")
+        finally:
+            self.dms._check_crit = original
+
+    def test_ex_multi_enemy_no_crit_no_debuff(self):
+        """EX(110002) 复数敌人无暴击时，所有目标都不应获得易伤和追撃"""
+        # mock: 无任何目标暴击
+        crit_targets = set()
+        mock_func, original = self._mock_crit_targets(crit_targets)
+
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.enemy_team}
+
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # 无暴击时不应施加任何易伤（从effects_applied中验证）
+            self.assertEqual(
+                self._get_vuln_targets(result), set(),
+                "无暴击时不应施加任何易伤"
+            )
+
+            # 所有目标都应受到基础5hit伤害（无暴击/易伤/追撃）
+            for u in self.bf.enemy_team:
+                dmg = hp_before[u.unit_id] - u.current_hp
+                self.assertGreater(dmg, 0, f"{u.name}应受到基础伤害")
+        finally:
+            self.dms._check_crit = original
+
+    def test_ex_multi_enemy_single_target_crit_independence(self):
+        """EX(110002) 仅1个目标暴击时，严格验证per-target独立性：
+        - 暴击目标获得易伤+追撃
+        - 其他目标仅受基础5hit伤害，不受暴击目标影响
+        """
+        # mock: 仅 enemy_front 暴击
+        crit_targets = {self.enemy_front.unit_id}
+        mock_func, original = self._mock_crit_targets(crit_targets)
+
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.enemy_team}
+
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # 严格验证: 易伤仅施加给 enemy_front（从effects_applied中提取）
+            self.assertEqual(
+                self._get_vuln_targets(result), {self.enemy_front.unit_id},
+                "易伤应仅施加给唯一暴击目标"
+            )
+
+            dmg_front = hp_before[self.enemy_front.unit_id] - self.enemy_front.current_hp
+            dmg_left = hp_before[self.enemy_left_front.unit_id] - self.enemy_left_front.current_hp
+            dmg_right = hp_before[self.enemy_right_front.unit_id] - self.enemy_right_front.current_hp
+            dmg_back = hp_before[self.enemy_back.unit_id] - self.enemy_back.current_hp
+
+            # 暴击目标伤害应显著高于所有非暴击目标
+            self.assertGreater(dmg_front, dmg_left,
+                               "暴击目标应比非暴击目标(左前)受到更多伤害")
+            self.assertGreater(dmg_front, dmg_right,
+                               "暴击目标应比非暴击目标(右前)受到更多伤害")
+            self.assertGreater(dmg_front, dmg_back,
+                               "暴击目标应比非暴击目标(后排)受到更多伤害")
+
+            # 非暴击目标之间伤害应相近（都是基础5hit，无暴击/易伤/追撃）
+            # 使用比例验证：非暴击目标伤害不应超过暴击目标伤害的80%
+            # （暴击目标有1.5x暴击 + 易伤 + 追撃，应显著更高）
+            for dmg_other in [dmg_left, dmg_right, dmg_back]:
+                self.assertLess(
+                    dmg_other, dmg_front * 0.8,
+                    "非暴击目标伤害应显著低于暴击目标（验证易伤/追撃未泄漏）"
+                )
+        finally:
+            self.dms._check_crit = original
+
+    def test_ex_multi_enemy_debuff_not_leaked_to_non_crit(self):
+        """EX(110002) 暴击目标的易伤debuff不应泄漏到非暴击目标
+        通过对比有/无其他目标暴击时，非暴击目标受到的伤害应一致。
+        """
+        # 场景1: 仅 enemy_right_front 暴击，观察 enemy_back（非暴击）伤害
+        crit_targets_1 = {self.enemy_right_front.unit_id}
+        mock_func, original = self._mock_crit_targets(crit_targets_1)
+        hp_back_before_1 = self.enemy_back.current_hp
+        try:
+            result1 = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result1["success"])
+            # 验证 enemy_back 不在易伤集合中（从effects_applied中验证）
+            self.assertNotIn(self.enemy_back.unit_id, self._get_vuln_targets(result1),
+                             "非暴击目标不应获得易伤")
+            dmg_back_1 = hp_back_before_1 - self.enemy_back.current_hp
+        finally:
+            self.dms._check_crit = original
+
+        # 重置所有敌方HP
+        for u in self.bf.enemy_team:
+            u.current_hp = u.max_hp
+            u.debuffs = []
+            u.buffs = []
+
+        # 场景2: 无任何暴击，观察 enemy_back 伤害
+        crit_targets_2 = set()
+        mock_func, original = self._mock_crit_targets(crit_targets_2)
+        hp_back_before_2 = self.enemy_back.current_hp
+        try:
+            result2 = self.ss.execute_skill(
+                caster=self.caster, skill_id=110002, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result2["success"])
+            self.assertEqual(self._get_vuln_targets(result2), set(),
+                             "无暴击时不应有易伤")
+            dmg_back_2 = hp_back_before_2 - self.enemy_back.current_hp
+        finally:
+            self.dms._check_crit = original
+
+        # 非暴击目标 enemy_back 在两种场景下伤害应一致（易伤未泄漏）
+        self.assertEqual(dmg_back_1, dmg_back_2,
+                         "非暴击目标伤害在有/无其他目标暴击时应一致（易伤未泄漏）")
+
+    # ─── AS1: エクスペクトボーダー ───
+
+    def test_as1_enemy_row_damage(self):
+        """AS1(120014) 横列EN攻击"""
+        hp_before_front = self.enemy_front.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.enemy_front.current_hp, hp_before_front, "AS1应对前排敌方造成伤害")
+
+    def test_as1_crit_applies_permanent_dmg_taken_up(self):
+        """AS1(120014) 暴击时赋予永久易伤5%"""
+        self.caster.crit_rate = 1.0
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 应有永久的dmg_taken_up debuff（易伤是debuff）
+        dmg_taken_up_buffs = [b for b in self.enemy_front.debuffs
+                              if b.effect_type == DMG_TAKEN_UP]
+        self.assertGreater(len(dmg_taken_up_buffs), 0,
+                           "暴击时应赋予永久易伤")
+
+    def test_as1_no_crit_no_debuff(self):
+        """AS1(120014) 无暴击时不赋予易伤"""
+        self.caster.crit_rate = 0.0
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_taken_up_buffs = [b for b in self.enemy_front.debuffs
+                              if b.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(dmg_taken_up_buffs), 0,
+                         "无暴击时不应赋予易伤")
+
+    def test_as1_lv11_crit_rate_down(self):
+        """AS1(120014) Lv11+暴击时降低会心率"""
+        self.caster.crit_rate = 1.0
+        self.caster.skill_levels[120014] = 11
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 应有crit_rate_down debuff（会心率下降是debuff）
+        crit_down_buffs = [b for b in self.enemy_front.debuffs
+                           if b.effect_type == CRIT_RATE_DOWN]
+        self.assertGreater(len(crit_down_buffs), 0,
+                           "Lv11+暴击时应降低敌方会心率")
+
+    def test_as1_crit_only_targets_critted_units(self):
+        """AS1(120014) 暴击时仅对暴击目标施加易伤，非暴击目标不受影响"""
+        # 通过mock _check_crit实现：仅对enemy_front暴击，对其他横排目标不暴击
+        original_check_crit = self.dms._check_crit
+        crit_targets = {self.enemy_front.unit_id}
+
+        def mock_check_crit(crit_rate):
+            # 通过_crit_context获取当前目标
+            ctx = getattr(self.dms, '_crit_context', {})
+            target_id = ctx.get('target_id')
+            return target_id in crit_targets
+
+        self.dms._check_crit = mock_check_crit
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # enemy_front（暴击目标）应有易伤
+            front_debuffs = [b for b in self.enemy_front.debuffs
+                             if b.effect_type == DMG_TAKEN_UP]
+            self.assertGreater(len(front_debuffs), 0,
+                               "暴击目标应有易伤debuff")
+
+            # 其他横排目标（非暴击）不应有易伤
+            # enemy_row攻击前排，enemy_left_front和enemy_right_front也在横排
+            left_debuffs = [b for b in self.enemy_left_front.debuffs
+                            if b.effect_type == DMG_TAKEN_UP]
+            self.assertEqual(len(left_debuffs), 0,
+                             "非暴击目标不应有易伤debuff")
+
+            right_debuffs = [b for b in self.enemy_right_front.debuffs
+                             if b.effect_type == DMG_TAKEN_UP]
+            self.assertEqual(len(right_debuffs), 0,
+                             "非暴击目标不应有易伤debuff")
+        finally:
+            self.dms._check_crit = original_check_crit
+
+    def test_as1_crit_multiple_targets_all_get_debuff(self):
+        """AS1(120014) 暴击多个目标时，所有暴击目标都获得易伤"""
+        # mock: 对enemy_front和enemy_left_front暴击，对enemy_right_front不暴击
+        original_check_crit = self.dms._check_crit
+        crit_targets = {self.enemy_front.unit_id, self.enemy_left_front.unit_id}
+
+        def mock_check_crit(crit_rate):
+            ctx = getattr(self.dms, '_crit_context', {})
+            target_id = ctx.get('target_id')
+            return target_id in crit_targets
+
+        self.dms._check_crit = mock_check_crit
+        try:
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+            )
+            self.assertTrue(result["success"])
+
+            # 两个暴击目标都应有易伤
+            front_debuffs = [b for b in self.enemy_front.debuffs
+                             if b.effect_type == DMG_TAKEN_UP]
+            self.assertGreater(len(front_debuffs), 0,
+                               "暴击目标1应有易伤debuff")
+
+            left_debuffs = [b for b in self.enemy_left_front.debuffs
+                            if b.effect_type == DMG_TAKEN_UP]
+            self.assertGreater(len(left_debuffs), 0,
+                               "暴击目标2应有易伤debuff")
+
+            # 非暴击目标不应有易伤
+            right_debuffs = [b for b in self.enemy_right_front.debuffs
+                             if b.effect_type == DMG_TAKEN_UP]
+            self.assertEqual(len(right_debuffs), 0,
+                             "非暴击目标不应有易伤debuff")
+        finally:
+            self.dms._check_crit = original_check_crit
+
+    def test_as1_dmg_taken_up_duration_is_permanent(self):
+        """AS1(120014) 易伤效果为永续(duration=-1)"""
+        self.caster.crit_rate = 1.0
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_taken_up_buffs = [b for b in self.enemy_front.debuffs
+                              if b.effect_type == DMG_TAKEN_UP]
+        self.assertGreater(len(dmg_taken_up_buffs), 0, "应有易伤debuff")
+        self.assertEqual(dmg_taken_up_buffs[0].duration, -1,
+                         "易伤应为永续(duration=-1)")
+
+    # ─── PS1: アフターライズ ───
+
+    def test_ps1_triggers_after_as_attack(self):
+        """PS1(130010) AS攻击后触发，提升自身会心率"""
+        # 先执行AS技能
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 手动触发after_as_attack
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120014, result, self.bf
+        )
+
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130010]
+        self.assertGreater(len(ps1_actions), 0, "PS1应在AS攻击后触发")
+
+        # 执行PS1
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证自身获得crit_rate_up buff
+        crit_buffs = [b for b in self.caster.buffs if b.effect_type == CRIT_RATE_UP]
+        self.assertGreater(len(crit_buffs), 0, "PS1应提升自身会心率")
+
+    def test_ps1_lv11_buffs_ally_highest_atk(self):
+        """PS1(130010) Lv11+提升攻击力最高友方会心率"""
+        self.caster.skill_levels[130010] = 11
+        # 确保友方前排攻击力最高
+        self.ally_front.attack = 15000
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120014, result, self.bf
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130010]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证友方前排获得crit_rate_up buff
+        ally_crit_buffs = [b for b in self.ally_front.buffs if b.effect_type == CRIT_RATE_UP]
+        self.assertGreater(len(ally_crit_buffs), 0,
+                           "Lv11+应提升攻击力最高友方会心率")
+
+    def test_ps1_duration_is_action_based(self):
+        """PS1(130010) 会心率提升持续1行动(timing_type=4, DURABLE_TARGET_MANEUVER_END)"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120014, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120014, result, self.bf
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130010]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证自身获得crit_rate_up buff，且timing_type=4（行动制）
+        from src.entities_v2.enums import AuraUpdateTiming
+        crit_buffs = [b for b in self.caster.buffs if b.effect_type == CRIT_RATE_UP]
+        self.assertGreater(len(crit_buffs), 0, "PS1应提升自身会心率")
+        self.assertEqual(crit_buffs[0].timing_type,
+                         AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                         "PS1会心率提升应为行动制(timing_type=4)")
+
+    # ─── PS2: ハイサポート ───
+
+    def test_ps2_triggers_on_turn_start_round2(self):
+        """PS2(130023) 第2回合开始时触发"""
+        self.bf.turn_number = 2
+        actions = self.ts.trigger_turn_start(self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130023]
+        self.assertGreater(len(ps2_actions), 0, "PS2应在第2回合开始时触发")
+
+    def test_ps2_does_not_trigger_round1(self):
+        """PS2(130023) 第1回合不发动"""
+        self.bf.turn_number = 1
+        actions = self.ts.trigger_turn_start(self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130023]
+        self.assertEqual(len(ps2_actions), 0, "PS2不应在第1回合发动")
+
+    def test_ps2_buffs_ally_highest_atk(self):
+        """PS2(130023) 提升攻击力最高友方的攻击力和会心率"""
+        self.bf.turn_number = 2
+        self.ally_front.attack = 15000  # 确保攻击力最高
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130023]
+        self.assertGreater(len(ps2_actions), 0, "PS2应触发")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证友方前排获得atk_up和crit_rate_up buff
+        atk_buffs = [b for b in self.ally_front.buffs if b.effect_type == ATK_UP]
+        crit_buffs = [b for b in self.ally_front.buffs if b.effect_type == CRIT_RATE_UP]
+        self.assertGreater(len(atk_buffs), 0, "PS2应提升友方攻击力")
+        self.assertGreater(len(crit_buffs), 0, "PS2应提升友方会心率")
+
+    # ─── PS3: スキルリレイティブ ───
+
+    def test_ps3_triggers_on_self_debuff(self):
+        """PS3(130039) 自身被赋予debuff时触发"""
+        # 模拟自身被赋予debuff
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.enemy_front,
+            affected_unit_ids=[self.caster.unit_id],
+        )
+
+        ps3_actions = [a for a in actions if a.skill_id == 130039]
+        self.assertGreater(len(ps3_actions), 0, "PS3应在自身被赋予debuff时触发")
+
+    def test_ps3_does_not_trigger_on_enemy_debuff(self):
+        """PS3(130039) 敌方被赋予debuff时不触发"""
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.caster,
+            affected_unit_ids=[self.enemy_front.unit_id],
+        )
+
+        ps3_actions = [a for a in actions if a.skill_id == 130039]
+        self.assertEqual(len(ps3_actions), 0, "PS3不应在敌方被赋予debuff时触发")
+
+    def test_ps3_self_crit_rate_up(self):
+        """PS3(130039) 提升自身会心率(2行动)"""
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.enemy_front,
+            affected_unit_ids=[self.caster.unit_id],
+        )
+
+        ps3_actions = [a for a in actions if a.skill_id == 130039]
+        self.assertGreater(len(ps3_actions), 0, "PS3应触发")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        crit_buffs = [b for b in self.caster.buffs if b.effect_type == CRIT_RATE_UP]
+        self.assertGreater(len(crit_buffs), 0, "PS3应提升自身会心率")
+        self.assertEqual(crit_buffs[0].duration, 2, "PS3会心率提升应持续2行动")
+
+    def test_ps3_lv11_debuff_attacker_dmg_taken_up(self):
+        """PS3(130039) Lv11+对debuff施加者赋予易伤"""
+        self.caster.skill_levels[130039] = 11
+
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.enemy_front,
+            affected_unit_ids=[self.caster.unit_id],
+        )
+
+        ps3_actions = [a for a in actions if a.skill_id == 130039]
+        self.assertGreater(len(ps3_actions), 0, "PS3应触发")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps3_actions, self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        # 验证敌方前排（debuff施加者）获得dmg_taken_up debuff
+        dmg_up_buffs = [b for b in self.enemy_front.debuffs if b.effect_type == DMG_TAKEN_UP]
+        self.assertGreater(len(dmg_up_buffs), 0,
+                           "Lv11+应对debuff施加者赋予易伤")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

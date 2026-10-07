@@ -1,0 +1,43 @@
+"""分析 trigger_type -> (Kind, AdditionalKinds.Value) 的分布"""
+import json
+import sys
+import os
+from collections import defaultdict
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+
+def main():
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        hybrid = json.load(f)
+    with open('data/skills.json', 'r', encoding='utf-8') as f:
+        raw = json.load(f)
+    if isinstance(raw, dict):
+        skills = raw
+    else:
+        skills = {str(s.get('Id')): s for s in raw}
+
+    trigger_kinds = defaultdict(lambda: defaultdict(list))
+    for sid, h in hybrid.items():
+        tt = h.get('trigger_type')
+        if not tt:
+            continue
+        sm = skills.get(sid, {})
+        kind = sm.get('Kind')
+        aks = sm.get('AdditionalKinds', [])
+        ak_str = ','.join(str(a.get('Value')) for a in aks) if aks else ''
+        key = (kind, ak_str)
+        trigger_kinds[tt][key].append(sid)
+
+    for tt in sorted(trigger_kinds.keys()):
+        safe_print(f'== trigger_type={tt} ==')
+        for key, sids in sorted(trigger_kinds[tt].items()):
+            kind, ak_str = key
+            safe_print(f'  Kind={kind} AdditionalKinds=[{ak_str}]: {len(sids)} skills, e.g. {sids[:5]}')
+
+
+if __name__ == '__main__':
+    main()

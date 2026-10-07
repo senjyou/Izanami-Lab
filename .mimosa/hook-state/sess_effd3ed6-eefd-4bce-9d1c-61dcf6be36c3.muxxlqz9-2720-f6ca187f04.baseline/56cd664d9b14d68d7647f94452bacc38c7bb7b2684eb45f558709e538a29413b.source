@@ -1,0 +1,503 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""角色133301 天命を受けし剣術乙女（冥夜）技能效果集成测试
+
+测试场景：
+- 角色: 天命を受けし剣術乙女 (character_id=133301, 风属性=3, 物理型=1, 前卫)
+- EX: 110031 宝刀・皆琉神威 (5hit单体攻击+気絶, Lv11+: 被ダメージ減少stackable)
+- AS1: 120072 己が為の刃に非ず (单体攻击+与ダメージ減少+spd_down, 均stackable)
+- AS2: 120073 牙無き者の為たれ (单体攻击+吸血+永久atk_up stackable)
+- PS: 130082 明鏡止水 (on_debuff_applied→自身解控+1行動debuff免疫+ATK*shield%护盾, Lv11+: atk_up)
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+SET = SkillEffectType
+STATUS_ATTACK = SET.STATUS_ATTACK.value
+STATUS_SPEED = SET.STATUS_SPEED.value
+DEALT_DAMAGE = SET.DEALT_DAMAGE.value
+RECEIVED_DAMAGE = SET.RECEIVED_DAMAGE.value
+KNOCKOUT = SET.KNOCKOUT.value
+POISON = SET.POISON.value
+CONFLAGRATION = SET.CONFLAGRATION.value
+
+
+def _make_debuff(unit_id, effect_type, name="test_debuff", duration=2):
+    """创建一个测试用debuff"""
+    return BuffState(
+        buff_id=f"test_debuff_{effect_type}_{unit_id}",
+        name=name,
+        effect_type=effect_type,
+        value=30.0,
+        duration=duration,
+        timing_type=2,  # action
+        source_unit_id="enemy_test",
+        is_debuff=True,
+        value_tag=0,
+    )
+
+
+class TestActor133301(unittest.TestCase):
+    """角色133301 冥夜 技能测试"""
+
+    def setUp(self):
+        self.dl = DataLoader()
+        self.dl.load_all()
+        self.bf = BattlefieldState()
+
+        # 冥夜 (物理/前卫/攻击型)
+        self.caster = UnitState(
+            unit_id='ally_meiya', name='冥夜', side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=133301, level=200,
+            element=3, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=15000, defense=8000, speed=800,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=50,
+            skills=[110031, 120072, 120073, 130082],
+            skill_levels={110031: 15, 120072: 15, 120073: 15, 130082: 15},
+            skill_cooldowns={},
+        )
+
+        # 敌方前排
+        self.enemy_front = UnitState(
+            unit_id='enemy_front', name='enemy(F)', side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=100000, current_hp=100000,
+            attack=30000, defense=10000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排
+        self.enemy_back = UnitState(
+            unit_id='enemy_back', name='enemy(B)', side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=100000, current_hp=100000,
+            attack=30000, defense=10000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.enemy_front)
+        self.bf.add_unit(self.enemy_back)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ============================================================
+    # EX技能 - 宝刀・皆琉神威 (110031)
+    # ============================================================
+
+    def test_ex_damage_5hit_stun(self):
+        """
+        EX: 5hit单体攻击+気絶
+        验证: 对敌方造成5hit伤害，附加1行動気絶
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110031,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 验证気絶debuff
+        stun_debuffs = [d for d in self.enemy_front.debuffs
+                        if d.effect_type == KNOCKOUT]
+        self.assertTrue(len(stun_debuffs) > 0,
+                        f"应附加気絶debuff, debuffs: {[d.name for d in self.enemy_front.debuffs]}")
+
+    def test_ex_lv11_dmg_taken_down(self):
+        """
+        EX: Lv11+被ダメージ減少buff（attack_limited=1）
+        验证: 使用EX后自身获得被ダメージ減少buff，被攻击1次后消失
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110031,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 验证被ダメージ減少buff存在
+        dmg_down_buffs = [b for b in self.caster.buffs
+                          if b.effect_type == RECEIVED_DAMAGE and b.attack_limited > 0]
+        self.assertTrue(len(dmg_down_buffs) > 0,
+                        f"应获得被ダメージ減少buff(attack_limited), buffs: {[b.name for b in self.caster.buffs]}")
+
+    def test_ex_dmg_taken_down_stackable(self):
+        """
+        EX: 被ダメージ減少buff可叠加
+        验证: 连续使用2次EX后，被ダメージ減少buff叠加
+        """
+        # 使用第1次
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110031,
+            battlefield=self.bf, skip_cost=True,
+        )
+        count1 = len([b for b in self.caster.buffs
+                      if b.effect_type == RECEIVED_DAMAGE and b.attack_limited > 0])
+
+        # 使用第2次
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110031,
+            battlefield=self.bf, skip_cost=True,
+        )
+        count2 = len([b for b in self.caster.buffs
+                      if b.effect_type == RECEIVED_DAMAGE and b.attack_limited > 0])
+
+        self.assertGreater(count2, count1,
+                           f"被ダメージ減少buff应可叠加, count1={count1} count2={count2}")
+
+    # ============================================================
+    # AS1 - 己が為の刃に非ず (120072)
+    # ============================================================
+
+    def test_as1_damage_and_debuffs(self):
+        """
+        AS1: 单体攻击+spd_down+dmg_dealt_down
+        验证: 对敌方造成伤害，附加速度低下和与伤害减少debuff
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120072,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 验证spd_down debuff
+        spd_debuffs = [d for d in self.enemy_front.debuffs
+                       if d.effect_type == STATUS_SPEED]
+        self.assertTrue(len(spd_debuffs) > 0,
+                        f"应附加spd_down, debuffs: {[d.name for d in self.enemy_front.debuffs]}")
+        # 验证dmg_dealt_down debuff
+        dmg_debuffs = [d for d in self.enemy_front.debuffs
+                       if d.effect_type == DEALT_DAMAGE]
+        self.assertTrue(len(dmg_debuffs) > 0,
+                        f"应附加dmg_dealt_down, debuffs: {[d.name for d in self.enemy_front.debuffs]}")
+
+    def test_as1_spd_down_fixed_value(self):
+        """
+        AS1: spd_down为固定值（非百分比）
+        验证: spd_down的value_tag=1（固定值），速度降低为固定点数
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120072,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        spd_debuffs = [d for d in self.enemy_front.debuffs
+                       if d.effect_type == STATUS_SPEED]
+        self.assertTrue(len(spd_debuffs) > 0)
+        # value_tag=1表示固定值
+        self.assertEqual(spd_debuffs[0].value_tag, 1,
+                         f"spd_down应为固定值(value_tag=1), 实际={spd_debuffs[0].value_tag}")
+
+    def test_as1_debuffs_stackable(self):
+        """
+        AS1: spd_down和dmg_dealt_down均可叠加
+        验证: 连续使用2次AS1后，debuff叠加
+        """
+        # 使用第1次
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120072,
+            battlefield=self.bf, skip_cost=True,
+        )
+        spd_count1 = len([d for d in self.enemy_front.debuffs if d.effect_type == STATUS_SPEED])
+        dmg_count1 = len([d for d in self.enemy_front.debuffs if d.effect_type == DEALT_DAMAGE])
+
+        # 使用第2次
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120072,
+            battlefield=self.bf, skip_cost=True,
+        )
+        spd_count2 = len([d for d in self.enemy_front.debuffs if d.effect_type == STATUS_SPEED])
+        dmg_count2 = len([d for d in self.enemy_front.debuffs if d.effect_type == DEALT_DAMAGE])
+
+        self.assertGreater(spd_count2, spd_count1,
+                           f"spd_down应可叠加, count1={spd_count1} count2={spd_count2}")
+        self.assertGreater(dmg_count2, dmg_count1,
+                           f"dmg_dealt_down应可叠加, count1={dmg_count1} count2={dmg_count2}")
+
+    # ============================================================
+    # AS2 - 牙無き者の為たれ (120073)
+    # ============================================================
+
+    def test_as2_damage_and_lifesteal(self):
+        """
+        AS2: 单体攻击+吸血
+        验证: 对敌方造成伤害，自身回复伤害cure%的HP
+        """
+        self.caster.current_hp = 10000  # 先受伤
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120073,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 吸血应回复HP
+        self.assertGreater(self.caster.current_hp, 10000,
+                           f"吸血后HP应增加, 当前HP: {self.caster.current_hp}")
+
+    def test_as2_permanent_atk_up(self):
+        """
+        AS2: 永久atk_up（可叠加）
+        验证: 使用AS2后获得永久攻击力上升buff
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120073,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 验证永久atk_up buff
+        atk_buffs = [b for b in self.caster.buffs
+                     if b.effect_type == STATUS_ATTACK and b.is_debuff == False]
+        self.assertTrue(len(atk_buffs) > 0,
+                        f"应获得atk_up buff, buffs: {[b.name for b in self.caster.buffs]}")
+        # 永久buff的duration应为-1
+        self.assertEqual(atk_buffs[0].duration, -1,
+                         f"永久atk_up的duration应为-1, 实际={atk_buffs[0].duration}")
+
+    def test_as2_atk_up_stackable(self):
+        """
+        AS2: atk_up可叠加
+        验证: 连续使用2次AS2后，atk_up叠加
+        """
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120073,
+            battlefield=self.bf, skip_cost=True,
+        )
+        count1 = len([b for b in self.caster.buffs
+                      if b.effect_type == STATUS_ATTACK and not b.is_debuff])
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120073,
+            battlefield=self.bf, skip_cost=True,
+        )
+        count2 = len([b for b in self.caster.buffs
+                      if b.effect_type == STATUS_ATTACK and not b.is_debuff])
+
+        self.assertGreater(count2, count1,
+                           f"atk_up应可叠加, count1={count1} count2={count2}")
+
+    # ============================================================
+    # PS - 明鏡止水 (130082)
+    # ============================================================
+
+    def test_ps_triggers_on_self_debuff(self):
+        """
+        PS: 自身被赋予debuff时触发
+        验证: 冥夜被赋予debuff时，PS触发并解除所有debuff
+        """
+        # 确保有PP
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        # 手动给冥夜添加一个debuff，然后通过trigger_pawn_received_aura触发PS
+        poison_debuff = _make_debuff(self.caster.unit_id, POISON, "毒", duration=3)
+        self.caster.debuffs.append(poison_debuff)
+
+        # 触发PAWN_RECEIVED_AURA
+        actions = self.ss.trigger_service.trigger_pawn_received_aura(
+            self.bf, [self.caster.unit_id], actor=self.enemy_front
+        )
+
+        # 应该有触发动作
+        self.assertTrue(len(actions) > 0,
+                        f"自身被赋予debuff时PS应触发, actions={len(actions)}")
+
+    def test_ps_does_not_trigger_on_enemy_debuff(self):
+        """
+        PS: 敌方被赋予debuff时不触发（target_is_self条件）
+        验证: 敌方被赋予debuff时，冥夜的PS不触发
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        # 给敌方添加debuff
+        poison_debuff = _make_debuff(self.enemy_front.unit_id, POISON, "毒", duration=3)
+        self.enemy_front.debuffs.append(poison_debuff)
+
+        # 触发PAWN_RECEIVED_AURA（目标是敌方）
+        actions = self.ss.trigger_service.trigger_pawn_received_aura(
+            self.bf, [self.enemy_front.unit_id], actor=self.caster
+        )
+
+        # 冥夜的PS不应触发
+        meiya_actions = [a for a in actions
+                         if hasattr(a, 'parameters') and
+                         a.parameters.get('owner_unit_id') == self.caster.unit_id]
+        self.assertEqual(len(meiya_actions), 0,
+                         f"敌方被赋予debuff时冥夜的PS不应触发, actions={len(meiya_actions)}")
+
+    def test_ps_remove_debuff(self):
+        """
+        PS: 解除所有debuff
+        验证: PS触发后，冥夜的所有debuff被解除
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        # 添加多个debuff
+        self.caster.debuffs.append(_make_debuff(self.caster.unit_id, POISON, "毒", duration=3))
+        self.caster.debuffs.append(_make_debuff(self.caster.unit_id, CONFLAGRATION, "炎上", duration=2))
+
+        self.assertTrue(len(self.caster.debuffs) >= 2, "应先有2个debuff")
+
+        # 执行PS技能
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 所有debuff应被解除
+        self.assertEqual(len(self.caster.debuffs), 0,
+                         f"PS触发后所有debuff应被解除, 剩余: {len(self.caster.debuffs)}")
+
+    def test_ps_debuff_immune_duration(self):
+        """
+        PS: debuff_immune持续1行動（非hit_limited）
+        验证: PS触发后获得debuff_immune buff，duration=1, duration_type=action
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 验证debuff_immune buff
+        immune_buffs = [b for b in self.caster.buffs
+                        if b.effect_type in ("debuff_immune", "DebuffImmune")]
+        self.assertTrue(len(immune_buffs) > 0,
+                        f"应获得debuff_immune buff, buffs: {[b.name for b in self.caster.buffs]}")
+        # duration=1, duration_type=action
+        self.assertEqual(immune_buffs[0].duration, 1,
+                         f"debuff_immune duration应为1, 实际={immune_buffs[0].duration}")
+
+    def test_ps_debuff_immune_blocks_all(self):
+        """
+        PS: debuff_immune持续1行動間免疫所有debuff（非仅1个）
+        验证: debuff_immune生效期间，多个debuff都被免疫
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        # 先执行PS获得debuff_immune
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+
+        immune_buffs = [b for b in self.caster.buffs
+                        if b.effect_type in ("debuff_immune", "DebuffImmune")]
+        self.assertTrue(len(immune_buffs) > 0, "应有debuff_immune buff")
+
+        # 尝试通过_apply_aura添加debuff，应被免疫
+        # 使用AS1对冥夜添加debuff（通过敌方攻击冥夜的场景模拟）
+        # 直接测试_has_debuff_immune
+        self.assertTrue(self.ss._has_debuff_immune(self.caster),
+                        "debuff_immune应生效")
+
+    def test_ps_shield_atk_based(self):
+        """
+        PS: 护盾基于ATK×shield%
+        验证: PS触发后获得护盾，盾值=ATK*shield%
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 验证护盾存在且大于0
+        self.assertGreater(self.caster.shield, 0,
+                           f"应获得护盾, shield={self.caster.shield}")
+
+    def test_ps_lv11_atk_up(self):
+        """
+        PS: Lv11+额外atk_up（1行動）
+        验证: Lv15时PS触发后额外获得atk_up buff
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 验证atk_up buff（Lv15应触发Block2）
+        atk_buffs = [b for b in self.caster.buffs
+                     if b.effect_type == STATUS_ATTACK and not b.is_debuff
+                     and b.duration == 1]  # 1行動的atk_up
+        self.assertTrue(len(atk_buffs) > 0,
+                        f"Lv11+应额外获得atk_up, buffs: {[b.name for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]}")
+
+    def test_ps_pp_insufficient(self):
+        """
+        PS: PP不足时不触发
+        验证: PP=0时PS无法执行
+        """
+        self.caster.current_pp = 0
+        self.caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=False,
+        )
+        self.assertFalse(result["success"],
+                         f"PP不足时PS不应执行, result={result}")
+
+    def test_ps_cooldown_blocks(self):
+        """
+        PS: 冷却中不触发
+        验证: 冷却中PS无法执行
+        """
+        self.caster.current_pp = 2
+        self.caster.skill_cooldowns = {130082: 2}  # 冷却中
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130082,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertFalse(result["success"],
+                         f"冷却中PS不应执行, result={result}")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,306 @@
+"""Regression: hp_ratio_damage should be absorbed by shields.
+
+Bug: Skill 清廉なる一撃 (120148) has an hp_ratio_damage effect that deals
+     extra damage = target's current HP × 20% (capped at ATK × 50%) when the
+     target has the 浮足 mark. This damage incorrectly bypassed shields because
+     _apply_hp_ratio_damage directly reduced target.current_hp without going
+     through shield absorption logic.
+
+     This is a common issue affecting all skills with hp_ratio_damage effects
+     (9 skills total in skill_effects_hybrid.json). All should be absorbable
+     by shields when ignore_shield=0 (the default).
+
+Fix: Added shield absorption logic to _apply_hp_ratio_damage in skill_service.py,
+     following the same pattern as regular damage (en_shield/physical_shield →
+     shield → sub_unit_hp), controlled by the effect's ignore_shield field.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+MARK = SkillEffectType.MARK.value
+SHIELD = SkillEffectType.SHIELD.value
+SEIKEI_NO_ICHIGEKI = 120148  # 清廉なる一撃
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=6000,
+               defense=0, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=10,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_mark_buff(source_id, mark_name="浮足"):
+    """Create a 浮足 mark buff for pre-applying to a target."""
+    return BuffState(
+        buff_id=f"test_mark_{mark_name}_{source_id}",
+        name=mark_name, effect_type=MARK, value=1.0,
+        duration=-1, timing_type=2,
+        source_unit_id=source_id,
+        source_skill_id=SEIKEI_NO_ICHIGEKI,
+        is_debuff=True, is_stackable=True, is_memory_buff=False,
+    )
+
+
+def _make_shield_buff(unit, shield_amount=999999):
+    """Add a general shield to a unit."""
+    buff = BuffState(
+        buff_id=f"test_shield_{unit.unit_id}",
+        name="テスト盾", effect_type=SHIELD, value=0.0,
+        duration=-1, timing_type=0,
+        source_unit_id=unit.unit_id,
+        source_skill_id=0,
+        is_debuff=False, is_stackable=True, is_memory_buff=False,
+        shield_amount=shield_amount,
+    )
+    unit.buffs.append(buff)
+    unit.shield = shield_amount
+    return buff
+
+
+class TestRegHpRatioDamageShield(unittest.TestCase):
+    """hp_ratio_damage must be absorbed by shields (ignore_shield=0 default)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _setup_battle(self, *, enemy_hp=100000, enemy_shield=0, with_mark=True):
+        """Set up a minimal battle: 1 ally caster vs 1 enemy target."""
+        caster = _make_unit("ally", "施法者", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000, atk=6000,
+                            skills=[SEIKEI_NO_ICHIGEKI],
+                            skill_levels={SEIKEI_NO_ICHIGEKI: 10})
+        enemy = _make_unit("enemy", "目標", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=enemy_hp, atk=1000,
+                           defense=0)
+
+        if with_mark:
+            enemy.buffs.append(_make_mark_buff(caster.unit_id))
+
+        if enemy_shield > 0:
+            _make_shield_buff(enemy, shield_amount=enemy_shield)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+        return caster, enemy, bf, ss
+
+    # ─── Test 1: Large shield absorbs all hp_ratio_damage ───
+
+    def test_hp_ratio_damage_absorbed_by_large_shield(self):
+        """hp_ratio_damage with large shield: HP unchanged, shield reduced."""
+        caster, enemy, bf, ss = self._setup_battle(
+            enemy_hp=100000, enemy_shield=999999, with_mark=True)
+
+        hp_before = enemy.current_hp
+        shield_before = enemy.shield
+        ss.execute_skill(caster, SEIKEI_NO_ICHIGEKI, bf, skip_cost=True)
+
+        # HP should not change — shield absorbed everything
+        self.assertEqual(enemy.current_hp, hp_before,
+                         "HP should be unchanged when shield absorbs all damage")
+        # Shield should be reduced (absorbed Block1 damage + hp_ratio_damage)
+        self.assertLess(enemy.shield, shield_before,
+                        "Shield should be reduced after absorbing damage")
+
+    # ─── Test 2: No shield, hp_ratio_damage reduces HP (no regression) ───
+
+    def test_hp_ratio_damage_no_shield_reduces_hp(self):
+        """hp_ratio_damage without shield: HP reduced by Block1 + hp_ratio_damage."""
+        caster, enemy, bf, ss = self._setup_battle(
+            enemy_hp=100000, enemy_shield=0, with_mark=True)
+
+        hp_before = enemy.current_hp
+        ss.execute_skill(caster, SEIKEI_NO_ICHIGEKI, bf, skip_cost=True)
+
+        hp_loss = hp_before - enemy.current_hp
+        self.assertGreater(hp_loss, 0, "HP should be reduced without shield")
+
+        # hp_ratio_damage cap = ATK * 50% = 6000 * 50% = 3000
+        # Block1 damage is also > 0, so total > 3000
+        hp_ratio_cap = int(caster.attack * 50 / 100)
+        self.assertGreater(hp_loss, hp_ratio_cap,
+                           f"Total HP loss ({hp_loss}) should exceed hp_ratio_damage cap "
+                           f"({hp_ratio_cap}) because Block1 damage is also applied")
+
+    # ─── Test 3: hp_ratio_damage only triggers with 浮足 mark ───
+
+    def test_hp_ratio_damage_not_triggered_without_mark(self):
+        """Without 浮足 mark, only Block1 damage applies (no hp_ratio_damage)."""
+        caster, enemy_with_mark, bf1, ss1 = self._setup_battle(
+            enemy_hp=100000, enemy_shield=0, with_mark=True)
+        hp_before_with_mark = enemy_with_mark.current_hp
+        ss1.execute_skill(caster, SEIKEI_NO_ICHIGEKI, bf1, skip_cost=True)
+        hp_loss_with_mark = hp_before_with_mark - enemy_with_mark.current_hp
+
+        caster2, enemy_no_mark, bf2, ss2 = self._setup_battle(
+            enemy_hp=100000, enemy_shield=0, with_mark=False)
+        hp_before_no_mark = enemy_no_mark.current_hp
+        ss2.execute_skill(caster2, SEIKEI_NO_ICHIGEKI, bf2, skip_cost=True)
+        hp_loss_no_mark = hp_before_no_mark - enemy_no_mark.current_hp
+
+        # With mark: Block1 damage + hp_ratio_damage
+        # Without mark: Block1 damage only
+        self.assertGreater(hp_loss_with_mark, hp_loss_no_mark,
+                           "HP loss with mark should be greater (includes hp_ratio_damage)")
+
+        # The difference is the hp_ratio_damage
+        hp_ratio_damage = hp_loss_with_mark - hp_loss_no_mark
+        hp_ratio_cap = int(caster.attack * 50 / 100)
+        self.assertGreater(hp_ratio_damage, 0,
+                           "hp_ratio_damage should be > 0")
+        self.assertLessEqual(hp_ratio_damage, hp_ratio_cap + 1,
+                             f"hp_ratio_damage ({hp_ratio_damage}) should be <= ATK*50% ({hp_ratio_cap})")
+
+    # ─── Test 4: Shield absorbs hp_ratio_damage portion ───
+
+    def test_shield_absorbs_hp_ratio_damage_portion(self):
+        """Shield absorbs the hp_ratio_damage portion: compare with/without shield."""
+        # Without shield: total HP loss = Block1 + hp_ratio_damage
+        caster1, enemy1, bf1, ss1 = self._setup_battle(
+            enemy_hp=100000, enemy_shield=0, with_mark=True)
+        hp_before_1 = enemy1.current_hp
+        ss1.execute_skill(caster1, SEIKEI_NO_ICHIGEKI, bf1, skip_cost=True)
+        hp_loss_no_shield = hp_before_1 - enemy1.current_hp
+
+        # With shield exactly equal to Block1 damage (no hp_ratio_damage absorbed)
+        # First, get Block1-only damage (without mark)
+        caster2, enemy2_nomark, bf2, ss2 = self._setup_battle(
+            enemy_hp=100000, enemy_shield=0, with_mark=False)
+        hp_before_2 = enemy2_nomark.current_hp
+        ss2.execute_skill(caster2, SEIKEI_NO_ICHIGEKI, bf2, skip_cost=True)
+        block1_damage = hp_before_2 - enemy2_nomark.current_hp
+
+        # Now with mark + shield = block1_damage (so shield absorbs Block1, hp_ratio_damage hits HP)
+        caster3, enemy3, bf3, ss3 = self._setup_battle(
+            enemy_hp=100000, enemy_shield=block1_damage, with_mark=True)
+        hp_before_3 = enemy3.current_hp
+        shield_before_3 = enemy3.shield
+        ss3.execute_skill(caster3, SEIKEI_NO_ICHIGEKI, bf3, skip_cost=True)
+        hp_loss_with_shield = hp_before_3 - enemy3.current_hp
+
+        # Shield should be depleted (absorbed Block1 damage)
+        self.assertLessEqual(enemy3.shield, 0,
+                             "Shield should be depleted after absorbing Block1 damage")
+
+        # HP loss with shield should be less than without shield
+        # (because shield absorbed Block1 damage, only hp_ratio_damage hit HP)
+        self.assertLess(hp_loss_with_shield, hp_loss_no_shield,
+                        "HP loss with shield should be less than without shield")
+
+        # The HP loss with shield should be approximately the hp_ratio_damage
+        hp_ratio_damage = hp_loss_no_shield - block1_damage
+        self.assertAlmostEqual(hp_loss_with_shield, hp_ratio_damage, delta=max(5, hp_ratio_damage * 0.1),
+                               msg=f"HP loss with shield ({hp_loss_with_shield}) should be approximately "
+                                   f"hp_ratio_damage ({hp_ratio_damage})")
+
+    # ─── Test 5: hp_ratio_damage with en_shield (EN caster) ───
+
+    def test_hp_ratio_damage_absorbed_by_en_shield(self):
+        """hp_ratio_damage from EN-type caster: en_shield should absorb."""
+        caster = _make_unit("ally", "EN施法者", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000, atk=6000,
+                            character_type=2,  # EN type
+                            skills=[SEIKEI_NO_ICHIGEKI],
+                            skill_levels={SEIKEI_NO_ICHIGEKI: 10})
+        enemy = _make_unit("enemy", "目標", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000, atk=1000)
+        enemy.buffs.append(_make_mark_buff(caster.unit_id))
+
+        # Set up en_shield instead of general shield
+        en_shield_amount = 999999
+        enemy.en_shield = en_shield_amount
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        hp_before = enemy.current_hp
+        ss.execute_skill(caster, SEIKEI_NO_ICHIGEKI, bf, skip_cost=True)
+
+        # HP should not change — en_shield absorbed all damage
+        self.assertEqual(enemy.current_hp, hp_before,
+                         "HP should be unchanged when en_shield absorbs all damage from EN caster")
+        self.assertLess(enemy.en_shield, en_shield_amount,
+                        "en_shield should be reduced after absorbing EN damage")
+
+    # ─── Test 6: hp_ratio_damage with physical_shield (physical caster) ───
+
+    def test_hp_ratio_damage_absorbed_by_physical_shield(self):
+        """hp_ratio_damage from physical caster: physical_shield should absorb."""
+        caster = _make_unit("ally", "物理施法者", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT, hp=100000, atk=6000,
+                            character_type=1,  # physical type
+                            skills=[SEIKEI_NO_ICHIGEKI],
+                            skill_levels={SEIKEI_NO_ICHIGEKI: 10})
+        enemy = _make_unit("enemy", "目標", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000, atk=1000)
+        enemy.buffs.append(_make_mark_buff(caster.unit_id))
+
+        # Set up physical_shield instead of general shield
+        physical_shield_amount = 999999
+        enemy.physical_shield = physical_shield_amount
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        hp_before = enemy.current_hp
+        ss.execute_skill(caster, SEIKEI_NO_ICHIGEKI, bf, skip_cost=True)
+
+        # HP should not change — physical_shield absorbed all damage
+        self.assertEqual(enemy.current_hp, hp_before,
+                         "HP should be unchanged when physical_shield absorbs all damage from physical caster")
+        self.assertLess(enemy.physical_shield, physical_shield_amount,
+                        "physical_shield should be reduced after absorbing physical damage")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,245 @@
+"""Regression test for 見切り構え・素 (230393) not triggering when PS holder
+is a secondary target in multi-target skills.
+
+Bug: キョンシーハッカー使用三体技能「ゴーストハザード」同时攻击土雷和霞光时，
+霞光的「見切り構え・素」(230393)未触发，即使霞光是攻击目标之一。
+
+Root cause: 预扫描阶段使用 effect.target_type 推导目标范围，而不是技能元数据中的
+display_target_range。技能配置了 effect.target_type=enemy_single 但 
+display_target_range=3（三体），导致预扫描只选择1个目标，trigger检查目标与实际
+damage目标不一致。
+
+Fix: 预扫描阶段优先使用技能元数据中的 display_target_range。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.skill_data_resolver import SkillDataResolver
+
+
+SKILL_ID_MIKIRI = 230393  # 見切り構え・素
+SKILL_ID_GHOST = 220128   # ゴーストハザード（三体EN攻击）
+GUARD = SkillEffectType.GUARD.value
+STATUS_CRITICAL_CHANCE = SkillEffectType.STATUS_CRITICAL_CHANCE.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=2, skills=None, skill_levels=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestRegMikiriSubtargetBug(unittest.TestCase):
+    """Bug: 見切り構え・素 (230393) not triggering as secondary target."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.resolver = SkillDataResolver(cls.dl)
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_ghost_hazard_skill_has_display_range_3(self):
+        """ゴーストハザード (220128) must have display_target_range=3 (三体)."""
+        parsed = self.dl.get_parsed_skill_data(SKILL_ID_GHOST)
+        self.assertIsNotNone(parsed, f"{SKILL_ID_GHOST} parsed data missing")
+        self.assertEqual(
+            parsed.get('display_target_range'), 3,
+            f"{SKILL_ID_GHOST} should have display_target_range=3"
+        )
+
+    def test_mikiri_triggers_as_secondary_target(self):
+        """見切り構え・素 (230393) should trigger when PS holder is a secondary
+        target in a multi-target skill.
+
+        Reproduces the bug: キョンシーハッカー使用三体技能同时攻击土雷和霞光，
+        霞光作为副目标时「見切り構え・素」未触发。
+        """
+        # 敌方攻击者：キョンシーハッカー（使用三体技能）
+        attacker = _make_unit(
+            "kyonshi", "キョンシーハッカー", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=136406, atk=120276, defense=30000, speed=600,
+            element=Attribute.EARTH.value, character_type=3,
+            skills=[SKILL_ID_GHOST],
+            skill_levels={SKILL_ID_GHOST: 10},
+        )
+
+        # 友方主目标：土雷（没有見切り構え・素）
+        tsuchikaze = _make_unit(
+            "tsuchikaze", "土雷", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=173831, atk=50000, defense=39115, speed=400,
+            element=Attribute.EARTH.value, character_type=1,
+            skills=[],
+            skill_levels={},
+        )
+
+        # 友方副目标：霞光（持有見切り構え・素）
+        kasumi = _make_unit(
+            "kasumi", "霞光", Side.ALLY, Position.ALLY_RIGHT_FRONT,
+            hp=30460746, atk=60000, defense=59194, speed=450,
+            element=Attribute.WATER.value, character_type=2,
+            skills=[220369, 220370, 230391, SKILL_ID_MIKIRI],
+            skill_levels={sid: 10 for sid in [220369, 220370, 230391, SKILL_ID_MIKIRI]},
+        )
+
+        bf = _make_bf(attacker, tsuchikaze, kasumi)
+        ss, _ = self._make_services(bf)
+
+        # 执行三体技能
+        result = ss.execute_skill(attacker, SKILL_ID_GHOST, bf)
+        self.assertTrue(result.get('success'), "skill execution should succeed")
+
+        # 霞光应该获得了STATUS_CRITICAL_CHANCE buff（見切り構え・素触发的永久效果）
+        # 注意：guard buff 使用了 attack_limited=1，会在攻击结束后被消耗，
+        # 所以检查永久的 STATUS_CRITICAL_CHANCE buff 来验证技能是否触发
+        crit_buffs = [b for b in kasumi.buffs if b.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(
+            len(crit_buffs), 0,
+            "見切り構え・素 should trigger and apply crit_rate_up buff to 霞光 "
+            "when 霞光 is a secondary target in multi-target attack"
+        )
+
+        # crit_rate_up值应该为1.0%
+        crit_value = float(crit_buffs[0].value)
+        self.assertAlmostEqual(
+            crit_value, 1.0,
+            msg=f"crit_rate_up value should be 1.0%, got {crit_value}%"
+        )
+
+    def test_mikiri_triggers_as_primary_target(self):
+        """見切り構え・素 should still trigger when PS holder is the primary target."""
+        attacker = _make_unit(
+            "kyonshi", "キョンシーハッカー", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=136406, atk=120276, defense=30000, speed=600,
+            element=Attribute.EARTH.value, character_type=3,
+            skills=[SKILL_ID_GHOST],
+            skill_levels={SKILL_ID_GHOST: 10},
+        )
+
+        # 霞光作为主目标（放在最左边）
+        kasumi = _make_unit(
+            "kasumi", "霞光", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=30460746, atk=60000, defense=59194, speed=450,
+            element=Attribute.WATER.value, character_type=2,
+            skills=[220369, 220370, 230391, SKILL_ID_MIKIRI],
+            skill_levels={sid: 10 for sid in [220369, 220370, 230391, SKILL_ID_MIKIRI]},
+        )
+
+        tsuchikaze = _make_unit(
+            "tsuchikaze", "土雷", Side.ALLY, Position.ALLY_RIGHT_FRONT,
+            hp=173831, atk=50000, defense=39115, speed=400,
+            element=Attribute.EARTH.value, character_type=1,
+            skills=[],
+            skill_levels={},
+        )
+
+        bf = _make_bf(attacker, kasumi, tsuchikaze)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(attacker, SKILL_ID_GHOST, bf)
+        self.assertTrue(result.get('success'), "skill execution should succeed")
+
+        # 检查STATUS_CRITICAL_CHANCE buff来验证技能是否触发（guard buff会被消耗）
+        crit_buffs = [b for b in kasumi.buffs if b.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertGreater(
+            len(crit_buffs), 0,
+            "見切り構え・素 should trigger when 霞光 is the primary target"
+        )
+
+    def test_mikiri_does_not_trigger_when_not_targeted(self):
+        """見切り構え・素 should NOT trigger when PS holder is NOT a target.
+        
+        使用单体技能攻击其他单位，验证霞光不会触发見切り構え・素。
+        """
+        # 使用单体技能（非三体技能）
+        attacker = _make_unit(
+            "kyonshi", "キョンシーハッカー", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=136406, atk=120276, defense=30000, speed=600,
+            element=Attribute.EARTH.value, character_type=3,
+            skills=[120001],  # 普通单体EN攻击
+            skill_levels={120001: 10},
+        )
+
+        tsuchikaze = _make_unit(
+            "tsuchikaze", "土雷", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=173831, atk=50000, defense=39115, speed=400,
+            element=Attribute.EARTH.value, character_type=1,
+            skills=[],
+            skill_levels={},
+        )
+
+        # 霞光在后排
+        kasumi = _make_unit(
+            "kasumi", "霞光", Side.ALLY, Position.ALLY_RIGHT_BACK,
+            hp=30460746, atk=60000, defense=59194, speed=450,
+            element=Attribute.WATER.value, character_type=2,
+            skills=[220369, 220370, 230391, SKILL_ID_MIKIRI],
+            skill_levels={sid: 10 for sid in [220369, 220370, 230391, SKILL_ID_MIKIRI]},
+        )
+
+        bf = _make_bf(attacker, tsuchikaze, kasumi)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(attacker, 120001, bf)
+        self.assertTrue(result.get('success'), "skill execution should succeed")
+
+        # 霞光不应该获得STATUS_CRITICAL_CHANCE buff（因为不是攻击目标）
+        crit_buffs = [b for b in kasumi.buffs if b.effect_type == STATUS_CRITICAL_CHANCE]
+        self.assertEqual(
+            len(crit_buffs), 0,
+            "見切り構え・素 should NOT trigger when 霞光 is not a target"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

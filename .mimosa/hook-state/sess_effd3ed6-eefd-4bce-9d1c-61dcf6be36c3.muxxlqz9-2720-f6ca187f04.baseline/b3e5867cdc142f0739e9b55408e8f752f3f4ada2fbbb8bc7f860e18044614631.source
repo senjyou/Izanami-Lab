@@ -1,0 +1,135 @@
+"""Regression: enemy_row lowest_hp_priority must be side-aware (ALLY position set).
+
+Bug: Skill 210119 (チクっとするよ～？, enemy 293405 惨禍：レイラ・ジェンキンス)
+     has two damage blocks both with flags.lowest_hp_priority=true:
+       Block1: target_type="enemy_column" (縦列)
+       Block2: target_type="enemy_row"     (横列)
+
+     When executed by an ENEMY caster, the opposing/attacked units are ALLY team.
+     The enemy_row branch hardcoded ENEMY_LEFT_FRONT/CENTER_FRONT/RIGHT_FRONT to
+     decide the front/back row. For an enemy caster the lowest-HP target has an
+     ALLY position, so:
+       - is_front evaluated incorrectly (ALLY_CENTER_FRONT not in ENEMY set)
+       - row_positions = ENEMY positions -> no ALLY unit matches -> targets=[]
+     => Block2 (横列攻击) dealt 0 damage.
+
+Fix: derive the front/back position set from the lowest-HP unit's own side
+     (ALLY set vs ENEMY set), instead of hardcoding ENEMY positions.
+
+Regression covers: enemy caster, lowest-HP ALLY target in front row -> Block2
+     must hit all 3 front-row ALLY units (not empty).
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+ENEMY_EX = 210119  # チクっとするよ～？ (enemy row+column, lowest_hp_priority)
+
+
+def _mk_unit(unit_id, name, side, pos, *, hp=100000, atk=8000, defense=4000,
+             speed=500, element=3, skills=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=pos,
+        character_id=0, level=10, element=element, character_type=1,
+        max_hp=hp, current_hp=hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+        current_ap=10, current_pp=10, current_ep=10,
+        skills=skills or [], skill_levels={s: 10 for s in (skills or [])},
+        skill_cooldowns={},
+    )
+
+
+class TestRegEnemyRowSideAwareness(unittest.TestCase):
+    """Regression: enemy_row lowest_hp_priority targets ALLY team correctly"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        # 敌方施法者（惨禍：レイラ，中後） -> 攻击己方(ALLY)队伍
+        self.caster = _mk_unit("ec", "惨禍：レイラ", Side.ENEMY,
+                               Position.ENEMY_CENTER_BACK,
+                               hp=30000, element=4, skills=[ENEMY_EX])
+        # 己方前排（同一行）
+        self.a_lf = _mk_unit("a_lf", "ア左前", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        self.a_cf = _mk_unit("a_cf", "ア中前", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        self.a_rf = _mk_unit("a_rf", "ア右前", Side.ALLY, Position.ALLY_RIGHT_FRONT)
+        # 己方后排（不同行）
+        self.a_cb = _mk_unit("a_cb", "ア中後", Side.ALLY, Position.ALLY_CENTER_BACK)
+        self.a_lb = _mk_unit("a_lb", "ア左後", Side.ALLY, Position.ALLY_LEFT_BACK)
+        self.a_rb = _mk_unit("a_rb", "ア右後", Side.ALLY, Position.ALLY_RIGHT_BACK)
+
+        self.bf.friend_team = [self.a_lf, self.a_cf, self.a_rf,
+                               self.a_cb, self.a_lb, self.a_rb]
+        self.bf.enemy_team = [self.caster]
+
+        rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgs,
+                               damage_service=dms, aura_service=aus,
+                               status_service=sts, trigger_service=self.ts)
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_enemy_row_hits_ally_front_row(self):
+        """敌方施法者：最低HP目标在前排(ALLY)时，横列攻击须命中全部3名前排友方。"""
+        # 让 a_cf 成为最低HP比例（对齐 Block1 的縦列主目标 also front row）
+        self.a_cf.current_hp = int(self.a_cf.max_hp * 0.1)
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.friend_team}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=ENEMY_EX, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], f"EX执行失败: {result.get('error', '')}")
+
+        # Block2 横列：前排3名全员受击（旧bug：targets=[] 导致这部分无人受击）
+        self.assertLess(self.a_lf.current_hp, hp_before["a_lf"],
+                        "横列Block2应命中左前友方(旧bug为空)")
+        self.assertLess(self.a_cf.current_hp, hp_before["a_cf"],
+                        "横列Block2应命中中前友方")
+        self.assertLess(self.a_rf.current_hp, hp_before["a_rf"],
+                        "横列Block2应命中右前友方")
+
+    def test_enemy_row_back_row_lowest_hp(self):
+        """敌方施法者：最低HP目标在后排时，横列攻击命中后排3名友方。"""
+        self.a_cb.current_hp = int(self.a_cb.max_hp * 0.05)
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.friend_team}
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=ENEMY_EX, battlefield=self.bf, skip_cost=True
+        )
+        # 后排横列3人受击（縦列=中列cb+cf，横列=后排lb/cb/rb）
+        self.assertLess(self.a_lb.current_hp, hp_before["a_lb"], "后排横列应命中左後")
+        self.assertLess(self.a_cb.current_hp, hp_before["a_cb"], "后排横列应命中中後")
+        self.assertLess(self.a_rb.current_hp, hp_before["a_rb"], "后排横列应命中右後")
+        # 前排 lf/rf 不在中列也应不因横列受击（縦列仅中列）
+        self.assertEqual(self.a_lf.current_hp, hp_before["a_lf"], "左前不应受击")
+        self.assertEqual(self.a_rf.current_hp, hp_before["a_rf"], "右前不应受击")
+
+
+if __name__ == '__main__':
+    unittest.main()

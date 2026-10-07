@@ -1,0 +1,23 @@
+# -*- coding: utf-8 -*-
+"""临时扫描脚本：列出skill_effects_hybrid.json中所有attacker_action效果所属技能与effect_type"""
+import re
+
+path = r'f:\MGG\muv_luv_girlsgardenx_cl\MGGBattleSimulation\data\skill_effects_hybrid.json'
+with open(path, encoding='utf-8') as f:
+    lines = f.readlines()
+
+cur_skill = None
+results = []
+for i, line in enumerate(lines):
+    m = re.match(r'^  "(\d+)": \{', line)
+    if m:
+        cur_skill = m.group(1)
+    if 'attacker_action' in line:
+        for j in range(i, max(0, i - 40), -1):
+            m2 = re.search(r'"effect_type": "(\w+)"', lines[j])
+            if m2:
+                results.append((cur_skill, m2.group(1), i + 1))
+                break
+
+for s in results:
+    print(s)

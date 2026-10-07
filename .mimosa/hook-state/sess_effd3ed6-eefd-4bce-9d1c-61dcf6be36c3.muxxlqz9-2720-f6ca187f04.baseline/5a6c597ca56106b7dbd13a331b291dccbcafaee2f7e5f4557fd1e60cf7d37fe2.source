@@ -1,0 +1,552 @@
+"""Regression tests for 【緋色の一匹狼】榊野ヒイロ (115301) skill implementations.
+
+Covers 5 skills + enemy version:
+- 110021 スカーレット・ネイル (EX): sure_hit + damage(enemy_all) + knockout(highest_atk) + L11+ dmg_taken_up
+- 120028 ペネトレイトバレット (AS1): enemy_column_highest_atk + L11+ remove_ep
+- 120044 ピアースショット (AS2): enemy_column + L11+ add_ep(target_killed)
+- 130036 ファーストストライク (PS1): on_turn_start preemptive + highest_atk + cooldown=99 + L11+ remove_pp + L15 remove_all_pp
+- 130052 クラッシュドレイン (PS2): on_kill heal(max_hp) + L11+ block_specific_aura(knockout, attack_limited=3)
+- 230111 クラッシュドレイン敵版: same as 130052
+
+New target_type enemy_column_highest_atk: selects the column (front+back) containing
+the highest ATK enemy, implemented following enemy_column_furthest pattern.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.skill_data_resolver import SkillDataResolver
+
+# Skill IDs
+EX_SCARLET_NAIL = 110021
+AS_PENETRATE_BULLET = 120028
+AS_PIERCE_SHOT = 120044
+PS_FIRST_STRIKE = 130036
+PS_CRASH_DRAIN = 130052
+PS_CRASH_DRAIN_ENEMY = 230111
+
+# Effect type constants
+SURE_HIT = SkillEffectType.SURE_HIT.value
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=1, skills=None, skill_levels=None,
+               pp=10, ep=10, ap=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestRegHiiroEX110021(unittest.TestCase):
+    """110021 スカーレット・ネイル (EX): 回避不可 + 敵全体攻撃 + 最高ATK敵に気絶 + L11+ 被ダメ増加"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_sure_hit_applied_to_self(self):
+        """110021 should have sure_hit effect on self with duration_type='skill' (回避不可)."""
+        parsed = self.dl.get_parsed_skill_data(EX_SCARLET_NAIL)
+        self.assertIsNotNone(parsed)
+        effects = parsed['effect_blocks'][0]['effects']
+        sure_hit_effects = [e for e in effects if e['effect_type'] == 'sure_hit']
+        self.assertEqual(len(sure_hit_effects), 1, "should have exactly 1 sure_hit effect")
+        e = sure_hit_effects[0]
+        self.assertEqual(e['target_type'], 'self', "sure_hit target should be self")
+        self.assertEqual(e['duration_type'], 'skill',
+                         "duration_type should be 'skill' (cleared at skill end)")
+
+    def test_knockout_on_highest_atk_only(self):
+        """110021 knockout should only target highest_atk enemy, not all enemies."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=10000,
+                    skills=[EX_SCARLET_NAIL], level=10)
+        bb.add_enemy(unit_id="low_atk", position=Position.ENEMY_CENTER_FRONT, hp=50000, atk=3000)
+        bb.add_enemy(unit_id="high_atk", position=Position.ENEMY_LEFT_FRONT, hp=50000, atk=9000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+
+        result = ss.execute_skill(caster=next(u for u in bf.friend_team if u.unit_id == "caster"),
+                                  skill_id=EX_SCARLET_NAIL, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        high_atk = next(u for u in bf.enemy_team if u.unit_id == "high_atk")
+        low_atk = next(u for u in bf.enemy_team if u.unit_id == "low_atk")
+
+        high_knockout = any(d.effect_type == KNOCKOUT for d in high_atk.debuffs)
+        low_knockout = any(d.effect_type == KNOCKOUT for d in low_atk.debuffs)
+        self.assertTrue(high_knockout, "knockout should be on highest ATK enemy")
+        self.assertFalse(low_knockout, "knockout should NOT be on lower ATK enemy")
+
+    def test_l11_dmg_taken_up_on_enemy_all(self):
+        """110021 L11+ should apply dmg_taken_up to all enemies with attack_limited=1."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=10000,
+                    skills=[EX_SCARLET_NAIL], level=11)
+        bb.add_enemy(unit_id="e1", position=Position.ENEMY_CENTER_FRONT, hp=50000, atk=5000)
+        bb.add_enemy(unit_id="e2", position=Position.ENEMY_LEFT_FRONT, hp=50000, atk=8000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+
+        result = ss.execute_skill(caster=next(u for u in bf.friend_team if u.unit_id == "caster"),
+                                  skill_id=EX_SCARLET_NAIL, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        for enemy in bf.enemy_team:
+            dmg_up_debuffs = [d for d in enemy.debuffs if d.effect_type == RECEIVED_DAMAGE]
+            self.assertGreater(len(dmg_up_debuffs), 0,
+                               f"dmg_taken_up should be on {enemy.unit_id}")
+            d = dmg_up_debuffs[0]
+            self.assertEqual(d.attack_limited, 1,
+                             "attack_limited should be 1 (next attack only)")
+
+
+class TestRegHiiroAS120028(unittest.TestCase):
+    """120028 ペネトレイトバレット (AS1): 攻撃力が最も高い敵が含まれる敵前後列 + L11+ EP削除"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_column_highest_atk_targets_correct_column(self):
+        """120028 should target the column containing the highest ATK enemy (2 units)."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=10000,
+                    skills=[AS_PENETRATE_BULLET], level=10)
+        # Left column: high ATK front + back
+        bb.add_enemy(unit_id="left_front", position=Position.ENEMY_LEFT_FRONT,
+                     hp=50000, atk=9000)
+        bb.add_enemy(unit_id="left_back", position=Position.ENEMY_LEFT_BACK,
+                     hp=50000, atk=3000)
+        # Center column: lower ATK
+        bb.add_enemy(unit_id="center_front", position=Position.ENEMY_CENTER_FRONT,
+                     hp=50000, atk=5000)
+        bb.add_enemy(unit_id="center_back", position=Position.ENEMY_CENTER_BACK,
+                     hp=50000, atk=2000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        hp_before = {u.unit_id: u.current_hp for u in bf.enemy_team}
+        result = ss.execute_skill(caster=caster, skill_id=AS_PENETRATE_BULLET,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # Left column (highest ATK=9000) should be damaged
+        left_front = next(u for u in bf.enemy_team if u.unit_id == "left_front")
+        left_back = next(u for u in bf.enemy_team if u.unit_id == "left_back")
+        center_front = next(u for u in bf.enemy_team if u.unit_id == "center_front")
+        center_back = next(u for u in bf.enemy_team if u.unit_id == "center_back")
+
+        self.assertLess(left_front.current_hp, hp_before["left_front"],
+                        "left_front (highest ATK column) should be damaged")
+        self.assertLess(left_back.current_hp, hp_before["left_back"],
+                        "left_back (same column) should be damaged")
+        self.assertEqual(center_front.current_hp, hp_before["center_front"],
+                         "center_front (different column) should NOT be damaged")
+        self.assertEqual(center_back.current_hp, hp_before["center_back"],
+                         "center_back (different column) should NOT be damaged")
+
+    def test_l11_remove_ep_from_column_targets(self):
+        """120028 L11+ should remove 1 EP from all column targets."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=10000,
+                    skills=[AS_PENETRATE_BULLET], level=11)
+        bb.add_enemy(unit_id="left_front", position=Position.ENEMY_LEFT_FRONT,
+                     hp=50000, atk=9000, ep=5)
+        bb.add_enemy(unit_id="left_back", position=Position.ENEMY_LEFT_BACK,
+                     hp=50000, atk=3000, ep=5)
+        bb.add_enemy(unit_id="center_front", position=Position.ENEMY_CENTER_FRONT,
+                     hp=50000, atk=5000, ep=5)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        result = ss.execute_skill(caster=caster, skill_id=AS_PENETRATE_BULLET,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        left_front = next(u for u in bf.enemy_team if u.unit_id == "left_front")
+        left_back = next(u for u in bf.enemy_team if u.unit_id == "left_back")
+        center_front = next(u for u in bf.enemy_team if u.unit_id == "center_front")
+
+        self.assertEqual(left_front.current_ep, 4, "left_front EP should be reduced by 1")
+        self.assertEqual(left_back.current_ep, 4, "left_back EP should be reduced by 1")
+        self.assertEqual(center_front.current_ep, 5, "center_front EP should NOT be reduced")
+
+
+class TestRegHiiroAS120044(unittest.TestCase):
+    """120044 ピアースショット (AS2): 敵前後列 + L11+ 撃殺時EP獲得"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_enemy_column_targets_2_units(self):
+        """120044 should target enemy_column (2 units: front+back of same column)."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=10000,
+                    skills=[AS_PIERCE_SHOT], level=10)
+        bb.add_enemy(unit_id="left_front", position=Position.ENEMY_LEFT_FRONT,
+                     hp=50000, atk=5000)
+        bb.add_enemy(unit_id="left_back", position=Position.ENEMY_LEFT_BACK,
+                     hp=50000, atk=3000)
+        bb.add_enemy(unit_id="center_front", position=Position.ENEMY_CENTER_FRONT,
+                     hp=50000, atk=9000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        hp_before = {u.unit_id: u.current_hp for u in bf.enemy_team}
+        result = ss.execute_skill(caster=caster, skill_id=AS_PIERCE_SHOT,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # enemy_column targets the nearest column (left in this case)
+        left_front = next(u for u in bf.enemy_team if u.unit_id == "left_front")
+        left_back = next(u for u in bf.enemy_team if u.unit_id == "left_back")
+        center_front = next(u for u in bf.enemy_team if u.unit_id == "center_front")
+
+        # At least 2 enemies should be damaged (column = front+back)
+        damaged = [u for u in bf.enemy_team if u.current_hp < hp_before[u.unit_id]]
+        self.assertGreaterEqual(len(damaged), 2, "At least 2 enemies should be damaged (column)")
+
+    def test_l11_add_ep_on_target_killed(self):
+        """120044 L11+ should add 1 EP to self when target is killed."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=99999,
+                    skills=[AS_PIERCE_SHOT], level=11, ep=0)
+        bb.add_enemy(unit_id="victim_front", position=Position.ENEMY_LEFT_FRONT,
+                     hp=1, atk=1000)
+        bb.add_enemy(unit_id="victim_back", position=Position.ENEMY_LEFT_BACK,
+                     hp=1, atk=1000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        ep_before = caster.current_ep
+        result = ss.execute_skill(caster=caster, skill_id=AS_PIERCE_SHOT,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        self.assertGreater(caster.current_ep, ep_before,
+                           "caster EP should increase after killing target")
+
+    def test_l11_no_add_ep_without_kill(self):
+        """120044 L11+ should NOT add EP when no target is killed."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=50000, atk=100,
+                    skills=[AS_PIERCE_SHOT], level=11, ep=0)
+        bb.add_enemy(unit_id="tank_front", position=Position.ENEMY_LEFT_FRONT,
+                     hp=999999, atk=1000)
+        bb.add_enemy(unit_id="tank_back", position=Position.ENEMY_LEFT_BACK,
+                     hp=999999, atk=1000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        ep_before = caster.current_ep
+        result = ss.execute_skill(caster=caster, skill_id=AS_PIERCE_SHOT,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        self.assertEqual(caster.current_ep, ep_before,
+                         "caster EP should NOT increase without kill")
+
+
+class TestRegHiiroPS130036(unittest.TestCase):
+    """130036 ファーストストライク (PS1): ターン開始先制 + 最高ATK敵 + 1度のみ + L11+ PP削除"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.resolver = SkillDataResolver(cls.dl)
+
+    def test_config_has_cooldown_99_and_highest_atk(self):
+        """130036 should have cooldown=99, cooldown_update_timing=1, enemy_single_highest_atk."""
+        parsed = self.dl.get_parsed_skill_data(PS_FIRST_STRIKE)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.get('cooldown'), 99, "cooldown should be 99 (one-time only)")
+        self.assertEqual(parsed.get('cooldown_update_timing'), 1)
+        # Check target_type in first block
+        effects = parsed['effect_blocks'][0]['effects']
+        self.assertEqual(effects[0]['target_type'], 'enemy_single_highest_atk')
+        self.assertTrue(effects[0].get('flags', {}).get('is_preemptive'),
+                        "is_preemptive should be True")
+
+    def test_l11_14_has_remove_pp_minus(self):
+        """130036 L11-14 should have remove_pp with value_tag='minus'."""
+        parsed = self.dl.get_parsed_skill_data(PS_FIRST_STRIKE)
+        block2 = parsed['effect_blocks'][1]
+        self.assertEqual(block2.get('level_min'), 11)
+        self.assertEqual(block2.get('level_max'), 14)
+        remove_pp_effects = [e for e in block2['effects'] if e['effect_type'] == 'remove_pp']
+        self.assertEqual(len(remove_pp_effects), 1)
+        self.assertEqual(remove_pp_effects[0]['value_tag'], 'minus')
+
+    def test_l15_has_remove_all_pp(self):
+        """130036 L15 should have remove_pp with value=-1 (remove all PP)."""
+        parsed = self.dl.get_parsed_skill_data(PS_FIRST_STRIKE)
+        block3 = parsed['effect_blocks'][2]
+        self.assertEqual(block3.get('level_min'), 15)
+        remove_pp_effects = [e for e in block3['effects'] if e['effect_type'] == 'remove_pp']
+        self.assertEqual(len(remove_pp_effects), 1)
+        self.assertEqual(remove_pp_effects[0]['value'], -1)
+
+    def test_l11_remove_pp_reduces_target_pp(self):
+        """130036 L11+ preemptive attack should reduce target PP by minus value."""
+        hiiro = _make_unit(
+            "hiiro", "ヒイロ", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=10000, defense=4000, speed=500,
+            skills=[PS_FIRST_STRIKE], skill_levels={PS_FIRST_STRIKE: 11},
+        )
+        # Highest ATK enemy with PP=5
+        target = _make_unit(
+            "target", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=999999, atk=9000, defense=4000, speed=400, pp=5,
+        )
+        decoy = _make_unit(
+            "decoy", "敵B", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=999999, atk=3000, defense=4000, speed=400, pp=5,
+        )
+        bf = _make_bf(hiiro, target, decoy)
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+
+        pp_before = target.current_pp
+        result = ss.execute_skill(caster=hiiro, skill_id=PS_FIRST_STRIKE,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # L11 minus=1, so PP should be reduced by 1
+        self.assertEqual(target.current_pp, pp_before - 1,
+                         "target PP should be reduced by 1 (L11 minus=1)")
+        # Decoy should not be affected
+        self.assertEqual(decoy.current_pp, 5, "decoy PP should not change")
+
+    def test_l15_removes_all_pp(self):
+        """130036 L15 should remove ALL PP from target."""
+        hiiro = _make_unit(
+            "hiiro", "ヒイロ", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=10000, defense=4000, speed=500,
+            skills=[PS_FIRST_STRIKE], skill_levels={PS_FIRST_STRIKE: 15},
+        )
+        target = _make_unit(
+            "target", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=999999, atk=9000, defense=4000, speed=400, pp=5,
+        )
+        bf = _make_bf(hiiro, target)
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+
+        result = ss.execute_skill(caster=hiiro, skill_id=PS_FIRST_STRIKE,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        self.assertEqual(target.current_pp, 0,
+                         "L15 should remove ALL PP (value=-1)")
+
+
+class TestRegHiiroPS130052(unittest.TestCase):
+    """130052 クラッシュドレイン (PS2): 撃殺時HP回復 + L11+ 気絶無効(3回被攻撃)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_heal_uses_max_hp_base(self):
+        """130052 heal should use heal_base='max_hp' and value_tag='cure'."""
+        parsed = self.dl.get_parsed_skill_data(PS_CRASH_DRAIN)
+        self.assertIsNotNone(parsed)
+        effects = parsed['effect_blocks'][0]['effects']
+        heal_effects = [e for e in effects if e['effect_type'] == 'heal']
+        self.assertEqual(len(heal_effects), 1)
+        self.assertEqual(heal_effects[0]['value_tag'], 'cure')
+        self.assertEqual(heal_effects[0].get('flags', {}).get('heal_base'), 'max_hp')
+
+    def test_l11_block_specific_aura_knockout(self):
+        """130052 L11+ should have block_specific_aura with block_status=['knockout'], attack_limited=3."""
+        parsed = self.dl.get_parsed_skill_data(PS_CRASH_DRAIN)
+        block2 = parsed['effect_blocks'][1]
+        self.assertEqual(block2.get('level_min'), 11)
+        bsa_effects = [e for e in block2['effects'] if e['effect_type'] == 'block_specific_aura']
+        self.assertEqual(len(bsa_effects), 1)
+        e = bsa_effects[0]
+        self.assertEqual(e['duration_type'], 'attack')
+        self.assertEqual(e['flags']['block_status'], ['knockout'])
+        self.assertEqual(e['flags']['attack_limited'], 3)
+
+    def test_heal_on_kill_restores_hp(self):
+        """130052 should heal self on kill (max_hp * cure%)."""
+        hiiro = _make_unit(
+            "hiiro", "ヒイロ", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=99999, defense=4000, speed=500,
+            skills=[PS_CRASH_DRAIN], skill_levels={PS_CRASH_DRAIN: 10},
+        )
+        hiiro.current_hp = 10000  # Not full HP
+
+        victim = _make_unit(
+            "victim", "敵", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=1, atk=1000, defense=4000, speed=400,
+        )
+        bf = _make_bf(hiiro, victim)
+        ss, _ = self._make_services(bf)
+
+        hp_before = hiiro.current_hp
+        result = ss.execute_skill(caster=hiiro, skill_id=PS_CRASH_DRAIN,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        self.assertGreater(hiiro.current_hp, hp_before,
+                           "ヒイロ HP should increase after heal on kill")
+
+    def test_l11_block_specific_aura_applied_on_kill(self):
+        """130052 L11+ should apply block_specific_aura(knockout) to self on kill."""
+        hiiro = _make_unit(
+            "hiiro", "ヒイロ", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=99999, defense=4000, speed=500,
+            skills=[PS_CRASH_DRAIN], skill_levels={PS_CRASH_DRAIN: 11},
+        )
+        victim = _make_unit(
+            "victim", "敵", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=1, atk=1000, defense=4000, speed=400,
+        )
+        bf = _make_bf(hiiro, victim)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(caster=hiiro, skill_id=PS_CRASH_DRAIN,
+                                  battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # Check for block_specific_aura buff (stored as a buff with block_status_list)
+        blocking_buffs = [b for b in hiiro.buffs
+                          if hasattr(b, 'block_status_list') and 'knockout' in (getattr(b, 'block_status_list', []) or [])]
+        self.assertGreater(len(blocking_buffs), 0,
+                           "block_specific_aura(knockout) should be applied to self")
+        # Verify attack_limited=3
+        self.assertEqual(blocking_buffs[0].attack_limited, 3,
+                         "attack_limited should be 3 (3 attacks received)")
+
+
+class TestRegHiiroEnemy230111(unittest.TestCase):
+    """230111 クラッシュドレイン敵版: same config as 130052"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_enemy_version_has_same_heal_config(self):
+        """230111 should have heal with value_tag='cure' and heal_base='max_hp'."""
+        parsed = self.dl.get_parsed_skill_data(PS_CRASH_DRAIN_ENEMY)
+        self.assertIsNotNone(parsed)
+        effects = parsed['effect_blocks'][0]['effects']
+        heal_effects = [e for e in effects if e['effect_type'] == 'heal']
+        self.assertEqual(len(heal_effects), 1)
+        self.assertEqual(heal_effects[0]['value_tag'], 'cure')
+        self.assertEqual(heal_effects[0].get('flags', {}).get('heal_base'), 'max_hp')
+
+    def test_enemy_version_l11_block_specific_aura(self):
+        """230111 L11+ should have block_specific_aura with same config as 130052."""
+        parsed = self.dl.get_parsed_skill_data(PS_CRASH_DRAIN_ENEMY)
+        block2 = parsed['effect_blocks'][1]
+        self.assertEqual(block2.get('level_min'), 11)
+        bsa_effects = [e for e in block2['effects'] if e['effect_type'] == 'block_specific_aura']
+        self.assertEqual(len(bsa_effects), 1)
+        e = bsa_effects[0]
+        self.assertEqual(e['duration_type'], 'attack')
+        self.assertEqual(e['flags']['block_status'], ['knockout'])
+        self.assertEqual(e['flags']['attack_limited'], 3)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

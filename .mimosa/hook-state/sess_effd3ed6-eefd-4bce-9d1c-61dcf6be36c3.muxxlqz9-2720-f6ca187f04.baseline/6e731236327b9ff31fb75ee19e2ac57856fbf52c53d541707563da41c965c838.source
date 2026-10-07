@@ -1,0 +1,175 @@
+"""Regression: DoT结算顺序 毒 → 炎上（poison before burn）.
+
+History:
+  毒伤害依赖当前HP（current_hp * pct），炎上伤害为固定值。
+  原实现先结算炎上再结算毒，导致炎上先扣HP后毒的current_hp降低，
+  毒伤害亏损（如HP=10000, poison=10%, burn=3000:
+    正确顺序: poison=1000(10%*10000) → burn=3000 → HP=6000
+    错误顺序: burn=3000 → poison=700(10%*7000) → HP=6300, 毒亏损300）
+
+  Fix: 将poison结算移到burn之前（battle_flow_controller._check_and_apply_status_effects）。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import Position, SkillEffectType
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+
+class TestRegDotOrderPoisonBeforeBurn(unittest.TestCase):
+    """DoT must be processed poison → burn (not burn → poison)."""
+
+    def _build_battlefield_with_dot_target(self, hp=10000, poison_pct=0.1,
+                                            burn_dmg=3000, extra_burns=0):
+        """Build a battlefield with a target unit that has both poison and burn.
+
+        Returns (controller, target_unit).
+        """
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="target", position=Position.ALLY_CENTER_FRONT,
+                    hp=hp, atk=5000, defense=3000, speed=300)
+        bb.add_enemy(unit_id="caster", position=Position.ENEMY_CENTER_FRONT,
+                     hp=99999, atk=5000, defense=3000, speed=100)
+        ctx = bb.build()
+        bf = ctx['bf']
+
+        target = next(u for u in bf.friend_team if u.unit_id == "target")
+
+        # Poison: pct of current HP, high ATK cap so poison isn't capped
+        poison = BuffState(
+            buff_id="poison_1",
+            name="Poison",
+            effect_type=SkillEffectType.POISON.value,
+            value=poison_pct,
+            duration=2,
+            timing_type=1,
+            source_unit_id="caster",
+        )
+        poison.caster_attack = 999999
+        target.debuffs.append(poison)
+
+        # Burn: fixed damage
+        burn = BuffState(
+            buff_id="burn_1",
+            name="Burn",
+            effect_type=SkillEffectType.CONFLAGRATION.value,
+            value=burn_dmg,
+            duration=2,
+            timing_type=1,
+            source_unit_id="caster",
+        )
+        target.debuffs.append(burn)
+
+        # Extra burn stacks for multi-burn test
+        for i in range(extra_burns):
+            target.debuffs.append(BuffState(
+                buff_id=f"burn_{i+2}",
+                name="Burn",
+                effect_type=SkillEffectType.CONFLAGRATION.value,
+                value=burn_dmg,
+                duration=2,
+                timing_type=1,
+                source_unit_id="caster",
+            ))
+
+        config = BattleConfig()
+        config.max_turns = 5
+        controller = BattleFlowController(bf, config)
+        return controller, target
+
+    def test_poison_before_burn_damage_order(self):
+        """Poison must be calculated before burn.
+
+        HP=10000, poison=10%, burn=3000:
+          Correct (poison first): poison=1000 → HP=9000, burn=3000 → HP=6000
+          Wrong (burn first):     burn=3000 → HP=7000, poison=700 → HP=6300
+        """
+        controller, target = self._build_battlefield_with_dot_target(
+            hp=10000, poison_pct=0.1, burn_dmg=3000)
+
+        controller._check_and_apply_status_effects(target)
+
+        # If poison first: 10000 - 1000(poison) - 3000(burn) = 6000
+        # If burn first:   10000 - 3000(burn) - 700(poison) = 6300
+        self.assertEqual(target.current_hp, 6000,
+                         "Poison must be calculated before burn: "
+                         "HP should be 6000 (poison=1000 from full HP + burn=3000), "
+                         f"not 6300 (burn=3000 first, then poison=700 from reduced HP). "
+                         f"Actual HP: {target.current_hp}")
+
+    def test_poison_damage_based_on_full_hp(self):
+        """Poison damage must be based on HP before burn reduces it."""
+        controller, target = self._build_battlefield_with_dot_target(
+            hp=10000, poison_pct=0.1, burn_dmg=3000)
+
+        hp_before = target.current_hp
+        controller._check_and_apply_status_effects(target)
+
+        # poison should be 1000 (10% of 10000), not 700 (10% of 7000)
+        # Total damage = poison + burn = 1000 + 3000 = 4000
+        total_damage = hp_before - target.current_hp
+        self.assertEqual(total_damage, 4000,
+                         "Total DoT damage should be 4000 (poison=1000 + burn=3000). "
+                         f"Actual: {total_damage}")
+
+        self.assertEqual(target.damage_taken_total, 4000,
+                         f"damage_taken_total should be 4000, got {target.damage_taken_total}")
+
+    def test_poison_before_burn_with_multiple_burns(self):
+        """With 3 burn stacks (2x multiplier), poison still calculated first.
+
+        HP=10000, poison=10%, 3x burn=2000 each (2x mult → 4000 each = 12000 total):
+          poison=1000 → HP=9000, burn=12000 → HP=0 (dead, capped at 9000)
+          Total damage_taken = 1000 + 9000 = 10000
+        """
+        controller, target = self._build_battlefield_with_dot_target(
+            hp=10000, poison_pct=0.1, burn_dmg=2000, extra_burns=2)
+
+        controller._check_and_apply_status_effects(target)
+
+        # poison damage was 1000 (10% of full 10000 HP)
+        # burn = 2000*2*3 = 12000, but capped at 9000 (remaining HP after poison)
+        # Total = 1000 + 9000 = 10000 (unit dies)
+        self.assertEqual(target.damage_taken_total, 10000,
+                         f"Total damage should be 10000 (poison=1000 + burn=9000 capped), "
+                         f"got {target.damage_taken_total}")
+        self.assertFalse(target.is_alive,
+                         "Unit should be dead from burn after poison")
+
+    def test_only_poison_no_burn(self):
+        """When only poison (no burn), damage is normal."""
+        controller, target = self._build_battlefield_with_dot_target(
+            hp=10000, poison_pct=0.1, burn_dmg=3000)
+        # Remove burn debuffs
+        target.debuffs = [d for d in target.debuffs
+                          if d.effect_type == SkillEffectType.POISON.value]
+
+        controller._check_and_apply_status_effects(target)
+
+        # Poison only: 10% of 10000 = 1000 → HP=9000
+        self.assertEqual(target.current_hp, 9000,
+                         "With only poison, HP should be 9000")
+
+    def test_only_burn_no_poison(self):
+        """When only burn (no poison), damage is normal."""
+        controller, target = self._build_battlefield_with_dot_target(
+            hp=10000, poison_pct=0.1, burn_dmg=3000)
+        # Remove poison debuffs
+        target.debuffs = [d for d in target.debuffs
+                          if d.effect_type == SkillEffectType.CONFLAGRATION.value]
+
+        controller._check_and_apply_status_effects(target)
+
+        # Burn only: 3000 → HP=7000
+        self.assertEqual(target.current_hp, 7000,
+                         "With only burn, HP should be 7000")
+
+
+if __name__ == '__main__':
+    unittest.main()

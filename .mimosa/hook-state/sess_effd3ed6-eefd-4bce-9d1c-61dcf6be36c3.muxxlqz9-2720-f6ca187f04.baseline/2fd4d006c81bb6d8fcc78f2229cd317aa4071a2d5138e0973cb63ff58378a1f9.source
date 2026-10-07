@@ -1,0 +1,337 @@
+"""Regression: 捲土重来 (130046, after_as_attacked) must trigger when cover
+redirects damage from the original primary target.
+
+Bug: When enemy uses a true AoE AS skill and デコイプロトコル covers the original
+     primary target (左前), cover replacement changes damaged_targets[0] from
+     左前 to the coverer. Then primary_target = damaged_targets[0] = coverer,
+     and after_as_attacked checks owner.unit_id == primary.unit_id → fails for
+     左前 (捲土重来 holder), so 捲土重来 never triggers.
+
+Root cause: primary_target for after_as_attacked was derived from damaged_targets
+     (post-cover), but it should reflect the ORIGINAL primary target (pre-cover).
+     The original target was "targeted" by the AS even though cover redirected
+     the damage to another unit.
+
+Fix: skill_service._apply_damage captures _original_primary_target = targets[0]
+     BEFORE cover replacement (only for the first damage effect).
+     battle_flow_controller uses _original_primary_target as primary_target for
+     after_as_attacked (and other post-attack triggers), falling back to
+     damaged_targets[0] when _original_primary_target is not available.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, SkillType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+# Skill IDs
+GANDO_CHORAI = 130046            # 捲土重来 (after_as_attacked, counter-attack)
+DECOI_PROTOCOL = 130034          # デコイプロトコル (before_any_attacked, cover)
+ENEMY_ALL_AS = 220369            # 紫影の斬撃 (AS true AoE, skill_type=1, enemy_all)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegGandoChoraiCoverPrimary(unittest.TestCase):
+    """捲土重来 must trigger when cover redirects damage from the original
+    primary target of a true AoE AS skill."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_gando_chorai_is_after_as_attacked(self):
+        """捲土重来 (130046) must have trigger_type=after_as_attacked."""
+        parsed = self.dl.get_parsed_skill_data(GANDO_CHORAI)
+        self.assertIsNotNone(parsed, "捲土重来 must exist in parsed data")
+        self.assertEqual(parsed.get('trigger_type'), 'after_as_attacked',
+                         "捲土重来 must be after_as_attacked trigger")
+
+    def test_enemy_all_as_is_true_aoe(self):
+        """紫影の斬撃 (220369) must be an AS skill with enemy_all target."""
+        skill_data = self.dl.get_skill_by_id(ENEMY_ALL_AS)
+        self.assertIsNotNone(skill_data, "紫影の斬撃 must exist")
+        self.assertEqual(skill_data.skill_type, SkillType.AS.value,
+                         "紫影の斬撃 must be AS skill (skill_type=1)")
+        parsed = self.dl.get_parsed_skill_data(ENEMY_ALL_AS)
+        dmg_effects = [
+            e for block in parsed.get('effect_blocks', [])
+            for e in block.get('effects', [])
+            if e.get('effect_type') == 'damage'
+        ]
+        self.assertTrue(any(e.get('target_type') == 'enemy_all' for e in dmg_effects),
+                        "紫影の斬撃 must have enemy_all damage effect")
+
+    def test_original_primary_target_preserved_when_cover_active(self):
+        """When cover redirects damage from the original primary target,
+        _original_primary_target must be the original target (左前), not the coverer.
+
+        Setup: 5 allies (中前 empty), enemy at 中前 uses true AoE AS.
+        Nearest ally to enemy (中前) is 左前 (per _NEAREST_PRIORITY_MAP).
+        デコイプロトコル holder at 中后 covers 左前.
+        After cover, damaged_targets[0] = coverer (中后), but
+        _original_primary_target = 左前.
+        """
+        ally_left_front = _make_unit("ally_lf", "左前", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000,
+                                     skills=[GANDO_CHORAI],
+                                     skill_levels={GANDO_CHORAI: 10})
+        ally_right_front = _make_unit("ally_rf", "右前", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        ally_left_back = _make_unit("ally_lb", "左后", Side.ALLY,
+                                    Position.ALLY_LEFT_BACK, hp=100000)
+        ally_center_back = _make_unit("decoi_owner", "デコイ(中后)", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000,
+                                      skills=[DECOI_PROTOCOL],
+                                      skill_levels={DECOI_PROTOCOL: 10})
+        ally_right_back = _make_unit("ally_rb", "右后", Side.ALLY,
+                                     Position.ALLY_RIGHT_BACK, hp=100000)
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[ENEMY_ALL_AS],
+                           skill_levels={ENEMY_ALL_AS: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_left_front, ally_right_front, ally_left_back,
+                          ally_center_back, ally_right_back]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "AS skill execution should succeed")
+
+        # デコイプロトコル should have triggered and covered 左前
+        self.assertIsNotNone(ally_center_back.cover_target,
+                             "デコイプロトコル should trigger and set cover_target")
+        self.assertEqual(ally_center_back.cover_target, ally_left_front.unit_id,
+                         "デコイ should cover 左前 (original primary target)")
+
+        # _original_primary_target must be 左前, not the coverer (中后)
+        original_primary = getattr(ss, '_original_primary_target', None)
+        self.assertIsNotNone(original_primary,
+                             "_original_primary_target must be set after AS execution")
+        self.assertEqual(original_primary.unit_id, ally_left_front.unit_id,
+                         "_original_primary_target must be 左前 (original primary), "
+                         "not the coverer (中后). Got: %s" % original_primary.name)
+
+    def test_gando_chorai_triggers_when_cover_redirects_damage(self):
+        """捲土重来 (after_as_attacked) must trigger for the original primary
+        target (左前) even when cover redirects damage to another unit.
+
+        Setup: 5 allies (中前 empty). 捲土重来 holder at 左前.
+        デコイ holder at 中后. Enemy at 中前 uses true AoE AS.
+        After AS: damaged_targets[0] = coverer (中后), but primary_target for
+        after_as_attacked = _original_primary_target = 左前.
+        So 捲土重来 (on 左前) should match.
+        """
+        ally_left_front = _make_unit("ally_lf", "左前(捲土重来)", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000,
+                                     skills=[GANDO_CHORAI],
+                                     skill_levels={GANDO_CHORAI: 10})
+        ally_right_front = _make_unit("ally_rf", "右前", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        ally_left_back = _make_unit("ally_lb", "左后", Side.ALLY,
+                                    Position.ALLY_LEFT_BACK, hp=100000)
+        ally_center_back = _make_unit("decoi_owner", "デコイ(中后)", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000,
+                                      skills=[DECOI_PROTOCOL],
+                                      skill_levels={DECOI_PROTOCOL: 10})
+        ally_right_back = _make_unit("ally_rb", "右后", Side.ALLY,
+                                     Position.ALLY_RIGHT_BACK, hp=100000)
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[ENEMY_ALL_AS],
+                           skill_levels={ENEMY_ALL_AS: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_left_front, ally_right_front, ally_left_back,
+                          ally_center_back, ally_right_back]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "AS skill execution should succeed")
+
+        # デコイ should have covered 左前
+        self.assertEqual(ally_center_back.cover_target, ally_left_front.unit_id,
+                         "デコイ should cover 左前")
+
+        # Simulate battle_flow_controller's primary_target determination
+        original_primary = getattr(ss, '_original_primary_target', None)
+        primary_target = original_primary if original_primary else None
+        self.assertEqual(primary_target.unit_id, ally_left_front.unit_id,
+                         "primary_target for after_as_attacked must be 左前 (original)")
+
+        # Build damaged_targets from skill_result (post-cover)
+        damaged_targets = []
+        for applied in result.get("effects_applied", []):
+            if applied.get("effect_type") == "damage":
+                for t in applied.get("targets", []):
+                    target_unit = None
+                    for u in bf.get_all_units():
+                        if u.unit_id == t.get('target_id', t.get('target')):
+                            target_unit = u
+                            break
+                    if target_unit:
+                        damaged_targets.append(target_unit)
+
+        # damaged_targets[0] should be the coverer (中后), NOT 左前
+        self.assertGreater(len(damaged_targets), 0, "Should have damaged targets")
+        self.assertEqual(damaged_targets[0].unit_id, ally_center_back.unit_id,
+                         "damaged_targets[0] should be coverer (中后) after cover replacement")
+
+        # 捲土重来 should match when primary_target = original primary (左前)
+        after_as_actions = ts.trigger_after_as_attacked(
+            damaged_targets, bf, actor=enemy, primary_target=primary_target
+        )
+        gando_actions = [a for a in after_as_actions if a.skill_id == GANDO_CHORAI]
+        self.assertGreater(len(gando_actions), 0,
+                           "捲土重来 must trigger when cover redirects damage from 左前 "
+                           "(original primary target). primary_target=%s, damaged_targets[0]=%s"
+                           % (primary_target.name, damaged_targets[0].name))
+
+    def test_gando_chorai_does_not_trigger_for_non_primary_target(self):
+        """捲土重来 must NOT trigger for a unit that is NOT the primary target.
+
+        Setup: 左前 has 捲土重来, but 中前 is occupied (so 中前 is primary, not 左前).
+        No cover. Enemy at 中前 uses true AoE AS.
+        捲土重来 (on 左前) should NOT trigger because 左前 is not the primary target.
+        """
+        ally_center_front = _make_unit("ally_cf", "中前", Side.ALLY,
+                                        Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_left_front = _make_unit("ally_lf", "左前(捲土重来)", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000,
+                                     skills=[GANDO_CHORAI],
+                                     skill_levels={GANDO_CHORAI: 10})
+        ally_right_front = _make_unit("ally_rf", "右前", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[ENEMY_ALL_AS],
+                           skill_levels={ENEMY_ALL_AS: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_center_front, ally_left_front, ally_right_front]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "AS skill execution should succeed")
+
+        # _original_primary_target should be 中前 (nearest to enemy at 中前)
+        original_primary = getattr(ss, '_original_primary_target', None)
+        self.assertIsNotNone(original_primary)
+        self.assertEqual(original_primary.unit_id, ally_center_front.unit_id,
+                         "_original_primary_target should be 中前 (nearest to enemy)")
+
+        # 捲土重来 (on 左前) should NOT trigger
+        damaged_targets = []
+        for applied in result.get("effects_applied", []):
+            if applied.get("effect_type") == "damage":
+                for t in applied.get("targets", []):
+                    target_unit = None
+                    for u in bf.get_all_units():
+                        if u.unit_id == t.get('target_id', t.get('target')):
+                            target_unit = u
+                            break
+                    if target_unit:
+                        damaged_targets.append(target_unit)
+
+        after_as_actions = ts.trigger_after_as_attacked(
+            damaged_targets, bf, actor=enemy, primary_target=original_primary
+        )
+        gando_actions = [a for a in after_as_actions if a.skill_id == GANDO_CHORAI]
+        self.assertEqual(len(gando_actions), 0,
+                         "捲土重来 must NOT trigger when owner is not the primary target")
+
+    def test_original_primary_target_without_cover(self):
+        """Without cover, _original_primary_target should equal damaged_targets[0].
+        This ensures the fix doesn't change behavior when cover is not active."""
+        ally_center_front = _make_unit("ally_cf", "中前", Side.ALLY,
+                                        Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_left_front = _make_unit("ally_lf", "左前", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000)
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[ENEMY_ALL_AS],
+                           skill_levels={ENEMY_ALL_AS: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_center_front, ally_left_front]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        original_primary = getattr(ss, '_original_primary_target', None)
+        self.assertIsNotNone(original_primary)
+        self.assertEqual(original_primary.unit_id, ally_center_front.unit_id,
+                         "Without cover, _original_primary_target should be 中前 (nearest)")
+
+        # damaged_targets[0] should also be 中前 (no cover replacement)
+        damaged_targets = []
+        for applied in result.get("effects_applied", []):
+            if applied.get("effect_type") == "damage":
+                for t in applied.get("targets", []):
+                    target_unit = None
+                    for u in bf.get_all_units():
+                        if u.unit_id == t.get('target_id', t.get('target')):
+                            target_unit = u
+                            break
+                    if target_unit:
+                        damaged_targets.append(target_unit)
+        self.assertGreater(len(damaged_targets), 0)
+        self.assertEqual(damaged_targets[0].unit_id, original_primary.unit_id,
+                         "Without cover, damaged_targets[0] should equal _original_primary_target")
+
+
+if __name__ == '__main__':
+    unittest.main()

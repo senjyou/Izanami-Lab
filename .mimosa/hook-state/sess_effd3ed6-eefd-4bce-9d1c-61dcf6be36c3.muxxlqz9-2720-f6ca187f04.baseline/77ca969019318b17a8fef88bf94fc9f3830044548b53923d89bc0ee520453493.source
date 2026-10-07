@@ -1,0 +1,101 @@
+"""Regression: 敌方复活(阶段切换)后，debuff付与触发(on_debuff_applied)必须先于AS后追撃触发。
+
+Bug: 唯一無二の幼なじみ 使用 AS 120070（对敌付与 dmg_dealt_down，并击杀敌方）。
+     敌方 リディア・エルドリッジ 复活进入阶段1后，触发顺序错误：
+       1) 先触发了 繋がり合う母娘の絆 的 PS ストレラ (130184, AFTER_ALLY_AS_ATTACK / Phase2)
+       2) 后才触发 リディア 的 PS おたすけもとむ (230440, PAWN_RECEIVED_AURA / on_debuff_applied)
+
+根因: `_execute_unit_action` 中 AS 的 `had_aura`（debuff付与触发）块被放在
+     `_collect_and_run_post_as_triggers`（Phase1-3，含 Phase2 after_ally_as_attack）**之后**执行，
+     导致「被付与者的 on_debuff_applied 反应」晚于「攻击者的 AS後追撃」。
+
+Fix: 将 `had_aura` 块移到死亡/复活处理之后、post-AS触发器之前执行。
+
+本回归验证: 触发执行顺序中 230440(おたすけもとむ) 先于 130184(ストレラ)。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+
+AS_USER_CHAR = 132301    # 唯一無二の幼なじみ
+AS_DEBUFF = 120070       # なにするかーーー！！ (AS: 付与 dmg_dealt_down)
+FOLLOWUP_OWNER_CHAR = 500301  # 繋がり合う母娘の絆
+FOLLOWUP_PS = 130184     # ストレラ (after_ally_as_attack)
+ENEMY_CHAR = 451305      # 惨禍：リディア・エルドリッジ
+ENEMY_DEBUFF_PS = 230440  # おたすけもとむ (on_debuff_applied)
+
+
+def _mk(unit_id, name, side, pos, char_id, skills, *, hp=200000, atk=10000,
+        defense=5000, speed=500):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=pos,
+        character_id=char_id, level=10, element=4, character_type=1,
+        max_hp=hp, current_hp=hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        skills=skills, skill_levels={s: 10 for s in skills},
+        skill_cooldowns={},
+    )
+
+
+class TestRegAuraTriggerBeforePostAs(unittest.TestCase):
+    """敌方复活后 on_debuff_applied 触发应先于 AS後追撃触发"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_on_debuff_applied_before_after_ally_as_attack(self):
+        bf = BattlefieldState()
+        bf.round_number = 0
+
+        as_user = _mk("as_user", "唯一無二の幼なじみ", Side.ALLY,
+                      Position.ALLY_LEFT_FRONT, AS_USER_CHAR, [130080, AS_DEBUFF])
+        followup = _mk("followup", "繋がり合う母娘の絆", Side.ALLY,
+                       Position.ALLY_RIGHT_BACK, FOLLOWUP_OWNER_CHAR, [FOLLOWUP_PS])
+        enemy = _mk("enemy", "リディア・エルドリッジ", Side.ENEMY,
+                    Position.ENEMY_CENTER_FRONT, ENEMY_CHAR, [ENEMY_DEBUFF_PS],
+                    hp=200000, atk=5000, defense=5000)
+
+        bf.friend_team = [as_user, followup]
+        bf.enemy_team = [enemy]
+
+        bfc = BattleFlowController(bf, config=BattleConfig(max_turns=3, enable_rdps=False),
+                                   data_loader=self.dl)
+        bfc.skill_service.set_battlefield(bf)
+
+        # 记录每次 _execute_trigger_actions 执行到的 skill_id 顺序
+        order = []
+        orig_exec = bfc._execute_trigger_actions
+
+        def _rec(actions, owner=None, *args, **kwargs):
+            for a in actions:
+                order.append(a.skill_id)
+            return orig_exec(actions, owner, *args, **kwargs)
+
+        bfc._execute_trigger_actions = _rec
+
+        bfc._execute_unit_action(as_user, turn=1)
+
+        self.assertIn(ENEMY_DEBUFF_PS, order,
+                      f"敌方应在收到debuff后触发 おたすけもとむ({ENEMY_DEBUFF_PS})，实际顺序={order}")
+        self.assertIn(FOLLOWUP_PS, order,
+                      f"友方AS后应触发 ストレラ({FOLLOWUP_PS})，实际顺序={order}")
+        self.assertLess(
+            order.index(ENEMY_DEBUFF_PS), order.index(FOLLOWUP_PS),
+            f"on_debuff_applied(230440) 必须先于 after_ally_as_attack(130184)，实际顺序={order}")
+
+
+if __name__ == '__main__':
+    unittest.main()

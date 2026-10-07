@@ -1,0 +1,511 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""角色139301 博識なハングリーガール（ルナ・メロウ）技能效果集成测试
+
+测试场景：
+- 角色: 博識なハングリーガール (character_id=139301, 土属性=4, 物理型=1, 前卫, 坦克)
+- EX: 110034 こっそりつまみ食い…… (全体攻击 + 自身max_hp比例护盾 2action)
+- AS: 120078 リミットブラスト (单体攻击 + 持有「パワフル」时强制暴击/给予伤害减少/隣接2体)
+- PS1: 130088 ネガティブヘイト (before_any_attacked 友方被攻击时援护 + 反射伤害)
+- PS2: 130089 プロテクトウィズダム (on_turn_start 自身max_hp比例护盾 2action)
+- PS3: 130090 スナックタイム (on_turn_end 自身ATK比例护盾 1action + 「パワフル」mark 1action)
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, SkillType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.skill_data_resolver import SkillDataResolver
+
+SET = SkillEffectType
+MARK = SET.MARK.value
+SHIELD = SET.SHIELD.value
+DEALT_DAMAGE = SET.DEALT_DAMAGE.value
+
+# 通用AS skill for testing triggers (enemy_all)
+_ENEMY_ALL_AS = 220369  # 紫影の斬撃 AS true AoE
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=5000, speed=500, current_hp=None, is_alive=True,
+               skills=None, skill_levels=None, level=15, ap=10, pp=10, ep=0,
+               crit_rate=0.0, character_type=1, element=4):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=element, character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=is_alive,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestActor139301(unittest.TestCase):
+    """角色139301 ルナ・メロウ 技能测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.resolver = SkillDataResolver(cls.dl)
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _make_luna(self, position=Position.ALLY_CENTER_FRONT, level=15, hp=100000,
+                   current_hp=None, skills=None, skill_levels=None, atk=12000,
+                   defense=8000, speed=600, crit_rate=0.0, pp=10):
+        """创建ルナ・メロウ单位"""
+        all_skills = [110034, 120078, 130088, 130089, 130090]
+        if skills is None:
+            skills = all_skills
+        if skill_levels is None:
+            skill_levels = {sid: level for sid in all_skills}
+        return _make_unit(
+            "luna", "ルナ", Side.ALLY, position,
+            hp=hp, current_hp=current_hp, atk=atk, defense=defense, speed=speed,
+            character_type=1, element=4, level=level,
+            skills=skills, skill_levels=skill_levels,
+            crit_rate=crit_rate, pp=pp,
+        )
+
+    # ============================================================
+    # EX - こっそりつまみ食い…… (110034)
+    # ============================================================
+
+    def test_ex_damage_and_shield(self):
+        """EX: 全体攻击 + 自身max_hp比例护盾 2action"""
+        luna = self._make_luna()
+        enemy1 = _make_unit("e1", "敌1", Side.ENEMY, Position.ENEMY_LEFT_FRONT, hp=100000)
+        enemy2 = _make_unit("e2", "敌2", Side.ENEMY, Position.ENEMY_RIGHT_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy1, enemy2]
+        ss, _ = self._make_services(bf)
+
+        hp1_before = enemy1.current_hp
+        hp2_before = enemy2.current_hp
+        shield_before = luna.shield
+
+        result = ss.execute_skill(luna, 110034, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证全体攻击（2个敌方都受伤）
+        self.assertLess(enemy1.current_hp, hp1_before,
+                        "EX应攻击敌方1")
+        self.assertLess(enemy2.current_hp, hp2_before,
+                        "EX应攻击敌方2")
+        # 验证自身获得护盾
+        self.assertGreater(luna.shield, shield_before,
+                           f"EX应获得护盾, before={shield_before} after={luna.shield}")
+        # 验证护盾持续2行动
+        shield_buffs = [b for b in luna.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0, "应存在护盾buff")
+        self.assertEqual(shield_buffs[0].duration, 2, "护盾应持续2行动")
+
+    def test_ex_shield_based_on_max_hp(self):
+        """EX: 护盾值基于max_hp（Lv15 = 40% max_hp）"""
+        luna = self._make_luna(hp=50000)
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT, hp=100000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        ss.execute_skill(luna, 110034, bf, skip_cost=True)
+        # Lv15时 shield = 40% * max_hp = 40% * 50000 = 20000
+        expected_shield = int(50000 * 0.4)
+        self.assertGreaterEqual(luna.shield, expected_shield - 1,
+                                f"护盾应基于max_hp (40% of 50000 = {expected_shield}), 实际={luna.shield}")
+
+    # ============================================================
+    # AS - リミットブラスト (120078)
+    # ============================================================
+
+    def test_as_damage_no_mark_no_force_crit(self):
+        """AS Block1: 无「パワフル」mark时不强制暴击"""
+        luna = self._make_luna(crit_rate=0.0)  # 基础暴击率为0
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(luna, 120078, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证不触发dmg_dealt_down（无mark时Block2跳过）
+        dmg_debuffs = [d for d in enemy.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_debuffs), 0,
+                         f"无mark时不应附加dmg_dealt_down, debuffs: {[d.name for d in enemy.debuffs]}")
+
+    def test_as_with_mark_triggers_dmg_dealt_down(self):
+        """AS Block2: 持有「パワフル」mark时附加dmg_dealt_down（attack_limited=1）"""
+        luna = self._make_luna()
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        # 手动付与「パワフル」mark buff
+        powerful_mark = BuffState(
+            buff_id=f"{luna.unit_id}_mark_powerful_test",
+            name="powerful",
+            effect_type=MARK,
+            value=1,
+            duration=1,
+            timing_type=2,
+            source_unit_id=luna.unit_id,
+            is_debuff=False,
+        )
+        luna.buffs.append(powerful_mark)
+
+        result = ss.execute_skill(luna, 120078, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证dmg_dealt_down被附加
+        dmg_debuffs = [d for d in enemy.debuffs if d.effect_type == DEALT_DAMAGE]
+        self.assertGreater(len(dmg_debuffs), 0,
+                           "持有mark时应附加dmg_dealt_down")
+        self.assertEqual(dmg_debuffs[0].attack_limited, 1,
+                         "dmg_dealt_down应attack_limited=1")
+
+    def test_as_with_mark_force_crit(self):
+        """AS Block1: 持有「パワフル」mark时强制暴击"""
+        luna = self._make_luna(crit_rate=0.0)  # 基础暴击率为0，确保暴击来自force_crit
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        # 手动付与「パワフル」mark buff
+        powerful_mark = BuffState(
+            buff_id=f"{luna.unit_id}_mark_powerful_fc",
+            name="powerful",
+            effect_type=MARK,
+            value=1,
+            duration=1,
+            timing_type=2,
+            source_unit_id=luna.unit_id,
+            is_debuff=False,
+        )
+        luna.buffs.append(powerful_mark)
+
+        result = ss.execute_skill(luna, 120078, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证暴击：从result中查找damage effect的结果
+        damage_effects = [e for e in result.get('effects', [])
+                          if e.get('effect_type') == 'damage']
+        if damage_effects:
+            targets = damage_effects[0].get('targets', [])
+            crit_hits = [t.get('is_critical', False) for t in targets]
+            self.assertTrue(any(crit_hits),
+                            "持有mark时AS Block1应强制暴击")
+
+    def test_as_lv11_with_mark_attacks_adjacent_2(self):
+        """AS Block3: Lv11+ 持有mark时攻击隣接2体"""
+        luna = self._make_luna(level=15)
+        # 主目标在敌方中前，邻接为左前/右前/中后
+        enemy_main = _make_unit("em", "主目标", Side.ENEMY,
+                                Position.ENEMY_CENTER_FRONT, hp=1000000)
+        enemy_left = _make_unit("el", "左邻接", Side.ENEMY,
+                                Position.ENEMY_LEFT_FRONT, hp=1000000)
+        enemy_right = _make_unit("er", "右邻接", Side.ENEMY,
+                                 Position.ENEMY_RIGHT_FRONT, hp=1000000)
+        enemy_back = _make_unit("eb", "中后(非邻接)", Side.ENEMY,
+                                Position.ENEMY_CENTER_BACK, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy_main, enemy_left, enemy_right, enemy_back]
+        ss, _ = self._make_services(bf)
+
+        # 手动付与「パワフル」mark buff
+        powerful_mark = BuffState(
+            buff_id=f"{luna.unit_id}_mark_powerful_adj",
+            name="powerful",
+            effect_type=MARK,
+            value=1,
+            duration=1,
+            timing_type=2,
+            source_unit_id=luna.unit_id,
+            is_debuff=False,
+        )
+        luna.buffs.append(powerful_mark)
+
+        hp_main_before = enemy_main.current_hp
+        hp_left_before = enemy_left.current_hp
+        hp_right_before = enemy_right.current_hp
+        hp_back_before = enemy_back.current_hp
+
+        result = ss.execute_skill(luna, 120078, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证隣接2体受到伤害（左、右中至少2个）
+        adjacent_hit_count = 0
+        if enemy_left.current_hp < hp_left_before:
+            adjacent_hit_count += 1
+        if enemy_right.current_hp < hp_right_before:
+            adjacent_hit_count += 1
+        self.assertGreaterEqual(adjacent_hit_count, 2,
+                                f"应攻击隣接2体, 左受伤={enemy_left.current_hp < hp_left_before}, "
+                                f"右受伤={enemy_right.current_hp < hp_right_before}")
+        # 主目标也应该受伤
+        self.assertLess(enemy_main.current_hp, hp_main_before, "主目标应受伤")
+        # 中后（非邻接）不应受伤
+        self.assertEqual(enemy_back.current_hp, hp_back_before,
+                         "中后非邻接不应受伤")
+
+    def test_as_lv10_with_mark_no_adjacent_attack(self):
+        """AS Block3: Lv10即使持有mark也不触发隣接2体（active_level_min=11）"""
+        luna = self._make_luna(level=10)
+        enemy_main = _make_unit("em", "主目标", Side.ENEMY,
+                                Position.ENEMY_CENTER_FRONT, hp=1000000)
+        enemy_left = _make_unit("el", "左邻接", Side.ENEMY,
+                                Position.ENEMY_LEFT_FRONT, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy_main, enemy_left]
+        ss, _ = self._make_services(bf)
+
+        # 手动付与「パワフル」mark buff
+        powerful_mark = BuffState(
+            buff_id=f"{luna.unit_id}_mark_powerful_lv10",
+            name="powerful",
+            effect_type=MARK,
+            value=1,
+            duration=1,
+            timing_type=2,
+            source_unit_id=luna.unit_id,
+            is_debuff=False,
+        )
+        luna.buffs.append(powerful_mark)
+
+        hp_left_before = enemy_left.current_hp
+
+        result = ss.execute_skill(luna, 120078, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 隣接目标不应受伤（Lv10 < 11）
+        self.assertEqual(enemy_left.current_hp, hp_left_before,
+                         "Lv10时隣接2体效果不应触发")
+
+    # ============================================================
+    # PS3 - スナックタイム (130090)
+    # ============================================================
+
+    def test_ps3_grants_powerful_mark(self):
+        """PS3: on_turn_end 付与「パワフル」mark（is_buff_mark, 1action）"""
+        luna = self._make_luna()
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        # 触发 on_turn_end
+        actions = ts.trigger_turn_end(bf)
+        ps_actions = [a for a in actions if a.skill_id == 130090]
+        self.assertGreater(len(ps_actions), 0, "PS3应在回合结束时触发")
+
+        # 执行PS3
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(ps_actions, bf,
+                                            trigger_timing="on_turn_end")
+
+        # 验证持有「パワフル」mark buff（buff形式，非debuff）
+        powerful_buffs = [b for b in luna.buffs
+                          if b.effect_type == MARK and getattr(b, 'name', '') == "powerful"]
+        self.assertGreater(len(powerful_buffs), 0,
+                           f"PS3应付与「パワフル」mark作为buff, buffs: {[b.name for b in luna.buffs]}")
+        self.assertFalse(powerful_buffs[0].is_debuff,
+                         "「パワフル」mark应为buff（is_buff_mark=True）")
+        self.assertEqual(powerful_buffs[0].duration, 1,
+                         "「パワフル」mark应持续1行动")
+
+    def test_ps3_grants_atk_based_shield(self):
+        """PS3: 付与ATK比例护盾（Lv15 = 100% ATK）"""
+        luna = self._make_luna(atk=12000)
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        actions = ts.trigger_turn_end(bf)
+        ps_actions = [a for a in actions if a.skill_id == 130090]
+        self.assertGreater(len(ps_actions), 0, "PS3应在回合结束时触发")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(ps_actions, bf,
+                                            trigger_timing="on_turn_end")
+
+        # 验证护盾值基于ATK（Lv15 = 100% * 12000 = 12000）
+        self.assertGreater(luna.shield, 0, "PS3应获得护盾")
+        # 验证护盾持续1行动
+        shield_buffs = [b for b in luna.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0, "应存在护盾buff")
+        self.assertEqual(shield_buffs[0].duration, 1, "护盾应持续1行动")
+
+    # ============================================================
+    # PS2 - プロテクトウィズダム (130089)
+    # ============================================================
+
+    def test_ps2_grants_max_hp_based_shield(self):
+        """PS2: on_turn_start 付与max_hp比例护盾（Lv15 = 40% max_hp, 2action）"""
+        luna = self._make_luna(hp=50000)
+        enemy = _make_unit("e", "敌", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        actions = ts.trigger_turn_start(bf)
+        ps_actions = [a for a in actions if a.skill_id == 130089]
+        self.assertGreater(len(ps_actions), 0, "PS2应在回合开始时触发")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(ps_actions, bf,
+                                            trigger_timing="on_turn_start")
+
+        # 验证护盾值基于max_hp（Lv15 = 40% * 50000 = 20000）
+        expected_shield = int(50000 * 0.4)
+        self.assertGreaterEqual(luna.shield, expected_shield - 1,
+                                f"护盾应基于max_hp (40% of 50000 = {expected_shield}), 实际={luna.shield}")
+        # 验证护盾持续2行动
+        shield_buffs = [b for b in luna.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0, "应存在护盾buff")
+        self.assertEqual(shield_buffs[0].duration, 2, "护盾应持续2行动")
+
+    # ============================================================
+    # PS1 - ネガティブヘイト (130088)
+    # ============================================================
+
+    def test_ps1_triggers_on_ally_attacked(self):
+        """PS1: before_any_attacked 友方被攻击时触发援护"""
+        luna = self._make_luna(position=Position.ALLY_CENTER_BACK)  # 后排
+        # 友方前排（被攻击目标）
+        ally_front = _make_unit("af", "友方前排", Side.ALLY,
+                                Position.ALLY_LEFT_FRONT, hp=100000)
+        enemy = _make_unit("e", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           skills=[_ENEMY_ALL_AS], level=10)
+        bf = BattlefieldState()
+        bf.friend_team = [luna, ally_front]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        # 敌方使用AS攻击友方前排
+        result = ss.execute_skill(enemy, _ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证PS1触发，luna设置cover_target
+        self.assertIsNotNone(luna.cover_target,
+                             "PS1应触发援护（cover_target应被设置）")
+        self.assertEqual(luna.cover_target, ally_front.unit_id,
+                         f"应援护友方前排, cover_target={luna.cover_target}")
+
+    def test_ps1_reflect_damage_to_attacker(self):
+        """PS1: 援护期间承受伤害时反射伤害给攻击者"""
+        luna = self._make_luna(position=Position.ALLY_CENTER_BACK, hp=200000)
+        ally_front = _make_unit("af", "友方前排", Side.ALLY,
+                                Position.ALLY_LEFT_FRONT, hp=100000)
+        enemy = _make_unit("e", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           skills=[_ENEMY_ALL_AS], level=10, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna, ally_front]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        enemy_hp_before = enemy.current_hp
+
+        # 敌方使用AS攻击
+        result = ss.execute_skill(enemy, _ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'))
+
+        # 验证敌方HP减少（反射伤害生效）
+        self.assertLess(enemy.current_hp, enemy_hp_before,
+                        f"反射伤害应作用于攻击者, before={enemy_hp_before} "
+                        f"after={enemy.current_hp}")
+
+    def test_ps1_reflect_rate_at_lv15(self):
+        """PS1: Lv15时反射率为75%"""
+        luna = self._make_luna(position=Position.ALLY_CENTER_BACK, level=15, hp=200000)
+        ally_front = _make_unit("af", "友方前排", Side.ALLY,
+                                Position.ALLY_LEFT_FRONT, hp=100000)
+        enemy = _make_unit("e", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           skills=[_ENEMY_ALL_AS], level=10, hp=1000000)
+        bf = BattlefieldState()
+        bf.friend_team = [luna, ally_front]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        # 触发PS1并验证reflect_rate被设置
+        actions = ts.trigger_before_any_attacked(
+            targets=[ally_front], battlefield=bf, attacker=enemy
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130088]
+        self.assertGreater(len(ps_actions), 0, "PS1应触发")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(ps_actions, bf,
+                                            trigger_timing="before_any_attacked")
+
+        # 验证reflect_rate被设置（Lv15 = 75%）
+        self.assertGreater(luna.reflect_rate, 0,
+                           "PS1触发后应设置reflect_rate")
+        self.assertAlmostEqual(luna.reflect_rate, 75.0, delta=1.0,
+                               msg=f"Lv15反射率应为75%, 实际={luna.reflect_rate}")
+
+    def test_ps1_no_trigger_when_self_attacked(self):
+        """PS1: 自身被攻击时不触发（global_condition: target_is_other_ally）"""
+        luna = self._make_luna(position=Position.ALLY_CENTER_FRONT, pp=10)
+        enemy = _make_unit("e", "敌方", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           skills=[_ENEMY_ALL_AS], level=10)
+        bf = BattlefieldState()
+        bf.friend_team = [luna]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        actions = ts.trigger_before_any_attacked(
+            targets=[luna], battlefield=bf, attacker=enemy
+        )
+        ps_actions = [a for a in actions if a.skill_id == 130088]
+        # 自身被攻击时PS1不应触发
+        self.assertEqual(len(ps_actions), 0,
+                         "PS1应在自身被攻击时不触发（target_is_other_ally）")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

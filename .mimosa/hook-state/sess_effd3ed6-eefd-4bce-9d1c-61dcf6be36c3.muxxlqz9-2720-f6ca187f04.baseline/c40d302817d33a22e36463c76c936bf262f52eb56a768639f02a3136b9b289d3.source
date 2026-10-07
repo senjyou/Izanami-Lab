@@ -1,0 +1,741 @@
+"""
+角色116301 ギャルインフルエンサー 专项测试
+- PS1: 130041 ぽよぽよプロテクト（on_hp_below 50%, ally含自身, shield）
+- PS2: 130025 イケてる♡イケてる（after_ally_attacked, ally含自身, heal, target_hp_not_cross_below互斥）
+
+互斥关系：
+- HP跨越50%阈值（从>50%降到<=50%）→ 触发PS1（ぽよぽよプロテクト）
+- HP未跨越50%阈值（一直在>50%，或一直在<=50%）→ 触发PS2（イケてる♡イケてる）
+- 两者不会同时触发
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+class TestActor116301(unittest.TestCase):
+    """角色116301 ギャルインフルエンサー PS1/PS2互斥与自身包含测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # PS持有者: 116301 ギャルインフルエンサー (後排)
+        self.caster = UnitState(
+            unit_id="ally_caster", name="ギャルインフルエンサー", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=116301, level=15,
+            element=1, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=12000, defense=5000, speed=600,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[110007, 120016, 120034, 130041, 130025],
+            skill_levels={110007: 15, 120016: 15, 120034: 15, 130041: 15, 130025: 15},
+            skill_cooldowns={},
+        )
+
+        # 友方前排（用于测试ally被攻击）
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999100, level=15,
+            element=1, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方攻击者
+        self.enemy = UnitState(
+            unit_id="enemy", name="敵A", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=15,
+            element=2, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=20000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=10,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方被攻击目标（用于测试敌方被攻击场景）
+        self.enemy_target = UnitState(
+            unit_id="enemy_target", name="敵B", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999002, level=15,
+            element=2, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=10,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.ally_front)
+        self.bf.add_unit(self.enemy)
+        self.bf.add_unit(self.enemy_target)
+
+        # 创建服务
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.asvc = AuraService()
+        self.dmgsvc = DamageService()
+        self.tgtsvc = TargetService()
+        self.stsvc = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgtsvc,
+            damage_service=self.dmgsvc,
+            aura_service=self.asvc,
+            status_service=self.stsvc,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ==================== PS2 130025 イケてる♡イケてる ====================
+
+    def test_ps2_triggers_when_ally_hp_above_50_percent(self):
+        """
+        测试PS2(130025): 友方被攻击后HP仍在50%以上时触发
+        - ally_front(10000 HP)被攻击，HP降至6000(60%)，仍>50%
+        - PS2应触发，对primary_target(ally_front)治疗
+        """
+        # 设置ally_front HP为60%（仍>50%）
+        self.ally_front.current_hp = 6000
+        self.ally_front.prev_hp_percent = 100.0  # 受伤前是100%
+
+        # 确保PS2不在冷却中
+        self.caster.skill_cooldowns.pop(130025, None)
+        # 确保有PP
+        self.caster.current_pp = 10
+
+        hp_before = self.ally_front.current_hp
+
+        # 触发after_ally_attacked
+        actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.ally_front],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.ally_front,
+        )
+
+        # 验证PS2触发了
+        ps2_triggered = any(a.skill_id == 130025 for a in actions)
+        self.assertTrue(
+            ps2_triggered,
+            f"PS2(130025)应在友方HP>50%时触发, actions: {[(a.skill_id) for a in actions]}"
+        )
+
+        # 执行PS2动作
+        self.ss._execute_trigger_actions_inline(
+            [a for a in actions if a.skill_id == 130025],
+            self.bf, trigger_timing="after_ally_attacked"
+        )
+
+        # 验证ally_front被治疗了（HP应该增加）
+        self.assertGreater(
+            self.ally_front.current_hp, hp_before,
+            f"PS2应治疗ally_front, HP: {hp_before} -> {self.ally_front.current_hp}"
+        )
+
+    def test_ps2_triggers_when_self_attacked_hp_above_50_percent(self):
+        """
+        测试PS2(130025): 自身被攻击后HP仍在50%以上时触发（ally含自身）
+        - caster(20000 HP)被攻击，HP降至12000(60%)，仍>50%
+        - PS2应触发（ally包括自身）
+        """
+        # 设置caster HP为60%（仍>50%）
+        self.caster.current_hp = 12000
+        self.caster.prev_hp_percent = 100.0
+
+        # 确保PS2不在冷却中
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.current_pp = 10
+
+        hp_before = self.caster.current_hp
+
+        # 触发after_ally_attacked（自身被攻击）
+        actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.caster],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.caster,
+        )
+
+        # 验证PS2触发了（ally包括自身）
+        ps2_triggered = any(a.skill_id == 130025 for a in actions)
+        self.assertTrue(
+            ps2_triggered,
+            f"PS2(130025)应在自身HP>50%时触发(ally含自身), actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    def test_ps2_not_triggers_when_ally_hp_crosses_50_percent(self):
+        """
+        测试PS2(130025): 友方被攻击后HP跨越50%阈值时不触发（互斥）
+        - ally_front(10000 HP)被攻击，HP从100%降至40%（跨越50%）
+        - PS2不应触发（此时应由PS1触发）
+        """
+        # 设置ally_front HP为40%（跨越50%阈值，prev=100% > 50%, current=40% <= 50%）
+        self.ally_front.current_hp = 4000
+        self.ally_front.prev_hp_percent = 100.0
+
+        # 确保PS2不在冷却中
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.current_pp = 10
+
+        # 触发after_ally_attacked
+        actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.ally_front],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.ally_front,
+        )
+
+        # 验证PS2没有触发（跨越50%阈值，互斥）
+        ps2_triggered = any(a.skill_id == 130025 for a in actions)
+        self.assertFalse(
+            ps2_triggered,
+            f"PS2(130025)不应在友方HP跨越50%阈值时触发(互斥), actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    def test_ps2_triggers_when_ally_hp_already_below_50_percent(self):
+        """
+        测试PS2(130025): 友方HP原本就在50%以下，受到伤害后仍触发
+        - ally_front(10000 HP)原本HP=40%(4000)，被攻击后HP降至30%(3000)
+        - 未跨越50%阈值（一直在50%以下），PS2应触发
+        """
+        # 设置ally_front HP原本就在40%，被攻击后降至30%（未跨越50%阈值）
+        self.ally_front.current_hp = 3000
+        self.ally_front.prev_hp_percent = 40.0  # 受伤前已经在50%以下
+
+        # 确保PS2不在冷却中
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.current_pp = 10
+
+        # 触发after_ally_attacked
+        actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.ally_front],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.ally_front,
+        )
+
+        # 验证PS2触发了（HP原本在50%以下，未跨越阈值）
+        ps2_triggered = any(a.skill_id == 130025 for a in actions)
+        self.assertTrue(
+            ps2_triggered,
+            f"PS2(130025)应在友方HP原本就在50%以下时触发, actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    # ==================== PS1 130041 ぽよぽよプロテクト ====================
+
+    def test_ps1_triggers_when_ally_hp_crosses_50_percent(self):
+        """
+        测试PS1(130041): 友方被攻击后HP跨越50%阈值时触发
+        - ally_front(10000 HP)被攻击，HP从100%降至40%（跨越50%）
+        - PS1应触发，对triggered_by(ally_front)施加shield
+        """
+        # 设置ally_front HP为40%（跨越50%阈值）
+        self.ally_front.current_hp = 4000
+        self.ally_front.prev_hp_percent = 100.0  # 受伤前是100%
+
+        # 确保PS1不在冷却中（PS1 cooldown=0）
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        shield_before = len([b for b in self.ally_front.buffs
+                             if b.effect_type == SkillEffectType.SHIELD.value])
+
+        # 触发hp_below
+        actions = self.ts.trigger_hp_below(self.bf, [self.ally_front])
+
+        # 验证PS1触发了
+        ps1_triggered = any(a.skill_id == 130041 for a in actions)
+        self.assertTrue(
+            ps1_triggered,
+            f"PS1(130041)应在友方HP跨越50%时触发, actions: {[(a.skill_id) for a in actions]}"
+        )
+
+        # 执行PS1动作
+        self.ss._execute_trigger_actions_inline(
+            [a for a in actions if a.skill_id == 130041],
+            self.bf, trigger_timing="on_hp_below"
+        )
+
+        # 验证ally_front获得了shield
+        shield_after = len([b for b in self.ally_front.buffs
+                            if b.effect_type == SkillEffectType.SHIELD.value])
+        self.assertGreater(
+            shield_after, shield_before,
+            f"PS1应给ally_front施加shield, shield数: {shield_before} -> {shield_after}"
+        )
+
+    def test_ps1_triggers_when_self_hp_crosses_50_percent(self):
+        """
+        测试PS1(130041): 自身被攻击后HP跨越50%阈值时触发（ally含自身）
+        - caster(20000 HP)被攻击，HP从100%降至40%（跨越50%）
+        - PS1应触发（ally包括自身）
+        """
+        # 设置caster HP为40%（跨越50%阈值）
+        self.caster.current_hp = 8000
+        self.caster.prev_hp_percent = 100.0
+
+        # 确保PS1不在冷却中
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        # 触发hp_below
+        actions = self.ts.trigger_hp_below(self.bf, [self.caster])
+
+        # 验证PS1触发了（ally包括自身）
+        ps1_triggered = any(a.skill_id == 130041 for a in actions)
+        self.assertTrue(
+            ps1_triggered,
+            f"PS1(130041)应在自身HP跨越50%时触发(ally含自身), actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    def test_ps1_not_triggers_when_ally_hp_stays_above_50_percent(self):
+        """
+        测试PS1(130041): 友方被攻击后HP仍在50%以上时不触发
+        - ally_front(10000 HP)被攻击，HP降至6000(60%)，未跨越50%
+        - PS1不应触发
+        """
+        # 设置ally_front HP为60%（未跨越50%）
+        self.ally_front.current_hp = 6000
+        self.ally_front.prev_hp_percent = 100.0
+
+        # 确保PS1不在冷却中
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        # 触发hp_below
+        actions = self.ts.trigger_hp_below(self.bf, [self.ally_front])
+
+        # 验证PS1没有触发
+        ps1_triggered = any(a.skill_id == 130041 for a in actions)
+        self.assertFalse(
+            ps1_triggered,
+            f"PS1(130041)不应在友方HP未跨越50%时触发, actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    # ==================== 互斥关系验证 ====================
+
+    def test_mutual_exclusion_ps2_triggers_ps1_does_not(self):
+        """
+        测试互斥：HP仍在50%以上时，PS2触发，PS1不触发
+        - ally_front HP从100%降至60%（未跨越50%）
+        - PS2应触发，PS1不应触发
+        """
+        self.ally_front.current_hp = 6000
+        self.ally_front.prev_hp_percent = 100.0
+
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        # 收集PS2（after_ally_attacked）
+        ps2_actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.ally_front],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.ally_front,
+        )
+        ps2_triggered = any(a.skill_id == 130025 for a in ps2_actions)
+
+        # 收集PS1（hp_below）
+        ps1_actions = self.ts.trigger_hp_below(self.bf, [self.ally_front])
+        ps1_triggered = any(a.skill_id == 130041 for a in ps1_actions)
+
+        self.assertTrue(ps2_triggered, "PS2应在HP未跨越50%阈值时触发")
+        self.assertFalse(ps1_triggered, "PS1不应在HP未跨越50%阈值时触发")
+
+    def test_mutual_exclusion_ps1_triggers_ps2_does_not(self):
+        """
+        测试互斥：HP跨越50%阈值时，PS1触发，PS2不触发
+        - ally_front HP从100%降至40%（跨越50%）
+        - PS1应触发，PS2不应触发
+        """
+        self.ally_front.current_hp = 4000
+        self.ally_front.prev_hp_percent = 100.0
+
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        # 收集PS2（after_ally_attacked）
+        ps2_actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.ally_front],
+            battlefield=self.bf,
+            actor=self.enemy,
+            primary_target=self.ally_front,
+        )
+        ps2_triggered = any(a.skill_id == 130025 for a in ps2_actions)
+
+        # 收集PS1（hp_below）
+        ps1_actions = self.ts.trigger_hp_below(self.bf, [self.ally_front])
+        ps1_triggered = any(a.skill_id == 130041 for a in ps1_actions)
+
+        self.assertFalse(ps2_triggered, "PS2不应在HP跨越50%阈值时触发(互斥)")
+        self.assertTrue(ps1_triggered, "PS1应在HP跨越50%阈值时触发")
+
+    # ==================== 阵营过滤验证（敌方触发不应该触发己方PS） ====================
+
+    def test_ps1_not_triggers_when_enemy_hp_crosses_50_percent(self):
+        """
+        测试PS1(130041)阵营过滤：敌方HP跨越50%阈值时不应触发
+        - enemy_target(10000 HP)从100%降至40%（跨越50%）
+        - ally_filter=ally，应只对己方HP变化响应，PS1不应触发
+        """
+        # 设置敌方HP跨越50%阈值
+        self.enemy_target.current_hp = 4000
+        self.enemy_target.prev_hp_percent = 100.0
+
+        # 确保PS1不在冷却中
+        self.caster.skill_cooldowns.pop(130041, None)
+        self.caster.current_pp = 10
+
+        # 触发hp_below
+        actions = self.ts.trigger_hp_below(self.bf, [self.enemy_target])
+
+        # 验证PS1没有触发（敌方HP跨越，阵营过滤）
+        ps1_triggered = any(a.skill_id == 130041 for a in actions)
+        self.assertFalse(
+            ps1_triggered,
+            f"PS1(130041)不应在敌方HP跨越50%时触发(ally_filter=ally), actions: {[(a.skill_id) for a in actions]}"
+        )
+
+    def test_ps2_not_triggers_when_enemy_attacked(self):
+        """
+        测试PS2(130025)阵营过滤：敌方被攻击时不应触发
+        - 友方攻击敌方，enemy_target(10000 HP)从100%降至60%（HP>50%）
+        - ally_filter=ally，应只对己方被攻击响应，PS2不应触发
+        """
+        # 模拟友方攻击敌方
+        self.enemy_target.current_hp = 6000
+        self.enemy_target.prev_hp_percent = 100.0
+
+        # 确保PS2不在冷却中
+        self.caster.skill_cooldowns.pop(130025, None)
+        self.caster.current_pp = 10
+
+        # 触发after_ally_attacked，但primary是敌方
+        actions = self.ts.trigger_after_ally_attacked(
+            targets=[self.enemy_target],
+            battlefield=self.bf,
+            actor=self.ally_front,  # 友方作为攻击者
+            primary_target=self.enemy_target,  # 敌方作为primary
+        )
+
+        # 验证PS2没有触发（敌方被攻击，阵营过滤）
+        ps2_triggered = any(a.skill_id == 130025 for a in actions)
+        self.assertFalse(
+            ps2_triggered,
+            f"PS2(130025)不应在敌方被攻击时触发(ally_filter=ally), actions: {[(a.skill_id) for a in actions]}"
+        )
+
+
+    # ==================== EX 110007 ライブストリーミング！ ====================
+
+    def _reset_state(self):
+        """重置单位状态用于EX/AS测试"""
+        self.caster.current_hp = self.caster.max_hp
+        self.ally_front.current_hp = self.ally_front.max_hp
+        self.enemy.current_hp = self.enemy.max_hp
+        self.enemy_target.current_hp = self.enemy_target.max_hp
+        self.caster.buffs.clear()
+        self.caster.debuffs.clear()
+        self.ally_front.buffs.clear()
+        self.ally_front.debuffs.clear()
+        self.caster.skill_cooldowns = {}
+
+    def test_ex_heals_all_allies_including_self(self):
+        """EX(110007) ally_all heal: 应治疗所有友方（含caster自身）"""
+        self._reset_state()
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        self.ally_front.current_hp = int(self.ally_front.max_hp * 0.5)
+
+        caster_hp_before = self.caster.current_hp
+        ally_hp_before = self.ally_front.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110007, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertGreater(self.caster.current_hp, caster_hp_before,
+                          f"caster(含自身)应被治疗: {caster_hp_before} -> {self.caster.current_hp}")
+        self.assertGreater(self.ally_front.current_hp, ally_hp_before,
+                          f"ally_front应被治疗: {ally_hp_before} -> {self.ally_front.current_hp}")
+
+    def test_ex_lowest_hp_priority_extra_heal_targets_lowest(self):
+        """EX(110007) Block2 lowest_hp_priority: 追加治疗应选择HP比例最低的友方"""
+        self._reset_state()
+        self.caster.current_hp = int(self.caster.max_hp * 0.8)
+        self.ally_front.current_hp = int(self.ally_front.max_hp * 0.3)
+
+        ally_hp_before = self.ally_front.current_hp
+        caster_hp_before = self.caster.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110007, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        ally_heal = self.ally_front.current_hp - ally_hp_before
+        caster_heal = self.caster.current_hp - caster_hp_before
+        self.assertGreater(ally_heal, 0, "ally_front应被治疗")
+        self.assertGreater(caster_heal, 0, "caster应被治疗")
+        self.assertGreater(ally_heal, caster_heal,
+                          f"lowest_hp_priority应追加治疗HP比例最低的友方: ally={ally_heal}, caster={caster_heal}")
+
+    def test_ex_lv15_heals_more_than_lv1(self):
+        """EX(110007) Lv15 vs Lv1: Lv15治疗百分比应高于Lv1
+
+        使用足够大的max_hp避免被max_hp截断（Lv15 raw=17550可能超过max_hp=10000）。
+        """
+        self._reset_state()
+        # 临时扩大 ally_front 的 max_hp，确保不被截断
+        original_max_hp = self.ally_front.max_hp
+        self.ally_front.max_hp = 100000
+
+        # Lv1
+        self.caster.skill_levels[110007] = 1
+        self.ally_front.current_hp = int(self.ally_front.max_hp * 0.5)
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110007, battlefield=self.bf, skip_cost=True
+        )
+        ally_heal_lv1 = self.ally_front.current_hp - int(self.ally_front.max_hp * 0.5)
+
+        # Lv15
+        self._reset_state()
+        self.ally_front.max_hp = 100000
+        self.caster.skill_levels[110007] = 15
+        self.ally_front.current_hp = int(self.ally_front.max_hp * 0.5)
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110007, battlefield=self.bf, skip_cost=True
+        )
+        ally_heal_lv15 = self.ally_front.current_hp - int(self.ally_front.max_hp * 0.5)
+
+        # 恢复
+        self.ally_front.max_hp = original_max_hp
+
+        self.assertGreater(ally_heal_lv15, ally_heal_lv1,
+                          f"Lv15治疗量应高于Lv1: lv15={ally_heal_lv15}, lv1={ally_heal_lv1}")
+
+    # ==================== AS1 120016 いいね☆で元気出そ？ ====================
+
+    def test_as1_hot_targets_lowest_hp_row(self):
+        """AS1(120016) ally_row + lowest_hp_row_only: HOT应作用于最低HP比例友方所在行"""
+        self._reset_state()
+        ally_left = UnitState(
+            unit_id="ally_left", name="友方左", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999103, level=15,
+            element=1, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        ally_right = UnitState(
+            unit_id="ally_right", name="友方右", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_BACK, character_id=999104, level=15,
+            element=1, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.add_unit(ally_left)
+        self.bf.add_unit(ally_right)
+
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        ally_left.current_hp = int(ally_left.max_hp * 0.2)
+        ally_right.current_hp = int(ally_right.max_hp * 0.8)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120016, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        HOT = SkillEffectType.HEAL_OVER_TIME.value
+        self.assertGreater(len([b for b in self.caster.buffs if b.effect_type == HOT]), 0,
+                          "caster(后排)应获得HOT")
+        self.assertGreater(len([b for b in ally_left.buffs if b.effect_type == HOT]), 0,
+                          "ally_left(后排, HP最低)应获得HOT")
+        self.assertGreater(len([b for b in ally_right.buffs if b.effect_type == HOT]), 0,
+                          "ally_right(后排)应获得HOT")
+        self.assertEqual(len([b for b in self.ally_front.buffs if b.effect_type == HOT]), 0,
+                         "ally_front(前排)不应获得HOT（不同行）")
+
+    def test_as1_hot_duration_5(self):
+        """AS1(120016) HOT duration=5 行動"""
+        self._reset_state()
+        self.caster.current_hp = int(self.caster.max_hp * 0.3)
+        self.bf.friend_team = [self.caster, self.ally_front]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120016, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        HOT = SkillEffectType.HEAL_OVER_TIME.value
+        hot_buffs = [b for b in self.caster.buffs if b.effect_type == HOT]
+        self.assertGreater(len(hot_buffs), 0, "caster应获得HOT")
+        self.assertEqual(hot_buffs[0].duration, 5, "HOT duration应为5")
+
+    def test_as1_lv15_higher_pct_than_lv1(self):
+        """AS1(120016) Lv15 vs Lv1: Lv15 HOT百分比应高于Lv1"""
+        self._reset_state()
+        self.bf.friend_team = [self.caster, self.ally_front]
+        self.caster.current_hp = int(self.caster.max_hp * 0.3)
+
+        self.caster.skill_levels[120016] = 1
+        self.caster.buffs.clear()
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120016, battlefield=self.bf, skip_cost=True
+        )
+        HOT = SkillEffectType.HEAL_OVER_TIME.value
+        hot_lv1 = [b for b in self.caster.buffs if b.effect_type == HOT][0]
+
+        self._reset_state()
+        self.bf.friend_team = [self.caster, self.ally_front]
+        self.caster.current_hp = int(self.caster.max_hp * 0.3)
+        self.caster.skill_levels[120016] = 15
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120016, battlefield=self.bf, skip_cost=True
+        )
+        hot_lv15 = [b for b in self.caster.buffs if b.effect_type == HOT][0]
+
+        self.assertGreater(hot_lv15.value, hot_lv1.value,
+                          f"Lv15 HOT百分比应高于Lv1: lv15={hot_lv15.value}, lv1={hot_lv1.value}")
+
+    # ==================== AS2 120034 ぽよビ〜〜ム♡ ====================
+
+    def test_as2_lv10_single_target_only(self):
+        """AS2(120034) Lv1-10: 仅攻击1个敌方（Block2 active_level_min=11 不触发）"""
+        self._reset_state()
+        self.caster.skill_levels[120034] = 10
+        enemy_rf = UnitState(
+            unit_id="enemy_rf", name="敵右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999003, level=15,
+            element=2, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=10,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.add_unit(enemy_rf)
+
+        hp_before_target = self.enemy.current_hp
+        hp_before_rf = enemy_rf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertLess(self.enemy.current_hp, hp_before_target,
+                       "主目标(ENEMY_CENTER_FRONT)应受到伤害")
+        self.assertEqual(enemy_rf.current_hp, hp_before_rf,
+                        "邻接敌方不应受到伤害(Lv10无adjacent_enemies)")
+
+    def test_as2_lv11_adjacent_enemies(self):
+        """AS2(120034) Lv11+: 主目标 + 2个邻接敌方受到EN伤害"""
+        self._reset_state()
+        self.caster.skill_levels[120034] = 15
+        enemy_lf = UnitState(
+            unit_id="enemy_lf", name="敵左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=15,
+            element=2, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=10,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        enemy_rf = UnitState(
+            unit_id="enemy_rf", name="敵右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=15,
+            element=2, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+            current_ap=4, current_pp=4, current_ep=10,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.add_unit(enemy_lf)
+        self.bf.add_unit(enemy_rf)
+        self.bf.enemy_team = [self.enemy, enemy_lf, enemy_rf]
+
+        hp_before_main = self.enemy.current_hp
+        hp_before_lf = enemy_lf.current_hp
+        hp_before_rf = enemy_rf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertLess(self.enemy.current_hp, hp_before_main, "主目标应受到伤害")
+        damaged_count = sum(1 for u, hp_b in [(self.enemy, hp_before_main),
+                                              (enemy_lf, hp_before_lf),
+                                              (enemy_rf, hp_before_rf)]
+                           if u.current_hp < hp_b)
+        self.assertGreaterEqual(damaged_count, 2,
+                              f"Lv11+应至少攻击2个目标(主+邻接), 实际={damaged_count}")
+
+    def test_as2_is_en_attack(self):
+        """AS2(120034) is_en_attack=true: 应为EN攻击"""
+        self._reset_state()
+        self.enemy.max_hp = 100000
+        self.enemy.current_hp = 100000
+        self.enemy.defense = 0
+
+        hp_before = self.enemy.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120034, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertLess(self.enemy.current_hp, hp_before, "EN攻击应造成伤害")
+
+
+if __name__ == '__main__':
+    unittest.main()

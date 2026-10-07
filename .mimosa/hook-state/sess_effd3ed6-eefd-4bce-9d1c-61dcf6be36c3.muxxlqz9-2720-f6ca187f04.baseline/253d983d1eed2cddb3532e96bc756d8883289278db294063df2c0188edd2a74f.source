@@ -1,0 +1,252 @@
+"""Regression: 静かな時を (110068) mark_count 条件分类异常 bug。
+
+Bug: 技能「静かな時を」的Block2(凶兆>=2→减伤debuff)和Block3(凶兆<2→追加凶兆mark)
+     的mark_count条件未正常分类，导致所有效果都赋予了所有目标。
+Root causes:
+  1. mark_count条件只记录第一个达标目标(_mark_condition_target单数)，未收集所有
+     达标目标，导致per-target独立判断失效。
+  2. 范围型target_type(enemy_all等)的跳过逻辑导致缓存不填充，效果回退到select_targets
+     选择所有敌人。
+  3. Block2的缓存填充将_block_damage_targets覆盖为仅达标目标子集，且条件检查发生在
+     block重置之前，导致Block3的mark_count条件读取到被污染的_block_damage_targets，
+     只看到Block2的达标目标，遗漏了未达标目标（应进入Block3的<2分支）。
+
+Fix:
+  - mark_count条件收集所有达标目标到_mark_condition_targets(复数)
+  - 新增_mark_count_per_target标志，True时不跳过范围型target_type的缓存填充
+  - mark_count条件使用_skill_all_attacked_targets(技能级累积)作为主要目标源，
+    而非_block_damage_targets(可能被上一block缓存填充污染)
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import Position, SkillEffectType
+
+MARK = SkillEffectType.MARK.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+KYOCHO = "凶兆"
+
+
+def _make_kyocho_marks(source_id="pre", count=1):
+    """生成 count 个 凶兆 mark BuffState (debuff, stackable)。"""
+    return [
+        BuffState(
+            buff_id=f"{source_id}_kyocho_{i}",
+            name=KYOCHO,
+            effect_type=MARK,
+            value=0,
+            duration=-1,
+            timing_type=2,
+            source_unit_id=source_id,
+            source_skill_id=0,
+            is_debuff=True,
+            is_stackable=True,
+        )
+        for i in range(count)
+    ]
+
+
+class TestRegShizukanaJiwoMarkCount(unittest.TestCase):
+    """静かな時を (110068) mark_count 条件分类回归测试。"""
+
+    def _setup_two_enemies(self):
+        """构建2敌场景: caster + e1(-center-front) + e2(left-front)。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=200000, atk=10000, skills=[110068], level=10,
+                    speed=999, defense=50000)
+        bb.add_enemy(unit_id="e1", position=Position.ENEMY_CENTER_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        bb.add_enemy(unit_id="e2", position=Position.ENEMY_LEFT_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        e1 = next(u for u in bf.enemy_team if u.unit_id == "e1")
+        e2 = next(u for u in bf.enemy_team if u.unit_id == "e2")
+        return bf, ss, caster, e1, e2
+
+    def _setup_single_enemy(self):
+        """构建1敌场景: caster + e1。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=200000, atk=10000, skills=[110068], level=10,
+                    speed=999, defense=50000)
+        bb.add_enemy(unit_id="e1", position=Position.ENEMY_CENTER_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        e1 = next(u for u in bf.enemy_team if u.unit_id == "e1")
+        return bf, ss, caster, e1
+
+    def _counts(self, unit):
+        """返回 (凶兆数, DealtDamage数)。"""
+        kyocho = sum(1 for d in unit.debuffs if d.effect_type == MARK and d.name == KYOCHO)
+        dealt = sum(1 for d in unit.debuffs if d.effect_type == DEALT_DAMAGE)
+        return kyocho, dealt
+
+    # ── 多目标场景: 验证per-target独立判断 ──────────────────
+
+    def test_both_ge_2_both_get_dealt_damage_no_mark(self):
+        """两目标都>=2 → 都得DealtDamage, 都不得凶兆。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+        for m in _make_kyocho_marks("pre_e1", 3):
+            e1.debuffs.append(m)
+        for m in _make_kyocho_marks("pre_e2", 2):
+            e2.debuffs.append(m)
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 1, "e1(凶兆=3>=2) 应得 DealtDamage")
+        self.assertEqual(e2_d, 1, "e2(凶兆=2>=2) 应得 DealtDamage")
+        self.assertEqual(e1_k, 3, "e1(凶兆=3>=2) 不应得凶兆")
+        self.assertEqual(e2_k, 2, "e2(凶兆=2>=2) 不应得凶兆")
+
+    def test_mixed_e1_ge_2_e2_lt_2(self):
+        """e1>=2, e2<2 → e1得DealtDamage, e2得+1凶兆。核心场景。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+        for m in _make_kyocho_marks("pre_e1", 3):
+            e1.debuffs.append(m)
+        for m in _make_kyocho_marks("pre_e2", 1):
+            e2.debuffs.append(m)
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 1, "e1(凶兆=3>=2) 应得 DealtDamage")
+        self.assertEqual(e1_k, 3, "e1(凶兆=3>=2) 不应得凶兆")
+        self.assertEqual(e2_d, 0, "e2(凶兆=1<2) 不应得 DealtDamage")
+        self.assertEqual(e2_k, 2, "e2(凶兆=1<2) 应得 +1 凶兆 (1+1=2)")
+
+    def test_both_lt_2_both_get_mark_no_dealt_damage(self):
+        """两目标都<2 → 都不得DealtDamage, 都得+1凶兆。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+        for m in _make_kyocho_marks("pre_e1", 1):
+            e1.debuffs.append(m)
+        # e2: 0个凶兆
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 0, "e1(凶兆=1<2) 不应得 DealtDamage")
+        self.assertEqual(e2_d, 0, "e2(凶兆=0<2) 不应得 DealtDamage")
+        self.assertEqual(e1_k, 2, "e1(凶兆=1<2) 应得 +1 凶兆 (1+1=2)")
+        self.assertEqual(e2_k, 1, "e2(凶兆=0<2) 应得 +1 凶兆 (0+1=1)")
+
+    def test_both_zero_both_get_mark(self):
+        """两目标都0凶兆 → 都得+1凶兆。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 0, "e1(凶兆=0<2) 不应得 DealtDamage")
+        self.assertEqual(e2_d, 0, "e2(凶兆=0<2) 不应得 DealtDamage")
+        self.assertEqual(e1_k, 1, "e1(凶兆=0) 应得 +1 凶兆")
+        self.assertEqual(e2_k, 1, "e2(凶兆=0) 应得 +1 凶兆")
+
+    # ── 边界值测试 ──────────────────────────────────────────
+
+    def test_boundary_exactly_2_gets_dealt_damage(self):
+        """凶兆正好=2 → 得DealtDamage (>=2满足)。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+        for m in _make_kyocho_marks("pre_e1", 2):
+            e1.debuffs.append(m)
+        for m in _make_kyocho_marks("pre_e2", 2):
+            e2.debuffs.append(m)
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 1, "e1(凶兆=2, 边界) 应得 DealtDamage")
+        self.assertEqual(e2_d, 1, "e2(凶兆=2, 边界) 应得 DealtDamage")
+        self.assertEqual(e1_k, 2, "e1(凶兆=2) 不应得凶兆")
+        self.assertEqual(e2_k, 2, "e2(凶兆=2) 不应得凶兆")
+
+    def test_boundary_exactly_1_gets_mark(self):
+        """凶兆正好=1 → 得+1凶兆 (<2满足)。"""
+        bf, ss, caster, e1, e2 = self._setup_two_enemies()
+        for m in _make_kyocho_marks("pre_e1", 1):
+            e1.debuffs.append(m)
+        for m in _make_kyocho_marks("pre_e2", 1):
+            e2.debuffs.append(m)
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        self.assertEqual(e1_d, 0, "e1(凶兆=1, 边界) 不应得 DealtDamage")
+        self.assertEqual(e2_d, 0, "e2(凶兆=1, 边界) 不应得 DealtDamage")
+        self.assertEqual(e1_k, 2, "e1(凶兆=1) 应得 +1 凶兆 (1+1=2)")
+        self.assertEqual(e2_k, 2, "e2(凶兆=1) 应得 +1 凶兆 (1+1=2)")
+
+    # ── 单目标场景 ──────────────────────────────────────────
+
+    def test_single_target_ge_2(self):
+        """单目标凶兆>=2 → 得DealtDamage, 不得凶兆。"""
+        bf, ss, caster, e1 = self._setup_single_enemy()
+        for m in _make_kyocho_marks("pre_e1", 3):
+            e1.debuffs.append(m)
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        self.assertEqual(e1_d, 1, "单目标(凶兆=3>=2) 应得 DealtDamage")
+        self.assertEqual(e1_k, 3, "单目标(凶兆=3>=2) 不应得凶兆")
+
+    def test_single_target_lt_2(self):
+        """单目标凶兆<2 → 得+1凶兆, 不得DealtDamage。"""
+        bf, ss, caster, e1 = self._setup_single_enemy()
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        self.assertEqual(e1_d, 0, "单目标(凶兆=0<2) 不应得 DealtDamage")
+        self.assertEqual(e1_k, 1, "单目标(凶兆=0) 应得 +1 凶兆")
+
+    # ── 三目标场景: 验证更复杂的per-target组合 ───────────────
+
+    def test_three_targets_mixed(self):
+        """三目标: e1>=2, e2<2, e3>=2 → e1/e3得DealtDamage, e2得+1凶兆。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=200000, atk=10000, skills=[110068], level=10,
+                    speed=999, defense=50000)
+        bb.add_enemy(unit_id="e1", position=Position.ENEMY_CENTER_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        bb.add_enemy(unit_id="e2", position=Position.ENEMY_LEFT_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        bb.add_enemy(unit_id="e3", position=Position.ENEMY_RIGHT_FRONT,
+                     hp=200000, atk=5000, defense=50000, speed=500)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        e1 = next(u for u in bf.enemy_team if u.unit_id == "e1")
+        e2 = next(u for u in bf.enemy_team if u.unit_id == "e2")
+        e3 = next(u for u in bf.enemy_team if u.unit_id == "e3")
+        for m in _make_kyocho_marks("pre_e1", 5):
+            e1.debuffs.append(m)
+        for m in _make_kyocho_marks("pre_e3", 2):
+            e3.debuffs.append(m)
+        # e2: 0个凶兆
+
+        ss.execute_skill(caster=caster, skill_id=110068, battlefield=bf, skip_cost=True)
+
+        e1_k, e1_d = self._counts(e1)
+        e2_k, e2_d = self._counts(e2)
+        e3_k, e3_d = self._counts(e3)
+        self.assertEqual(e1_d, 1, "e1(凶兆=5>=2) 应得 DealtDamage")
+        self.assertEqual(e1_k, 5, "e1(凶兆=5>=2) 不应得凶兆")
+        self.assertEqual(e2_d, 0, "e2(凶兆=0<2) 不应得 DealtDamage")
+        self.assertEqual(e2_k, 1, "e2(凶兆=0<2) 应得 +1 凶兆")
+        self.assertEqual(e3_d, 1, "e3(凶兆=2>=2) 应得 DealtDamage")
+        self.assertEqual(e3_k, 2, "e3(凶兆=2>=2) 不应得凶兆")
+
+
+if __name__ == '__main__':
+    unittest.main()

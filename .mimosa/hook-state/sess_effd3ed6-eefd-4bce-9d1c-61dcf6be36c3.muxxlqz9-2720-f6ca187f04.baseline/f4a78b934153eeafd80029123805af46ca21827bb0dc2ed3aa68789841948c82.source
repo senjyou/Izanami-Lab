@@ -1,0 +1,26 @@
+
+import json
+from collections import Counter
+
+def analyze_failures():
+    with open('f:/MGG/Logic_Analyze/MGGBattleSimulation/data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        
+    failed_types = Counter()
+    total_types = Counter()
+    
+    for sid, skill in data.items():
+        stype = skill.get('skill_type')
+        total_types[stype] += 1
+        
+        if skill.get('parse_status') != 'success':
+            failed_types[stype] += 1
+            
+    print("Failure Analysis by Skill Type:")
+    for stype in total_types:
+        failed = failed_types[stype]
+        total = total_types[stype]
+        print(f"Type {stype}: {failed}/{total} failed ({failed/total*100:.1f}%)")
+
+if __name__ == "__main__":
+    analyze_failures()

@@ -1,0 +1,107 @@
+"""Regression: チェイスブレイダー(130054) follow-up target & dead-main-target suppression.
+
+Bug: PS triggered by after_ally_as_attack selected its own target via select_targets
+(nearest enemy) instead of following up on the AS main target, and fired even when
+the AS main target was already dead.
+
+Fix:
+1. trigger_after_ally_as_attack now accepts/derives primary_target.
+2. _match_trigger_timing for AFTER_ALLY_AS_ATTACK blocks triggering when the AS
+   main target is dead or is not an enemy.
+3. skill_service pre-populate: is_follow_up=true + _primary_target (from trigger
+   context) makes the PS attack the AS main target instead of re-targeting.
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+class TestRegChaseBladerTarget(unittest.TestCase):
+
+    def _build(self):
+        """2 allies (owner with 130054, attacker with AS) + 2 enemies (main + other)."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="owner", position=Position.ALLY_LEFT_FRONT,
+                    hp=20000, atk=10000, skills=[130054], level=10, pp=10)
+        bb.add_ally(unit_id="attacker", position=Position.ALLY_CENTER_FRONT,
+                    hp=20000, atk=10000, skills=[120049], level=10, pp=10)
+        bb.add_enemy(unit_id="main_tgt", position=Position.ENEMY_CENTER_FRONT,
+                    hp=50000, atk=8000)
+        bb.add_enemy(unit_id="other_tgt", position=Position.ENEMY_LEFT_FRONT,
+                     hp=50000, atk=8000)
+        return bb.build()
+
+    def test_follow_up_targets_as_main_target(self):
+        """主目标存活时，PS追击应作用于AS主目标而非最近敌方。"""
+        ctx = self._build()
+        bf, ts, ss = ctx['bf'], ctx['ts'], ctx['ss']
+        owner = next(u for u in bf.friend_team if u.unit_id == "owner")
+        attacker = next(u for u in bf.friend_team if u.unit_id == "attacker")
+        main_tgt = next(u for u in bf.enemy_team if u.unit_id == "main_tgt")
+        other_tgt = next(u for u in bf.enemy_team if u.unit_id == "other_tgt")
+
+        # attacker位置ALLY_CENTER_FRONT，最近敌方是main_tgt(ENEMY_CENTER_FRONT)
+        # 执行AS技能攻撃main_tgt
+        result = ss.execute_skill(
+            caster=attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 触发after_ally_as_attack，传入primary_target=main_tgt
+        actions = ts.trigger_after_ally_as_attack(
+            attacker, 120049, [main_tgt], bf, primary_target=main_tgt
+        )
+        ps_acts = [a for a in actions if a.skill_id == 130054]
+        self.assertGreater(len(ps_acts), 0, "PS1应在友方AS攻击后触发")
+
+        hp_main_before = main_tgt.current_hp
+        hp_other_before = other_tgt.current_hp
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(ps_acts, bf, trigger_timing="after_ally_as_attack")
+
+        # 追击应作用于main_tgt而非other_tgt
+        self.assertLess(main_tgt.current_hp, hp_main_before,
+                        "PS追击应作用于AS主目标(main_tgt)")
+        self.assertEqual(other_tgt.current_hp, hp_other_before,
+                         "PS追击不应作用于非主目标(other_tgt)")
+
+    def test_no_trigger_when_main_target_dead(self):
+        """AS主目标已阵亡时，PS不应触发。"""
+        ctx = self._build()
+        bf, ts, ss = ctx['bf'], ctx['ts'], ctx['ss']
+        owner = next(u for u in bf.friend_team if u.unit_id == "owner")
+        attacker = next(u for u in bf.friend_team if u.unit_id == "attacker")
+        main_tgt = next(u for u in bf.enemy_team if u.unit_id == "main_tgt")
+        other_tgt = next(u for u in bf.enemy_team if u.unit_id == "other_tgt")
+
+        # 模拟AS击杀main_tgt后触发PS的场景：main_tgt已阵亡
+        main_tgt.current_hp = 0
+        main_tgt.is_alive = False
+        main_tgt.is_death_notified = True
+
+        actions = ts.trigger_after_ally_as_attack(
+            attacker, 120049, [main_tgt], bf, primary_target=main_tgt
+        )
+        ps_acts = [a for a in actions if a.skill_id == 130054]
+        self.assertEqual(len(ps_acts), 0,
+                         "AS主目标阵亡时PS1不应触发")
+
+    def test_no_trigger_when_primary_target_is_ally(self):
+        """AS主目标为友方时(不应发生但需防御)，PS不应触发。"""
+        ctx = self._build()
+        bf, ts, ss = ctx['bf'], ctx['ts'], ctx['ss']
+        attacker = next(u for u in bf.friend_team if u.unit_id == "attacker")
+        owner = next(u for u in bf.friend_team if u.unit_id == "owner")
+
+        actions = ts.trigger_after_ally_as_attack(
+            attacker, 120049, [owner], bf, primary_target=owner
+        )
+        ps_acts = [a for a in actions if a.skill_id == 130054]
+        self.assertEqual(len(ps_acts), 0,
+                         "AS主目标为友方时PS1不应触发")
+
+
+if __name__ == '__main__':
+    unittest.main()

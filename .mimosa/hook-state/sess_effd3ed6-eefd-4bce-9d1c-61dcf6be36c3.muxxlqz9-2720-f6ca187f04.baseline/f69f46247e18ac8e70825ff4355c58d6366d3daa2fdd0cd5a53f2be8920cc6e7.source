@@ -1,0 +1,112 @@
+"""回归测试：130011 ラスト・プレゼント
+
+技能描述：敵のHPが50%以下になった際に発動。自身の次の攻撃の与ダメージが{dmg}%増加するバフを付与する（重複可）
+
+验证点：
+1. 敵HP<=50% 时触发，给自身施加 dmg_dealt_up buff
+2. 敵HP>50% 时不触发
+3. dmg_dealt_up 使用 attack_limited=1（下次攻击后清除）
+4. dmg_dealt_up 是 stackable=true（可重复叠加）
+5. value_tag="dmg" 按 Lv 解析（Lv1=15%, Lv10=30%）
+"""
+import sys
+import os
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.data.data_loader import DataLoader
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.entities_v2.enums import Side, Position
+from tests.helpers.battle_builder import BattleBuilder
+
+
+class TestRegLastPresent(unittest.TestCase):
+    """130011 ラスト・プレゼント 回归测试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        # 验证技能已 manual 配置
+        parsed = cls.dl.get_parsed_skill_data(130011)
+        assert parsed is not None, "130011 parsed data should exist"
+        assert parsed['parse_status'] == 'manual', f"130011 should be manual, got {parsed['parse_status']}"
+        assert len(parsed['effect_blocks']) > 0, "130011 should have effect_blocks"
+        eff = parsed['effect_blocks'][0]['effects'][0]
+        assert eff['effect_type'] == 'dmg_dealt_up', f"effect_type should be dmg_dealt_up, got {eff['effect_type']}"
+        assert eff['value_tag'] == 'dmg', f"value_tag should be dmg, got {eff['value_tag']}"
+        assert eff['flags'].get('attack_limited') == 1, "attack_limited should be 1"
+        assert eff['flags'].get('stackable') is True, "stackable should be True"
+
+    def _build_battle(self, enemy_hp_pct=0.4, prev_enemy_hp_pct=1.0):
+        """构建战场：己方120301(持130011) + 敌方1单位
+
+        Args:
+            enemy_hp_pct: 敌方当前HP比例（默认0.4=40%）
+            prev_enemy_hp_pct: 敌方上一次HP比例（默认1.0=100%），用于HP_BELOW阈值跨越检测
+        """
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="c", character_id=120301, hp=50000, atk=10000, level=10)
+        bb.add_enemy(unit_id="e", hp=50000, atk=5000)
+        ctx = bb.build()
+        bf = ctx['bf']
+        # 设置敌方HP为指定比例
+        enemy = bf.enemy_team[0]
+        enemy.current_hp = int(enemy.max_hp * enemy_hp_pct)
+        enemy.prev_hp_percent = prev_enemy_hp_pct * 100  # HP_BELOW跨越阈值检测使用此字段
+        return ctx
+
+    def test_parses_correctly(self):
+        """配置校验：130011 解析为 manual 状态，含 dmg_dealt_up effect。"""
+        # setUpClass 已做断言，此处仅验证可访问
+        parsed = self.dl.get_parsed_skill_data(130011)
+        self.assertEqual(parsed['trigger_type'], 'on_hp_below')
+        self.assertEqual(parsed['global_condition']['type'], 'enemy_hp_percent')
+        self.assertEqual(parsed['global_condition']['operator'], '<=')
+        self.assertEqual(parsed['global_condition']['value'], 50)
+        self.assertEqual(parsed['global_condition']['ally_filter'], 'enemy')
+
+    def test_trigger_fires_when_enemy_hp_below_50(self):
+        """敵HP从100%降至40%(<=50%)跨越阈值时触发，收集到 130011 的 TriggerAction。"""
+        ctx = self._build_battle(enemy_hp_pct=0.4, prev_enemy_hp_pct=1.0)
+        bf = ctx['bf']
+        ts = ctx['ts']
+        caster = bf.friend_team[0]
+        caster.buffs = []
+        caster.skill_levels = {130011: 10}  # Lv10
+        actions = ts.trigger_hp_below(bf)
+        # 应收集到 130011 的 TriggerAction
+        ps_acts = [a for a in actions if a.skill_id == 130011]
+        self.assertGreater(len(ps_acts), 0, "130011 should trigger when enemy HP<=50%")
+        # 验证 owner_id 是 caster
+        self.assertEqual(ps_acts[0].owner_id, caster.unit_id, "120301 should be PS owner")
+
+    def test_no_trigger_when_enemy_hp_above_50(self):
+        """敵HP从100%降至80%(>50%)未跨越阈值时不触发。"""
+        ctx = self._build_battle(enemy_hp_pct=0.8, prev_enemy_hp_pct=1.0)
+        bf = ctx['bf']
+        ts = ctx['ts']
+        caster = bf.friend_team[0]
+        caster.buffs = []
+        caster.skill_levels = {130011: 10}
+        actions = ts.trigger_hp_below(bf)
+        ps_acts = [a for a in actions if a.skill_id == 130011]
+        self.assertEqual(len(ps_acts), 0, "Should not trigger when enemy HP>50%")
+
+    def test_no_trigger_when_caster_dead(self):
+        """caster 死亡时不触发。"""
+        ctx = self._build_battle(enemy_hp_pct=0.4, prev_enemy_hp_pct=1.0)
+        bf = ctx['bf']
+        ts = ctx['ts']
+        caster = bf.friend_team[0]
+        caster.buffs = []
+        caster.skill_levels = {130011: 10}
+        caster.is_alive = False
+        actions = ts.trigger_hp_below(bf)
+        ps_acts = [a for a in actions if a.skill_id == 130011]
+        self.assertEqual(len(ps_acts), 0, "Should not trigger when caster is dead")
+
+
+if __name__ == '__main__':
+    unittest.main()

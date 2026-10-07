@@ -1,0 +1,432 @@
+"""回归测试：230169 バフシャット / 230170 デバフシャット
+
+技能描述：
+- 230169 バフシャット: 自身が攻撃した対象に向けられるバフを無効にする（2行動）
+- 230170 デバフシャット: スキル対象の味方単体にかかるデバフを無効にする（2行動）
+
+机制实现：
+- 两者均通过 effect_type='block_buff_by_type' 实现
+- 230169: target_identifier='primary_target', flags.block_buffs=True (阻止全buff新付与)
+- 230170: target_identifier='triggered_by', flags.block_debuffs=True (阻止全debuff新付与)
+- aura_service.add_aura 在付与 aura 前检查目标是否持有 BLOCK_BUFF_BY_TYPE debuff：
+  - block_buffs=True 时阻止 is_debuff=False 的 aura（buff）
+  - block_debuffs=True 时阻止 is_debuff=True 的 aura（debuff）
+
+验证点：
+1. 配置正确（parse_status='manual', effect_type, target_identifier, flags, duration, duration_type）
+2. block_buffs 机制：阻止新 buff 付与
+3. block_buffs 机制：不阻止新 debuff 付与
+4. block_debuffs 机制：阻止新 debuff 付与（与 141301 block_debuffs 行为一致，此处验证 230170 配置触发）
+5. _apply_block_buff_by_type 正确创建 BLOCK_BUFF_BY_TYPE debuff（含 block_buffs/block_debuffs flag）
+6. target_identifier='primary_target' 使用 self._primary_target
+"""
+import sys
+import os
+import unittest
+from types import SimpleNamespace
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.data.data_loader import DataLoader
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.skill_service import SkillService
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming,
+)
+from tests.helpers.battle_builder import BattleBuilder
+
+
+def _make_unit(unit_id: str, name: str, side: Side,
+               position: Position) -> UnitState:
+    """创建一个最小化 UnitState 用于机制测试。"""
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=999001, level=10, element=2, character_type=1,
+        max_hp=50000, current_hp=50000,
+        attack=5000, defense=1000, speed=100,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=10,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_block_buff_debuff(buff_id: str, *, block_buffs: bool = False,
+                            block_debuffs: bool = False,
+                            duration: int = 2) -> BuffState:
+    """创建一个 BLOCK_BUFF_BY_TYPE debuff，用于机制测试。"""
+    return BuffState(
+        buff_id=buff_id, name="buff_block",
+        effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+        value=0, duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        is_debuff=True,
+        block_buffs=block_buffs,
+        block_debuffs=block_debuffs,
+    )
+
+
+class TestRegBuffShutConfig(unittest.TestCase):
+    """230169 バフシャット / 230170 デバフシャット 配置校验。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_230169_config(self):
+        """230169 バフシャット 配置：block_buff_by_type + block_buffs=True + primary_target。"""
+        parsed = self.dl.get_parsed_skill_data(230169)
+        self.assertIsNotNone(parsed, "230169 parsed data should exist")
+        self.assertEqual(parsed['parse_status'], 'manual')
+        self.assertEqual(parsed['skill_type'], 2)
+        self.assertEqual(parsed['trigger_type'], 'after_as_attack')
+        self.assertEqual(len(parsed['effect_blocks']), 1)
+        eff = parsed['effect_blocks'][0]['effects'][0]
+        self.assertEqual(eff['effect_type'], 'block_buff_by_type')
+        self.assertEqual(eff['target_type'], 'enemy_single')
+        self.assertEqual(eff['target_identifier'], 'primary_target')
+        self.assertEqual(eff['duration'], 2)
+        self.assertEqual(eff['duration_type'], 'action')
+        self.assertTrue(eff['flags'].get('block_buffs'),
+                        "230169 should have flags.block_buffs=True")
+        self.assertFalse(eff['flags'].get('block_debuffs', False),
+                         "230169 should NOT have block_debuffs")
+
+    def test_230170_config(self):
+        """230170 デバフシャット 配置：block_buff_by_type + block_debuffs=True + triggered_by。"""
+        parsed = self.dl.get_parsed_skill_data(230170)
+        self.assertIsNotNone(parsed, "230170 parsed data should exist")
+        self.assertEqual(parsed['parse_status'], 'manual')
+        self.assertEqual(parsed['skill_type'], 2)
+        self.assertEqual(parsed['trigger_type'], 'before_ally_attacked')
+        self.assertTrue(parsed.get('simultaneous_limit'),
+                        "230170 should have simultaneous_limit=True")
+        self.assertEqual(len(parsed['effect_blocks']), 1)
+        eff = parsed['effect_blocks'][0]['effects'][0]
+        self.assertEqual(eff['effect_type'], 'block_buff_by_type')
+        self.assertEqual(eff['target_type'], 'ally_single')
+        self.assertEqual(eff['target_identifier'], 'triggered_by')
+        self.assertEqual(eff['duration'], 2)
+        self.assertEqual(eff['duration_type'], 'action')
+        self.assertTrue(eff['flags'].get('block_debuffs'),
+                        "230170 should have flags.block_debuffs=True")
+        self.assertFalse(eff['flags'].get('block_buffs', False),
+                         "230170 should NOT have block_buffs")
+
+
+class TestRegBlockBuffsMechanism(unittest.TestCase):
+    """block_buffs flag: BLOCK_BUFF_BY_TYPE with block_buffs=True 阻止全 buff 新付与。
+
+    对应 230169 バフシャット「対象に向けられるバフを無効にする」。
+    """
+
+    def test_block_buffs_blocks_new_buff(self):
+        """target 持有 block_buffs=True debuff 时，新 buff (is_debuff=False) 被阻止。"""
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+        # 预先施加 block_buffs debuff
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_block_buffs", block_buffs=True, duration=2))
+
+        aus = AuraService()
+        # 尝试施加 atk_up buff
+        new_buff = BuffState(
+            buff_id="atk_up_test", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        result = aus.add_aura(target, new_buff)
+        self.assertFalse(result, "New buff should be blocked by block_buffs=True")
+        # 验证 atk_up 未加入 buffs
+        atk_ups = [b for b in target.buffs
+                   if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_ups), 0, "No atk_up should be in target.buffs")
+
+    def test_block_buffs_does_not_block_debuff(self):
+        """target 持有 block_buffs=True debuff 时，新 debuff (is_debuff=True) 不被阻止。"""
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_block_buffs", block_buffs=True, duration=2))
+
+        aus = AuraService()
+        # 尝试施加 atk_down debuff
+        new_debuff = BuffState(
+            buff_id="atk_down_test", name="atk_down",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=-20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        )
+        result = aus.add_aura(target, new_debuff)
+        self.assertTrue(result, "New debuff should NOT be blocked by block_buffs=True")
+        # 验证 atk_down 已加入 debuffs
+        atk_downs = [b for b in target.debuffs
+                     if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_downs), 1, "atk_down should be in target.debuffs")
+
+    def test_block_buffs_expired_allows_buff(self):
+        """target 持有的 block_buffs debuff duration=0（过期）时，新 buff 可正常付与。"""
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+        # 过期的 block_buffs debuff
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_block_buffs_expired", block_buffs=True, duration=0))
+
+        aus = AuraService()
+        new_buff = BuffState(
+            buff_id="atk_up_test", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        result = aus.add_aura(target, new_buff)
+        self.assertTrue(result, "Buff should be allowed when block_buffs debuff expired (duration=0)")
+
+    def test_block_buffs_not_blocking_self(self):
+        """BLOCK_BUFF_BY_TYPE 自身不应被自己阻止（即使持 block_buffs=True）。"""
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+        # 已持有 block_buffs=True debuff
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_existing", block_buffs=True, duration=2))
+
+        aus = AuraService()
+        # 再次施加 BLOCK_BUFF_BY_TYPE（刷新），应不被阻止
+        new_bbt = _make_block_buff_debuff(
+            "bbt_new", block_buffs=True, duration=2)
+        result = aus.add_aura(target, new_bbt)
+        self.assertTrue(result, "BLOCK_BUFF_BY_TYPE itself should NOT be blocked by block_buffs")
+
+
+class TestRegBlockDebuffsMechanism(unittest.TestCase):
+    """block_debuffs flag: BLOCK_BUFF_BY_TYPE with block_debuffs=True 阻止全 debuff 新付与。
+
+    对应 230170 デバフシャット「対象にかかるデバフを無効にする」。
+    与 141301 風紀委員会の管轄だよ～ L11+ 的 block_debuffs 行为一致，此处验证 230170 配置触发。
+    """
+
+    def test_block_debuffs_blocks_new_debuff(self):
+        """target 持有 block_debuffs=True debuff 时，新 debuff (is_debuff=True) 被阻止。"""
+        target = _make_unit("target", "Target", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_block_debuffs", block_debuffs=True, duration=2))
+
+        aus = AuraService()
+        new_debuff = BuffState(
+            buff_id="atk_down_test", name="atk_down",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=-20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        )
+        result = aus.add_aura(target, new_debuff)
+        self.assertFalse(result, "New debuff should be blocked by block_debuffs=True")
+        atk_downs = [b for b in target.debuffs
+                     if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_downs), 0, "No atk_down should be in target.debuffs")
+
+    def test_block_debuffs_does_not_block_buff(self):
+        """target 持有 block_debuffs=True debuff 时，新 buff (is_debuff=False) 不被阻止。"""
+        target = _make_unit("target", "Target", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_block_debuffs", block_debuffs=True, duration=2))
+
+        aus = AuraService()
+        new_buff = BuffState(
+            buff_id="atk_up_test", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        result = aus.add_aura(target, new_buff)
+        self.assertTrue(result, "New buff should NOT be blocked by block_debuffs=True")
+        atk_ups = [b for b in target.buffs
+                   if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_ups), 1, "atk_up should be in target.buffs")
+
+
+class TestRegApplyBlockBuffByType(unittest.TestCase):
+    """_apply_block_buff_by_type 方法测试：验证 target_identifier 解析与 debuff 创建。"""
+
+    def _build_context(self):
+        """构建最小战场：己方 caster + 敌方 target。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="c", hp=50000, atk=10000)
+        bb.add_enemy(unit_id="e", hp=50000, atk=5000)
+        ctx = bb.build()
+        return ctx
+
+    def _make_effect(self, *, target_type="enemy_single",
+                     target_identifier="primary_target",
+                     duration=2, duration_type="action",
+                     flags=None):
+        """构造 effect 对象（模拟 SkillDataResolver 解析后的结构）。"""
+        return SimpleNamespace(
+            target_type=target_type,
+            target_identifier=target_identifier,
+            duration=duration,
+            duration_type=duration_type,
+            flags=flags or {},
+        )
+
+    def test_apply_block_buffs_creates_correct_debuff(self):
+        """_apply_block_buff_by_type with block_buffs=True 创建正确的 BLOCK_BUFF_BY_TYPE debuff。"""
+        ctx = self._build_context()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        target = bf.enemy_team[0]
+        ss._primary_target = target  # 模拟 AS 主目标
+        ss._current_skill_id = 230169
+
+        effect = self._make_effect(
+            target_identifier="primary_target",
+            flags={"block_buffs": True},
+        )
+        result = ss._apply_block_buff_by_type(caster, effect, bf)
+
+        self.assertIsNotNone(result, "Should return non-None result")
+        self.assertEqual(result['effect_type'], 'block_buff_by_type')
+        self.assertTrue(result['is_debuff'])
+        self.assertEqual(result['target_count'], 1)
+        # 验证 target 持有 BLOCK_BUFF_BY_TYPE debuff
+        bbt_debuffs = [d for d in target.debuffs
+                       if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value]
+        self.assertEqual(len(bbt_debuffs), 1, "Target should have 1 BLOCK_BUFF_BY_TYPE debuff")
+        bbt = bbt_debuffs[0]
+        self.assertTrue(bbt.block_buffs, "Debuff should have block_buffs=True")
+        self.assertFalse(bbt.block_debuffs, "Debuff should NOT have block_debuffs")
+        self.assertEqual(bbt.duration, 2)
+        self.assertEqual(bbt.source_unit_id, caster.unit_id)
+        self.assertEqual(bbt.source_skill_id, 230169)
+        self.assertTrue(bbt.is_debuff)
+
+    def test_apply_block_debuffs_creates_correct_debuff(self):
+        """_apply_block_buff_by_type with block_debuffs=True 创建正确的 debuff。"""
+        ctx = self._build_context()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        target = bf.enemy_team[0]
+        ss._primary_target = target
+        ss._current_skill_id = 230170
+
+        effect = self._make_effect(
+            target_identifier="triggered_by",
+            flags={"block_debuffs": True},
+        )
+        result = ss._apply_block_buff_by_type(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        bbt_debuffs = [d for d in target.debuffs
+                       if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value]
+        self.assertEqual(len(bbt_debuffs), 1)
+        bbt = bbt_debuffs[0]
+        self.assertTrue(bbt.block_debuffs, "Debuff should have block_debuffs=True")
+        self.assertFalse(bbt.block_buffs, "Debuff should NOT have block_buffs")
+
+    def test_target_identifier_primary_target_uses_primary(self):
+        """target_identifier='primary_target' 使用 self._primary_target。"""
+        ctx = self._build_context()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        target = bf.enemy_team[0]
+        ss._primary_target = target
+        ss._current_skill_id = 230169
+
+        effect = self._make_effect(
+            target_identifier="primary_target",
+            flags={"block_buffs": True},
+        )
+        ss._apply_block_buff_by_type(caster, effect, bf)
+        # 验证 debuff 落在 _primary_target（target）上
+        bbt_debuffs = [d for d in target.debuffs
+                       if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value]
+        self.assertEqual(len(bbt_debuffs), 1, "Debuff should be on _primary_target")
+
+    def test_target_identifier_primary_target_unavailable_returns_none(self):
+        """_primary_target 不可用时返回 None（不施加任何 debuff）。"""
+        ctx = self._build_context()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        ss._primary_target = None  # 未设置
+        ss._current_skill_id = 230169
+
+        effect = self._make_effect(
+            target_identifier="primary_target",
+            flags={"block_buffs": True},
+        )
+        result = ss._apply_block_buff_by_type(caster, effect, bf)
+        self.assertIsNone(result, "Should return None when _primary_target unavailable")
+
+    def test_target_identifier_primary_target_dead_returns_none(self):
+        """_primary_target 已死亡时返回 None。"""
+        ctx = self._build_context()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        target = bf.enemy_team[0]
+        target.is_alive = False
+        ss._primary_target = target
+        ss._current_skill_id = 230169
+
+        effect = self._make_effect(
+            target_identifier="primary_target",
+            flags={"block_buffs": True},
+        )
+        result = ss._apply_block_buff_by_type(caster, effect, bf)
+        self.assertIsNone(result, "Should return None when _primary_target is dead")
+
+
+class TestRegBuffShutEndToEnd(unittest.TestCase):
+    """端到端：block_buffs/block_debuffs debuff 持续期间有效，过期后失效。"""
+
+    def test_block_buffs_active_blocks_then_expires_allows(self):
+        """block_buffs debuff 持续期间 buff 被阻止，duration=0 后 buff 可付与。"""
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+        aus = AuraService()
+
+        # Step 1: 施加 block_buffs debuff (duration=2)
+        target.debuffs.append(_make_block_buff_debuff(
+            "bbt_test_e2e", block_buffs=True, duration=2))
+
+        # Step 2: 尝试施加 buff → 被阻止
+        buff1 = BuffState(
+            buff_id="atk_up_1", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        self.assertFalse(aus.add_aura(target, buff1), "Buff should be blocked while block_buffs active")
+
+        # Step 3: 模拟行动结束，duration 递减到 0
+        bbt = next(d for d in target.debuffs
+                   if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value)
+        bbt.duration = 0
+
+        # Step 4: 尝试施加 buff → 通过（duration=0 时不再阻止）
+        buff2 = BuffState(
+            buff_id="atk_up_2", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=30.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        self.assertTrue(aus.add_aura(target, buff2), "Buff should be allowed after block_buffs expires")
+
+
+if __name__ == '__main__':
+    unittest.main()

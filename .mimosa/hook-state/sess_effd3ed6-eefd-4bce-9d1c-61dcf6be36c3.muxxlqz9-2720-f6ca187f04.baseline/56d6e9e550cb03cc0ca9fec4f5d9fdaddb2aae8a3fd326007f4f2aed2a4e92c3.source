@@ -1,0 +1,589 @@
+"""
+数据库版角色属性计算器
+
+用于从SQLite数据库加载数据并计算角色在特定配置下的最终属性
+"""
+
+import sqlite3
+from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from dataclasses import dataclass
+
+
+@dataclass
+class CharacterStats:
+    """角色属性数据类"""
+    character_id: int
+    level: int
+    rarity: int
+    
+    # 面板属性
+    hp: int
+    attack: int
+    defense: int
+    speed: int
+    
+    # 特殊属性
+    critical_rate: float
+    critical_damage: float
+    advantage_damage: float
+    
+    # 资源
+    action_point: int
+    passive_point: int
+
+
+@dataclass
+class ModuleConfig:
+    """模块配置"""
+    module_id: int
+    tier: int
+    level: int
+    gear_effects: List[Dict] = None  # [{gear_type_id, rarity_id, rank}]
+    
+    def __post_init__(self):
+        if self.gear_effects is None:
+            self.gear_effects = []
+
+
+class DBStatCalculator:
+    """基于数据库的属性计算器"""
+    
+    # 游戏常量
+    BASE_CRIT_DAMAGE = 1.5
+    BASE_ADVANTAGE_DAMAGE = 1.25
+    
+    # 词条效果类型
+    GEAR_EFFECT_NONE = 1
+    GEAR_EFFECT_ADVANTAGE_DAMAGE = 2
+    GEAR_EFFECT_HP = 3
+    GEAR_EFFECT_ATTACK = 4
+    GEAR_EFFECT_DEFENSE = 5
+    GEAR_EFFECT_SPEED = 6
+    GEAR_EFFECT_CRIT_RATE = 7
+    GEAR_EFFECT_CRIT_DAMAGE = 8
+    
+    def __init__(self, db_path: str):
+        """
+        初始化计算器
+        
+        Args:
+            db_path: 数据库文件路径
+        """
+        self.db_path = Path(db_path)
+        if not self.db_path.exists():
+            raise FileNotFoundError(f"Database not found: {db_path}")
+        
+        # 验证数据库连接
+        self._verify_database()
+    
+    def _verify_database(self):
+        """验证数据库结构"""
+        required_tables = [
+            'characters', 'level_lerp_coefficients', 'affection_bonuses',
+            'equipment', 'school_system_bonuses', 'modules', 'module_tiers',
+            'rarity_bonuses', 'module_gear_types', 'module_gear_effects'
+        ]
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = {row[0] for row in cursor.fetchall()}
+            
+            missing = set(required_tables) - tables
+            if missing:
+                raise ValueError(f"Missing required tables: {missing}")
+    
+    def calculate_stats(
+        self,
+        character_id: int,
+        level: int = 1,
+        rarity: Optional[int] = None,
+        affection_level: int = 1,
+        equipment_ids: List[int] = None,
+        school_type_level: int = 0,
+        school_attribute_level: int = 0,
+        modules: List[ModuleConfig] = None
+    ) -> CharacterStats:
+        """
+        计算角色最终属性
+        
+        Args:
+            character_id: 角色ID
+            level: 等级 (1-200+)
+            rarity: 稀有度 (None则使用默认稀有度)
+            affection_level: 好感度等级 (1-40)
+            equipment_ids: 装备ID列表
+            school_type_level: 学园类型等级
+            school_attribute_level: 学园属性等级
+            modules: 模块配置列表
+            
+        Returns:
+            CharacterStats对象
+        """
+        if equipment_ids is None:
+            equipment_ids = []
+        if modules is None:
+            modules = []
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # 1. 获取角色基础数据
+            char_data = self._get_character_data(conn, character_id)
+            if not char_data:
+                raise ValueError(f"Character {character_id} not found")
+            
+            # 使用默认稀有度如果未指定
+            if rarity is None:
+                rarity = char_data['default_rarity']
+            
+            # 2. 计算基础属性（等级插值）
+            base_hp = self._calculate_base_stat(
+                conn, level,
+                char_data['min_hp'], char_data['max_hp'], char_data['bonus_hp_per_level']
+            )
+            base_attack = self._calculate_base_stat(
+                conn, level,
+                char_data['min_attack'], char_data['max_attack'], char_data['bonus_attack_per_level']
+            )
+            base_defense = self._calculate_base_stat(
+                conn, level,
+                char_data['min_defense'], char_data['max_defense'], char_data['bonus_defense_per_level']
+            )
+            base_speed = self._calculate_base_stat(
+                conn, level,
+                char_data['min_speed'], char_data['max_speed'], char_data['bonus_speed_per_level']
+            )
+            
+            # 3. 获取稀有度加成
+            rarity_bonus = self._get_rarity_bonus(conn, character_id, rarity)
+            
+            # 4. 获取好感度加成
+            affection_bonus = self._get_affection_bonus(conn, char_data['character_type'], affection_level)
+            
+            # 5. 获取学园系统加成
+            school_bonus = self._get_school_bonus(
+                conn,
+                char_data['character_type'],
+                char_data['attribute'],
+                school_type_level,
+                school_attribute_level
+            )
+            
+            # 6. 获取装备加成
+            equipment_bonus = self._get_equipment_bonus(conn, char_data['character_type'], equipment_ids)
+            
+            # 7. 计算模块加成（固定值 + 百分比）
+            module_fixed, module_rate = self._calculate_module_bonuses(conn, modules, level)
+            
+            # 8. 计算词条加成（百分比）
+            gear_rate, gear_special = self._calculate_gear_bonuses(conn, modules)
+            
+            # 9. 计算最终面板属性
+            final_hp = self._calculate_final_panel_stat(
+                base_hp,
+                rarity_bonus.get('hp', 0),
+                affection_bonus.get('hp', 0),
+                school_bonus.get('hp', 0),
+                equipment_bonus.get('hp', 0),
+                module_fixed.get('hp', 0),
+                module_rate.get('hp', 0.0),
+                gear_rate.get('hp', 0.0)
+            )
+            
+            final_attack = self._calculate_final_panel_stat(
+                base_attack,
+                rarity_bonus.get('attack', 0),
+                affection_bonus.get('attack', 0),
+                school_bonus.get('attack', 0),
+                equipment_bonus.get('attack', 0),
+                module_fixed.get('attack', 0),
+                module_rate.get('attack', 0.0),
+                gear_rate.get('attack', 0.0)
+            )
+            
+            final_defense = self._calculate_final_panel_stat(
+                base_defense,
+                rarity_bonus.get('defense', 0),
+                affection_bonus.get('defense', 0),
+                school_bonus.get('defense', 0),
+                equipment_bonus.get('defense', 0),
+                module_fixed.get('defense', 0),
+                module_rate.get('defense', 0.0),
+                gear_rate.get('defense', 0.0)
+            )
+            
+            final_speed = self._calculate_final_panel_stat(
+                base_speed,
+                rarity_bonus.get('speed', 0),
+                affection_bonus.get('speed', 0),
+                0,  # school不加速度
+                0,  # equipment不加速度
+                0,  # module不加速度固定值
+                0.0,  # module不加速度百分比
+                gear_rate.get('speed', 0.0)
+            )
+            
+            # 10. 计算资源点数
+            total_ap = (
+                char_data['action_point'] +
+                rarity_bonus.get('action_point', 0) +
+                affection_bonus.get('action_point', 0)
+            )
+            
+            total_pp = (
+                char_data['passive_point'] +
+                rarity_bonus.get('passive_point', 0) +
+                affection_bonus.get('passive_point', 0)
+            )
+            
+            # 11. 计算特殊属性
+            crit_rate = char_data['min_crit_rate']
+            crit_rate += rarity_bonus.get('crit_rate', 0.0)
+            crit_rate += gear_special.get('crit_rate', 0.0)
+            
+            crit_damage = self.BASE_CRIT_DAMAGE + gear_special.get('crit_damage', 0.0)
+            advantage_damage = self.BASE_ADVANTAGE_DAMAGE + gear_special.get('advantage_damage', 0.0)
+            
+            return CharacterStats(
+                character_id=character_id,
+                level=level,
+                rarity=rarity,
+                hp=final_hp,
+                attack=final_attack,
+                defense=final_defense,
+                speed=final_speed,
+                critical_rate=crit_rate,
+                critical_damage=crit_damage,
+                advantage_damage=advantage_damage,
+                action_point=total_ap,
+                passive_point=total_pp
+            )
+    
+    def _get_character_data(self, conn: sqlite3.Connection, character_id: int) -> Optional[Dict]:
+        """获取角色基础数据"""
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                character_id, character_type, attribute, default_rarity,
+                action_point, passive_point,
+                min_hp, min_attack, min_defense, min_speed, min_crit_rate,
+                max_hp, max_attack, max_defense, max_speed, max_crit_rate,
+                bonus_hp_per_level, bonus_attack_per_level, bonus_defense_per_level,
+                bonus_speed_per_level, bonus_crit_rate_per_level
+            FROM characters
+            WHERE character_id = ?
+        """, (character_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        return {
+            'character_id': row[0],
+            'character_type': row[1],
+            'attribute': row[2],
+            'default_rarity': row[3],
+            'action_point': row[4],
+            'passive_point': row[5],
+            'min_hp': row[6],
+            'min_attack': row[7],
+            'min_defense': row[8],
+            'min_speed': row[9],
+            'min_crit_rate': row[10],
+            'max_hp': row[11],
+            'max_attack': row[12],
+            'max_defense': row[13],
+            'max_speed': row[14],
+            'max_crit_rate': row[15],
+            'bonus_hp_per_level': row[16],
+            'bonus_attack_per_level': row[17],
+            'bonus_defense_per_level': row[18],
+            'bonus_speed_per_level': row[19],
+            'bonus_crit_rate_per_level': row[20],
+        }
+    
+    def _calculate_base_stat(
+        self,
+        conn: sqlite3.Connection,
+        level: int,
+        min_stat: int,
+        max_stat: int,
+        bonus_per_level: int
+    ) -> int:
+        """
+        计算基础属性（等级成长）
+        
+        公式:
+        - 1-200级: min_stat + (max_stat - min_stat) * lerp_coefficient
+        - 201级起: max_stat + (level - 200) * bonus_per_level
+        """
+        if level < 1:
+            return min_stat
+        
+        if level <= 200:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT lerp_coefficient FROM level_lerp_coefficients WHERE level = ?",
+                (level,)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                lerp_coef = row[0]
+                return int(min_stat + (max_stat - min_stat) * lerp_coef)
+            else:
+                # 降级方案：线性插值
+                return int(min_stat + (max_stat - min_stat) * (level - 1) / 199)
+        else:
+            # 201级以上
+            bonus_levels = level - 200
+            return int(max_stat + bonus_levels * bonus_per_level)
+    
+    def _get_rarity_bonus(self, conn: sqlite3.Connection, character_id: int, rarity: int) -> Dict:
+        """获取稀有度加成"""
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT additional_hp, additional_attack, additional_defense, additional_speed,
+                   additional_crit_rate, additional_action_point, additional_passive_point
+            FROM rarity_bonuses
+            WHERE character_id = ? AND rarity = ?
+        """, (character_id, rarity))
+        
+        row = cursor.fetchone()
+        if not row:
+            return {
+                'hp': 0, 'attack': 0, 'defense': 0, 'speed': 0,
+                'crit_rate': 0.0, 'action_point': 0, 'passive_point': 0
+            }
+        
+        return {
+            'hp': row[0],
+            'attack': row[1],
+            'defense': row[2],
+            'speed': row[3],
+            'crit_rate': row[4],
+            'action_point': row[5],
+            'passive_point': row[6]
+        }
+    
+    def _get_affection_bonus(self, conn: sqlite3.Connection, character_type: int, affection_level: int) -> Dict:
+        """获取好感度加成"""
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT additional_hp, additional_attack, additional_defense, additional_speed,
+                   additional_action_point, additional_passive_point
+            FROM affection_bonuses
+            WHERE character_type = ? AND affection_level = ?
+        """, (character_type, affection_level))
+        
+        row = cursor.fetchone()
+        if not row:
+            return {'hp': 0, 'attack': 0, 'defense': 0, 'speed': 0, 'action_point': 0, 'passive_point': 0}
+        
+        return {
+            'hp': row[0],
+            'attack': row[1],
+            'defense': row[2],
+            'speed': row[3],
+            'action_point': row[4],
+            'passive_point': row[5]
+        }
+    
+    def _get_school_bonus(
+        self,
+        conn: sqlite3.Connection,
+        character_type: int,
+        attribute: int,
+        type_level: int,
+        attr_level: int
+    ) -> Dict:
+        """获取学园系统加成"""
+        total_hp = total_attack = total_defense = 0
+        cursor = conn.cursor()
+        
+        # 类型系统加成 (group_id=1)
+        if type_level > 0:
+            cursor.execute("""
+                SELECT hp_bonus, attack_bonus, defense_bonus
+                FROM school_system_bonuses
+                WHERE group_id = 1 AND level = ?
+            """, (type_level,))
+            
+            row = cursor.fetchone()
+            if row:
+                total_hp += row[0]
+                total_attack += row[1]
+                total_defense += row[2]
+        
+        # 属性系统加成 (group_id=2)
+        if attr_level > 0:
+            cursor.execute("""
+                SELECT hp_bonus, attack_bonus, defense_bonus
+                FROM school_system_bonuses
+                WHERE group_id = 2 AND level = ?
+            """, (attr_level,))
+            
+            row = cursor.fetchone()
+            if row:
+                total_hp += row[0]
+                total_attack += row[1]
+                total_defense += row[2]
+        
+        return {'hp': total_hp, 'attack': total_attack, 'defense': total_defense}
+    
+    def _get_equipment_bonus(self, conn: sqlite3.Connection, character_type: int, equipment_ids: List[int]) -> Dict:
+        """获取装备加成"""
+        if not equipment_ids:
+            return {'hp': 0, 'attack': 0, 'defense': 0}
+        
+        total_hp = total_attack = total_defense = 0
+        cursor = conn.cursor()
+        
+        for eq_id in equipment_ids:
+            cursor.execute("""
+                SELECT hp_bonus, attack_bonus, defense_bonus
+                FROM equipment
+                WHERE equipment_id = ? AND character_type = ?
+            """, (eq_id, character_type))
+            
+            row = cursor.fetchone()
+            if row:
+                total_hp += row[0]
+                total_attack += row[1]
+                total_defense += row[2]
+        
+        return {'hp': total_hp, 'attack': total_attack, 'defense': total_defense}
+    
+    def _calculate_module_bonuses(
+        self,
+        conn: sqlite3.Connection,
+        modules: List[ModuleConfig],
+        character_level: int
+    ) -> Tuple[Dict, Dict]:
+        """
+        计算模块加成（固定值 + 百分比）
+        
+        Returns:
+            (固定值dict, 百分比dict)
+        """
+        fixed = {'hp': 0, 'attack': 0, 'defense': 0}
+        rate = {'hp': 0.0, 'attack': 0.0, 'defense': 0.0}
+        
+        cursor = conn.cursor()
+        
+        for mod_cfg in modules:
+            cursor.execute("""
+                SELECT hp_base, attack_base, defense_base,
+                       hp_per_level, attack_per_level, defense_per_level,
+                       hp_rate, attack_rate, defense_rate
+                FROM module_tiers
+                WHERE module_id = ? AND tier = ?
+            """, (mod_cfg.module_id, mod_cfg.tier))
+            
+            row = cursor.fetchone()
+            if row:
+                # 固定值 = base + per_level × (module_level - 1)
+                fixed['hp'] += int(row[0] + row[3] * (mod_cfg.level - 1))
+                fixed['attack'] += int(row[1] + row[4] * (mod_cfg.level - 1))
+                fixed['defense'] += int(row[2] + row[5] * (mod_cfg.level - 1))
+                
+                # 百分比累加
+                rate['hp'] += row[6]
+                rate['attack'] += row[7]
+                rate['defense'] += row[8]
+        
+        return fixed, rate
+    
+    def _calculate_gear_bonuses(
+        self,
+        conn: sqlite3.Connection,
+        modules: List[ModuleConfig]
+    ) -> Tuple[Dict, Dict]:
+        """
+        计算词条加成
+        
+        Returns:
+            (属性百分比dict, 特殊属性dict)
+        """
+        rate = {'hp': 0.0, 'attack': 0.0, 'defense': 0.0, 'speed': 0.0}
+        special = {'crit_rate': 0.0, 'crit_damage': 0.0, 'advantage_damage': 0.0}
+        
+        cursor = conn.cursor()
+        
+        for mod_cfg in modules:
+            for gear in mod_cfg.gear_effects:
+                gear_type_id = gear['gear_type_id']
+                rarity_id = gear.get('rarity_id', 3)  # 默认彩词条
+                rank = gear.get('rank', 1)
+                
+                # 获取基础效果值
+                cursor.execute("""
+                    SELECT mge.base_effect_value, mgt.effect_type
+                    FROM module_gear_effects mge
+                    JOIN module_gear_types mgt ON mge.gear_type_id = mgt.gear_type_id
+                    WHERE mge.gear_type_id = ? AND mge.rank = ?
+                """, (gear_type_id, rank))
+                
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                
+                base_value, effect_type = row
+                
+                # 获取损耗率
+                cursor.execute(
+                    "SELECT loss_rate FROM module_gear_rarities WHERE rarity_id = ?",
+                    (rarity_id,)
+                )
+                loss_row = cursor.fetchone()
+                loss_rate = loss_row[0] if loss_row else 0.0
+                
+                # 实际效果值 = 基础值 × (1 - 损耗率)
+                actual_value = base_value * (1 - loss_rate)
+                
+                # 应用效果
+                if effect_type == self.GEAR_EFFECT_HP:
+                    rate['hp'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_ATTACK:
+                    rate['attack'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_DEFENSE:
+                    rate['defense'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_SPEED:
+                    rate['speed'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_CRIT_RATE:
+                    special['crit_rate'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_CRIT_DAMAGE:
+                    special['crit_damage'] += actual_value
+                elif effect_type == self.GEAR_EFFECT_ADVANTAGE_DAMAGE:
+                    special['advantage_damage'] += actual_value
+        
+        return rate, special
+    
+    def _calculate_final_panel_stat(
+        self,
+        base_stat: int,
+        rarity_bonus: int,
+        affection_bonus: int,
+        school_bonus: int,
+        equipment_bonus: int,
+        module_fixed: int,
+        module_rate: float,
+        gear_rate: float
+    ) -> int:
+        """
+        计算最终面板属性
+        
+        公式: (基础 + 稀有度 + 好感度 + 学园 + 装备 + 模块固值) × (1 + 模块% + 词条%)
+        """
+        total_fixed = (
+            base_stat +
+            rarity_bonus +
+            affection_bonus +
+            school_bonus +
+            equipment_bonus +
+            module_fixed
+        )
+        
+        total_rate = 1.0 + module_rate + gear_rate
+        
+        return int(total_fixed * total_rate)

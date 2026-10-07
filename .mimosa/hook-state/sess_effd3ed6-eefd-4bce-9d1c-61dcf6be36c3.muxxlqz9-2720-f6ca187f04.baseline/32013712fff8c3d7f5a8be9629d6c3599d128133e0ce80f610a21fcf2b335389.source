@@ -1,0 +1,299 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""幻惑(Genwaku)行動制限机制单元测试
+
+测试覆盖：
+1. 技能选择过滤：幻惑中仅含伤害效果的AS可用，EX/PS跳过
+2. 效果执行过滤：幻惑中仅damage/hp_ratio_damage/damage_special/consume_hp执行，其他效果FAIL
+3. PS触发器过滤：幻惑中不触发PS（与眩晕/冻结/混乱同等待遇）
+4. 混乱回帰テスト：确保混乱的行動制限仍然正常
+5. is_genwakuフラグ同期：add_aura即时設定 + remove_aura再同期
+
+参考硬约束：
+- 单位处于幻惑状态时，只能触发AS技能的攻击伤害效果
+- PS技能不触发、EX技能无法使用
+- 除了伤害类，所有效果都不能结算
+- 幻惑与混乱性质类似，行動制限逻辑相同
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+SET = SkillEffectType
+GENWAKU = SET.GENWAKU.value
+CONFUSION = SET.CONFUSION.value
+DAMAGE = SET.DAMAGE.value
+HEAL = SET.HEAL.value
+ATK_UP = SET.STATUS_ATTACK.value
+
+
+def _make_genwaku_buff(caster_id: str, genwaku_pct: float = 50.0,
+                       duration: int = 1) -> BuffState:
+    """构造一个幻惑debuff用于测试"""
+    return BuffState(
+        buff_id=f"{caster_id}_genwaku_test",
+        name=GENWAKU,
+        effect_type=GENWAKU,
+        value=genwaku_pct,
+        duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=caster_id,
+        is_debuff=True,
+    )
+
+
+def _make_confusion_buff(caster_id: str, dmg_reduction: float = 50.0,
+                         proxy_atk_pct: float = 10.0, duration: int = 1) -> BuffState:
+    """构造一个混乱debuff用于回帰テスト"""
+    return BuffState(
+        buff_id=f"{caster_id}_confusion_test",
+        name=CONFUSION,
+        effect_type=CONFUSION,
+        value=0,
+        duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=caster_id,
+        is_debuff=True,
+        confusion_dmg_reduction=dmg_reduction,
+        confusion_proxy_atk_pct=proxy_atk_pct,
+    )
+
+
+class TestGenwakuRestriction(unittest.TestCase):
+    """幻惑行動制限机制单元测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 歴戦の鉄母 (幻惑/混乱測試對象)
+        self.caster = UnitState(
+            unit_id="caster", name="施法者", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=143301, level=10,
+            element=6, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=12000, defense=5000, speed=600,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=50,
+            skills=[120130, 120131, 130136, 130137, 110059],
+            skill_levels={120130: 10, 120131: 10, 130136: 10,
+                          130137: 10, 110059: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=10,
+            element=6, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中
+        self.enemy_cf = UnitState(
+            unit_id="enemy_cf", name="敌方中前", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        for u in [self.caster, self.ally_front, self.enemy_cf]:
+            self.bf.add_unit(u)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+        self.ts = ts
+        self.aura_svc = asvc
+
+    def _apply_genwaku_to_caster(self, genwaku_pct=50.0):
+        """对caster施加幻惑debuff"""
+        gen = _make_genwaku_buff(self.caster.unit_id, genwaku_pct)
+        self.caster.debuffs.append(gen)
+        self.caster.is_genwaku = True
+
+    def _apply_confusion_to_caster(self, dmg_reduction=50.0, proxy_atk_pct=10.0):
+        """对caster施加混乱debuff（回帰テスト用）"""
+        conf = _make_confusion_buff(self.caster.unit_id, dmg_reduction, proxy_atk_pct)
+        self.caster.debuffs.append(conf)
+        self.caster.is_confused = True
+
+    # ============================================================
+    # 1. 技能选择过滤
+    # ============================================================
+
+    def test_select_skill_skips_ex_when_genwaku(self):
+        """幻惑中：select_skill跳过EX技能（即使EP满）"""
+        self.caster.current_ep = self.caster.max_extra_point  # EP满
+        self._apply_genwaku_to_caster()
+
+        selected = self.ss.select_skill(self.caster)
+        self.assertNotEqual(selected, 110059, "幻惑中不应选择EX技能")
+        self.assertIn(selected, [120130, 120131], f"应选择AS技能, 实际={selected}")
+
+    def test_select_skill_filters_non_damage_as_when_genwaku(self):
+        """幻惑中：仅含伤害效果的AS可用"""
+        self._apply_genwaku_to_caster()
+        selected = self.ss.select_skill(self.caster)
+        self.assertIsNotNone(selected, "幻惑中含伤害AS应可选")
+
+    def test_select_skill_returns_none_if_no_damage_as_when_genwaku(self):
+        """幻惑中：所有AS都不含伤害效果时返回None（待机）"""
+        self.caster.skills = [130136, 130137, 110059]  # 全是PS/EX，无AS
+        self._apply_genwaku_to_caster()
+
+        selected = self.ss.select_skill(self.caster)
+        self.assertIsNone(selected, "幻惑中无可用AS时应返回None(待机)")
+
+    # ============================================================
+    # 2. 效果执行过滤
+    # ============================================================
+
+    def test_genwaku_caster_only_executes_damage_effects(self):
+        """
+        幻惑中：AS技能执行时，仅damage类效果执行，其他效果FAIL
+        使用AS2 120131测试：
+        - damage效果应执行（幻惑下伤害转回復，但不影响"仅伤害效果执行"的过滤逻辑）
+        - mark/dmg_taken_down等非伤害效果应FAIL
+        """
+        self._apply_genwaku_to_caster()
+        hp_before_enemy = self.enemy_cf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 幻惑下伤害转回復：敌方HP应增加（或不减少）
+        # 注意：幻惑不反转目标，仍打敌方，但伤害转为回復
+        self.assertGreaterEqual(self.enemy_cf.current_hp, hp_before_enemy,
+                                "幻惑下伤害转为回復，敌方HP不应减少")
+
+        # mark效果应FAIL：敌方不应有mark debuff
+        marks_on_enemy = [d for d in self.enemy_cf.debuffs if d.effect_type == SET.MARK.value]
+        self.assertEqual(len(marks_on_enemy), 0,
+                         f"幻惑中mark效果应FAIL, 敌方不应有mark debuff: {len(marks_on_enemy)}")
+
+    # ============================================================
+    # 3. PS触发器过滤
+    # ============================================================
+
+    def test_genwaku_unit_does_not_trigger_ps(self):
+        """
+        幻惑中：不触发PS技能（与眩晕/冻结/混乱同等待遇）
+        验证: caster幻惑时，on_turn_start不触发PS2(130137)
+        """
+        self._apply_genwaku_to_caster()
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130137]
+        self.assertEqual(len(ps2_actions), 0,
+                         "幻惑中不应触发PS2(130137)")
+
+    def test_non_genwaku_unit_triggers_ps(self):
+        """非幻惑中：正常触发PS"""
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130137]
+        self.assertGreater(len(ps2_actions), 0,
+                           "非幻惑时应触发PS2(130137)")
+
+    # ============================================================
+    # 4. 混乱回帰テスト
+    # ============================================================
+
+    def test_confused_unit_does_not_trigger_ps_regression(self):
+        """回帰: 混乱中不触发PS（确保混乱的行動制限仍然正常）"""
+        self._apply_confusion_to_caster()
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130137]
+        self.assertEqual(len(ps2_actions), 0,
+                         "混乱中不应触发PS2(130137)")
+
+    def test_confused_caster_skips_ex_regression(self):
+        """回帰: 混乱中select_skill跳过EX技能"""
+        self.caster.current_ep = self.caster.max_extra_point
+        self._apply_confusion_to_caster()
+
+        selected = self.ss.select_skill(self.caster)
+        self.assertNotEqual(selected, 110059, "混乱中不应选择EX技能")
+
+    # ============================================================
+    # 5. is_genwakuフラグ同期
+    # ============================================================
+
+    def test_is_genwaku_flag_set_immediately_by_add_aura(self):
+        """add_aura即时設定is_genwaku标志位"""
+        # 清空caster所有debuff确保干净环境
+        self.caster.debuffs = []
+        self.caster.is_genwaku = False
+
+        gen = _make_genwaku_buff("external_caster", genwaku_pct=50.0, duration=2)
+        result = self.aura_svc.add_aura(self.caster, gen)
+
+        self.assertTrue(result, "add_aura应成功")
+        self.assertTrue(self.caster.is_genwaku,
+                        "add_aura后is_genwaku应立即为True")
+
+    def test_is_genwaku_flag_synced_by_remove_aura(self):
+        """remove_aura后is_genwaku标志位再同期为False"""
+        gen = _make_genwaku_buff("external_caster", genwaku_pct=50.0, duration=2)
+        self.aura_svc.add_aura(self.caster, gen)
+        self.assertTrue(self.caster.is_genwaku, "施加后应为True")
+
+        # 移除幻惑debuff
+        self.aura_svc.remove_aura(self.caster, gen.buff_id)
+        self.assertFalse(self.caster.is_genwaku,
+                         "remove_aura后is_genwaku应同期为False")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

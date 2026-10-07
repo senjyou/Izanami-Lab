@@ -1,0 +1,325 @@
+"""Regression: last_target in before_ally_as_attack PS context must resolve
+to the ally attacker (trigger_attacker), not the enemy.
+
+Bug: PS 130057 (ポイズンライド) uses target_type=last_target. In
+     _resolve_target_type, last_target was hardcoded to ENEMIES. Without
+     trigger_attacker override in _apply_aura, the add_damage_to_attack
+     buff (mapped to ENCHANT_DAMAGE) was applied to the enemy instead of
+     the ally attacker. The enemy then dealt extra enchant damage on its
+     attacks (src_atk from PS holder, not from enemy itself).
+
+     Symptom in battle log:
+       [附魔伤害] 霞光 → 世界への反逆者: 52680 点物理伤害【附魔】
+       [src_atk:138051 b_atk:103580 ...]
+     where 霞光 (enemy) should never have ENCHANT_DAMAGE, and src_atk=138051
+     came from the ally PS holder (102301), not from 霞光 itself.
+
+     Second-stage fix: 130057's effect was restructured to match 追撃符 (130051)
+     pattern — split into two independent effects:
+       1. add_damage_to_attack (enchant damage, hit_limited=1, duration=null)
+       2. poison + carried_debuff:true (poison payload, hit_limited=1, duration=3)
+     The poison is applied as a buff to the ally attacker (carried_debuff),
+     then transferred to the attacked enemy when the ally attacks.
+
+Fix: _apply_aura now treats last_target like ally_single for buff override:
+     when trigger_attacker is set (PS trigger context), the buff is applied
+     to the trigger_attacker (ally attacker), not the enemy.
+     _process_enchant_damage extended to support poison as a carried_debuff type.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+
+class TestRegLastTargetInTriggerContext(unittest.TestCase):
+    """Regression: PS 130057 add_damage_to_attack buff must be applied to
+    the ally attacker (trigger_attacker), not the enemy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # Ally AS attacker: character_type=3 (Agility) to satisfy 130057's
+        # global_condition (actor_character_type=3).
+        # Uses a non-existent character_id so check_triggers falls back to
+        # unit.skills, keeping the test isolated from other PS.
+        self.as_attacker = UnitState(
+            unit_id="ally_as_attacker", name="AS_attacker", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999998, level=10,
+            element=5, character_type=3,
+            max_hp=999999, current_hp=999999,
+            attack=50000, defense=1000, speed=500,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=6, initial_passive_point=6, max_extra_point=10,
+            current_ap=6, current_pp=6, current_ep=0,
+            skills=[120108],
+            skill_levels={120108: 10},
+            skill_cooldowns={},
+        )
+
+        # Ally PS holder: owns 130057 ポイズンライド
+        #   trigger_type=before_ally_as_attack
+        #   global_condition=actor_character_type:3
+        #   effect 1: add_damage_to_attack, target_type=last_target, hit_limited=1
+        #   effect 2: poison + carried_debuff:true, target_type=last_target,
+        #             duration=3, hit_limited=1, poison_damage_pct=10
+        #   PP cost=2
+        self.ps_holder = UnitState(
+            unit_id="ally_ps_holder", name="PS_holder", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=999997, level=10,
+            element=3, character_type=3,
+            max_hp=999999, current_hp=999999,
+            attack=138051, defense=1000, speed=400,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=6, initial_passive_point=6, max_extra_point=10,
+            current_ap=6, current_pp=6, current_ep=0,
+            skills=[130057],
+            skill_levels={130057: 15},
+            skill_cooldowns={},
+        )
+
+        # Enemy target: should NOT receive the add_damage_to_attack buff
+        # or poison debuff during PS trigger phase
+        self.enemy = UnitState(
+            unit_id="enemy_target", name="Enemy", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999999, level=10,
+            element=6, character_type=2,
+            max_hp=999999, current_hp=999999,
+            attack=100000, defense=1000, speed=300,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=6, initial_passive_point=6, max_extra_point=10,
+            current_ap=6, current_pp=6, current_ep=0,
+            skills=[],
+            skill_levels={},
+            skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.as_attacker)
+        self.bf.add_unit(self.ps_holder)
+        self.bf.add_unit(self.enemy)
+
+        self.controller = BattleFlowController(self.bf, data_loader=self.dl)
+        self.controller._build_display_names()
+        self.controller.skill_service.set_battlefield(self.bf)
+
+    def _trigger_ps(self):
+        """Helper: trigger 130057 PS and execute its actions."""
+        actions = self.controller.trigger_service.trigger_before_ally_as_attack(
+            self.as_attacker, 120108, self.bf
+        )
+        self.assertGreaterEqual(
+            len(actions), 1,
+            "130057 should trigger for agility-type ally AS attacker"
+        )
+        self.controller._execute_trigger_actions(actions, self.as_attacker)
+
+    def test_add_damage_to_attack_buff_applied_to_ally_not_enemy(self):
+        """130057's add_damage_to_attack buff should be applied to the ally
+        attacker (trigger_attacker), not the enemy.
+
+        Bug: last_target was resolved to ENEMIES in _resolve_target_type,
+             and _apply_aura did not override the target to trigger_attacker
+             for last_target, so the buff was applied to the enemy.
+        Fix: _apply_aura now treats last_target like ally_single: when
+             trigger_attacker is set, the buff is applied to the ally attacker.
+        """
+        ps_holder_pp_before = self.ps_holder.current_pp
+        self.assertEqual(ps_holder_pp_before, 6, "PS holder should start with PP=6")
+
+        self._trigger_ps()
+
+        # Verify 130057 actually executed: PS holder consumed 2 PP (130057 cost=2)
+        self.assertEqual(
+            self.ps_holder.current_pp, 4,
+            "PS holder PP should be 4 (was 6, -2 from 130057 PS cost). "
+            "If still 6, 130057 did not trigger or execute."
+        )
+
+        # KEY ASSERTION: add_damage_to_attack buff should be on the ally attacker
+        # add_damage_to_attack maps to ENCHANT_DAMAGE (EnchantDamage) in
+        # _JSON_EFFECT_TO_ENUM, and is a buff (in _get_buff_types, not _get_debuff_types)
+        ally_enchant_buffs = [b for b in self.as_attacker.buffs
+                              if b.effect_type == "EnchantDamage"]
+        self.assertGreaterEqual(
+            len(ally_enchant_buffs), 1,
+            "Ally attacker should have EnchantDamage buff "
+            "(add_damage_to_attack applied via last_target -> trigger_attacker). "
+            "If 0, the buff was not applied to the ally attacker."
+        )
+        # EnchantDamage buff should be hit_limited (one-shot), duration=1 with skip_restore
+        # (hit_limited>0 + null duration → dur=1 skip_restore=True, expires at end of current action)
+        enchant_buff = ally_enchant_buffs[0]
+        self.assertEqual(enchant_buff.hit_limited, 1,
+                         "EnchantDamage buff should be hit_limited=1 (one-shot)")
+        self.assertEqual(enchant_buff.duration, 1,
+                         "EnchantDamage buff should have duration=1 (expires at end of current action)")
+        self.assertTrue(getattr(enchant_buff, 'skip_restore', False),
+                        "EnchantDamage buff should have skip_restore=True")
+
+        # KEY ASSERTION: enemy should NOT have EnchantDamage buff
+        enemy_enchant_buffs = [b for b in self.enemy.buffs
+                               if b.effect_type == "EnchantDamage"]
+        self.assertEqual(
+            len(enemy_enchant_buffs), 0,
+            "Enemy should NOT have EnchantDamage buff. "
+            "If >0, last_target was resolved to enemy instead of trigger_attacker "
+            "(the bug that caused 霞光 to deal enchant damage)."
+        )
+
+    def test_poison_carried_debuff_applied_to_ally_not_enemy(self):
+        """130057's poison effect (with carried_debuff:true) should be applied
+        as a buff to the ally attacker, not as a debuff to the enemy.
+
+        Bug (stage 2): 130057 originally used a single add_damage_to_attack
+             effect with add_status:poison, but _process_enchant_damage only
+             handled burn (not poison), and the field name was mismatched
+             (status_duration vs add_status_duration).
+        Fix (stage 2): Restructured 130057 to match 追撃符 (130051) pattern:
+             split into two effects — add_damage_to_attack + poison(carried_debuff).
+             _process_enchant_damage extended to support poison as carried_debuff.
+        """
+        self._trigger_ps()
+
+        # KEY ASSERTION: ally attacker should have a Poison buff (carried_debuff)
+        # The poison effect is applied as a buff (actual_is_debuff=False) because
+        # carried_debuff=true and caster.side==target.side
+        ally_poison_buffs = [b for b in self.as_attacker.buffs
+                             if b.effect_type == "Poison"]
+        self.assertGreaterEqual(
+            len(ally_poison_buffs), 1,
+            "Ally attacker should have Poison buff (carried_debuff payload). "
+            "If 0, the poison effect was not applied as carried_debuff to the ally."
+        )
+
+        poison_buff = ally_poison_buffs[0]
+        # Poison carried_debuff should be hit_limited=1 (one-shot payload)
+        self.assertEqual(poison_buff.hit_limited, 1,
+                         "Poison carried_debuff should be hit_limited=1 (one-shot)")
+        # Duration should be 3 (3行動分の毒効果)
+        self.assertEqual(poison_buff.duration, 3,
+                         "Poison carried_debuff should have duration=3 (3行動分)")
+        # is_debuff should be False (applied as buff to ally, not debuff)
+        self.assertFalse(poison_buff.is_debuff,
+                         "Poison carried_debuff should be is_debuff=False when on ally")
+        # hit_limited_flags should contain carried_debuff metadata
+        hlf = getattr(poison_buff, 'hit_limited_flags', {}) or {}
+        self.assertTrue(hlf.get('carried_debuff'),
+                        "Poison buff should have carried_debuff=True in hit_limited_flags")
+        self.assertEqual(hlf.get('carried_debuff_type'), 'poison',
+                         "carried_debuff_type should be 'poison'")
+        self.assertEqual(hlf.get('poison_damage_pct'), 10,
+                         "poison_damage_pct should be 10 (10% current HP)")
+        # caster_attack should be set (from PS holder) for poison DoT damage cap
+        self.assertEqual(poison_buff.caster_attack, 138051,
+                         "Poison buff caster_attack should be PS holder's attack (138051)")
+
+        # KEY ASSERTION: enemy should NOT have Poison debuff (PS trigger phase only)
+        enemy_poison_debuffs = [d for d in self.enemy.debuffs
+                                if d.effect_type == "Poison"]
+        self.assertEqual(
+            len(enemy_poison_debuffs), 0,
+            "Enemy should NOT have Poison debuff during PS trigger phase. "
+            "Poison should be transferred to enemy only when ally attacks."
+        )
+
+    def test_poison_transferred_to_enemy_on_attack(self):
+        """Full flow: after PS trigger, when ally attacks, the poison
+        carried_debuff should be consumed and transferred to the attacked enemy.
+
+        This verifies the complete 追撃符-style flow:
+        1. PS trigger: ally gets EnchantDamage + Poison(carried_debuff) buffs
+        2. Ally attacks: enchant damage triggers, poison payload transfers to enemy
+        3. Both buffs are consumed (hit_limited 1->0)
+        4. Enemy receives Poison debuff (dur=3, value=0.1, caster_attack from PS holder)
+        """
+        self._trigger_ps()
+
+        # Verify buffs exist before attack
+        self.assertGreaterEqual(
+            len([b for b in self.as_attacker.buffs if b.effect_type == "EnchantDamage"]), 1,
+            "Ally should have EnchantDamage buff before attack"
+        )
+        self.assertGreaterEqual(
+            len([b for b in self.as_attacker.buffs if b.effect_type == "Poison"]), 1,
+            "Ally should have Poison carried_debuff buff before attack"
+        )
+
+        # Ally executes AS skill to attack enemy
+        skill_result = self.controller.skill_service.execute_skill(
+            self.as_attacker, 120108, self.bf, skip_cost=True
+        )
+        self.assertGreater(
+            skill_result.get("total_damage", 0), 0,
+            "AS skill should deal damage to enemy"
+        )
+
+        # KEY ASSERTION: both buffs should be consumed (hit_limited expired)
+        ally_enchant_buffs = [b for b in self.as_attacker.buffs
+                              if b.effect_type == "EnchantDamage"]
+        self.assertEqual(
+            len(ally_enchant_buffs), 0,
+            "EnchantDamage buff should be consumed after attack (hit_limited expired)"
+        )
+
+        ally_poison_buffs = [b for b in self.as_attacker.buffs
+                             if b.effect_type == "Poison"]
+        self.assertEqual(
+            len(ally_poison_buffs), 0,
+            "Poison carried_debuff buff should be consumed after attack (hit_limited expired)"
+        )
+
+        # KEY ASSERTION: enemy should now have Poison debuff (transferred from ally)
+        enemy_poison_debuffs = [d for d in self.enemy.debuffs
+                                if d.effect_type == "Poison"]
+        self.assertGreaterEqual(
+            len(enemy_poison_debuffs), 1,
+            "Enemy should have Poison debuff after being attacked by ally "
+            "with carried_debuff payload. If 0, poison was not transferred."
+        )
+
+        poison_debuff = enemy_poison_debuffs[0]
+        self.assertTrue(poison_debuff.is_debuff,
+                        "Transferred poison should be is_debuff=True on enemy")
+        self.assertEqual(poison_debuff.duration, 3,
+                         "Transferred poison should have duration=3 (3行動分)")
+        self.assertAlmostEqual(poison_debuff.value, 0.1, places=4,
+                               msg="Transferred poison value should be 0.1 (10% current HP)")
+        self.assertEqual(poison_debuff.caster_attack, 138051,
+                         "Transferred poison caster_attack should be PS holder's attack (138051)")
+        self.assertEqual(poison_debuff.source_unit_id, "ally_ps_holder",
+                         "Transferred poison source should be PS holder")
+
+    def test_no_enchant_buff_without_ps_holder(self):
+        """Sanity check: without a PS holder (no 130057), no ally should
+        receive EnchantDamage buff from before_ally_as_attack trigger."""
+        # Remove PS holder's skills so no PS triggers
+        self.ps_holder.skills = []
+        self.ps_holder.skill_levels = {}
+
+        actions = self.controller.trigger_service.trigger_before_ally_as_attack(
+            self.as_attacker, 120108, self.bf
+        )
+
+        self.assertEqual(len(actions), 0, "No PS should trigger without 130057")
+
+        ally_enchant_buffs = [b for b in self.as_attacker.buffs
+                              if b.effect_type == "EnchantDamage"]
+        self.assertEqual(len(ally_enchant_buffs), 0,
+                         "Ally attacker should have no EnchantDamage buff "
+                         "without 130057 PS")
+
+
+if __name__ == '__main__':
+    unittest.main()

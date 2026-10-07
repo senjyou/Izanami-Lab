@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-07T09:40:16.759Z",
+  "sessionId": "sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "tests/regression/test_reg_hit_rate_semantics.py",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 10,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

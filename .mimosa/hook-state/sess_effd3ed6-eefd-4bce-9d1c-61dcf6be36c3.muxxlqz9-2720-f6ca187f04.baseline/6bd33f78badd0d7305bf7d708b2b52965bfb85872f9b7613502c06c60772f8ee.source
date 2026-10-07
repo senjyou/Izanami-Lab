@@ -1,0 +1,485 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+命中率相关语义回归测试（黑暗 / 必中 / 回避 / 回避不可）
+
+锁定的语义规则（与游戏设计确认一致）：
+1. 黑暗(debuff, 付与攻击者)直接操作技能命中率：per-skill 一次判定（d_pct = debuff.value），
+   任意一层黑暗命中即整段技能全部 MISS。
+2. 黑暗无视必中(sure_hit)与回避不可：攻击者持有必中/被施加回避不可时，
+   黑暗判定依然独立生效。
+3. 黑暗 MISS 不消耗防御者的回避buff（黑暗与回避是两条独立判定链）。
+4. 必中与回避不可是完全相同的效果：无视防御者回避buff、必定命中、
+   且不消耗回避buff（回避不可在引擎中即以 sure_hit 实现，如 230490 スティッキーロック）。
+5. 无必中时，防御者回避buff按概率回避并消耗 hit_limited。
+6. 黑暗同样直接操作 buff/debuff 付与命中：持有黑暗的单位对敌方付与debuff、
+   对己方（含自身）付与buff，均按失手率掷骰，MISS则付与失败。
+   黑暗无视必中；黑暗判定先于回避判定（MISS不消耗回避层数）。
+   覆盖路径：_apply_aura（_check_aura_target_skip）、_apply_add_status、
+   _apply_stealth、_apply_guard、_apply_skill_power_down、_apply_block_buff_by_type、
+   _apply_heal_link、_apply_shield_from_damage。
+7. once_per_battle 标记只在技能自身配置 once_per_battle=true 时写入与拦截：
+   全局触发路径修复（battle_flow_controller._execute_global_trigger_actions）
+   不影响普通每回合PS的重复触发（ファストジャッジ vs ダイブスリープ对照）。
+"""
+
+import io
+import json
+import logging
+import random
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, Attribute, SkillEffectType, AuraUpdateTiming,
+)
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.skill_service import SkillService
+
+SURE_HIT = SkillEffectType.SURE_HIT.value
+EVADE = SkillEffectType.EVADE.value
+DARKNESS = SkillEffectType.DARKNESS.value
+
+
+def _make_unit(unit_id, name, side, position, attack=10000, defense=500,
+               max_hp=100000, speed=500, crit_rate=0.0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=1, element=Attribute.FIRE.value, character_type=1,
+        max_hp=max_hp, attack=attack, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+        current_hp=max_hp, current_ap=4, current_pp=4, current_ep=0.0,
+        is_alive=True,
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    return bf
+
+
+def _mk_buff(effect_type, value=0, hit_limited=0, name="buff"):
+    return BuffState(
+        buff_id=f"t_{effect_type}_{id(name)}", name=name,
+        effect_type=effect_type, value=value,
+        duration=-1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+        source_unit_id="src", source_skill_id=0, is_debuff=False,
+        hit_limited=hit_limited,
+    )
+
+
+def _mk_darkness(pct):
+    d = BuffState(
+        buff_id=f"dark_{pct}_{id(pct)}", name="暗闇",
+        effect_type=DARKNESS, value=pct,
+        duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id="src", source_skill_id=0, is_debuff=True,
+    )
+    return d
+
+
+def _mk_dmg_obj(hit_count=1, power=100.0):
+    return type('obj', (object,), {
+        'power': power, 'hit_count': hit_count, 'element': 1,
+        'ignore_defense': 0, 'ignore_shield': 0, 'hp_scaling_bonus': 0.0,
+        'cannot_crit': True, 'force_crit': False, 'bonus_crit_rate': 0.0,
+        'skill_id': 999999, 'name': 'test_skill', 'base_value_source': None,
+    })
+
+
+class TestDarknessVsSureHitVsEvade(unittest.TestCase):
+    """黑暗 / 必中 / 回避 三条判定链的语义矩阵（dmg路径）"""
+
+    def setUp(self):
+        self.dms = DamageService()
+
+    def _run(self, attacker, defender, hit_count=1):
+        return self.dms.calculate_damage(attacker, defender, _mk_dmg_obj(hit_count=hit_count))
+
+    def test_darkness_overrides_sure_hit(self):
+        """黑暗100% + 必中 → 仍然MISS（黑暗无视必中，直接操作命中率）"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.buffs.append(_mk_buff(SURE_HIT, name="必中"))
+        attacker.debuffs.append(_mk_darkness(100))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertEqual(result.total_damage, 0, "黑暗100%下必中仍应MISS")
+        self.assertTrue(result.calc_detail.get("darkness_miss"))
+        # 回避buff不被黑暗MISS消耗
+        self.assertEqual(len(defender.buffs), 1, "回避buff不应被消耗")
+        self.assertEqual(defender.buffs[0].hit_limited, 1)
+
+    def test_darkness_independent_of_evade(self):
+        """黑暗100% + 回避buff（无必中）→ MISS且回避不消耗（两条独立判定链）"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.debuffs.append(_mk_darkness(100))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertEqual(result.total_damage, 0)
+        self.assertTrue(result.calc_detail.get("darkness_miss"))
+        self.assertEqual(len(defender.buffs), 1, "黑暗MISS不消耗回避buff")
+
+    def test_sure_hit_ignores_evade_buff(self):
+        """必中 + 回避100% → 命中且回避buff不消耗（必中无视回避）"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.buffs.append(_mk_buff(SURE_HIT, name="必中"))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertGreater(result.total_damage, 0, "必中应无视回避buff命中")
+        self.assertFalse(all(result.hit_evades))
+        self.assertEqual(len(defender.buffs), 1, "必中下回避buff不应被消耗")
+        self.assertEqual(defender.buffs[0].hit_limited, 1)
+
+    def test_darkness_zero_does_not_interfere(self):
+        """黑暗0%（p=0永不MISS）+ 必中 + 回避100% → 命中（黑暗判定通过后走必中）"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.buffs.append(_mk_buff(SURE_HIT, name="必中"))
+        attacker.debuffs.append(_mk_darkness(0))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertGreater(result.total_damage, 0)
+        self.assertEqual(len(defender.buffs), 1)
+
+    def test_evade_triggers_and_consumes_without_sure_hit(self):
+        """无必中 + 回避(value=0→默认100%) → 回避触发并消耗1层"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        defender.buffs.append(_mk_buff(EVADE, value=0, hit_limited=1, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertEqual(result.total_damage, 0, "回避100%应MISS")
+        self.assertTrue(all(result.hit_evades))
+        self.assertEqual(len(defender.buffs), 0, "hit_limited=1消耗后回避buff应移除")
+
+    def test_evade_percent_branch(self):
+        """无必中 + 回避(value=100%) → 回避触发并消耗（百分比分支）"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=2, name="回避"))
+
+        result = self._run(attacker, defender)
+        self.assertEqual(result.total_damage, 0)
+        self.assertEqual(len(defender.buffs), 1, "hit_limited=2应剩余1层")
+        self.assertEqual(defender.buffs[0].hit_limited, 1)
+
+    def test_darkness_multi_hit_single_decision(self):
+        """黑暗100% + 3hit → 单次判定使全部hit MISS"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.debuffs.append(_mk_darkness(100))
+
+        result = self._run(attacker, defender, hit_count=3)
+        self.assertEqual(result.total_damage, 0)
+        self.assertEqual(len(result.hit_details), 3)
+        self.assertTrue(all(result.hit_evades), "3个hit应全部MISS")
+        self.assertTrue(result.calc_detail.get("darkness_miss"))
+
+
+class TestDebuffLandingEvadePath(unittest.TestCase):
+    """debuff 落地判定链（skill_service._check_aura_target_skip）：
+    黑暗判定（施法者侧，最优先）→ 回避buff判定（防御者侧，必中可压制）。
+    黑暗MISS时付与失败且不消耗回避buff（黑暗先于回避）。"""
+
+    def _make_skill_service(self):
+        svc = SkillService(
+            data_loader=MagicMock(),
+            resource_service=MagicMock(),
+            target_service=TargetService(),
+            damage_service=MagicMock(),
+            aura_service=AuraService(),
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        # 正常由 _execute_skill 初始化的技能级状态（直接调用 _apply_aura 时需手动补齐）
+        svc._skill_evaded_targets = set()
+        svc._debuff_immune_blocked_targets = set()
+        return svc
+
+    def _make_effect(self, effect_type="atk_down", target_type="enemy_single", flags=None):
+        e = MagicMock()
+        for k, v in dict(effect_type=effect_type, target_type=target_type,
+                         target_identifier=None, value=10, value_tag=None,
+                         duration=1, duration_type="action", hit_count=None,
+                         condition=None,
+                         flags=flags if flags is not None else {"value_type": "percent"}).items():
+            setattr(e, k, v)
+        return e
+
+    def _apply(self, attacker, defender, effect=None):
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        bf = _make_bf(attacker, defender)
+        return svc._apply_aura(attacker, effect or self._make_effect(), bf, is_debuff=True)
+
+    def test_sure_hit_lets_debuff_land_without_consuming_evade(self):
+        """施法者必中 + 目标回避buff → debuff落地、回避不消耗"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.buffs.append(_mk_buff(SURE_HIT, name="必中"))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        self._apply(attacker, defender)
+        atk_debuffs = [d for d in defender.debuffs if d.effect_type == "StatusAttack"]
+        self.assertEqual(len(atk_debuffs), 1, "必中下debuff应落地")
+        self.assertEqual(len(defender.buffs), 1, "回避buff不应被消耗")
+
+    def test_debuff_evaded_without_sure_hit(self):
+        """无必中 + 目标回避buff → debuff被回避、回避消耗1层"""
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+
+        self._apply(attacker, defender)
+        atk_debuffs = [d for d in defender.debuffs if d.effect_type == "StatusAttack"]
+        self.assertEqual(len(atk_debuffs), 0, "debuff应被回避")
+        self.assertEqual(len(defender.buffs), 0, "回避buff消耗后应移除")
+
+
+class TestDarknessOnBuffDebuffApplication(unittest.TestCase):
+    """黑暗直接操作buff/debuff付与命中（用户确认规则）：
+    持有黑暗debuff的单位，对敌方付与debuff、对己方（含自身）付与buff，
+    均按黑暗失手率掷骰，MISS则付与失败。无视必中；先于回避判定（不消耗回避层数）。
+    """
+
+    def _make_skill_service(self):
+        svc = SkillService(
+            data_loader=MagicMock(),
+            resource_service=MagicMock(),
+            target_service=TargetService(),
+            damage_service=MagicMock(),
+            aura_service=AuraService(),
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._skill_evaded_targets = set()
+        svc._debuff_immune_blocked_targets = set()
+        return svc
+
+    def _make_effect(self, effect_type="atk_down", target_type="enemy_single", flags=None):
+        e = MagicMock()
+        for k, v in dict(effect_type=effect_type, target_type=target_type,
+                         target_identifier=None, value=10, value_tag=None,
+                         duration=1, duration_type="action", hit_count=None,
+                         condition=None,
+                         flags=flags if flags is not None else {"value_type": "percent"}).items():
+            setattr(e, k, v)
+        return e
+
+    def _atk_debuffs(self, unit):
+        return [d for d in unit.debuffs if d.effect_type == "StatusAttack"]
+
+    def _atk_buffs(self, unit):
+        return [b for b in unit.buffs if b.effect_type == "StatusAttack"]
+
+    def test_darkness_100_debuff_misses_and_spares_evade(self):
+        """黑暗100% + 目标回避buff → debuff付与MISS且回避buff不消耗（黑暗先于回避）"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.debuffs.append(_mk_darkness(100))
+        defender.buffs.append(_mk_buff(EVADE, value=100, hit_limited=1, name="回避"))
+        bf = _make_bf(attacker, defender)
+
+        svc._apply_aura(attacker, self._make_effect(), bf, is_debuff=True)
+        self.assertEqual(len(self._atk_debuffs(defender)), 0, "黑暗100%下debuff付与应MISS")
+        self.assertEqual(len(defender.buffs), 1, "黑暗MISS不应消耗回避buff")
+        self.assertEqual(defender.buffs[0].hit_limited, 1)
+
+    def test_darkness_100_self_buff_misses(self):
+        """黑暗100% → 对自身施加buff也MISS"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        caster.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(caster)
+
+        svc._apply_aura(caster, self._make_effect("atk_up", "self"), bf, is_debuff=False)
+        self.assertEqual(len(self._atk_buffs(caster)), 0, "黑暗100%下自身buff付与应MISS")
+
+    def test_darkness_100_ally_buff_misses(self):
+        """黑暗100% → 对己方施加buff也MISS"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        ally = _make_unit("b", "Ally", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        caster.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(caster, ally)
+
+        svc._apply_aura(caster, self._make_effect("atk_up", "ally_single"), bf, is_debuff=False)
+        self.assertEqual(len(self._atk_buffs(ally)), 0, "黑暗100%下友方buff付与应MISS")
+
+    def test_darkness_0_all_applications_land(self):
+        """黑暗0%（永不MISS）→ debuff/buff付与全部正常"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        enemy = _make_unit("d", "Enemy", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        caster.debuffs.append(_mk_darkness(0))
+        bf = _make_bf(caster, enemy)
+
+        svc._apply_aura(caster, self._make_effect(), bf, is_debuff=True)
+        self.assertEqual(len(self._atk_debuffs(enemy)), 1, "黑暗0%下debuff应正常落地")
+
+        svc2 = self._make_skill_service()
+        svc2._current_skill_id = 999001
+        caster2 = _make_unit("a2", "Caster2", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        caster2.debuffs.append(_mk_darkness(0))
+        bf2 = _make_bf(caster2)
+        svc2._apply_aura(caster2, self._make_effect("atk_up", "self"), bf2, is_debuff=False)
+        self.assertEqual(len(self._atk_buffs(caster2)), 1, "黑暗0%下自身buff应正常落地")
+
+    def test_darkness_overrides_sure_hit_on_application(self):
+        """黑暗100% + 施法者必中 → debuff付与仍MISS（黑暗无视必中）"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        attacker = _make_unit("a", "Atk", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        defender = _make_unit("d", "Def", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        attacker.buffs.append(_mk_buff(SURE_HIT, name="必中"))
+        attacker.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(attacker, defender)
+
+        svc._apply_aura(attacker, self._make_effect(), bf, is_debuff=True)
+        self.assertEqual(len(self._atk_debuffs(defender)), 0, "黑暗100%下必中不应让debuff落地")
+
+    def test_darkness_blocks_add_status(self):
+        """黑暗100% → add_status（异常状态付与）也MISS"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        enemy = _make_unit("d", "Enemy", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        caster.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(caster, enemy)
+
+        effect = self._make_effect("add_status", "enemy_single",
+                                   flags={"status_type": "poison"})
+        result = svc._apply_add_status(caster, effect, bf)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.get("target_count", 0), 0, "黑暗100%下add_status付与应MISS")
+        self.assertEqual(len(enemy.debuffs), 0)
+
+    def test_darkness_blocks_skill_power_down_handler(self):
+        """黑暗100% → 专用handler（skill_power_down）付与也MISS"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        enemy = _make_unit("d", "Enemy", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        caster.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(caster, enemy)
+
+        effect = self._make_effect("skill_power_down", "enemy_single",
+                                   flags={})
+        result = svc._apply_skill_power_down(caster, effect, bf)
+        spd_debuffs = [d for d in enemy.debuffs
+                       if d.effect_type == SkillEffectType.SKILL_POWER_DOWN.value]
+        self.assertEqual(len(spd_debuffs), 0, "黑暗100%下skill_power_down付与应MISS")
+        self.assertIsNotNone(result)
+
+    def test_darkness_blocks_stealth_handler(self):
+        """黑暗100% → 专用handler（stealth自付与）也MISS"""
+        svc = self._make_skill_service()
+        svc._current_skill_id = 999001
+        caster = _make_unit("a", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        caster.debuffs.append(_mk_darkness(100))
+        bf = _make_bf(caster)
+
+        effect = self._make_effect("stealth", "self", flags={})
+        effect.duration = 2
+        effect.duration_type = "action"
+        effect.value = 1
+        svc._apply_stealth(caster, effect, bf)
+        stealth_buffs = [b for b in caster.buffs
+                         if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertEqual(len(stealth_buffs), 0, "黑暗100%下stealth付与应MISS")
+
+
+class TestOncePerBattleGlobalPath(unittest.TestCase):
+    """once_per_battle 修复的判别验证：
+    - ダイブスリープ(230489, once_per_battle=true) 全局路径下战斗中仅发动1次
+    - ファストジャッジ(230493, 无once_per_battle) 每回合发动（PP允许范围内），
+      修复不影响普通每回合PS的重复触发
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from src.data.data_loader import DataLoader
+        from src.combat_v2.circle_battle_controller import CircleBattleController
+        from src.combat_v2.battle_flow_controller import BattleConfig
+        from src.entities_v2.enums import Position as P
+        from src.utils.batch_simulator import _create_circle_battle_enemy_worker
+
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        with (ROOT / "data" / "circle_battle_enemies.json").open("r", encoding="utf-8") as f:
+            cb = json.load(f)
+        stage_data = cb["season_7"]["1"]
+
+        random.seed(20261007)
+        bf = BattlefieldState()
+        POS = [P.ALLY_LEFT_FRONT, P.ALLY_CENTER_FRONT, P.ALLY_RIGHT_FRONT,
+               P.ALLY_LEFT_BACK, P.ALLY_CENTER_BACK, P.ALLY_RIGHT_BACK]
+        # 弱攻强防假人：保证5回合打满（敌方不掉血、我方不掉血）
+        for i in range(6):
+            bf.add_unit(UnitState(
+                unit_id=f"A_{i}", name=f"Ally{i}", side=Side.ALLY, position=POS[i],
+                character_id=1000 + i, level=100, element=Attribute.FIRE.value, character_type=1,
+                max_hp=500000, attack=100, defense=50000, speed=1000,
+                crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+                initial_active_point=6, initial_passive_point=6, max_extra_point=0,
+                current_hp=500000, current_ap=6, current_pp=6, current_ep=0,
+                skills=[120002], skill_levels={120002: 1}, skill_cooldowns={}, is_alive=True,
+            ))
+        for enemy_data in stage_data["enemies"]:
+            u = _create_circle_battle_enemy_worker(cls.dl, enemy_data)
+            if u:
+                bf.add_unit(u)
+        bc = BattleConfig()
+        bc.max_turns = stage_data.get("max_turn", 5)
+        controller = CircleBattleController(bf, data_loader=cls.dl, config=bc, season=7, stage=1)
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        battle_log = logging.getLogger("MGGBattleSim")
+        battle_log.addHandler(handler)
+        controller.execute_battle()
+        battle_log.removeHandler(handler)
+        cls.log_text = buf.getvalue()
+
+    def test_once_per_battle_ps_fires_exactly_once(self):
+        """ダイブスリープ(once_per_battle)全局路径战斗中仅发动1次"""
+        count = self.log_text.count(
+            "[PS_EXEC] Global trigger: スウォング PS[ダイブスリープ]")
+        self.assertEqual(count, 1,
+                         f"ダイブスリープ应仅发动1次，实际{count}次")
+
+    def test_normal_turn_start_ps_fires_every_turn(self):
+        """ファストジャッジ（无once_per_battle，PP2/上限4）应发动≥2回合，
+        证明全局路径once标记不影响普通每回合PS"""
+        count = self.log_text.count(
+            "[PS_EXEC] Global trigger: サーヴェント PS[ファストジャッジ]")
+        self.assertGreaterEqual(count, 2,
+                                f"ファストジャッジ应发动≥2次，实际{count}次")
+
+
+if __name__ == "__main__":
+    unittest.main()

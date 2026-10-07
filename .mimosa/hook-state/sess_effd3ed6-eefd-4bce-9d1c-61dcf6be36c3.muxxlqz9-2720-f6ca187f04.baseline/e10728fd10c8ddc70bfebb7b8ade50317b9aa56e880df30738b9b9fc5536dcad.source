@@ -1,0 +1,123 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""S7 对抗压制战冒烟测试：构建第7期阶段100战斗并验证17个新技能均可发动。
+
+输出每技能的发动次数（从battle log捕获），不做断言只做冒烟，
+正式回归覆盖见 tests/regression/test_reg_circle_battle_s7.py
+"""
+import io
+import json
+import logging
+import random
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.entities_v2.unit_state import UnitState
+from src.combat_v2.circle_battle_controller import CircleBattleController
+from src.combat_v2.battle_flow_controller import BattleConfig
+from src.utils.batch_simulator import _create_circle_battle_enemy_worker
+
+SKILL_NAMES = {
+    210133: "カタラクトブレイク", 220461: "ルインブースト", 220462: "ストリームブレイク",
+    220463: "ウェーブバッシュ", 230493: "ファストジャッジ",
+    220455: "スウォームファング", 230487: "カウンターバイト", 230488: "デスレイジハイ",
+    230489: "ダイブスリープ",
+    220458: "シェルクレア", 220459: "コキュートバリア", 220460: "バブルリヴァ",
+    230492: "アクアオラクル",
+    220456: "グーイダウン", 220457: "スラッジバレット", 230490: "スティッキーロック",
+    230491: "シャドウグー",
+    # 已实现（ヴィーヴル共用）
+    220172: "スチームサプレッサー", 220173: "ガイザー・マウ",
+    230163: "アクアアンプ", 230164: "リジェネスパウト",
+}
+
+POS_ALLY = [Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT,
+            Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK]
+
+
+def make_ally(i, alive=True):
+    return UnitState(
+        unit_id=f"A_{i}", name=f"Ally{i}", side=Side.ALLY, position=POS_ALLY[i],
+        character_id=1000 + i, level=100, element=Attribute.FIRE.value, character_type=1,
+        max_hp=50000, attack=12000, defense=5000, speed=1000,
+        crit_rate=0.2, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=6, initial_passive_point=6, max_extra_point=0,
+        current_hp=50000 if alive else 0, current_ap=6, current_pp=6, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={}, is_alive=alive,
+    )
+
+
+def run_stage(dl, stage_data, seed):
+    random.seed(seed)
+    bf = BattlefieldState()
+    for i in range(6):
+        bf.add_unit(make_ally(i))
+    for enemy_data in stage_data["enemies"]:
+        u = _create_circle_battle_enemy_worker(dl, enemy_data)
+        if u:
+            bf.add_unit(u)
+    bc = BattleConfig()
+    bc.max_turns = stage_data.get("max_turns", 5)
+    controller = CircleBattleController(bf, data_loader=dl, config=bc, season=7, stage=100)
+    return controller.execute_battle()
+
+
+def main():
+    dl = DataLoader()
+    dl.load_all()
+    with (ROOT / "data" / "circle_battle_enemies.json").open("r", encoding="utf-8") as f:
+        cb = json.load(f)
+    season7 = cb["season_7"]
+
+    counts = {sid: 0 for sid in SKILL_NAMES}
+    errors = []
+    for stage in ("1", "50", "100"):
+        stage_data = season7[stage]
+        for seed in (1, 7, 42):
+            try:
+                result = run_stage(dl, stage_data, seed)
+            except Exception as e:
+                errors.append(f"stage={stage} seed={seed}: {type(e).__name__}: {e}")
+                continue
+
+    # 从log捕获技能发动（复跑一次开着INFO日志）
+    handler_stream = io.StringIO()
+    handler = logging.StreamHandler(handler_stream)
+    battle_log = logging.getLogger("MGGBattleSim")  # 战斗日志单例（propagate=False）
+    battle_log.addHandler(handler)
+    for stage in ("1", "100"):
+        stage_data = season7[stage]
+        for seed in (1, 7, 42, 99, 123):
+            try:
+                run_stage(dl, stage_data, seed)
+            except Exception as e:
+                errors.append(f"log-stage={stage} seed={seed}: {type(e).__name__}: {e}")
+    log_text = handler_stream.getvalue()
+    battle_log.removeHandler(handler)
+
+    for sid, name in SKILL_NAMES.items():
+        counts[sid] = (log_text.count(f"(id={sid})") + log_text.count(f"skill[{sid}]")
+                       + log_text.count(f"[{sid}]"))
+
+    print("\n===== S7 冒烟测试结果 =====")
+    for sid, name in SKILL_NAMES.items():
+        mark = "OK " if counts[sid] > 0 else ("-- " if str(sid) in ("220172", "220173", "230163", "230164") else "!! ")
+        print(f"{mark}{sid} {name}: {counts[sid]}")
+    never_fired = [sid for sid in SKILL_NAMES if counts[sid] == 0]
+    print(f"\n未发动技能: {never_fired if never_fired else '无'}")
+    if errors:
+        print("\n异常:")
+        for e in errors:
+            print(" ", e)
+    else:
+        print("无异常")
+
+
+if __name__ == "__main__":
+    main()

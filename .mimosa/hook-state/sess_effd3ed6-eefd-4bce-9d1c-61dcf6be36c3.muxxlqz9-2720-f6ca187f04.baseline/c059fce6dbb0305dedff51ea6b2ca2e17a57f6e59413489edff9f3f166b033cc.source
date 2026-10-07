@@ -1,0 +1,15 @@
+# -*- coding: utf-8 -*-
+"""临时查询：120302角色5个技能的tag数值"""
+import json
+
+d = json.load(open(r'f:\MGG\muv_luv_girlsgardenx_cl\MGGBattleSimulation\data\skills.json', encoding='utf-8'))
+for sid in ['110075', '120164', '130166', '130167', '130168']:
+    s = d[sid]
+    print('=' * 60)
+    print(sid, s.get('name'), 'type=', s.get('skill_type'), 'cost=', s.get('resource_cost'),
+          'cooldown=', s.get('cooldown'), 'cd_timing=', s.get('cooldown_update_timing'))
+    for desc in s.get('descriptions', []):
+        print(f"  [Lv{desc['min_level']}+] {desc['template']}")
+    for tag, info in s.get('template_tags', {}).items():
+        vals = {v['level']: v['value'] for v in info['values']}
+        print(f"  tag {tag}: {vals}")

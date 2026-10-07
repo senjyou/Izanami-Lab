@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""1v1 快速测试"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillType
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.skill_data_resolver import SkillDataResolver
+from src.data.data_loader import DataLoader
+
+
+def create_unit(dl, cid, side, pos):
+    char = dl.get_character_by_id(cid)
+    skills = dl.load_character_skills().get(cid, [])
+    lvl = 200
+    lerp = dl.load_level_lerp_data().get(lvl, 1.0)
+    ms, xs = char.min_level_stats, char.max_level_stats
+
+    max_ep = 8
+    for sid in skills:
+        sk = dl.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = sk.resource_cost
+            break
+
+    return UnitState(
+        unit_id=f"{'F' if side==Side.ALLY else 'E'}_{cid}",
+        name=char.name, side=side, position=pos,
+        character_id=cid, level=lvl,
+        element=char.attribute, character_type=char.character_type,
+        max_hp=int(ms.hp+(xs.hp-ms.hp)*lerp),
+        current_hp=int(ms.hp+(xs.hp-ms.hp)*lerp),
+        attack=int(ms.attack+(xs.attack-ms.attack)*lerp),
+        defense=int(ms.defense+(xs.defense-ms.defense)*lerp),
+        speed=int(ms.speed+(xs.speed-ms.speed)*lerp),
+        crit_rate=ms.crit_rate+(xs.crit_rate-ms.crit_rate)*lerp,
+        crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=char.action_point,
+        initial_passive_point=char.passive_point,
+        max_extra_point=max_ep,
+        current_ap=char.action_point,
+        current_pp=char.passive_point,
+        current_ep=0,
+        skills=skills,
+        skill_cooldowns={},
+    )
+
+
+def main():
+    dl = DataLoader()
+    dl.load_all()
+
+    print("\n" + "=" * 60)
+    print("  MGGBattleSimulation - 1v1 战斗测试")
+    print("=" * 60)
+
+    friend = create_unit(dl, 121301, Side.ALLY, Position.ALLY_CENTER_FRONT)
+    enemy = create_unit(dl, 110301, Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+
+    print(f"\n  我方: {friend.name}")
+    print(f"    HP:{friend.current_hp} ATK:{friend.attack} DEF:{friend.defense} SPD:{friend.speed}")
+    for sid in friend.skills:
+        m = dl.get_skill_by_id(sid)
+        if m:
+            print(f"    [{SkillType(m.skill_type).name}] {m.name} (cost={m.resource_cost})")
+
+    print(f"\n  敌方: {enemy.name}")
+    print(f"    HP:{enemy.current_hp} ATK:{enemy.attack} DEF:{enemy.defense} SPD:{enemy.speed}")
+    for sid in enemy.skills:
+        m = dl.get_skill_by_id(sid)
+        if m:
+            print(f"    [{SkillType(m.skill_type).name}] {m.name} (cost={m.resource_cost})")
+
+    bf = BattlefieldState()
+    bf.add_unit(friend)
+    bf.add_unit(enemy)
+
+    ctrl = BattleFlowController(bf, data_loader=dl)
+    result = ctrl.execute_battle()
+
+    print("\n" + "=" * 60)
+    print(f"  结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in [friend, enemy]:
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        print(f"  {u.name}: {s} | 造成伤害:{u.damage_dealt_total} | 行动:{u.action_count_total}")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

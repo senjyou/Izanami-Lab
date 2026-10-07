@@ -1,0 +1,415 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""混乱(Confusion)状态异常机制单元测试
+
+测试覆盖：
+1. 技能选择过滤：混乱中仅含伤害效果的AS可用，EX/PS跳过
+2. 效果执行过滤：混乱中仅damage/hp_ratio_damage/damage_special/consume_hp执行，其他效果FAIL
+3. 目标反转：混乱中敌方↔友方反转，自身优先级最后
+4. 伤害减免：混乱中所有伤害路径减免dmg%
+5. 代理数值：混乱中ATK≤DEF时用ATK×proxy%替代base_diff
+6. PS触发器过滤：混乱中不触发PS（眩晕/冻结同等待遇）
+
+参考硬约束：
+- 单位处于眩晕/冻结状态时，不得触发任何PS技能
+- 混乱也属于状态异常，PS触发同样被过滤
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+SET = SkillEffectType
+CONFUSION = SET.CONFUSION.value
+DAMAGE = SET.DAMAGE.value
+HEAL = SET.HEAL.value
+ATK_UP = SET.STATUS_ATTACK.value
+
+
+def _make_confusion_buff(caster_id: str, dmg_reduction: float = 50.0,
+                         proxy_atk_pct: float = 10.0, duration: int = 1) -> BuffState:
+    """构造一个混乱debuff用于测试"""
+    return BuffState(
+        buff_id=f"{caster_id}_confusion_test",
+        name=CONFUSION,
+        effect_type=CONFUSION,
+        value=0,
+        duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=caster_id,
+        is_debuff=True,
+        confusion_dmg_reduction=dmg_reduction,
+        confusion_proxy_atk_pct=proxy_atk_pct,
+    )
+
+
+class TestConfusionMechanism(unittest.TestCase):
+    """混乱机制单元测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 歴戦の鉄母 (混亂測試對象)
+        self.caster = UnitState(
+            unit_id="caster", name="施法者", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=143301, level=10,
+            element=6, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=12000, defense=5000, speed=600,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=50,
+            skills=[120130, 120131, 130136, 130137, 110059],
+            skill_levels={120130: 10, 120131: 10, 130136: 10,
+                          130137: 10, 110059: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排（用于测试混乱目标反转）
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=10,
+            element=6, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中
+        self.enemy_cf = UnitState(
+            unit_id="enemy_cf", name="敌方中前", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前
+        self.enemy_lf = UnitState(
+            unit_id="enemy_lf", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999002, level=10,
+            element=1, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=5000, defense=3000, speed=400,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        for u in [self.caster, self.ally_front, self.enemy_cf, self.enemy_lf]:
+            self.bf.add_unit(u)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+        self.ts = ts
+
+    def _apply_confusion_to_caster(self, dmg_reduction=50.0, proxy_atk_pct=10.0):
+        """对caster施加混乱debuff"""
+        conf = _make_confusion_buff(self.caster.unit_id, dmg_reduction, proxy_atk_pct)
+        self.caster.debuffs.append(conf)
+        self.caster.is_confused = True
+
+    # ============================================================
+    # 1. 技能选择过滤
+    # ============================================================
+
+    def test_select_skill_skips_ex_when_confused(self):
+        """混乱中：select_skill跳过EX技能（即使EP满）"""
+        self.caster.current_ep = self.caster.max_extra_point  # EP满
+        self._apply_confusion_to_caster()
+
+        # 不应返回EX(110059)，而应返回AS技能
+        selected = self.ss.select_skill(self.caster)
+        self.assertNotEqual(selected, 110059, "混乱中不应选择EX技能")
+        self.assertIn(selected, [120130, 120131], f"应选择AS技能, 实际={selected}")
+
+    def test_select_skill_filters_non_damage_as(self):
+        """混乱中：仅含伤害效果的AS可用"""
+        self._apply_confusion_to_caster()
+        # 120130和120131都含damage效果，都应可选
+        # 此处主要验证select_skill不会返回None（除非所有AS都不含伤害）
+        selected = self.ss.select_skill(self.caster)
+        self.assertIsNotNone(selected, "混乱中含伤害AS应可选")
+
+    def test_select_skill_returns_none_if_no_damage_as(self):
+        """混乱中：所有AS都不含伤害效果时返回None（待机）"""
+        # 替换skills为不含damage的AS技能
+        # 找一个不含damage效果的AS技能进行测试
+        # 使用一个确定不含damage效果的技能ID（如纯治疗AS）
+        # 这里用120085（届け、マイソング！）作为不含damage的AS例子，但实际上它含有damage
+        # 改为直接构造一个不存在于data的AS id，应被过滤
+        self.caster.skills = [130136, 130137, 110059]  # 全是PS/EX，无AS
+        self._apply_confusion_to_caster()
+
+        selected = self.ss.select_skill(self.caster)
+        self.assertIsNone(selected, "混乱中无可用AS时应返回None(待机)")
+
+    def test_skill_has_damage_effect_correct(self):
+        """_skill_has_damage_effect正确识别含伤害效果的技能"""
+        # 120130 (粛清です) 含damage效果
+        self.assertTrue(self.ss._skill_has_damage_effect(120130, 10),
+                        "120130应包含damage效果")
+        # 120131 (システマ・ヴラシェーニヤΑ) 含damage效果
+        self.assertTrue(self.ss._skill_has_damage_effect(120131, 10),
+                        "120131应包含damage效果")
+
+    # ============================================================
+    # 2. 效果执行过滤
+    # ============================================================
+
+    def test_confused_caster_only_executes_damage_effects(self):
+        """
+        混乱中：AS技能执行时，仅damage类效果执行，其他效果FAIL
+        使用AS2 120131测试：
+        - damage效果应执行
+        - lifesteal/mark/dmg_taken_down应FAIL（不在白名单）
+        """
+        self._apply_confusion_to_caster()
+        hp_before_enemy = self.enemy_cf.current_hp
+        hp_before_caster = self.caster.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # damage效果应执行（敌方或友方受伤，取决于目标反转）
+        # 由于混乱目标反转，原本打敌方现在打友方
+        ally_damaged = self.ally_front.current_hp < hp_before_caster if self.ally_front.unit_id != self.caster.unit_id else False
+        # caster攻击的应是友方（混乱反转）
+        ally_hp_lost = max(0, 20000 - self.ally_front.current_hp)
+        self.assertGreater(ally_hp_lost, 0,
+                           f"混乱中AS2应打到友方(目标反转), ally_front HP lost={ally_hp_lost}")
+
+        # mark效果应FAIL：caster不应获得dmg_taken_down buff
+        # 但caster可能因为攻击友方而无法施加debuff（is_debuff on ally）... 实际上mark的target是enemy_single
+        # 混乱反转后mark的target变成ally_single，但ally_front身上不应有mark（因为效果FAIL）
+        marks_on_ally = [d for d in self.ally_front.debuffs if d.effect_type == SET.MARK.value]
+        self.assertEqual(len(marks_on_ally), 0,
+                         f"混乱中mark效果应FAIL, ally_front不应有mark debuff: {len(marks_on_ally)}")
+
+    # ============================================================
+    # 3. 目标反转
+    # ============================================================
+
+    def test_confused_caster_targets_ally_instead_of_enemy(self):
+        """
+        混乱中：原本打敌方的AS，目标反转为友方
+        验证: AS2(120131)原本打enemy_single，混乱后打ally_front
+        """
+        self._apply_confusion_to_caster()
+        hp_before_ally = self.ally_front.current_hp
+        hp_before_enemy = self.enemy_cf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 友方受伤（目标反转）
+        self.assertLess(self.ally_front.current_hp, hp_before_ally,
+                        "混乱中AS2应攻击友方(目标反转)")
+        # 敌方不应受伤
+        self.assertEqual(self.enemy_cf.current_hp, hp_before_enemy,
+                         "混乱中AS2不应攻击敌方")
+
+    def test_confused_caster_self_priority_last(self):
+        """
+        混乱中：自身优先级最后（即使自身在候选中，也优先选其他单位）
+        验证: 当caster和ally_front同时在候选列表中时，ally_front优先被选
+        """
+        self._apply_confusion_to_caster()
+        # AS2 enemy_single反转后变成ally_single，候选为caster和ally_front
+        # 应优先选ally_front（自身优先级最后）
+        hp_before_ally = self.ally_front.current_hp
+        hp_before_caster = self.caster.current_hp
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+
+        # ally_front受伤，caster未受伤（自身优先级最后）
+        self.assertLess(self.ally_front.current_hp, hp_before_ally,
+                        "自身优先级最后：应优先攻击ally_front")
+        self.assertEqual(self.caster.current_hp, hp_before_caster,
+                          "自身优先级最后：caster不应被攻击")
+
+    # ============================================================
+    # 4. 伤害减免
+    # ============================================================
+
+    def test_confusion_reduces_damage(self):
+        """
+        混乱中：所有伤害减免dmg% (Lv10时为50%)
+        验证: 混乱中的伤害 < 非混乱时的伤害
+        """
+        # 场景1: 非混乱，记录伤害
+        hp_before_1 = self.enemy_cf.current_hp
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        dmg_no_confusion = hp_before_1 - self.enemy_cf.current_hp
+        self.assertGreater(dmg_no_confusion, 0, "非混乱时应造成伤害")
+
+        # 重置场景
+        self.enemy_cf.current_hp = 50000
+        self.enemy_cf.debuffs = []
+        self.caster.buffs = []
+        self.caster.debuffs = []
+
+        # 场景2: 混乱中，记录伤害（目标反转为ally_front）
+        self._apply_confusion_to_caster(dmg_reduction=50.0)
+        hp_before_2 = self.ally_front.current_hp
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        dmg_with_confusion = hp_before_2 - self.ally_front.current_hp
+        self.assertGreater(dmg_with_confusion, 0, "混乱中应造成伤害(目标反转后打友方)")
+
+        # 混乱中的伤害应明显小于非混乱时（减免50%）
+        # 注意：场景1打敌方(DEF=3000)，场景2打友方(DEF=4000)，DEF不同会有微小差异
+        # 但50%减免应显著降低伤害
+        self.assertLess(dmg_with_confusion, dmg_no_confusion * 0.7,
+                       f"混乱减免50%后伤害({dmg_with_confusion})应显著小于非混乱({dmg_no_confusion})")
+
+    # ============================================================
+    # 5. 代理数值
+    # ============================================================
+
+    def test_confusion_proxy_value_when_atk_le_def(self):
+        """
+        混乱中：ATK ≤ DEF时使用ATK×proxy%作为代理数值
+        场景: caster.ATK=1200, target.DEF=2000 (ATK<DEF)
+              proxy_atk_pct=10% → base_diff = 1200×10% = 120
+              普通模式下 base_diff = max(1, 1200-2000) = 1
+              代理模式下 base_diff = 120，伤害更高
+        验证: 代理模式伤害 > 普通模式伤害
+        """
+        # 构造ATK<DEF的场景
+        self.caster.attack = 1200
+        self.ally_front.defense = 2000  # target DEF > ATK
+
+        # 场景1: 混乱中无代理数值 (proxy_atk_pct=0)
+        self._apply_confusion_to_caster(dmg_reduction=0.0, proxy_atk_pct=0.0)
+        hp_before_no_proxy = self.ally_front.current_hp
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        dmg_no_proxy = hp_before_no_proxy - self.ally_front.current_hp
+
+        # 重置
+        self.ally_front.current_hp = 20000
+        self.caster.debuffs = []
+        self.caster.is_confused = False
+
+        # 场景2: 混乱中有代理数值 (proxy_atk_pct=10%)
+        self._apply_confusion_to_caster(dmg_reduction=0.0, proxy_atk_pct=10.0)
+        hp_before_with_proxy = self.ally_front.current_hp
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        dmg_with_proxy = hp_before_with_proxy - self.ally_front.current_hp
+
+        # 代理数值应让伤害更高（base_diff从1变成120）
+        self.assertGreater(dmg_with_proxy, dmg_no_proxy,
+                           f"代理数值模式伤害({dmg_with_proxy})应大于无代理({dmg_no_proxy})")
+
+    def test_confusion_no_proxy_when_atk_gt_def(self):
+        """
+        混乱中：ATK > DEF时不使用代理数值（正常ATK-DEF计算）
+        场景: caster.ATK=12000, target.DEF=3000 (ATK>DEF)
+              代理数值不生效，base_diff = 12000-3000 = 9000
+        """
+        self.caster.attack = 12000
+        self.ally_front.defense = 3000
+
+        self._apply_confusion_to_caster(dmg_reduction=0.0, proxy_atk_pct=10.0)
+        hp_before = self.ally_front.current_hp
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120131,
+            battlefield=self.bf, skip_cost=True,
+        )
+        dmg = hp_before - self.ally_front.current_hp
+
+        # 正常模式下base_diff=9000，技能威力156%
+        # 预期伤害 ≈ 9000 × 1.56 = 14040
+        self.assertGreater(dmg, 10000,
+                           f"ATK>DEF时正常伤害应较大, 实际={dmg}")
+
+    # ============================================================
+    # 6. PS触发器过滤
+    # ============================================================
+
+    def test_confused_unit_does_not_trigger_ps(self):
+        """
+        混乱中：不触发PS技能（与眩晕/冻结同等待遇）
+        验证: caster混乱时，on_turn_start不触发PS2(130137)
+        """
+        self._apply_confusion_to_caster()
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130137]
+        self.assertEqual(len(ps2_actions), 0,
+                         "混乱中不应触发PS2(130137)")
+
+    def test_non_confused_unit_triggers_ps(self):
+        """非混乱中：正常触发PS"""
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns = {}
+
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130137]
+        self.assertGreater(len(ps2_actions), 0,
+                           "非混乱时应触发PS2(130137)")
+
+
+if __name__ == '__main__':
+    unittest.main()

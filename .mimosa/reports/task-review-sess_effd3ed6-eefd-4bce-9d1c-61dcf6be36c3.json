@@ -1,0 +1,211 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261007T094456794Z-50912-03eafbf731a0",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "scan",
+      "target": "tests/regression/test_reg_hit_rate_semantics.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "src/combat_v2/services/skill_service.py",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 484,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 2
+    },
+    "change_tracking": {
+      "touched_observed": 2,
+      "touched_retained": 2,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 2,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 2,
+      "selected_files": 2,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 2,
+      "scanned_files": 0,
+      "skipped_files": 0,
+      "failed_files": 2,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "scanner_failed": 2,
+      "project_check_failed": 2
+    },
+    "reasons": [
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "tests/regression/test_reg_hit_rate_semantics.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "tests/regression/test_reg_hit_rate_semantics.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "src/combat_v2/services/skill_service.py",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-10-07T09:44:56.794Z",
+  "session_id": "sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3",
+  "target": ".",
+  "revision": "e9a42958a5467ee3d409dbf4cb44adb243b64bdf",
+  "rules_version": "unavailable",
+  "diff_hash": "449d0fb8d40c6a6d50a52909c60e7ac83c8315102731f31e23956be3e5fa54f0",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 2,
+    "changed_files": [
+      {
+        "file": "src/combat_v2/services/skill_service.py",
+        "ranges": [
+          {
+            "start": 8432,
+            "end": 8450
+          },
+          {
+            "start": 8499,
+            "end": 8513
+          },
+          {
+            "start": 9628,
+            "end": 9630
+          },
+          {
+            "start": 10240,
+            "end": 10242
+          },
+          {
+            "start": 10296,
+            "end": 10299
+          },
+          {
+            "start": 10491,
+            "end": 10493
+          },
+          {
+            "start": 11983,
+            "end": 11985
+          },
+          {
+            "start": 13299,
+            "end": 13302
+          },
+          {
+            "start": 13633,
+            "end": 13635
+          }
+        ],
+        "before_hash": "d36cf1ebb8cafb701bf368e10fc234f39312442b0e85d8a4e1fa8afa9dc02016",
+        "after_hash": "01a787c834402fd73688685ba795d96a09bc379a5359a4ea22564f4201b30023"
+      },
+      {
+        "file": "tests/regression/test_reg_hit_rate_semantics.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 485
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "e05d1e20e8af352f7c3f9eee22eab5355be935ac9967495a29e578f5df264bd5"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-10-07T09:44:54.349Z",
+    "completed_at": "2026-10-07T09:44:56.794Z",
+    "duration_ms": 2445,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 2445,
+    "peakMemoryBytes": 160284672,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 0,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3-20261007T094456794Z-50912-03eafbf731a0.json",
+    "latest_report": ".mimosa/reports/task-review-sess_effd3ed6-eefd-4bce-9d1c-61dcf6be36c3.json",
+    "history_summary": ".mimosa/history/run-20261007T094456794Z-50912-03eafbf731a0.json"
+  }
+}

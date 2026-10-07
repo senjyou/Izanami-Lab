@@ -84738,5 +84738,470 @@
       }
     },
     "display_info": {}
+  },
+  "210133": {
+    "skill_id": 210133,
+    "name": "カタラクトブレイク",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}でEN攻撃し、対象が次に受ける攻撃での被ダメージを最高{dmg}%増加させる（重複可）。この効果は付与時の自身のHPが少ないほど高い効果を発揮し、HP30%地点で最高値となる"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 32.220001220703125
+          },
+          {
+            "level": 4,
+            "value": 36.650001525878906
+          },
+          {
+            "level": 6,
+            "value": 38.86000061035156
+          },
+          {
+            "level": 7,
+            "value": 43.29999923706055
+          },
+          {
+            "level": 9,
+            "value": 45.52000045776367
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "220461": {
+    "skill_id": 220461,
+    "name": "ルインブースト",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の攻撃力を8%、与ダメージを5%上昇させ（重複可・解除不可）、敵全体に1行動の間、攻撃力×{dmg}%の継続ENダメージを付与する。\n自身のHPが80%未満の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    }
+  },
+  "220462": {
+    "skill_id": 220462,
+    "name": "ストリームブレイク",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合の高い敵を含む敵前後列に威力{威力}で5ヒットEN攻撃する。このスキルはENタイプに対して優先して発動する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 15.600000381469727
+          }
+        ]
+      }
+    }
+  },
+  "220463": {
+    "skill_id": 220463,
+    "name": "ウェーブバッシュ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合の高い敵単体に威力{威力}でEN攻撃する。このスキルはENタイプに対して優先して発動する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 10,
+            "value": 117.0
+          }
+        ]
+      }
+    }
+  },
+  "230493": {
+    "skill_id": 230493,
+    "name": "ファストジャッジ",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。最も行動速度が速い敵単体に威力{威力}で先制EN攻撃する。\n対象に対して自身の属性が有利だった場合、さらに1行動の間敵全体の行動速度と威力を50%低下させる"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 10,
+            "value": 46.79999923706055
+          }
+        ]
+      }
+    }
+  },
+  "220455": {
+    "skill_id": 220455,
+    "name": "スウォームファング",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に3ヒット攻撃する。生存中の味方の数により、この攻撃の威力が変化する。\n・4体以上：威力{威力1}で攻撃する\n・3体：威力{威力2}で攻撃する\n・2体：威力{威力3}で攻撃する\n・1体：威力{威力4}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力1": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 27.5
+          }
+        ]
+      },
+      "威力3": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 32.5
+          }
+        ]
+      },
+      "威力4": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 37.5
+          }
+        ]
+      }
+    }
+  },
+  "230487": {
+    "skill_id": 230487,
+    "name": "カウンターバイト",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵から攻撃を受けた直後に発動。攻撃してきた敵単体に威力{威力}で反撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          }
+        ]
+      }
+    }
+  },
+  "230488": {
+    "skill_id": 230488,
+    "name": "デスレイジハイ",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が倒された際に発動。自身の「雌伏」を1つ解除し、味方全体の攻撃力を3.5%、防御力を3.5%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {}
+  },
+  "230489": {
+    "skill_id": 230489,
+    "name": "ダイブスリープ",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身に対しステルスを付与し、さらに「雌伏」を4つ付与する（自身以外解除不可）。「雌伏」は1つにつき行動速度を12.5%低下させる（重複可）。このスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220458": {
+    "skill_id": 220458,
+    "name": "シェルクレア",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHPが低い味方単体を対象とし、対象のデバフを全解除する。\nさらに「シェル」を1つ付与する。「シェル」は1つにつき対象の最大HP・攻撃力・防御力・行動速度・会心率を7.5%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220459": {
+    "skill_id": 220459,
+    "name": "コキュートバリア",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方全体に対し、次に受ける攻撃でのダメージを最高50%減少させる効果を付与する。この効果は自身のHPが少ないほど高い効果を発揮し、HP30%時点で最高値となる"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220460": {
+    "skill_id": 220460,
+    "name": "バブルリヴァ",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "HPが低い順に、味方2体のHPを威力{威力}で回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          }
+        ]
+      }
+    }
+  },
+  "230492": {
+    "skill_id": 230492,
+    "name": "アクアオラクル",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方が敵から攻撃を受けた直後に発動。攻撃を受けた味方単体を対象とし、対象のHPを威力{威力}で回復する。\nさらにスキル発動時に対象のHPが30%未満だった場合、攻撃してきた敵単体に1行動の幻惑を付与する。幻惑はダメージ効果を回復効果へと変換する。回復値は本来のダメージ値の50%となる"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          }
+        ]
+      }
+    }
+  },
+  "220456": {
+    "skill_id": 220456,
+    "name": "グーイダウン",
+    "skill_type": 1,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も行動速度が速い敵単体に対し、自身が1回行動を終えるまでの間、攻撃力と防御力を12.5%低下させる（重複可）。デバフは自身が倒れると解除される"
+      }
+    ],
+    "template_tags": {}
+  },
+  "220457": {
+    "skill_id": 220457,
+    "name": "スラッジバレット",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も行動速度が速い敵単体に威力{威力}でEN攻撃し、対象の行動速度を30低下させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          }
+        ]
+      }
+    }
+  },
+  "230490": {
+    "skill_id": 230490,
+    "name": "スティッキーロック",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "（同時発動制限）他の味方がアクティブスキルで攻撃する前に発動。対象の敵単体に対し、この行動内での回避を不可にするデバフを付与する。対象の敵単体が回避バフを所持していない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {}
+  },
+  "230491": {
+    "skill_id": 230491,
+    "name": "シャドウグー",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が累計で最大HP×25%のダメージを受けるたびに発動。ランダムな敵単体に1行動の暗闇を付与する。暗闇状態は75%の確率でスキルが命中しなくなる。さらに対象の敵単体のHPが50%以上だった場合、自身のPPを1回復する"
+      }
+    ],
+    "template_tags": {}
   }
 }

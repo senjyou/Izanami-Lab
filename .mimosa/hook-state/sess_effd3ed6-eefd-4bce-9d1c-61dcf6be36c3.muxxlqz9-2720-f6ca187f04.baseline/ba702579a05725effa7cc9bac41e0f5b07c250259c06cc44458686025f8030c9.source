@@ -1,0 +1,570 @@
+"""
+角色110302 はだけるわんぱく浴衣 专项测试
+- EX: 110036 桶シュート！（前列優先で敵横一列攻撃 + spd_down + Lv11+ crit_rate_down）
+- AS1: 120081 スーパー枕投げ（敵単体2hit攻撃）
+- AS2: 120082 みんなで温泉入ろ♪（自身を含む横一列の味方にdmg_dealt_up + dmg_taken_down）
+- PS1: 130093 湯上がりの牛乳（after_as_attack触发 + 前列味方atk_up）
+- PS2: 130094 温泉の効能（on_turn_start触发 + 味方全体に最大HPベースのシールド + 1回限定）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+# spd_down/spd_up都映射到STATUS_SPEED，区分靠buffs/debuffs列表
+SPD_DOWN = SkillEffectType.STATUS_SPEED.value
+CRIT_RATE_DOWN = SkillEffectType.STATUS_CRITICAL_CHANCE.value
+DEALT_DAMAGE_UP = SkillEffectType.DEALT_DAMAGE.value
+RECEIVED_DAMAGE_DOWN = SkillEffectType.RECEIVED_DAMAGE.value
+ATK_UP = SkillEffectType.STATUS_ATTACK.value
+SHIELD = SkillEffectType.SHIELD.value
+
+
+class TestActor110302(unittest.TestCase):
+    """角色110302 はだけるわんぱく浴衣 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 110302 はだけるわんぱく浴衣 (風属性=3, 物理型=1, 前排)
+        self.caster = UnitState(
+            unit_id="ally_front", name="はだけるわんぱく浴衣", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=110302, level=10,
+            element=3, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110036, 120081, 120082, 130093, 130094],
+            skill_levels={110036: 10, 120081: 10, 120082: 10, 130093: 10, 130094: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方后排中央（用于测试ally_row目标）
+        self.ally_back = UnitState(
+            unit_id="ally_back", name="友方后排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=999100, level=10,
+            element=3, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方左前（用于测试ally_front_row和ally_row）
+        self.ally_left_front = UnitState(
+            unit_id="ally_left_front", name="友方左前", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=999101, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前（与敌方前排同排，用于测试enemy_row）
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_back, self.ally_left_front]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_left_front, self.enemy_back]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: 桶シュート！ ───
+
+    def test_ex_damage_and_spd_down(self):
+        """
+        EX(110036) 前列優先で敵横一列攻撃 + spd_down
+        验证: 对敌方前排全体造成伤害并施加spd_down（固定值，可叠加）
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证伤害效果
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "EX应造成伤害")
+
+        # 验证目标为敌方前排横一列（enemy_front + enemy_left_front）
+        target_ids = set()
+        for e in dmg_effects:
+            for t in e.get("targets", []):
+                tid = t.get("target_id")
+                if tid:
+                    target_ids.add(tid)
+        self.assertIn("enemy_front", target_ids, "应攻击敌方前排中央")
+        self.assertIn("enemy_left_front", target_ids, "应攻击敌方左前（同排）")
+        self.assertNotIn("enemy_back", target_ids, "不应攻击敌方后排")
+
+        # 验证spd_down buff（固定值，可叠加）
+        spd_debuffs = [b for b in self.enemy_front.debuffs if b.effect_type == SPD_DOWN]
+        self.assertGreater(len(spd_debuffs), 0, "敌方前排应有spd_down debuff")
+        self.assertEqual(spd_debuffs[0].value_tag, 1, "spd_down应为固定值(value_tag=1)")
+
+    def test_ex_spd_down_stackable(self):
+        """EX(110036) spd_down可叠加"""
+        # 第一次施放
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+        spd_debuffs_1 = [b for b in self.enemy_front.debuffs if b.effect_type == SPD_DOWN]
+        count_1 = len(spd_debuffs_1)
+
+        # 第二次施放
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+        spd_debuffs_2 = [b for b in self.enemy_front.debuffs if b.effect_type == SPD_DOWN]
+        count_2 = len(spd_debuffs_2)
+
+        self.assertGreater(count_2, count_1, "spd_down应可叠加（stackable=true）")
+
+    def test_ex_lv11_crit_rate_down(self):
+        """
+        EX(110036) Lv11+ crit_rate_down
+        验证: 技能等级≥11时，额外施加crit_rate_down（百分比，可叠加）
+        """
+        self.caster.skill_levels[110036] = 15
+        self.caster.level = 15
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证crit_rate_down debuff
+        crit_debuffs = [b for b in self.enemy_front.debuffs if b.effect_type == CRIT_RATE_DOWN]
+        self.assertGreater(len(crit_debuffs), 0, "Lv15应施加crit_rate_down debuff")
+        self.assertEqual(crit_debuffs[0].value_tag, 0, "crit_rate_down应为百分比(value_tag=0)")
+
+    def test_ex_lv10_no_crit_rate_down(self):
+        """EX(110036) Lv10不施加crit_rate_down"""
+        self.caster.skill_levels[110036] = 10
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+
+        crit_debuffs = [b for b in self.enemy_front.debuffs if b.effect_type == CRIT_RATE_DOWN]
+        self.assertEqual(len(crit_debuffs), 0, "Lv10不应施加crit_rate_down")
+
+    # ─── AS1: スーパー枕投げ ───
+
+    def test_as1_two_hits(self):
+        """
+        AS1(120081) 敵単体に2hit攻撃
+        验证: hit_count=2，对敌方单体造成2次伤害
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120081, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "AS1应造成伤害")
+
+        # 验证2hit：targets中每个目标的hits列表应有2个伤害值
+        for e in dmg_effects:
+            targets = e.get("targets", [])
+            for t in targets:
+                hits = t.get("hits", [])
+                self.assertEqual(len(hits), 2,
+                                 f"AS1应为2hit攻击, 实际hit数: {len(hits)}")
+
+    # ─── AS2: みんなで温泉入ろ♪ ───
+
+    def test_as2_dmg_dealt_up_and_taken_down(self):
+        """
+        AS2(120082) 自身を含む横一列の味方にdmg_dealt_up + dmg_taken_down
+        验证: 施加增伤和减伤buff（百分比，可叠加，1行动）
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120082, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证caster获得dmg_dealt_up buff
+        dealt_up_buffs = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE_UP]
+        self.assertGreater(len(dealt_up_buffs), 0, "caster应获得dmg_dealt_up buff")
+        self.assertEqual(dealt_up_buffs[0].value_tag, 0, "dmg_dealt_up应为百分比")
+        self.assertEqual(dealt_up_buffs[0].duration, 1, "dmg_dealt_up持续1行动")
+
+        # 验证caster获得dmg_taken_down buff
+        taken_down_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE_DOWN]
+        self.assertGreater(len(taken_down_buffs), 0, "caster应获得dmg_taken_down buff")
+        self.assertEqual(taken_down_buffs[0].value_tag, 0, "dmg_taken_down应为百分比")
+        self.assertEqual(taken_down_buffs[0].duration, 1, "dmg_taken_down持续1行动")
+
+    def test_as2_target_ally_row(self):
+        """
+        AS2(120082) 目标为自身を含む横一列の味方（ally_row）
+        验证: caster在前排，应buff前排所有友方（caster + ally_left_front），不buff后排
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120082, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # caster（前排）应有buff
+        caster_buffs = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE_UP]
+        self.assertGreater(len(caster_buffs), 0, "caster(前排)应获得buff")
+
+        # ally_left_front（前排）应有buff
+        ally_front_buffs = [b for b in self.ally_left_front.buffs if b.effect_type == DEALT_DAMAGE_UP]
+        self.assertGreater(len(ally_front_buffs), 0, "ally_left_front(前排)应获得buff")
+
+        # ally_back（后排）不应有buff
+        ally_back_buffs = [b for b in self.ally_back.buffs if b.effect_type == DEALT_DAMAGE_UP]
+        self.assertEqual(len(ally_back_buffs), 0, "ally_back(后排)不应获得buff")
+
+    # ─── PS1: 湯上がりの牛乳 ───
+
+    def test_ps1_triggers_after_as_attack(self):
+        """
+        PS1(130093) AS攻击后触发
+        验证: after_as_attack触发器， caster使用AS后触发PS1
+        """
+        # 先执行AS技能
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120081, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 手动触发after_as_attack
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120081, result, self.bf
+        )
+
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130093]
+        self.assertGreater(len(ps1_actions), 0, "PS1应在AS攻击后触发")
+
+        # 执行PS1
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证前排友方获得atk_up buff
+        front_allies = [self.caster, self.ally_left_front]
+        for ally in front_allies:
+            atk_buffs = [b for b in ally.buffs if b.effect_type == ATK_UP]
+            self.assertGreater(len(atk_buffs), 0,
+                               f"{ally.name}(前排)应获得atk_up buff")
+
+    def test_ps1_atk_up_front_row_only(self):
+        """
+        PS1(130093) 仅前排友方获得atk_up
+        验证: target_type=ally_front_row，后排友方不获得buff
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120081, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120081, result, self.bf
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130093]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 后排友方不应有atk_up buff
+        ally_back_atk_buffs = [b for b in self.ally_back.buffs if b.effect_type == ATK_UP]
+        self.assertEqual(len(ally_back_atk_buffs), 0, "后排友方不应获得atk_up buff")
+
+    def test_ps1_atk_up_duration_2_actions(self):
+        """PS1(130093) atk_up持续2行动"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120081, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        trigger_actions = self.ts.trigger_after_skill_use(
+            self.caster, 120081, result, self.bf
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130093]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        atk_buffs = [b for b in self.caster.buffs if b.effect_type == ATK_UP]
+        self.assertGreater(len(atk_buffs), 0, "应获得atk_up buff")
+        self.assertEqual(atk_buffs[0].duration, 2, "atk_up应持续2行动")
+
+    # ─── PS2: 温泉の効能 ───
+
+    def test_ps2_triggers_on_turn_start(self):
+        """PS2(130094) ターン開始時に発動"""
+        actions = self.ts.trigger_turn_start(self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130094]
+        self.assertGreater(len(ps2_actions), 0, "PS2应在回合开始时触发")
+
+    def test_ps2_shield_max_hp_based(self):
+        """
+        PS2(130094) 基于自身最大HP的护盾
+        验证: shield_value = caster.max_hp * shield% / 100
+        Lv10时shield=35.0%，caster.max_hp=20000，预期shield_value=7000
+        """
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130094]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证全体友方获得shield buff
+        for ally in [self.caster, self.ally_back, self.ally_left_front]:
+            shield_buffs = [b for b in ally.buffs if b.effect_type == SHIELD]
+            self.assertGreater(len(shield_buffs), 0,
+                               f"{ally.name}应获得shield buff")
+            # 验证shield_amount基于max_hp
+            expected_shield = int(self.caster.max_hp * 35.0 / 100)
+            actual_shield = shield_buffs[0].shield_amount
+            self.assertEqual(actual_shield, expected_shield,
+                             f"{ally.name} shield应为max_hp*35%={expected_shield}, 实际: {actual_shield}")
+
+    def test_ps2_duration_caster_2_actions(self):
+        """
+        PS2(130094) シールドはスキル発動者の2行動後に消滅
+        验证: duration_owner=caster, duration=2, timing=DURABLE_SOURCE_MANEUVER_END
+        """
+        actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130094]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_start"
+        )
+
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertGreater(len(shield_buffs), 0, "应获得shield buff")
+        self.assertEqual(shield_buffs[0].duration, 2, "shield应持续2行动")
+        self.assertEqual(shield_buffs[0].timing_type,
+                         AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+                         "shield应在施法者行动结束时递减(duration_owner=caster)")
+
+    def test_ps2_once_per_battle(self):
+        """
+        PS2(130094) 戦闘中に1度しか発動しない
+        验证: cooldown=99确保只触发1次
+        """
+        # 第一次触发on_turn_start
+        actions_1 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions_1 = [a for a in actions_1 if a.skill_id == 130094]
+        self.assertGreater(len(ps2_actions_1), 0, "第一次应触发PS2")
+
+        # 执行PS2
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions_1, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证PS2进入cooldown=99
+        self.assertEqual(
+            self.caster.skill_cooldowns.get(130094, 0), 99,
+            f"PS2触发后cooldown应为99, 实际: {self.caster.skill_cooldowns.get(130094, 0)}"
+        )
+
+        # 第二次触发on_turn_start
+        actions_2 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions_2 = [a for a in actions_2 if a.skill_id == 130094]
+        self.assertEqual(len(ps2_actions_2), 0, "PS2在cooldown期间不应再次触发")
+
+    # ─── 追加テスト: トリガー誤発火防止・buff網羅・cooldown検証 ───
+
+    def test_ps1_not_triggered_by_ex(self):
+        """
+        PS1(130093 after_as_attack)只在AS攻撃後触発、EX技能不触发
+        验证: _match_trigger_timing 中 AFTER_SKILL_USE 仅放行 AS 类型技能
+        """
+        # 执行EX(110036)
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110036, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 调用trigger_after_as_attack，传入EX技能id
+        trigger_actions = self.ts.trigger_after_as_attack(
+            self.caster, 110036, result, self.bf
+        )
+
+        # PS1应不触发（EX skill_type=2，非AS skill_type=1）
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130093]
+        self.assertEqual(len(ps1_actions), 0, "EX技能不应触发PS1(after_as_attack)")
+
+    def test_ps2_no_second_trigger(self):
+        """
+        PS2(130094 once_per_battle cooldown=99)第二次trigger_turn_start不触发
+        验证: cooldown机制生效，第二次调用不返回PS2 action
+        """
+        # 第一次触发
+        actions_1 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions_1 = [a for a in actions_1 if a.skill_id == 130094]
+        self.assertGreater(len(ps2_actions_1), 0, "第一次应触发PS2")
+
+        # 执行PS2（设置cooldown=99）
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions_1, self.bf, trigger_timing="on_turn_start"
+        )
+
+        # 第二次触发
+        actions_2 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions_2 = [a for a in actions_2 if a.skill_id == 130094]
+        self.assertEqual(len(ps2_actions_2), 0, "PS2在cooldown期间不应再次触发")
+
+    def test_as2_both_buffs_on_all_row_allies(self):
+        """
+        AS2(120082) dmg_dealt_up和dmg_taken_down都施加到所有前排友方
+        验证: 3个前排友方(左前/中前=caster/右前)都同时获得两种buff
+        """
+        # 添加右前友方
+        ally_right_front = UnitState(
+            unit_id="ally_right_front", name="友方右前", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_FRONT, character_id=999102, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.friend_team.append(ally_right_front)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120082, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证所有前排友方都获得dmg_dealt_up和dmg_taken_down
+        front_allies = [self.caster, self.ally_left_front, ally_right_front]
+        for ally in front_allies:
+            dealt_up = [b for b in ally.buffs if b.effect_type == DEALT_DAMAGE_UP]
+            self.assertGreater(len(dealt_up), 0,
+                               f"{ally.name}应获得dmg_dealt_up buff")
+            taken_down = [b for b in ally.buffs if b.effect_type == RECEIVED_DAMAGE_DOWN]
+            self.assertGreater(len(taken_down), 0,
+                               f"{ally.name}应获得dmg_taken_down buff")
+
+    def test_ps1_enters_cooldown_after_trigger(self):
+        """
+        PS1(130093)触发后进入cooldown=3
+        验证: trigger_after_as_attack + _execute_trigger_actions_inline 后
+              caster.skill_cooldowns[130093] == 3
+        """
+        # 触发PS1（通过AS攻击后trigger）
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120081, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        trigger_actions = self.ts.trigger_after_as_attack(
+            self.caster, 120081, result, self.bf
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130093]
+        self.assertGreater(len(ps1_actions), 0, "PS1应在AS攻击后触发")
+
+        # 执行PS1的trigger actions
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="after_as_attack"
+        )
+
+        # 验证PS1进入cooldown=3
+        self.assertEqual(
+            self.caster.skill_cooldowns.get(130093, 0), 3,
+            f"PS1触发后cooldown应为3, 实际: {self.caster.skill_cooldowns.get(130093, 0)}"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

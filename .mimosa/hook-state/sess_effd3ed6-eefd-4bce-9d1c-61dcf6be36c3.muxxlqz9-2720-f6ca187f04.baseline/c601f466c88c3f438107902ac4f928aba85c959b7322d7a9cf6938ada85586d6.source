@@ -1,0 +1,514 @@
+"""
+角色116302 #激カワ吸血鬼配信者♪ 专项测试
+- EX:  110028 #ぽよ・オア・トリート（敵前後列damage + target_survived追加攻撃 + L11+ lifesteal）
+- AS:  120067 かぷっとファンサ（敵単体damage + 極限時consume_hp）
+- PS1: 130075 イモータル・ヴァンパイア（on_hp_below 10%: heal(max_hp%) + add_max_ap + mark(極限,unremovable) + L11+ dmg_dealt_up）
+- PS2: 130076 アウェイキング・ヴァンパイア（after_as_attacked: damage(trigger_attacker) + perfect_evasion; self_lacks_mark(極限) gate）
+- PS3: 130077 あなたにマーキング♡（on_turn_start: dmg_taken_up(enemy_single_furthest, attack_limited=1, stackable) + cheat_death(self, permanent)）
+
+角色信息:
+- 角色: #激カワ吸血鬼配信者♪
+- 属性: 2 (水), 类型: 3 (敏捷), 站位: 灵活, 定位: 控制
+- 技能: 110028, 120067, 130075, 130076, 130077
+- 核心机制: 「極限」状态 (mark with is_buff_mark=true, unremovable=true)
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+MARK = SkillEffectType.MARK.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value  # dmg_taken_up/down
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value  # dmg_dealt_up/down
+EVADE = SkillEffectType.EVADE.value
+CHEAT_DEATH = SkillEffectType.CHEAT_DEATH.value
+STATUS_MAX_AP = SkillEffectType.STATUS_MAX_AP.value
+
+
+class TestActor116302(unittest.TestCase):
+    """角色116302 #激カワ吸血鬼配信者♪ 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 116302 #激カワ吸血鬼配信者♪ (水属性, 敏捷, 灵活)
+        # 站在后排中央以便enemy_column索敌到中列(ENEMY_CENTER_FRONT + ENEMY_CENTER_BACK)
+        self.caster = UnitState(
+            unit_id="caster", name="#激カワ吸血鬼配信者♪", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=116302, level=10,
+            element=2, character_type=3,
+            max_hp=12000, current_hp=12000,
+            attack=8000, defense=4000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110028, 120067, 130075, 130076, 130077],
+            skill_levels={110028: 10, 120067: 10, 130075: 10, 130076: 10, 130077: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=4500, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方后排
+        self.ally_back = UnitState(
+            unit_id="ally_back", name="友方后排", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999102, level=10,
+            element=5, character_type=2,
+            max_hp=12000, current_hp=12000,
+            attack=6000, defense=3500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央 (column主目标，最近)
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排中", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央 (column副目标)
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排中", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=2,
+            max_hp=40000, current_hp=40000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排右 (最远位置, 用于130077 enemy_single_furthest测试)
+        self.enemy_front_right = UnitState(
+            unit_id="enemy_front_right", name="敌方前排右", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=50000, current_hp=50000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排右 (最远位置候选)
+        self.enemy_back_right = UnitState(
+            unit_id="enemy_back_right", name="敌方后排右", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_BACK, character_id=999004, level=10,
+            element=5, character_type=2,
+            max_hp=50000, current_hp=50000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=1,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前 (用于横列/最远测试)
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999005, level=10,
+            element=3, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=6500, defense=4000, speed=360,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [
+            self.caster, self.ally_front, self.ally_back
+        ]
+        self.bf.enemy_team = [
+            self.enemy_front, self.enemy_back,
+            self.enemy_front_right, self.enemy_back_right, self.enemy_left_front
+        ]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            trigger_service=self.ts,
+            status_service=self.sts,
+        )
+        self.ts.set_skill_service(self.ss)
+
+    def _apply_kyokugen_mark(self, unit):
+        """辅助：给单位施加「極限」mark (is_buff_mark=true, unremovable=true)"""
+        mark = BuffState(
+            buff_id="kyokugen_mark", name="極限", effect_type=MARK,
+            value=1, duration=-1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=unit.unit_id, source_skill_id=130075,
+            is_debuff=False, unremovable=True,
+        )
+        unit.buffs.append(mark)
+
+    # ─── EX: 110028 #ぽよ・オア・トリート ───
+
+    def test_ex_block1_column_damage(self):
+        """EX(110028) Block1 敵前後列damage命中2体"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110028, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有damage效果
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "EX应造成伤害")
+        # Block1应同时命中中列前后两体
+        front_damaged = self.enemy_front.current_hp < self.enemy_front.max_hp
+        back_damaged = self.enemy_back.current_hp < self.enemy_back.max_hp
+        self.assertTrue(front_damaged, "EX Block1应命中敌方前排中")
+        self.assertTrue(back_damaged, "EX Block1应命中敌方后排中")
+
+    def test_ex_block2_target_survived_followup(self):
+        """EX(110028) Block2 target_survived追加攻撃"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110028, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 前排中央存活时应有2次damage (Block1+Block2)
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 2,
+                         f"target存活时应有2次damage(Block1+Block2), 实际: {len(dmg_effects)}")
+
+    def test_ex_block2_skipped_when_target_killed(self):
+        """EX(110028) Block1击杀主目标时Block2跳过"""
+        # 将敌方前排中央HP设为1, 使Block1击杀
+        self.enemy_front.current_hp = 1
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110028, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 只应有1次damage (Block1击杀, Block2因target_survived失败跳过)
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 1,
+                         f"主目标被击杀时Block2应跳过, 实际damage次数: {len(dmg_effects)}")
+
+    def test_ex_block3_lifesteal_lv10_not_triggered(self):
+        """EX(110028) Lv10 Block3 lifesteal不触发(active_level_min:11)"""
+        self.caster.skill_levels[110028] = 10
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110028, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # Lv10不应有lifesteal
+        lifesteal_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "lifesteal"]
+        self.assertEqual(len(lifesteal_effects), 0, "Lv10不应触发lifesteal")
+        # HP不应变化
+        self.assertEqual(self.caster.current_hp, hp_before, "Lv10 caster HP不应变化")
+
+    def test_ex_block3_lifesteal_lv11_triggered(self):
+        """EX(110028) Lv11+ Block3 lifesteal基于_most_recent_damage总伤害"""
+        self.caster.skill_levels[110028] = 15
+        # 先扣HP以验证回血
+        self.caster.current_hp = 6000
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110028, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有lifesteal
+        lifesteal_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "lifesteal"]
+        self.assertEqual(len(lifesteal_effects), 1, "Lv11+应触发lifesteal")
+        # caster应回血
+        self.assertGreater(self.caster.current_hp, hp_before,
+                          "Lv11+ lifesteal应使caster回血")
+        # lifesteal应基于_most_recent_damage (Block1+2总伤害)
+        # cure Lv15=60%, _most_recent_damage应大于0
+        self.assertGreater(lifesteal_effects[0].get("damage_based_on", 0), 0,
+                          "lifesteal应基于_most_recent_damage总伤害")
+
+    # ─── AS: 120067 かぷっとファンサ ───
+
+    def test_as_no_mark_no_consume_hp(self):
+        """AS(120067) 無「極限」mark: 仅damage, 不consume_hp"""
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120067, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有damage
+        self.assertGreater(result["total_damage"], 0, "AS应有伤害")
+        # 无mark时不应consume_hp
+        consume_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "consume_hp"]
+        self.assertEqual(len(consume_effects), 0, "无極限mark时不应consume_hp")
+        # caster HP不应变化
+        self.assertEqual(self.caster.current_hp, hp_before, "无極限mark时caster HP不应变化")
+
+    def test_as_with_mark_consume_hp(self):
+        """AS(120067) 持「極限」mark: Block1 consume_hp + Block2 damage"""
+        self._apply_kyokugen_mark(self.caster)
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120067, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有consume_hp
+        consume_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "consume_hp"]
+        self.assertEqual(len(consume_effects), 1, "持極限mark时应有consume_hp")
+        # caster HP应减少 (Lv10 自傷=50%)
+        consumed = consume_effects[0].get("consumed", 0)
+        self.assertGreater(consumed, 0, "consume_hp应消耗HP")
+        expected_consume = int(hp_before * 50 / 100)
+        self.assertEqual(consumed, expected_consume,
+                         f"Lv10 自傷50%应消耗{expected_consume}, 实际: {consumed}")
+        # 应也有damage
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 1, "应有damage效果")
+
+    def test_as_lv15_consume_hp_25_percent(self):
+        """AS(120067) Lv15 自傷=25%"""
+        self.caster.skill_levels[120067] = 15
+        self._apply_kyokugen_mark(self.caster)
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120067, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        consume_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "consume_hp"]
+        self.assertEqual(len(consume_effects), 1)
+        consumed = consume_effects[0].get("consumed", 0)
+        expected_consume = int(hp_before * 25 / 100)
+        self.assertEqual(consumed, expected_consume,
+                         f"Lv15 自傷25%应消耗{expected_consume}, 实际: {consumed}")
+
+    # ─── PS1: 130075 イモータル・ヴァンパイア ───
+
+    def test_ps1_heal_and_mark(self):
+        """PS1(130075) Block1 heal(max_hp%) + add_max_ap + mark(極限, unremovable)"""
+        # 设置caster HP低于满血以验证heal
+        self.caster.current_hp = 1000
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130075, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有heal效果
+        heal_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "heal"]
+        self.assertTrue(len(heal_effects) > 0, "PS1应有heal效果")
+        # caster HP应增加 (Lv10 cure=100% of max_hp)
+        self.assertGreater(self.caster.current_hp, hp_before, "PS1应使caster回血")
+        # 应施加「極限」mark (buff, unremovable)
+        marks = [b for b in self.caster.buffs
+                 if b.effect_type == MARK and getattr(b, 'name', '') == "極限"]
+        self.assertEqual(len(marks), 1, "PS1应施加「極限」mark")
+        self.assertTrue(getattr(marks[0], 'unremovable', False),
+                        "「極限」mark应为unremovable")
+
+    def test_ps1_max_ap_increased(self):
+        """PS1(130075) Block1 add_max_ap提升AP上限 + add_ap提升AP资源"""
+        # 将current_ap设置为initial_active_point（避免current_ap > cap导致restore_ap截断）
+        self.caster.current_ap = self.caster.initial_active_point
+        old_max_ap = self.caster.initial_active_point
+        old_ap = self.caster.current_ap
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130075, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # add_max_ap应直接提升initial_active_point（不创建buff）
+        self.assertEqual(self.caster.initial_active_point, old_max_ap + 1,
+                         "PS1应提升最大AP上限+1 (add_max_ap直接修改initial_active_point)")
+        # add_ap应提升current_ap +1 (new_cap = old_max_ap + 1 = old_ap + 1)
+        self.assertEqual(self.caster.current_ap, old_ap + 1,
+                         "PS1应提升当前AP+1 (add_ap)")
+        # 不应创建STATUS_MAX_AP buff（直接修改属性，不存为buff）
+        max_ap_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_MAX_AP]
+        self.assertEqual(len(max_ap_buffs), 0,
+                         "PS1的add_max_ap应直接修改属性，不应创建STATUS_MAX_AP buff")
+
+    def test_ps1_lv10_no_dmg_dealt_up(self):
+        """PS1(130075) Lv10 Block2 dmg_dealt_up不触发"""
+        self.caster.skill_levels[130075] = 10
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130075, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # Lv10不应有dmg_dealt_up buff
+        dmg_up_buffs = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_up_buffs), 0, "Lv10不应有dmg_dealt_up buff")
+
+    def test_ps1_lv11_dmg_dealt_up(self):
+        """PS1(130075) Lv11+ Block2 dmg_dealt_up(action=2, stackable)"""
+        self.caster.skill_levels[130075] = 15
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130075, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # Lv11+应有dmg_dealt_up buff
+        dmg_up_buffs = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_up_buffs), 1, "Lv11+应有1个dmg_dealt_up buff")
+        self.assertEqual(dmg_up_buffs[0].duration, 2, "dmg_dealt_up应持续2行动")
+        self.assertTrue(getattr(dmg_up_buffs[0], 'is_stackable', False),
+                        "dmg_dealt_up应为stackable")
+
+    # ─── PS2: 130076 アウェイキング・ヴァンパイア ───
+
+    def test_ps2_damage_and_evasion(self):
+        """PS2(130076) Block1 damage(trigger_attacker) + perfect_evasion"""
+        # 设置trigger_attacker为敌方前排
+        self.ss._trigger_attacker = self.enemy_front
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 应有damage效果
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "PS2应造成反击伤害")
+        # 敌方前排应受到伤害
+        self.assertLess(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                       "PS2反击应命中trigger_attacker")
+        # caster应有perfect_evasion buff
+        evasion_buffs = [b for b in self.caster.buffs if b.effect_type == EVADE]
+        self.assertTrue(len(evasion_buffs) > 0, "PS2应对自身施加perfect_evasion")
+        self.assertEqual(evasion_buffs[0].hit_limited, 1, "perfect_evasion应限1hit")
+
+    def test_ps2_blocked_by_kyokugen_mark(self):
+        """PS2(130076) 持「極限」mark时global_condition(self_lacks_mark)失败"""
+        self._apply_kyokugen_mark(self.caster)
+        hp_before_enemy = self.enemy_front.current_hp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130076, battlefield=self.bf, skip_cost=True
+        )
+        # global_condition self_lacks_mark(極限)失败, execute_skill返回error
+        self.assertFalse(result["success"], "持極限mark时PS2不应执行")
+        self.assertEqual(result.get("error"), "global_condition not met",
+                        f"应返回global_condition not met, 实际: {result.get('error')}")
+        # 敌方不应受到反击伤害
+        self.assertEqual(self.enemy_front.current_hp, hp_before_enemy,
+                        "持極限mark时PS2不应造成反击伤害")
+
+    def test_ps2_no_mark_fires_normally(self):
+        """PS2(130076) 無「極限」mark时正常触发"""
+        self.ss._trigger_attacker = self.enemy_front
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], "无極限mark时PS2应正常执行")
+
+    # ─── PS3: 130077 あなたにマーキング♡ ───
+
+    def test_ps3_dmg_taken_up_on_furthest_enemy(self):
+        """PS3(130077) Block1 dmg_taken_up付与最遠敵単体"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # caster在ALLY_CENTER_BACK, 最远敌方应在LEFT_FRONT或RIGHT_BACK/RIGHT_FRONT等位置
+        # 检查所有敌方是否有dmg_taken_up debuff, 应只有1个体被付与
+        affected_enemies = []
+        for enemy in self.bf.enemy_team:
+            if any(d.effect_type == RECEIVED_DAMAGE for d in enemy.debuffs):
+                affected_enemies.append(enemy)
+        self.assertEqual(len(affected_enemies), 1,
+                        f"应有1个最远敌方被付与dmg_taken_up, 实际: {len(affected_enemies)}")
+
+    def test_ps3_dmg_taken_up_attack_limited_and_stackable(self):
+        """PS3(130077) dmg_taken_up应attack_limited=1 + stackable=true"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # 找到被付与dmg_taken_up的敌方
+        for enemy in self.bf.enemy_team:
+            debuffs = [d for d in enemy.debuffs if d.effect_type == RECEIVED_DAMAGE]
+            if debuffs:
+                self.assertEqual(debuffs[0].attack_limited, 1,
+                                "dmg_taken_up应限1次被攻击")
+                self.assertTrue(getattr(debuffs[0], 'is_stackable', False),
+                               "dmg_taken_up应为stackable")
+                break
+
+    def test_ps3_cheat_death_on_self(self):
+        """PS3(130077) Block1 cheat_death付与自身(永续)"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # caster应有cheat_death buff (effect_type可能为"cheat_death"或"CheatDeath")
+        cheat_buffs = [b for b in self.caster.buffs
+                       if b.effect_type in ("cheat_death", "CheatDeath", CHEAT_DEATH)]
+        self.assertTrue(len(cheat_buffs) > 0, "PS3应对自身施加cheat_death")
+        # 永续: duration=-1 (null duration在aura中被处理为-1永久)
+        self.assertEqual(cheat_buffs[0].duration, -1, "cheat_death应为永续(duration=-1)")
+
+    def test_ps3_dmg_taken_up_stacks(self):
+        """PS3(130077) dmg_taken_up可叠加(stackable=true)"""
+        # 第一次施放
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130077, battlefield=self.bf, skip_cost=True
+        )
+        # 找到被付与的敌方
+        first_affected = None
+        for enemy in self.bf.enemy_team:
+            debuffs = [d for d in enemy.debuffs if d.effect_type == RECEIVED_DAMAGE]
+            if debuffs:
+                first_affected = enemy
+                first_count = len(debuffs)
+                break
+        self.assertIsNotNone(first_affected, "第一次施放应有人被付与dmg_taken_up")
+        # 再次施放 (cooldown=99, 但skip_cost=True也跳过cooldown检查)
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130077, battlefield=self.bf, skip_cost=True
+        )
+        # 同一敌方应有2层dmg_taken_up (stackable)
+        debuffs_after = [d for d in first_affected.debuffs if d.effect_type == RECEIVED_DAMAGE]
+        self.assertGreaterEqual(len(debuffs_after), 2,
+                              f"stackable=true时多次施放应叠加, 实际: {len(debuffs_after)}")
+
+
+if __name__ == '__main__':
+    unittest.main()

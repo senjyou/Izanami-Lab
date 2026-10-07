@@ -1,0 +1,332 @@
+"""Add hybrid configs for character 107302 (クリスマスコーデの参謀) 5 skills.
+Skills: 110037 (EX), 120083 (AS1), 120084 (AS2), 130095 (PS1), 130096 (PS2)
+"""
+import json
+import os
+import sys
+
+HYBRID_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'skill_effects_hybrid.json')
+
+# Common effect template fields
+def make_effect(effect_type, target_type, value=None, value_tag=None,
+                duration=None, duration_type=None, hit_count=None,
+                condition=None, flags=None, target_identifier=None,
+                ignore_defense=0, ignore_shield=0, value_source=None,
+                duration_tag=None, hit_count_tag=None,
+                attack_limited=None):
+    if attack_limited is not None:
+        flags = dict(flags) if flags else {}
+        flags["attack_limited"] = attack_limited
+    return {
+        "effect_type": effect_type,
+        "target_type": target_type,
+        "target_identifier": target_identifier,
+        "value": value,
+        "value_tag": value_tag,
+        "value_source": value_source,
+        "duration": duration,
+        "duration_type": duration_type,
+        "duration_tag": duration_tag,
+        "hit_count": hit_count,
+        "hit_count_tag": hit_count_tag,
+        "condition": condition,
+        "flags": flags or {},
+        "ignore_defense": ignore_defense,
+        "ignore_shield": ignore_shield,
+    }
+
+# Block template
+def make_block(block_id, effects, condition=None):
+    return {
+        "block_id": block_id,
+        "condition": condition,
+        "effects": effects,
+    }
+
+# Skill configs
+CONFIGS = {}
+
+# 110037 EX クリスマス・デコレーション
+# Block 1: shield all allies (ATK × shield%, duration_type=attacker_action - cleared at caster's action end)
+# Block 2 (Lv11+): HOT all allies (ATK × 威力%, duration=2 action)
+CONFIGS["110037"] = {
+    "skill_id": 110037,
+    "name": "クリスマス・デコレーション",
+    "skill_type": 3,
+    "resource_cost": 6,
+    "cooldown": None,
+    "cooldown_update_timing": None,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": None,
+    "global_condition": None,
+    "effect_blocks": [
+        make_block(1, [
+            make_effect(
+                "shield",
+                "ally_all",
+                value=None,
+                value_tag="shield",
+                duration=1,
+                duration_type="attacker_action",
+                flags={"value_type": "percent", "heal_base": "atk"},
+            ),
+        ]),
+        make_block(2, [
+            make_effect(
+                "heal_over_time",
+                "ally_all",
+                value=None,
+                value_tag="威力",
+                duration=2,
+                duration_type="action",
+                condition={"type": "active_level_min", "value": 11},
+                flags={"heal_base": "atk"},
+            ),
+        ], condition={"type": "active_level_min", "value": 11}),
+    ],
+    "display_target_priority": None,
+    "display_target_range": 5,
+    "display_target_type": 2,
+    "parse_status": "success",
+    "parse_notes": [
+        "EX: shield all allies (ATK × shield%, attacker_action end) + Lv11+ HOT (ATK × 威力%, 2 actions)"
+    ],
+}
+
+# 120083 AS1 聖夜の祝砲！？
+# Block 1: damage + Lv11+ conditional self dmg_taken_down (hp_threshold_cross 50%)
+CONFIGS["120083"] = {
+    "skill_id": 120083,
+    "name": "聖夜の祝砲！？",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": None,
+    "global_condition": None,
+    "effect_blocks": [
+        make_block(1, [
+            make_effect(
+                "damage",
+                "enemy_single",
+                value=None,
+                value_tag="威力",
+                hit_count=1,
+            ),
+            make_effect(
+                "dmg_taken_down",
+                "self",
+                value=None,
+                value_tag="dmg",
+                duration=1,
+                duration_type="hit",
+                attack_limited=1,
+                condition={"type": "hp_threshold_cross", "value": 50},
+                flags={
+                    "value_type": "percent",
+                    "stackable": True,
+                    "attack_limited": 1,
+                    "level_min": 11,
+                },
+            ),
+        ]),
+    ],
+    "display_target_priority": None,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+        "AS1: enemy_single damage + Lv11+ conditional self dmg_taken_down (hp_threshold_cross 50%, attack_limited=1, stackable)"
+    ],
+}
+
+# 120084 AS2 プレゼント・タイム
+# Block 1: heal lowest_hp ally (with low_hp_heal_bonus) + Lv11+ def_up (attacker_action end)
+CONFIGS["120084"] = {
+    "skill_id": 120084,
+    "name": "プレゼント・タイム",
+    "skill_type": 1,
+    "resource_cost": 1,
+    "cooldown": None,
+    "cooldown_update_timing": None,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": None,
+    "global_condition": None,
+    "effect_blocks": [
+        make_block(1, [
+            make_effect(
+                "heal",
+                "ally_single",
+                value=None,
+                value_tag="威力",
+                flags={
+                    "lowest_hp_priority": True,
+                    "low_hp_heal_bonus": 0.5,
+                    "heal_base": "atk",
+                },
+            ),
+            make_effect(
+                "def_up",
+                "ally_single",
+                target_identifier="healed_target",
+                value=None,
+                value_tag="def",
+                duration=1,
+                duration_type="attacker_action",
+                flags={
+                    "value_type": "percent",
+                    "level_min": 11,
+                },
+            ),
+        ]),
+    ],
+    "display_target_priority": None,
+    "display_target_range": 1,
+    "display_target_type": 2,
+    "parse_status": "success",
+    "parse_notes": [
+        "AS2: heal lowest_hp ally (low_hp_heal_bonus=+50% max, heal_base=atk) + Lv11+ def_up (attacker_action end, healed_target identifier)"
+    ],
+}
+
+# 130095 PS1 セルフ・プロデュース
+# trigger: before_any_attacked, global_condition: target_is_self
+# Block 1: guard + block_specific_aura (block_status_count=1, 1 status nullified then consumed)
+# Block 2 (Lv11+): dmg_taken_down to ally behind self (target_identifier=behind_self)
+CONFIGS["130095"] = {
+    "skill_id": 130095,
+    "name": "セルフ・プロデュース",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "before_any_attacked",
+    "global_condition": {"type": "target_is_self"},
+    "effect_blocks": [
+        make_block(1, [
+            make_effect(
+                "guard",
+                "self",
+                value=None,
+                value_tag="guard",
+                duration=-1,
+                duration_type="attacker_action",
+                flags={"value_type": "percent"},
+            ),
+            make_effect(
+                "block_specific_aura",
+                "self",
+                duration=1,
+                duration_type="hit",
+                flags={
+                    "block_status": [
+                        "knockout", "conflagration", "poison",
+                        "freeze", "darkness", "confusion", "genwaku"
+                    ],
+                    "block_status_count": 1,
+                },
+            ),
+        ]),
+        make_block(2, [
+            make_effect(
+                "dmg_taken_down",
+                "ally_single",
+                target_identifier="behind_self",
+                value=None,
+                value_tag="dmg",
+                duration=1,
+                duration_type="hit",
+                flags={
+                    "value_type": "percent",
+                    "stackable": True,
+                    "attack_limited": 1,
+                },
+            ),
+        ], condition={"type": "active_level_min", "value": 11}),
+    ],
+    "display_target_priority": None,
+    "display_target_range": None,
+    "display_target_type": 1,
+    "parse_status": "success",
+    "parse_notes": [
+        "PS1: before_any_attacked(target_is_self) + guard(attacker_action) + block_specific_aura(block_status_count=1, 1 status nullified) + Lv11+ dmg_taken_down to ally behind self (attack_limited=1, stackable)"
+    ],
+}
+
+# 130096 PS2 はらぐろさくしー
+# trigger: on_critical
+# Block 1 (Lv1-14): on_crit block + remove_buff (value_tag=buff, count from tag)
+# Block 2 (Lv15): on_crit block + remove_buff (remove_all=true, removes all buffs)
+CONFIGS["130096"] = {
+    "skill_id": 130096,
+    "name": "はらぐろさくしー",
+    "skill_type": 2,
+    "resource_cost": 1,
+    "cooldown": None,
+    "cooldown_update_timing": None,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": "on_critical",
+    "global_condition": None,
+    "effect_blocks": [
+        make_block(1, [
+            make_effect(
+                "remove_buff",
+                "crit_target",
+                value=None,
+                value_tag="buff",
+                condition={"type": "on_crit"},
+                flags={"once_per_skill": False, "active_level_max": 14},
+            ),
+        ], condition={"type": "active_level_max", "value": 14}),
+        make_block(2, [
+            make_effect(
+                "remove_buff",
+                "crit_target",
+                value=None,
+                value_tag=None,
+                condition={"type": "on_crit"},
+                flags={"once_per_skill": False, "remove_all": True},
+            ),
+        ], condition={"type": "active_level_min", "value": 15}),
+    ],
+    "display_target_priority": None,
+    "display_target_range": 1,
+    "display_target_type": 3,
+    "parse_status": "success",
+    "parse_notes": [
+        "PS2: on_critical + on_crit block + remove_buff to crit_target. Lv1-14: count from buff tag. Lv15: remove_all=true (all removable buffs)"
+    ],
+}
+
+
+def main():
+    with open(HYBRID_PATH, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    added = []
+    skipped = []
+    for skill_id_str, config in CONFIGS.items():
+        if skill_id_str in data:
+            print(f"SKIP {skill_id_str} (already exists)")
+            skipped.append(skill_id_str)
+            continue
+        data[skill_id_str] = config
+        added.append(skill_id_str)
+
+    with open(HYBRID_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    print(f"Added: {added}")
+    print(f"Skipped: {skipped}")
+    print(f"Total skills in hybrid: {len(data)}")
+
+
+if __name__ == '__main__':
+    main()

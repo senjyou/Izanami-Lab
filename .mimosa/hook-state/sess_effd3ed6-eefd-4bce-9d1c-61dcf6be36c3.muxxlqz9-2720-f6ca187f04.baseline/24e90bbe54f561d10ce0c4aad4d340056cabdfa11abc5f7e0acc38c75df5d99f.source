@@ -1,0 +1,359 @@
+"""角色 147301「双翼のフロントランナー」技能效果测试
+
+覆盖：
+- 导入完整性（characters.json / skills.json / hybrid）
+- 「刻痕」mark 机制：每枚 ATK-8%、与ダメージ-5%、上限4枚、施法者倒下解除
+- 110082 双鏡の連理：敵全体伤害 + 自伤ATK-20%(1行动) + atk_up无效(2行动) + HP>=50% AP+1
+- 120176 断罪の時だ！：hit数 = 1 + 目标刻痕数（上限+9）
+- 120177 軍靴の調べにすくめ！：刻痕最少之敌所在横一列 + 刻痕付与（上限4）
+- 130182 終幕にはまだ早い！：HP<=50% 自身debuff免疫+1hit减伤，Lv11+ 同横列友方
+- 130183 我が雄姿を見よ！：同横列友方AS攻击前 → 附魔追伤 + 1行动刻痕
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(ROOT)
+
+import unittest
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.target_service import TargetService
+
+HYBRID_PATH = os.path.join(ROOT, 'data', 'skill_effects_hybrid.json')
+
+
+def load_hybrid():
+    """读取 hybrid 配置（绝对路径，避免xdist worker的cwd差异）"""
+    import json
+    h = json.load(open(HYBRID_PATH, encoding='utf-8'))
+    return {str(x['skill_id']): x for x in h} if isinstance(h, list) else h
+
+
+dl = DataLoader()
+dl.load_all()
+dms = DamageService()
+CHAR = 147301
+
+
+def make_ally(cid, name, position, hp=20000, atk=10000):
+    return UnitState(
+        unit_id=f"ally_{cid}", name=name, side=Side.ALLY,
+        position=position, character_id=cid, level=60,
+        element=2, character_type=1,
+        max_hp=hp, current_hp=hp, attack=atk, defense=1000, speed=700,
+        crit_rate=0.0, crit_damage=50.0, advantage_damage=0.0,
+        initial_active_point=3, initial_passive_point=3, max_extra_point=5,
+        current_ap=3, current_pp=3, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def make_enemy(name, position, hp=999999, atk=1000):
+    return UnitState(
+        unit_id=f"enemy_{name}", name=name, side=Side.ENEMY,
+        position=position, character_id=999001, level=1,
+        element=1, character_type=1,
+        max_hp=hp, current_hp=hp, attack=atk, defense=0, speed=50,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=0, initial_passive_point=0, max_extra_point=0,
+        current_ap=0, current_pp=0, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def add_kenkon(unit, count, duration=-1):
+    """直接付与刻痕mark（模拟120177付与）"""
+    cfg = [
+        {"mark_name": "刻痕", "stat": "attack", "per_mark_pct": -8},
+        {"mark_name": "刻痕", "stat": "dealt_damage", "per_mark_pct": -5},
+    ]
+    for i in range(count):
+        unit.debuffs.append(BuffState(
+            buff_id=f"kenkon_{unit.unit_id}_{i}", name="刻痕",
+            effect_type=SkillEffectType.MARK.value, value=0,
+            duration=duration, timing_type=3, stack_count=1,
+            source_unit_id="ally_147301", source_skill_id=120177,
+            is_debuff=True, mark_stat_bonus=cfg,
+        ))
+
+
+class Test147301Import(unittest.TestCase):
+    def test_character_imported(self):
+        ch = dl.get_character_by_id(CHAR)
+        self.assertIsNotNone(ch, "147301 未导入 characters.json")
+        self.assertEqual(ch.attribute, 2)
+        self.assertEqual(ch.character_type, 1)
+
+    def test_skills_imported(self):
+        for sid in (110082, 120176, 120177, 130182, 130183):
+            self.assertIsNotNone(dl.get_skill_by_id(sid), f"技能 {sid} 未导入")
+
+    def test_hybrid_configs_manual(self):
+        items = load_hybrid()
+        for sid in ('110082', '120176', '120177', '130182', '130183'):
+            self.assertEqual(items[sid].get('parse_status'), 'manual', f"{sid} 应为 manual")
+
+
+class TestKenkonMark(unittest.TestCase):
+    """刻痕：每枚 ATK-8%、与ダメージ-5%、上限4枚"""
+
+    def test_atk_down_8pct_per_mark(self):
+        e = make_enemy("測試", Position.ENEMY_CENTER_FRONT, atk=1000)
+        base = dms._calculate_final_stat(e, "attack")
+        self.assertAlmostEqual(base, 1000, delta=1)
+        add_kenkon(e, 3)
+        after = dms._calculate_final_stat(e, "attack")
+        # 3枚 → -24% → 760
+        self.assertAlmostEqual(after, 760, delta=2, msg=f"3枚刻痕 ATK 应 760，实际 {after}")
+
+    def test_dealt_damage_down_5pct_per_mark(self):
+        e = make_enemy("測試2", Position.ENEMY_CENTER_FRONT)
+        m0 = dms._get_damage_dealt_multiplier(e, defender=None)
+        self.assertAlmostEqual(m0, 1.0, delta=1e-6)
+        add_kenkon(e, 2)
+        m2 = dms._get_damage_dealt_multiplier(e, defender=None)
+        self.assertAlmostEqual(m2, 0.90, delta=1e-6, msg=f"2枚刻痕与ダメージ应×0.90，实际 {m2}")
+
+    def test_max_stacks_4(self):
+        """120177 配置 max_stacks=4"""
+        items = load_hybrid()
+        effects = items['120177']['effect_blocks'][0]['effects']
+        marks = [e for e in effects if e['effect_type'] == 'mark']
+        self.assertTrue(marks, "120177 应有 mark 效果")
+        self.assertEqual(marks[0]['flags'].get('max_stacks'), 4)
+        self.assertTrue(marks[0]['flags'].get('source_death_remove'))
+
+    def test_no_negative_damage(self):
+        """刻痕越多伤害越低，但不应为负"""
+        e = make_enemy("測試3", Position.ENEMY_CENTER_FRONT)
+        add_kenkon(e, 20)
+        m = dms._get_damage_dealt_multiplier(e, defender=None)
+        self.assertLess(m, 1.0)
+        self.assertGreaterEqual(m, 0.0, "与ダメージ倍率不应为负")
+
+
+class Test120176DynamicHit(unittest.TestCase):
+    """120176 hit数 = 1 + 目标刻痕数（上限+9）"""
+
+    def _hit_count(self, mark_count):
+        class _HC:
+            def __init__(self, attacker, defender):
+                self.a, self.d = attacker, defender
+        items = load_hybrid()
+        eff = items['120176']['effect_blocks'][0]['effects'][0]
+        self.assertEqual(eff['flags']['hit_count_per_mark']['mark_name'], '刻痕')
+        self.assertEqual(eff['flags']['hit_count_per_mark']['max_extra'], 9)
+
+        a = make_ally(CHAR, "妮娜", Position.ALLY_LEFT_FRONT)
+        d = make_enemy("目標", Position.ENEMY_CENTER_FRONT)
+        if mark_count:
+            add_kenkon(d, mark_count)
+        sd = type('obj', (object,), {
+            'power': 100.0, 'hit_count': eff['hit_count'], 'element': 2,
+            'ignore_defense': 0, 'ignore_shield': 0, 'hp_scaling_bonus': 0.0,
+            'cannot_crit': True, 'force_crit': False, 'bonus_crit_rate': 0.0,
+            'skill_id': 120176, 'name': '断罪の時だ！',
+            'hit_count_per_mark': eff['flags'].get('hit_count_per_mark'),
+            'base_value_source': None,
+        })()
+        res = dms.calculate_damage(a, d, sd)
+        return len(res.hit_details)
+
+    def test_hit_count_scales_with_marks(self):
+        self.assertEqual(self._hit_count(0), 1, "无刻痕应1hit")
+        self.assertEqual(self._hit_count(3), 4, "3枚刻痕应4hit")
+
+    def test_hit_count_capped_at_9_extra(self):
+        self.assertEqual(self._hit_count(12), 10, "12枚刻痕应封顶10hit(1+9)")
+
+
+class Test120177RowAnchor(unittest.TestCase):
+    """120177 锚点=刻痕最少之敌，命中其所在横一列"""
+
+    def test_anchor_is_lowest_mark_count(self):
+        front_a = make_enemy("敵前A", Position.ENEMY_LEFT_FRONT)
+        front_b = make_enemy("敵前B", Position.ENEMY_CENTER_FRONT)
+        back_c = make_enemy("敵後C", Position.ENEMY_LEFT_BACK)
+        add_kenkon(front_a, 3)
+        add_kenkon(front_b, 3)
+        # back_c 0枚 → 锚点 = back_c（后排）
+        bf = BattlefieldState()
+        bf.friend_team = [make_ally(CHAR, "妮娜", Position.ALLY_LEFT_FRONT)]
+        bf.enemy_team = [front_a, front_b, back_c]
+        ts = TargetService()
+        candidates = [front_a, front_b, back_c]
+        anchor = ts.select_min_with_stealth(
+            candidates,
+            key_func=lambda u: (sum(1 for b in u.debuffs if b.name == '刻痕'), 0),
+            consume=False)
+        self.assertEqual(anchor.name, "敵後C", "锚点应为刻痕最少的敵後C")
+        # 其所在横一列 = 后排
+        row = [u for u in candidates if ts._is_front_row(u) == ts._is_front_row(anchor)]
+        self.assertEqual([u.name for u in row], ["敵後C"])
+
+
+class Test130182(unittest.TestCase):
+    """130182 HP<=50% 自身debuff免疫+1hit减伤；Lv11+ 同横列友方"""
+
+    def test_config_structure(self):
+        items = load_hybrid()
+        sk = items['130182']
+        self.assertEqual(sk['trigger_type'], 'on_hp_below')
+        b1 = {e['effect_type'] for e in sk['effect_blocks'][0]['effects']}
+        self.assertIn('debuff_immune', b1)
+        self.assertIn('dmg_taken_down', b1)
+        self.assertIn('dmg_invulnerable', b1)
+        b2 = sk['effect_blocks'][1]['effects']
+        self.assertTrue(all(e['target_type'] == 'ally_row_exclude_self' for e in b2),
+                        "Lv11+ block 应只作用于同横列其他味方")
+
+    def test_level_gating(self):
+        items = load_hybrid()
+        b1 = items['130182']['effect_blocks'][0]['effects']
+        dtd = [e for e in b1 if e['effect_type'] == 'dmg_taken_down'][0]
+        inv = [e for e in b1 if e['effect_type'] == 'dmg_invulnerable'][0]
+        self.assertEqual(dtd['flags'].get('level_max'), 9, "Lv1-9 用 dmg_taken_down")
+        self.assertEqual(inv['flags'].get('level_min'), 10, "Lv10+ 用 dmg_invulnerable")
+        b2 = items['130182']['effect_blocks'][1]['effects']
+        d2 = [e for e in b2 if e['effect_type'] == 'dmg_taken_down'][0]
+        i2 = [e for e in b2 if e['effect_type'] == 'dmg_invulnerable'][0]
+        self.assertEqual(d2['flags'].get('level_max'), 14)
+        self.assertEqual(i2['flags'].get('level_min'), 15)
+
+
+class Test130183(unittest.TestCase):
+    """130183 同横列友方AS攻击前 → 附魔追伤 + 1行动刻痕"""
+
+    def test_config_structure(self):
+        items = load_hybrid()
+        sk = items['130183']
+        self.assertEqual(sk['trigger_type'], 'before_ally_as_attack')
+        self.assertTrue(sk.get('simultaneous_limit'), "应配置同時発動制限")
+        gc = sk['global_condition']
+        conds = {c['type'] for c in gc['conditions']}
+        self.assertEqual(conds, {'self_is_front_row', 'actor_is_same_row'})
+        effs = {e['effect_type'] for e in sk['effect_blocks'][0]['effects']}
+        self.assertEqual(effs, {'add_damage_to_attack', 'mark'})
+        mk = [e for e in sk['effect_blocks'][0]['effects'] if e['effect_type'] == 'mark'][0]
+        self.assertEqual(mk['duration'], 1)
+        self.assertEqual(mk['flags']['mark_name'], '刻痕')
+
+
+class Test110082(unittest.TestCase):
+    """110082 双鏡の連理 配置结构"""
+
+    def test_config_structure(self):
+        items = load_hybrid()
+        sk = items['110082']
+        self.assertEqual(sk['skill_type'], 3)
+        self.assertEqual(sk['resource_cost'], 7)
+        b1 = {e['effect_type']: e for e in sk['effect_blocks'][0]['effects']}
+        self.assertIn('damage', b1)
+        self.assertEqual(b1['damage']['target_type'], 'enemy_all')
+        self.assertEqual(b1['atk_down']['value'], 20.0)
+        self.assertEqual(b1['atk_down']['duration'], 1)
+        self.assertEqual(b1['block_buff_by_type']['flags']['blocked_buff_types'], ['atk_up'])
+        self.assertEqual(b1['block_buff_by_type']['duration'], 2)
+        b2 = sk['effect_blocks'][1]
+        self.assertEqual(b2['condition'], {'type': 'self_hp_above', 'value': 50})
+        self.assertEqual(b2['effects'][0]['effect_type'], 'add_ap')
+
+
+class TestKenkonStatIntegration(unittest.TestCase):
+    """刻痕在AuraService/damage路径端到端"""
+
+    def test_aura_service_marks_and_stat(self):
+        e = make_enemy("端到端", Position.ENEMY_CENTER_FRONT, atk=1000)
+        aura = AuraService()
+        cfg = [
+            {"mark_name": "刻痕", "stat": "attack", "per_mark_pct": -8},
+            {"mark_name": "刻痕", "stat": "dealt_damage", "per_mark_pct": -5},
+        ]
+        for i in range(4):
+            aura.add_aura(e, BuffState(
+                buff_id=f"k{i}", name="刻痕", effect_type=SkillEffectType.MARK.value,
+                value=0, duration=-1, timing_type=3, stack_count=1,
+                source_unit_id="ally_147301", is_debuff=True, mark_stat_bonus=cfg))
+        self.assertAlmostEqual(dms._calculate_final_stat(e, "attack"), 1000 * 0.68, delta=2)
+        self.assertAlmostEqual(dms._get_damage_dealt_multiplier(e, defender=None), 0.80, delta=1e-6)
+
+
+def build_skill_service():
+    """构造完整 SkillService（execute_skill 独立执行所需）"""
+    from src.combat_v2.services.skill_service import SkillService
+    from src.combat_v2.services.resource_service import ResourceService
+    from src.combat_v2.services.trigger_service import TriggerService
+    res = ResourceService()
+    tgt = TargetService()
+    aura = AuraService()
+    trig = TriggerService()
+    trig.set_data_loader(dl)
+    ss = SkillService(dl, res, target_service=tgt, damage_service=dms,
+                      aura_service=aura, trigger_service=trig)
+    trig.set_skill_service(ss)
+    return ss
+
+
+class Test120176HotSnapshot(unittest.TestCase):
+    """120176 Lv11+ HOT 必须为「効果付与時の不足HP」快照（非实时）"""
+
+    def test_config_has_snapshot_flag(self):
+        items = load_hybrid()
+        hots = [e for b in items['120176']['effect_blocks'] for e in b['effects']
+                if e['effect_type'] == 'heal_over_time']
+        self.assertTrue(hots, "120176 应有 heal_over_time 效果")
+        f = hots[0]['flags']
+        self.assertEqual(f.get('heal_base'), 'lost_hp')
+        self.assertTrue(f.get('heal_base_snapshot'), "应配置 heal_base_snapshot=true")
+
+    def test_snapshot_captured_and_used(self):
+        from src.combat_v2.services.status_service import StatusService
+        caster = make_ally(CHAR, "妮娜", Position.ALLY_LEFT_FRONT, hp=20000, atk=10000)
+        caster.current_hp = 8000          # 付与时不足HP = 12000
+        caster.skill_levels = {120176: 11}  # cure tag Lv11 = 15%
+        caster.skills = [120176]
+        enemy = make_enemy("敵", Position.ENEMY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = build_skill_service()
+        r = ss.execute_skill(caster=caster, skill_id=120176, battlefield=bf, skip_cost=True)
+        self.assertTrue(r.get('success'), f"execute_skill 失败: {r}")
+
+        hots = [b for b in caster.buffs if b.effect_type == SkillEffectType.HEAL_OVER_TIME.value]
+        self.assertTrue(hots, "应获得HOT buff")
+        self.assertEqual(hots[0].heal_base, 'lost_hp')
+        self.assertEqual(hots[0].hot_base_snapshot, 12000, "快照应为付与瞬间的不足HP(20000-8000)")
+
+        # 改变实时HP后，HOT仍按快照基数计算
+        caster.current_hp = 5000          # 实时不足HP=15000（实时会得2250），快照应得1800
+        status = StatusService()
+        total, _ = status.apply_regen(caster, damage_service=dms, battlefield=bf)
+        self.assertEqual(total, 1800,
+                         f"应按快照12000×15%=1800，实际{total}（若为2250说明走了实时）")
+
+    def test_without_flag_uses_realtime(self):
+        """无 heal_base_snapshot 标志时保持实时计算（不回归 110060 等）"""
+        from src.combat_v2.services.status_service import StatusService
+        u = make_ally(100201, "一般", Position.ALLY_LEFT_FRONT, hp=20000)
+        u.current_hp = 5000
+        u.buffs.append(BuffState(
+            buff_id="hot_rt", name="HOT", effect_type=SkillEffectType.HEAL_OVER_TIME.value,
+            value=30.0, duration=2, timing_type=3, source_unit_id=u.unit_id,
+            heal_base="lost_hp"))  # hot_base_snapshot 默认 -1
+        status = StatusService()
+        total, _ = status.apply_regen(u, damage_service=dms, battlefield=None)
+        self.assertEqual(total, int(15000 * 30 / 100),
+                         f"无快照标志应按实时不足HP 15000×30%=4500，实际{total}")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
