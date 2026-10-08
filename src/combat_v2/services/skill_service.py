@@ -12186,6 +12186,15 @@ class SkillService:
 
             hp_before = target.current_hp
             actual_damage = int(raw_power)
+            # guard减伤：受格挡(Guard)乘区影响（与damage/damage_special路径一致：
+            # guard在阈值减伤之前应用，参考damage_service step6_guard_mult）
+            guard_mult = self.damage_service._get_guard_multiplier(target)
+            if guard_mult != 1.0:
+                _orig_guard = actual_damage
+                actual_damage = max(1, int(actual_damage * guard_mult))
+                calc_detail["guard_mult"] = guard_mult
+                _log.info("[HP_RATIO_DMG] %s -> %s: guard_mult=%.4f, damage %d -> %d",
+                          caster.name, target.name, guard_mult, _orig_guard, actual_damage)
             # dmg_taken_down_threshold: HP阈值减伤 buff（与damage路径 calculate_damage 一致）
             # 若单次伤害 > threshold (current_hp × threshold_pct%) 则整个伤害按 value% 减免
             # 仅在减伤实际生效时消耗hit_limited（实战验证：低于阈值未减伤不消耗次数）

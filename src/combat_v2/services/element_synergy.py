@@ -1,3 +1,4 @@
+import itertools
 from typing import List, Dict
 from src.entities_v2.unit_state import UnitState
 from src.entities_v2.enums import Side
@@ -73,23 +74,39 @@ def apply_element_synergy(units: List[UnitState], narrative=None) -> List[UnitSt
 
 
 def _apply_side_synergy(side_units: List[UnitState], narrative) -> None:
-    # 双属性角色：主属性(element)与副属性(sub_element)均计入同属性加成
-    four_elements = []
-    dark_count = 0
+    # 双属性角色：主属性(element)与副属性(sub_element)只能二选一计入组队加成，
+    # 不可同时计入；取使全队组队加成最高的那个属性。
+    # 例：3土1火1风 + 一个主土副火角色 → 计入土（3土1火1风 → ATK+10%），
+    #     而非计入火（2土2火1风 → 无 primary>=3 档 → +0%）。
+    candidates: List[List[int]] = []
     for u in side_units:
         main = u.element
         sub = getattr(u, 'sub_element', 0)
-        attrs = [main]
-        if sub and sub != main:
-            attrs.append(sub)
+        candidates.append([main, sub] if (sub and sub != main) else [main])
+
+    def _eval_attrs(attrs):
+        four_elements = []
+        dark = 0
         for e in attrs:
             if e in (1, 2, 3, 4, 5):
                 four_elements.append(e)
             elif e == 6:
-                dark_count += 1
+                dark += 1
+        a, h = _calc_four_element_bonus(four_elements)
+        if dark > 0:
+            db = _calc_dark_bonus(dark)
+        else:
+            db = {"attack": 0.0, "hp": 0.0, "defense": 0.0, "crit_rate": 0.0}
+        return a, h, db, dark
 
-    atk_pct, hp_pct = _calc_four_element_bonus(four_elements)
-    dark_bonus = _calc_dark_bonus(dark_count) if dark_count > 0 else {"attack": 0.0, "hp": 0.0, "defense": 0.0, "crit_rate": 0.0}
+    best = None  # (score, atk_pct, hp_pct, dark_bonus, dark_count)
+    for combo in itertools.product(*candidates):
+        a, h, db, dark = _eval_attrs(combo)
+        score = (a + db["attack"]) + (h + db["hp"]) + db["defense"] + db["crit_rate"]
+        if best is None or score > best[0]:
+            best = (score, a, h, db, dark)
+
+    _, atk_pct, hp_pct, dark_bonus, dark_count = best
 
     total_atk_pct = atk_pct + dark_bonus["attack"]
     total_hp_pct = hp_pct + dark_bonus["hp"]
