@@ -39,6 +39,7 @@ from gui.utils import (
     _ensure_user_config,
     load_supported_ally_ids,
     get_module_type_ids,
+    get_max_rarity_for,
 )
 from gui.constants import (
     _BASE_PATH,
@@ -54,6 +55,7 @@ from gui.constants import (
     THEME_OPTIONS,
 )
 from gui.widgets.result_table import ResultTablePanel
+from gui.widgets.formation_card import render_memory_empty
 # ── gui 包：弹窗 ──
 from gui.dialogs.account_dialog import AccountManagerDialog
 # ── gui 包：战斗 Tab（阶段4抽取） ──
@@ -214,6 +216,28 @@ class MGGBattleSimulatorGUI:
         """是否为开发者模式"""
         return self._ui_config.get("developer_mode", False)
 
+    def get_effective_char_card_info(self, cid: int) -> Optional[Dict[str, int]]:
+        """编队卡片显示用的生效值：{rarity, level, attribute}。
+
+        稀有度/等级优先取个人覆盖（char_config），否则用全局默认；
+        稀有度按 [default_rarity, get_max_rarity_for(default_rarity)] 裁剪，
+        与角色参数预览、实际出战数值保持一致。
+        """
+        char = self.data_loader.get_character_by_id(cid)
+        if not char:
+            return None
+        cfg = self.char_config.get(cid, {})
+        gv = self.global_tab.get_values()
+        if cfg.get("override"):
+            rarity = cfg.get("rarity", gv["default_rarity"])
+            level = cfg.get("level", gv["character_level"])
+        else:
+            rarity = gv["default_rarity"]
+            level = gv["character_level"]
+        max_rarity = get_max_rarity_for(getattr(char, "default_rarity", 1))
+        rarity = max(getattr(char, "default_rarity", 1), min(rarity, max_rarity))
+        return {"rarity": rarity, "level": level, "attribute": getattr(char, "attribute", 0)}
+
     def _on_theme_change(self, event=None):
         """主题下拉框切换回调"""
         theme_name = self._theme_var.get()
@@ -269,13 +293,9 @@ class MGGBattleSimulatorGUI:
                     slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
                     slot["canvas"].config(bg=s["bg"])
                     # clear_btn 保持红底白字，不随主题变化
-                    # 空槽位重绘占位文字（颜色随主题变化）
+                    # 空槽位重绘占位（颜色随主题变化）
                     if slot["mid"] is None:
-                        canvas = slot["canvas"]
-                        CARD_W, CARD_H = 120, 68
-                        canvas.delete("all")
-                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
-                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+                        render_memory_empty(slot["canvas"], s)
                 except Exception:
                     pass
         # 战术演习Tab：刷新所有槽位显示和框架背景
@@ -306,13 +326,9 @@ class MGGBattleSimulatorGUI:
                     slot["frame"].config(bg=s["bg"], highlightbackground=s["border"])
                     slot["canvas"].config(bg=s["bg"])
                     # clear_btn 保持红底白字，不随主题变化
-                    # 空槽位重绘占位文字（颜色随主题变化）
+                    # 空槽位重绘占位（颜色随主题变化）
                     if slot["mid"] is None:
-                        canvas = slot["canvas"]
-                        CARD_W, CARD_H = 120, 68
-                        canvas.delete("all")
-                        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
-                                           fill=s["border"], font=("Microsoft YaHei UI", 8))
+                        render_memory_empty(slot["canvas"], s)
                 except Exception:
                     pass
         # 对抗压制战Tab：刷新所有槽位显示和框架背景

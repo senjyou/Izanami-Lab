@@ -233,6 +233,10 @@ class GlobalParamsTab(ttk.Frame):
         self._save_global_config()
         # 传播全局等级到所有 override 且非 1 级的角色（链接等级系统语义）
         self.app._propagate_global_level_change(self.var_level.get())
+        # 全局稀有度/等级影响未覆盖角色，刷新角色参数页网格卡图
+        char_tab = getattr(self.app, "char_tab", None)
+        if char_tab is not None:
+            char_tab.refresh_grid_cards()
         messagebox.showinfo("保存", "全局参数已保存")
 
     def _load_global_config(self):
@@ -313,6 +317,9 @@ class GlobalParamsTab(ttk.Frame):
         self._save_global_config()
         # 重置后同样传播等级（355）到所有 override 且非 1 级的角色
         self.app._propagate_global_level_change(self.var_level.get())
+        char_tab = getattr(self.app, "char_tab", None)
+        if char_tab is not None:
+            char_tab.refresh_grid_cards()
 
     def _bind_mousewheel(self, canvas):
         def _on_mousewheel(event):

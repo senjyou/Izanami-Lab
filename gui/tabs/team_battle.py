@@ -26,8 +26,6 @@ from gui.constants import (
     _DARK_ACCENT,
     _DARK_FG,
     _DARK_INPUT_BG,
-    AVATAR_DIR,
-    BANNER_DIR,
     ENEMY_IMAGE_DIR,
     GRID_ALLY_POSITIONS,
     GRID_ENEMY_POSITIONS,
@@ -115,126 +113,35 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         self._update_slot_display(slot, None)
 
     def _update_slot_display(self, slot, cid):
-        """更新槽位显示（avatar_label 现在是 Canvas，clear_btn 由外层管理）"""
+        """更新槽位显示：对抗压制战敌方走独立分支，其余委托基类卡片渲染。"""
+        enemy_data = slot.get("enemy_data")
+        if enemy_data is None:
+            super()._update_slot_display(slot, cid)
+            return
+
+        from gui.widgets.formation_card import CARD_W, CARD_H, render_character_card
         canvas = slot["avatar_label"]
         name_label = slot["name_label"]
         s = self.app._get_scheme()
-        BANNER_W, BANNER_H = 154, 76
-
-        # 清空画布
-        canvas.delete("all")
         canvas.config(bg=s["bg"])
-        canvas._banner_photo = None
 
-        # 对抗压制战敌方分支
-        enemy_data = slot.get("enemy_data")
-        if enemy_data is not None:
-            model_id = enemy_data.get("model_asset_id", "")
-            photo = self._load_circle_enemy_avatar(model_id)
-            if photo:
-                canvas._banner_photo = photo
-                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
-            else:
-                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="无头像",
-                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
-            name_label.config(text=enemy_data.get("name", "???"))
-            name_label.pack(pady=(1, 0))
-            self._set_clear_btn_visible(slot, True)
-            return
-
-        if cid is None:
-            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="点击选择",
+        model_id = enemy_data.get("model_asset_id", "")
+        photo = self._load_circle_enemy_avatar(model_id)
+        render_character_card(canvas, photo, is_enemy=True,
+                              is_back=slot.get("slot_idx", 0) >= 3)
+        if photo is None:
+            canvas.create_text(CARD_W // 2, CARD_H // 2, text="无头像",
                                fill=s["border"], font=("Microsoft YaHei UI", 8))
-            name_label.config(text="")
-            name_label.pack_forget()
-            self._set_clear_btn_visible(slot, False)
-        else:
-            char = self.app.data_loader.get_character_by_id(cid)
-            if not char:
-                self._clear_slot(slot)
-                return
-            # 加载头像
-            photo = self._load_slot_avatar(cid)
-            if photo:
-                canvas._banner_photo = photo
-                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
-            else:
-                slot_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
-                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text=slot_text,
-                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
-            name = self.app.format_char_name(char)
-            name_label.config(text=name)
-            name_label.pack(pady=(1, 0))  # 恢复显示
-            self._set_clear_btn_visible(slot, True)
+        name_label.config(text=enemy_data.get("name", "???"))
+        name_label.pack(pady=(1, 0))
+        self._set_clear_btn_visible(slot, True)
 
     def _load_circle_enemy_avatar(self, model_asset_id):
-        """加载对抗压制战敌方头像（按ModelAssetId命名，300x144→154x76）"""
+        """加载对抗压制战敌方头像（按 ModelAssetId 命名，缩放到卡片尺寸）。"""
         if not model_asset_id:
             return None
-        from PIL import Image
-        import tempfile, os
-        BANNER_W, BANNER_H = 154, 76
-        avatar_path = ENEMY_IMAGE_DIR / f"{model_asset_id}.png"
-        if not avatar_path.exists():
-            return None
-        try:
-            pil_img = Image.open(avatar_path)
-            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-            pil_img.save(tmp_path, "PNG")
-            photo = tk.PhotoImage(file=tmp_path)
-            os.unlink(tmp_path)
-            return photo
-        except Exception:
-            return None
-
-    def _load_slot_avatar(self, cid):
-        """加载槽位横版头像（优先从char_banners加载，回退到char_avatars裁剪）"""
-        from PIL import Image
-        BANNER_W, BANNER_H = 154, 76  # 显示尺寸，图片缩放填满画布
-
-        # 优先使用横版头像
-        banner_path = BANNER_DIR / f"{cid}.png"
-        if banner_path.exists():
-            try:
-                pil_img = Image.open(banner_path)
-                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp_path = tmp.name
-                pil_img.save(tmp_path, "PNG")
-                photo = tk.PhotoImage(file=tmp_path)
-                os.unlink(tmp_path)
-                return photo
-            except Exception:
-                pass
-
-        # 回退：从竖版头像中心裁剪为横版比例
-        avatar_path = AVATAR_DIR / f"{cid}.png"
-        if not avatar_path.exists():
-            return None
-        try:
-            pil_img = Image.open(avatar_path)
-            # 从竖版头像中心裁剪出横版区域（保持原始内容）
-            orig_w, orig_h = pil_img.size
-            # 裁剪为原始比例的横版区域（约25:12）
-            crop_h = int(orig_w * 144 / 300)
-            top = (orig_h - crop_h) // 2
-            if top < 0:
-                top = 0
-                crop_h = orig_h
-            pil_img = pil_img.crop((0, top, orig_w, top + crop_h))
-            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-            pil_img.save(tmp_path, "PNG")
-            photo = tk.PhotoImage(file=tmp_path)
-            os.unlink(tmp_path)
-            return photo
-        except Exception:
-            return None
+        from gui.widgets.formation_card import load_portrait
+        return load_portrait(path=ENEMY_IMAGE_DIR / f"{model_asset_id}.png", crop=False)
 
     # ─────────────────── 对抗压制战敌方加载 ───────────────────
 

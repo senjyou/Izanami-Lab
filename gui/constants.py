@@ -205,7 +205,19 @@ BANNER_DIR = _IMAGE_BASE / "banners"          # 角色横版头像
 MEMORY_CARD_DIR = _IMAGE_BASE / "memory_cards"  # 回忆卡图片
 ATTR_ICON_DIR = _IMAGE_BASE / "attributes"    # 属性图标
 RARITY_DIR = _IMAGE_BASE / "rarities"         # 稀有度图标
+ROLE_ICON_DIR = _IMAGE_BASE / "roles"         # 定位（RoleType）图标
 ENEMY_IMAGE_DIR = _IMAGE_BASE / "enemies"     # 敌方横版头像（ModelAssetId命名）
+FORMATION_DIR = _IMAGE_BASE / "formations"    # 编队卡片框架素材（前排/后排/空位/锁定）
+
+
+# 定位ID到图标文件名映射
+ROLE_ICON_MAP = {
+    1: "icon_role_physicalAttacker.png",
+    2: "icon_role_intelligenceAttacker.png",
+    3: "icon_role_tank.png",
+    4: "icon_role_support.png",
+    5: "icon_role_control.png",
+}
 
 
 # ─────────────────── 图标映射 ───────────────────

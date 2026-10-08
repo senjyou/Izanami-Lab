@@ -20,15 +20,11 @@ CircleBattleTab / CompositeTacticExerciseTab）的重复代码，差异通过钩
     - _swap_slots(src_slot, dst_slot, src_cid, dst_cid)
 """
 
-import os
 import tkinter as tk
 from typing import Optional
 
 from gui.constants import (
     _DARK_ACCENT,
-    AVATAR_DIR,
-    BANNER_DIR,
-    MEMORY_CARD_DIR,
 )
 from gui.dialogs.char_picker import CharacterPickerDialog
 from gui.dialogs.memory_picker import MemoryPickerDialog
@@ -139,24 +135,24 @@ class BattleTabMixin:
     # ─────────────────── 默认实现（子类可覆盖） ───────────────────
 
     def _build_slot(self, parent, slot_idx, is_enemy: bool = False):
-        """构建单个编队槽位（横版头像 300:144 比例）。
+        """构建单个编队槽位（卡片式：卡框 + 头像 + 稀有度/等级/属性）。
 
         默认实现：与 TacticalExerciseTab / CircleBattleTab 一致；
         TeamBattleTab 覆盖以附加 enemy_data 字段。
         """
-        BANNER_W, BANNER_H = 154, 76
+        from gui.widgets.formation_card import CARD_W, CARD_H, render_empty_card
         s = self.app._get_scheme()
 
         slot_frame = tk.Frame(parent, bg=s["bg"])
 
-        avatar_canvas = tk.Canvas(slot_frame, width=BANNER_W, height=BANNER_H,
+        avatar_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
                                    bg=s["bg"], highlightthickness=0,
                                    cursor="hand2")
         avatar_canvas.pack()
-        avatar_canvas._banner_photo = None
+        render_empty_card(avatar_canvas)
 
         name_label = tk.Label(slot_frame, text="", bg=s["bg"], fg=s["fg"],
-                               font=("Microsoft YaHei UI", 8), wraplength=BANNER_W,
+                               font=("Microsoft YaHei UI", 8), wraplength=CARD_W,
                                justify="center", height=2)
 
         for widget in [slot_frame, avatar_canvas, name_label]:
@@ -166,23 +162,21 @@ class BattleTabMixin:
 
         return {"cid": None, "frame": slot_frame, "avatar_label": avatar_canvas,
                 "name_label": name_label, "clear_btn": None,
-                "slot_idx": slot_idx, "is_enemy": is_enemy}
+                "slot_idx": slot_idx, "is_enemy": is_enemy, "locked": False}
 
     def _build_mem_slot(self, parent, slot_idx, is_enemy: bool = False):
-        """构建单个回忆卡槽位（缩略图 + 右上角覆盖清除按钮）。"""
-        CARD_W, CARD_H = 120, 68
+        """构建单个回忆卡槽位（胶片卡框 + 右上角覆盖清除按钮）。"""
         s = self.app._get_scheme()
 
+        from gui.widgets.formation_card import MEM_W, MEM_H, render_memory_empty
         slot_frame = tk.Frame(parent, bg=s["bg"], bd=0, relief="flat",
-                              highlightbackground=s["border"], highlightthickness=1,
                               cursor="hand2")
 
-        card_canvas = tk.Canvas(slot_frame, width=CARD_W, height=CARD_H,
+        card_canvas = tk.Canvas(slot_frame, width=MEM_W, height=MEM_H,
                                 bg=s["bg"], highlightthickness=0)
         card_canvas.pack(padx=2, pady=2)
         card_canvas._card_photo = None
-        card_canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
-                                fill=s["border"], font=("Microsoft YaHei UI", 8))
+        render_memory_empty(card_canvas, s)
 
         clear_btn = tk.Label(slot_frame, text="\u00d7", fg="white", bg="#cc3333",
                               font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2",
@@ -322,124 +316,81 @@ class BattleTabMixin:
         self._after_slot_changed()
 
     def _update_slot_display(self, slot, cid):
-        """更新槽位显示。
+        """更新槽位显示（卡片式）。
 
         默认实现：与 TacticalExerciseTab / CircleBattleTab 一致；
         TeamBattleTab 覆盖以处理 enemy_data 分支；
         CompositeTacticExerciseTab 通过 _on_post_display 钩子附加重复惩罚绘制。
         """
+        from gui.widgets.formation_card import (
+            CARD_W, CARD_H, render_character_card, render_empty_card,
+        )
         canvas = slot["avatar_label"]
         name_label = slot["name_label"]
         s = self.app._get_scheme()
-        BANNER_W, BANNER_H = 154, 76
 
-        canvas.delete("all")
         canvas.config(bg=s["bg"])
-        canvas._banner_photo = None
 
         if cid is None:
-            canvas.create_text(BANNER_W // 2, BANNER_H // 2, text="点击选择",
-                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            render_empty_card(canvas, locked=bool(slot.get("locked", False)))
             name_label.config(text="")
             name_label.pack_forget()
             self._set_clear_btn_visible(slot, False)
-        else:
-            char = self.app.data_loader.get_character_by_id(cid)
-            if not char:
-                self._clear_slot(slot)
-                return
-            photo = self._load_slot_avatar(cid)
-            if photo:
-                canvas._banner_photo = photo
-                canvas.create_image(BANNER_W // 2, BANNER_H // 2, image=photo, anchor="center")
-            else:
-                slot_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
-                canvas.create_text(BANNER_W // 2, BANNER_H // 2, text=slot_text,
-                                   fill=s["border"], font=("Microsoft YaHei UI", 8))
-            name = self.app.format_char_name(char)
-            name_label.config(text=name)
-            name_label.pack(pady=(1, 0))
-            self._set_clear_btn_visible(slot, True)
+            self._on_post_display(slot, cid)
+            return
+
+        char = self.app.data_loader.get_character_by_id(cid)
+        if not char:
+            self._clear_slot(slot)
+            return
+
+        info = self.app.get_effective_char_card_info(cid) or {}
+        photo = self._load_slot_avatar(cid)
+        render_character_card(
+            canvas, photo,
+            is_enemy=slot.get("is_enemy", False),
+            is_back=slot.get("slot_idx", 0) >= 3,
+            rarity=info.get("rarity"),
+            attribute=info.get("attribute"),
+            level=info.get("level"),
+        )
+        if photo is None:
+            slot_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
+            canvas.create_text(CARD_W // 2, CARD_H // 2, text=slot_text,
+                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+
+        name = self.app.format_char_name(char)
+        name_label.config(text=name)
+        name_label.pack(pady=(1, 0))
+        self._set_clear_btn_visible(slot, True)
 
         self._on_post_display(slot, cid)
 
     def _load_slot_avatar(self, cid):
-        """加载槽位横版头像。
-
-        默认实现：与 TacticalExerciseTab / CircleBattleTab 一致
-        （优先用 banner，回退从竖版头像中心裁剪）；
-        TeamBattleTab 覆盖以使用不同的裁剪比例；
-        CompositeTacticExerciseTab 覆盖为简单的 resize。
-        """
-        from PIL import Image
-        BANNER_W, BANNER_H = 154, 76
-
-        banner_path = BANNER_DIR / f"{cid}.png"
-        if banner_path.exists():
-            try:
-                pil_img = Image.open(banner_path)
-                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp_path = tmp.name
-                pil_img.save(tmp_path, "PNG")
-                photo = tk.PhotoImage(file=tmp_path)
-                os.unlink(tmp_path)
-                return photo
-            except Exception:
-                pass
-
-        avatar_path = AVATAR_DIR / f"{cid}.png"
-        if not avatar_path.exists():
-            return None
-        try:
-            pil_img = Image.open(avatar_path)
-            w, h = pil_img.size
-            crop_h = int(w * BANNER_H / BANNER_W)
-            if crop_h > h:
-                crop_h = h
-            top = (h - crop_h) // 2
-            pil_img = pil_img.crop((0, top, w, top + crop_h))
-            pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-            pil_img.save(tmp_path, "PNG")
-            photo = tk.PhotoImage(file=tmp_path)
-            os.unlink(tmp_path)
-            return photo
-        except Exception:
-            return None
+        """加载槽位横版头像（banner 优先，回退竖版头像中心裁剪，缩放到卡片尺寸）。"""
+        from gui.widgets.formation_card import load_portrait
+        return load_portrait(cid)
 
     def _set_mem_slot(self, slot_idx, mid, is_enemy: bool = False):
-        """设置回忆卡槽位内容。"""
-        CARD_W, CARD_H = 120, 68
+        """设置回忆卡槽位内容（胶片卡框 + 卡图 + 稀有度徽章）。"""
         s = self.app._get_scheme()
         slot = self._get_mem_slots(is_enemy)[slot_idx]
         slot["mid"] = mid
         canvas = slot["canvas"]
         clear_btn = slot["clear_btn"]
 
-        card_path = MEMORY_CARD_DIR / f"{mid}.png"
-        if card_path.exists():
-            try:
-                from PIL import Image, ImageTk
-                pil_img = Image.open(card_path)
-                pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
-                photo = ImageTk.PhotoImage(pil_img)
-                canvas.delete("all")
-                canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
-                canvas._card_photo = photo
-            except Exception:
-                canvas.delete("all")
-                canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
-                                   fill=s["fg"], font=("Microsoft YaHei UI", 8))
-        else:
-            canvas.delete("all")
-            canvas.create_text(CARD_W // 2, CARD_H // 2, text=f"[{mid}]",
+        from gui.widgets.formation_card import MEM_W, MEM_H, render_memory_card
+        mem = self.app.data_loader.get_memory(mid)
+        rarity = getattr(mem, "rarity", 1) if mem else 1
+        canvas.delete("all")
+        canvas._card_photo = None
+        if not render_memory_card(canvas, mid, rarity):
+            name = mem.name[:6] if mem else f"[{mid}]"
+            canvas.create_text(MEM_W // 2, MEM_H // 2, text=name,
                                fill=s["fg"], font=("Microsoft YaHei UI", 8))
 
-        clear_btn.place(relx=1.0, x=-3, y=3, anchor="ne", in_=canvas)
+        # 清除按钮避开顶部胶片齿孔，置于卡图上缘右侧
+        clear_btn.place(relx=1.0, x=-3, y=12, anchor="ne", in_=canvas)
         clear_btn.lift()
 
     def _clear_mem_slot(self, slot_idx, is_enemy: bool = False):
@@ -448,14 +399,11 @@ class BattleTabMixin:
         slot = self._get_mem_slots(is_enemy)[slot_idx]
         slot["mid"] = None
         canvas = slot["canvas"]
-        clear_btn = slot["clear_btn"]
-        CARD_W, CARD_H = 120, 68
 
-        canvas.delete("all")
+        from gui.widgets.formation_card import render_memory_empty
         canvas._card_photo = None
-        canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
-                           fill=s["border"], font=("Microsoft YaHei UI", 8))
-        clear_btn.place_forget()
+        render_memory_empty(canvas, s)
+        slot["clear_btn"].place_forget()
 
     def _build_memory_cards(self, mem_entries: list) -> list:
         """构建回忆卡对象列表。

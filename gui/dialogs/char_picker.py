@@ -6,19 +6,20 @@
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional, Dict, List
+from typing import Optional, List
 
 from gui.constants import (
     ATTR_ICON_DIR,
     ATTR_ICON_MAP,
-    AVATAR_DIR,
     attribute_matches,
 )
 from gui.widgets.modal import _bind_modal_minimize_restore
 
+_DEFAULT_COLS = 6   # 默认宽度下可容纳的列数（缩窄窗口时自动减少）
+
 
 class CharacterPickerDialog(tk.Toplevel):
-    """角色选择二级弹窗：头像网格 + 属性筛选 + 搜索"""
+    """角色选择二级弹窗：角色方卡网格 + 属性筛选 + 搜索"""
 
     def __init__(self, parent, app, title="选择角色", for_ally: bool = True):
         super().__init__(parent)
@@ -26,7 +27,6 @@ class CharacterPickerDialog(tk.Toplevel):
         self.result: Optional[int] = None  # 选中的角色ID
         self._current_filter = 0
         self._filtered_ids: List[int] = []
-        self._thumb_cache: Dict[int, tk.PhotoImage] = {}
         # for_ally=True 时在用户模式下应用己方白名单过滤；敌方场景传 False 不过滤
         self._for_ally = for_ally
 
@@ -126,6 +126,16 @@ class CharacterPickerDialog(tk.Toplevel):
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_window, width=event.width)
+        # 窗口被缩窄时按宽度重排列数，避免卡片超出画布
+        cols = self._cols_for_width(event.width)
+        if cols != getattr(self, "_cols", _DEFAULT_COLS):
+            self._cols = cols
+            self._refresh_grid()
+
+    @staticmethod
+    def _cols_for_width(avail: int) -> int:
+        from gui.widgets.formation_card import SQ_W
+        return max(1, avail // (SQ_W + 2 * 2 + 2 * 2))
 
     def _apply_filter(self, attr_id):
         self._current_filter = attr_id
@@ -177,32 +187,16 @@ class CharacterPickerDialog(tk.Toplevel):
             result.append(cid)
         return result
 
-    def _load_thumb(self, cid):
-        """加载缩略图（缓存）"""
-        if cid in self._thumb_cache:
-            return self._thumb_cache[cid]
-        from PIL import Image, ImageTk
-        THUMB_W, THUMB_H = 70, 90
-        avatar_path = AVATAR_DIR / f"{cid}.png"
-        if not avatar_path.exists():
-            return None
-        try:
-            pil_img = Image.open(avatar_path)
-            pil_img = pil_img.resize((THUMB_W, THUMB_H), Image.LANCZOS)
-            photo = ImageTk.PhotoImage(pil_img)
-            self._thumb_cache[cid] = photo
-            return photo
-        except Exception:
-            return None
-
     def _refresh_grid(self):
-        """刷新网格视图"""
+        """刷新网格视图（角色方卡：卡框 + 属性/定位小部件 + 稀有度徽章 + 等级）"""
         self._filtered_ids = self._get_filtered_ids()
         for child in self._grid_inner.winfo_children():
             child.destroy()
 
-        COLS = 6
+        COLS = getattr(self, "_cols", _DEFAULT_COLS)
         PAD = 2
+
+        from gui.widgets.formation_card import SQ_W, SQ_H, load_square_card_image
         s = self.app._get_scheme()
 
         for i, cid in enumerate(self._filtered_ids):
@@ -215,7 +209,9 @@ class CharacterPickerDialog(tk.Toplevel):
                             cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
-            photo = self._load_thumb(cid)
+            info = self.app.get_effective_char_card_info(cid) or {}
+            photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
+                                           getattr(char, "role_type", 0), info.get("level", 1))
             if photo:
                 avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
                 avatar_label.image = photo
@@ -230,7 +226,7 @@ class CharacterPickerDialog(tk.Toplevel):
                 else:
                     placeholder_text = "???"
                 placeholder = tk.Label(card, text=placeholder_text, bg=s["surface"], fg=s["border"],
-                                       width=10, height=6, font=("Microsoft YaHei UI", 8))
+                                       width=SQ_W // 8, height=SQ_H // 16, font=("Microsoft YaHei UI", 8))
                 placeholder.pack()
 
             name = self.app.format_char_name(char)
@@ -240,7 +236,7 @@ class CharacterPickerDialog(tk.Toplevel):
             if cid < 0:
                 name = "▣ " + name
             name_label = tk.Label(card, text=name, bg=s["surface"], fg=s["fg"],
-                                  font=("Microsoft YaHei UI", 8), wraplength=90,
+                                  font=("Microsoft YaHei UI", 8), wraplength=SQ_W + 10,
                                   height=2, justify="center")
             name_label.pack(pady=(2, 0))
 

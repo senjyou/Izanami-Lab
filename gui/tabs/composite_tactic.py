@@ -32,13 +32,10 @@ from gui.constants import (
     _DARK_ACCENT,
     _DARK_FG,
     _DARK_INPUT_BG,
-    AVATAR_DIR,
-    BANNER_DIR,
     COMPOSITE_PRESET_DIR,
     ENEMY_IMAGE_DIR,
     ENEMY_SLOT_POSITION_MAP,
     GRID_ALLY_POSITIONS,
-    MEMORY_CARD_DIR,
 )
 from gui.widgets.result_table import ResultTablePanel
 from gui.widgets.rdps import (
@@ -90,14 +87,14 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
         self._refresh_team_list()
 
     def _on_post_display(self, slot, cid):
-        """_update_slot_display 完成后在 banner 右上角绘制重复角色惩罚标识。"""
+        """_update_slot_display 完成后在卡片上方绘制重复角色惩罚标识。"""
         if cid is None:
             return
         penalty = self._get_duplicate_penalty(cid)
         if penalty:
             pval = "↓99%" if "99" in penalty else "↓50%"
-            BANNER_W = 154
-            px, py = BANNER_W - 26, 11
+            from gui.widgets.formation_card import CARD_W
+            px, py = CARD_W // 2, 13
             canvas = slot["avatar_label"]
             canvas.create_rectangle(px - 20, py - 8, px + 20, py + 8,
                                     fill="#cc3333", outline="white", width=1)
@@ -120,40 +117,9 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
     # ─────────────────── 方法覆盖 ───────────────────
 
     def _load_slot_avatar(self, cid):
-        """加载槽位横版头像（简单 resize，不裁剪）。"""
-        from PIL import Image
-        BANNER_W, BANNER_H = 154, 76
-
-        banner_path = BANNER_DIR / f"{cid}.png"
-        if banner_path.exists():
-            try:
-                pil_img = Image.open(banner_path)
-                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp_path = tmp.name
-                pil_img.save(tmp_path, "PNG")
-                photo = tk.PhotoImage(file=tmp_path)
-                os.unlink(tmp_path)
-                return photo
-            except Exception:
-                pass
-
-        avatar_path = AVATAR_DIR / f"{cid}.png"
-        if avatar_path.exists():
-            try:
-                pil_img = Image.open(avatar_path)
-                pil_img = pil_img.resize((BANNER_W, BANNER_H), Image.LANCZOS)
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp_path = tmp.name
-                pil_img.save(tmp_path, "PNG")
-                photo = tk.PhotoImage(file=tmp_path)
-                os.unlink(tmp_path)
-                return photo
-            except Exception:
-                pass
-        return None
+        """加载槽位横版头像（简单拉伸，不裁剪）。"""
+        from gui.widgets.formation_card import load_portrait
+        return load_portrait(cid, crop=False)
 
     def _open_char_picker(self, slot_idx, is_enemy: bool = False):
         """打开角色选择弹窗（使用当前队伍的槽位）。"""
@@ -200,54 +166,38 @@ class CompositeTacticExerciseTab(BattleTabMixin, ttk.Frame):
         self._refresh_team_list()
 
     def _update_mem_slot_display(self, slot, mid):
-        """更新回忆卡槽位显示（CompositeTactic 特有：使用 memory name 作为回退文本）。"""
+        """更新回忆卡槽位显示（胶片卡框 + 卡图 + 稀有度徽章）。"""
         canvas = slot["canvas"]
         s = self.app._get_scheme()
-        CARD_W, CARD_H = 120, 68
 
+        from gui.widgets.formation_card import MEM_W, MEM_H, render_memory_card, render_memory_empty
         canvas.delete("all")
         canvas.config(bg=s["bg"])
         canvas._card_photo = None
 
         if mid is None:
-            canvas.create_text(CARD_W // 2, CARD_H // 2, text="点击选择",
-                               fill=s["border"], font=("Microsoft YaHei UI", 8))
+            render_memory_empty(canvas, s)
             try:
                 slot["clear_btn"].place_forget()
             except Exception:
                 pass
-        else:
-            mem = self.app.data_loader.get_memory(mid)
-            if not mem:
-                slot["mid"] = None
-                self._update_mem_slot_display(slot, None)
-                return
+            return
 
-            mem_path = MEMORY_CARD_DIR / f"{mid}.png"
-            if mem_path.exists():
-                from PIL import Image
-                try:
-                    pil_img = Image.open(mem_path)
-                    pil_img = pil_img.resize((CARD_W, CARD_H), Image.LANCZOS)
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                        tmp_path = tmp.name
-                    pil_img.save(tmp_path, "PNG")
-                    photo = tk.PhotoImage(file=tmp_path)
-                    os.unlink(tmp_path)
-                    canvas._card_photo = photo
-                    canvas.create_image(CARD_W // 2, CARD_H // 2, image=photo, anchor="center")
-                except Exception:
-                    canvas.create_text(CARD_W // 2, CARD_H // 2, text=mem.name[:6],
-                                       fill=s["fg"], font=("Microsoft YaHei UI", 8))
-            else:
-                canvas.create_text(CARD_W // 2, CARD_H // 2, text=mem.name[:6],
-                                   fill=s["fg"], font=("Microsoft YaHei UI", 8))
+        mem = self.app.data_loader.get_memory(mid)
+        if not mem:
+            slot["mid"] = None
+            self._update_mem_slot_display(slot, None)
+            return
 
-            try:
-                slot["clear_btn"].place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
-            except Exception:
-                pass
+        rarity = getattr(mem, "rarity", 1)
+        if not render_memory_card(canvas, mid, rarity):
+            canvas.create_text(MEM_W // 2, MEM_H // 2, text=mem.name[:6],
+                               fill=s["fg"], font=("Microsoft YaHei UI", 8))
+
+        try:
+            slot["clear_btn"].place(relx=1.0, anchor="ne", x=-3, y=12)
+        except Exception:
+            pass
 
     # ── UI 构建 ──
 

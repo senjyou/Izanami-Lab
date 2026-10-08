@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""回忆卡可视化选择弹窗：16:9横版卡片网格 + 稀有度筛选 + 搜索。
+"""回忆卡可视化选择弹窗：新版胶片卡框网格 + 稀有度筛选 + 搜索。
 
 从 gui_app.py 抽取。
 """
@@ -11,13 +11,20 @@ from typing import Optional, Dict, List
 from gui.constants import (
     MEM_RARITY_MAP,
     RARITY_DIR,
-    MEMORY_CARD_DIR,
 )
+from gui.widgets.formation_card import load_memory_card_image
 from gui.widgets.modal import _bind_modal_minimize_restore
+
+# 弹窗内卡图尺寸（与胶片卡框 300:168 等比：150/84 ≈ 1.786）
+_CARD_W, _CARD_H = 150, 84
+# 卡片外框（highlightthickness）与卡片间距，用于自适应列数
+_CARD_BORDER = 2
+_CARD_PAD = 3
+_DEFAULT_COLS = 4   # 弹窗默认宽度下可容纳的列数（缩窄窗口时自动减少）
 
 
 class MemoryPickerDialog(tk.Toplevel):
-    """回忆卡可视化选择弹窗：16:9横版卡片网格 + 稀有度筛选 + 搜索"""
+    """回忆卡可视化选择弹窗：新版胶片卡框网格 + 稀有度筛选 + 搜索"""
 
     def __init__(self, parent, app, title="选择回忆卡", exclude_ids=None):
         super().__init__(parent)
@@ -134,6 +141,16 @@ class MemoryPickerDialog(tk.Toplevel):
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_window, width=event.width)
+        # 窗口被缩窄时按宽度重排列数，避免卡片超出画布
+        cols = self._cols_for_width(event.width)
+        if cols != getattr(self, "_cols", _DEFAULT_COLS):
+            self._cols = cols
+            self._refresh_grid()
+
+    @staticmethod
+    def _cols_for_width(avail: int) -> int:
+        per = _CARD_W + _CARD_BORDER * 2 + _CARD_PAD * 2
+        return max(1, avail // per)
 
     def _apply_rarity_filter(self, rarity_id):
         self._current_rarity = rarity_id
@@ -172,36 +189,27 @@ class MemoryPickerDialog(tk.Toplevel):
         return result
 
     def _load_card_thumb(self, mid):
-        """加载回忆卡缩略图（已预缩放为160x90，直接加载）"""
+        """加载回忆卡成品图（卡图 + 胶片卡框 + 稀有度徽章）"""
         if mid in self._thumb_cache:
             return self._thumb_cache[mid]
-        card_path = MEMORY_CARD_DIR / f"{mid}.png"
-        if not card_path.exists():
+        mem = self.app.data_loader.get_memory(mid)
+        rarity = getattr(mem, "rarity", 1) if mem else 1
+        photo = load_memory_card_image(mid, rarity, (_CARD_W, _CARD_H))
+        if photo is None:
             return None
-        try:
-            photo = tk.PhotoImage(file=str(card_path))
-            self._thumb_cache[mid] = photo
-            return photo
-        except Exception:
-            return None
+        self._thumb_cache[mid] = photo
+        return photo
 
     def _refresh_grid(self):
-        """刷新网格视图（先显示占位符，再异步加载缩略图）"""
+        """刷新网格视图（先显示占位符，再异步加载成品卡图）"""
         self._filtered_ids = self._get_filtered_ids()
         for child in self._grid_inner.winfo_children():
             child.destroy()
 
-        COLS = 4
-        PAD = 3
+        COLS = getattr(self, "_cols", _DEFAULT_COLS)
+        PAD = _CARD_PAD
         s = self.app._get_scheme()
-        self._card_widgets = {}  # mid -> (canvas, info_frame)
-
-        # 用于智能截断的字体度量
-        import tkinter.font as tkfont
-        name_font = tkfont.Font(family="Microsoft YaHei UI", size=8)
-        THUMB_W = 160
-        # 名称可用宽度 = 卡片宽度 - 稀有度图标(~16px) - 边距
-        MAX_NAME_WIDTH = THUMB_W - 20
+        self._card_widgets = {}  # mid -> canvas
 
         try:
             for i, mid in enumerate(self._filtered_ids):
@@ -210,47 +218,18 @@ class MemoryPickerDialog(tk.Toplevel):
                     continue
                 row, col = divmod(i, COLS)
                 card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
-                                highlightbackground=s["border"], highlightthickness=2,
+                                highlightbackground=s["border"], highlightthickness=_CARD_BORDER,
                                 cursor="hand2")
                 card.grid(row=row, column=col, padx=PAD, pady=PAD)
 
                 # 占位符画布（先不加载图片）
-                THUMB_W, THUMB_H = 160, 90
-                card_canvas = tk.Canvas(card, width=THUMB_W, height=THUMB_H,
+                card_canvas = tk.Canvas(card, width=_CARD_W, height=_CARD_H,
                                         bg=s["surface"], highlightthickness=0)
                 card_canvas.pack()
-                card_canvas.create_text(THUMB_W // 2, THUMB_H // 2, text="...",
+                card_canvas.create_text(_CARD_W // 2, _CARD_H // 2, text="...",
                                         fill=s["border"], font=("Microsoft YaHei UI", 9))
 
-                # 稀有度图标 + 名称
-                info_frame = tk.Frame(card, bg=s["surface"])
-                info_frame.pack(fill="x", pady=(2, 0))
-                rname, ricon = MEM_RARITY_MAP.get(mem.rarity, (f"?{mem.rarity}", None))
-                if ricon:
-                    icon_path = RARITY_DIR / ricon
-                    try:
-                        rphoto = tk.PhotoImage(file=str(icon_path))
-                        RARITY_ICON_SIZE = 14
-                        if rphoto.width() > RARITY_ICON_SIZE:
-                            rphoto = rphoto.subsample(rphoto.width() // RARITY_ICON_SIZE, rphoto.width() // RARITY_ICON_SIZE)
-                        rlabel = tk.Label(info_frame, image=rphoto, bg=s["surface"], bd=0)
-                        rlabel.image = rphoto
-                        rlabel.pack(side=tk.LEFT, padx=(0, 2))
-                    except Exception:
-                        tk.Label(info_frame, text=f"[{rname}]", bg=s["surface"], fg=s["fg"],
-                                 font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
-                # 智能截断：仅在像素宽度超出时才加省略号
-                name = mem.name
-                if name_font.measure(name) > MAX_NAME_WIDTH:
-                    truncated = name
-                    while truncated and name_font.measure(truncated + "…") > MAX_NAME_WIDTH:
-                        truncated = truncated[:-1]
-                    name = (truncated + "…") if truncated else "…"
-                name_label = tk.Label(info_frame, text=name, bg=s["surface"], fg=s["fg"],
-                                      font=("Microsoft YaHei UI", 8), anchor="center")
-                name_label.pack(side=tk.LEFT, fill="x", expand=True)
-
-                for widget in [card] + list(card.winfo_children()) + list(info_frame.winfo_children()):
+                for widget in (card, card_canvas):
                     widget.bind("<Button-1>", lambda e, m=mid: self._on_select(m))
 
                 self._card_widgets[mid] = card_canvas
@@ -272,8 +251,6 @@ class MemoryPickerDialog(tk.Toplevel):
         if not hasattr(self, '_thumb_load_queue') or not self._thumb_load_queue:
             return
         BATCH = 4
-        s = self.app._get_scheme()
-        THUMB_W, THUMB_H = 160, 90
         for _ in range(BATCH):
             if not self._thumb_load_queue:
                 break
@@ -284,7 +261,7 @@ class MemoryPickerDialog(tk.Toplevel):
             photo = self._load_card_thumb(mid)
             if photo:
                 card_canvas.delete("all")
-                card_canvas.create_image(THUMB_W // 2, THUMB_H // 2, image=photo, anchor="center")
+                card_canvas.create_image(0, 0, image=photo, anchor="nw")
                 card_canvas._card_photo = photo
         if self._thumb_load_queue:
             self.after(10, self._load_thumbs_async)

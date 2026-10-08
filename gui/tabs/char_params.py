@@ -29,6 +29,8 @@ from gui.constants import (
 )
 from gui.utils import get_max_rarity_for, get_module_type_ids
 
+_DEFAULT_COLS = 6   # 角色网格默认列数（面板缩窄时自动减少）
+
 
 class CharacterParamsTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -183,6 +185,17 @@ class CharacterParamsTab(ttk.Frame):
     def _on_grid_canvas_resize(self, event):
         """Canvas宽度变化时调整inner frame宽度"""
         self._grid_canvas.itemconfig(self._grid_canvas_window, width=event.width)
+        # 面板被缩窄时按宽度重排列数，避免卡片超出画布
+        cols = self._cols_for_width(event.width)
+        if cols != getattr(self, "_cols", _DEFAULT_COLS):
+            self._cols = cols
+            if self._view_mode == "grid":
+                self._refresh_grid_view()
+
+    @staticmethod
+    def _cols_for_width(avail: int) -> int:
+        from gui.widgets.formation_card import SQ_W
+        return max(1, avail // (SQ_W + 2 * 2 + 2 * 2))
 
     def _refresh_list(self):
         """根据当前筛选条件刷新角色列表"""
@@ -222,20 +235,6 @@ class CharacterParamsTab(ttk.Frame):
         self._grid_frame.pack(fill=tk.BOTH, expand=True, padx=5)
         self._refresh_grid_view()
 
-    def _load_avatar_thumbnail(self, cid):
-        """加载角色头像缩略图（用于网格视图），返回 tk.PhotoImage 或 None"""
-        from PIL import Image, ImageTk
-        THUMB_W, THUMB_H = 70, 90
-        avatar_path = AVATAR_DIR / f"{cid}.png"
-        if not avatar_path.exists():
-            return None
-        try:
-            pil_img = Image.open(avatar_path)
-            pil_img = pil_img.resize((THUMB_W, THUMB_H), Image.LANCZOS)
-            return ImageTk.PhotoImage(pil_img)
-        except Exception:
-            return None
-
     def _refresh_grid_view(self):
         """刷新网格视图"""
         self._selected_grid_cid = None
@@ -247,9 +246,10 @@ class CharacterParamsTab(ttk.Frame):
             child.destroy()
         self._grid_cards.clear()
 
-        COLS = 6
+        COLS = getattr(self, "_cols", _DEFAULT_COLS)
         PAD = 2
-        THUMB_W, THUMB_H = 70, 90
+
+        from gui.widgets.formation_card import SQ_W, SQ_H, load_square_card_image
         s = self.app._get_scheme()
 
         for i, cid in enumerate(self._filtered_char_ids):
@@ -263,8 +263,10 @@ class CharacterParamsTab(ttk.Frame):
                             cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD, sticky="ew")
 
-            # 头像
-            photo = self._load_avatar_thumbnail(cid)
+            # 角色方卡（卡框 + 属性/定位小部件 + 稀有度徽章 + 等级）
+            info = self.app.get_effective_char_card_info(cid) or {}
+            photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
+                                           getattr(char, "role_type", 0), info.get("level", 1))
             if photo:
                 avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
                 avatar_label.image = photo
@@ -272,7 +274,7 @@ class CharacterParamsTab(ttk.Frame):
             else:
                 placeholder_text = f"[{cid}]" if self.app.is_developer_mode() else "???"
                 placeholder = tk.Label(card, text=placeholder_text, bg=s["surface"], fg=s["border"],
-                                       width=THUMB_W // 8, height=THUMB_H // 16,
+                                       width=SQ_W // 8, height=SQ_H // 16,
                                        font=("Microsoft YaHei UI", 8))
                 placeholder.pack()
 
@@ -285,7 +287,7 @@ class CharacterParamsTab(ttk.Frame):
             if len(name) > 12:
                 name = name[:11] + "…"
             name_label = tk.Label(card, text=name, bg=s["surface"], fg=s["fg"],
-                                  font=("Microsoft YaHei UI", 8), wraplength=THUMB_W + 10,
+                                  font=("Microsoft YaHei UI", 8), wraplength=SQ_W + 10,
                                   height=2, justify="center")
             name_label.pack(pady=(2, 0))
 
@@ -298,6 +300,36 @@ class CharacterParamsTab(ttk.Frame):
         # 每列均分权重，使每行内容居中
         for c in range(COLS):
             self._grid_inner.grid_columnconfigure(c, weight=1, uniform="col")
+
+    def refresh_grid_cards(self):
+        """外部触发（如全局参数保存/重置）：网格视图下重绘全部卡图。"""
+        if self._view_mode == "grid":
+            self._refresh_grid_view()
+
+    def _refresh_grid_card(self, cid):
+        """参数（等级/稀有度等）变更后就地刷新该角色的网格卡图。"""
+        if self._view_mode != "grid":
+            return
+        card = self._grid_cards.get(cid)
+        if card is None:
+            return
+        char = self.app.data_loader.get_character_by_id(cid)
+        if not char:
+            return
+        from gui.widgets.formation_card import load_square_card_image
+        info = self.app.get_effective_char_card_info(cid) or {}
+        photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
+                                       getattr(char, "role_type", 0), info.get("level", 1))
+        if photo is None:
+            return
+        for w in card.winfo_children():
+            try:
+                if w.cget("image"):
+                    w.configure(image=photo)
+                    w.image = photo
+                    return
+            except Exception:
+                continue
 
     def _on_grid_card_click(self, cid):
         """网格视图卡片点击"""
@@ -979,6 +1011,7 @@ class CharacterParamsTab(ttk.Frame):
         config["gear"] = self._get_detail_gears()
         self._refresh_preview(cid)
         self.app._save_char_config()
+        self._refresh_grid_card(cid)
 
     def _reset_to_global(self, cid, char):
         if self.app.char_config.get(cid, {}).get("locked"):
@@ -991,6 +1024,7 @@ class CharacterParamsTab(ttk.Frame):
             self.app.char_config[cid]["locked"] = True
         self._show_detail(cid)
         self.app._save_char_config()
+        self._refresh_grid_card(cid)
 
     def _refresh_preview(self, cid):
         try:
@@ -1137,6 +1171,7 @@ class CharacterParamsTab(ttk.Frame):
             self.app.char_config[cid]["locked"] = True
         self._show_detail(cid)
         self.app._save_char_config()
+        self._refresh_grid_card(cid)
 
     def _reset_all(self):
         locked_cids = [cid for cid in self.app.char_ids if self.app.char_config.get(cid, {}).get("locked")]
