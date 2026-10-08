@@ -990,6 +990,23 @@ class TriggerService:
                         _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked (skill %d is not AS type=%d, allow_ex=%s)",
                                   owner.name, context.skill, skill_data.skill_type, allow_ex)
                         return False
+            # after_as_attack（自身AS攻撃後）要求触发的技能为「攻击技能」（含伤害效果）。
+            # 支援型AS（纯护盾/治疗/增益，无 damage 效果）不属于「攻撃」，不应触发追击型PS
+            # （如敌方 230498 ストレラ+ 在使用 ヴォルコワの血脈∞ 加盾回血后被误触发）。
+            # after_ps_use / after_enemy_skill_use 语义不同（PS使用後 / 敵のAS使用後），不适用此限制。
+            if (parsed.get('trigger_type') == 'after_as_attack'
+                    and context.skill is not None and self.data_loader):
+                trigger_skill_parsed = self.data_loader.get_parsed_skill_data(context.skill)
+                has_damage_effect = any(
+                    e.get('effect_type') in ('damage', 'hp_ratio_damage', 'damage_special')
+                    for block in (trigger_skill_parsed or {}).get('effect_blocks', [])
+                    for e in block.get('effects', [])
+                )
+                if not has_damage_effect:
+                    _log.info("[TRIGGER_MATCH] %s: AFTER_SKILL_USE blocked "
+                              "(after_as_attack but skill %d has no damage effect)",
+                              owner.name, context.skill)
+                    return False
             # debuff_applied_target 类型的 PS（如「アーマー・ジャム」130027/230076/230315）
             # 依赖 AS 主目标（primary_target）作为 debuff 施加对象。
             # 技能描述「自身が攻撃した対象」明确要求目标是 AS 攻击对象，

@@ -470,9 +470,8 @@ class CompositeTacticController(BattleFlowController):
             }
             self._boss_base_stats = base
 
-        # 阶段增量公式（复用战术演习公式）
-        n_for_hp_atk_def = min(n, 20)
-        atk_def_pct = 0.2 * n_for_hp_atk_def + 0.005 * max(0, n_for_hp_atk_def - 3) * max(0, n_for_hp_atk_def - 2)
+        # 阶段增量公式（复用战术演习公式；游戏内已暗改，HP/ATK/DEF不再在阶段20截断）
+        atk_def_pct = 0.2 * n + 0.005 * max(0, n - 3) * max(0, n - 2)
         spd_pct = 0.05 * n
 
         stat_multiplier = 1.0 + atk_def_pct
@@ -484,8 +483,7 @@ class CompositeTacticController(BattleFlowController):
         #   新 max_hp = base["hp"] * new_stage_mult + permanent_flat
         death_max_hp = boss.max_hp
         old_n = n - 1
-        old_n_for_hp_atk_def = min(old_n, 20)
-        old_atk_def_pct = 0.2 * old_n_for_hp_atk_def + 0.005 * max(0, old_n_for_hp_atk_def - 3) * max(0, old_n_for_hp_atk_def - 2)
+        old_atk_def_pct = 0.2 * old_n + 0.005 * max(0, old_n - 3) * max(0, old_n - 2)
         old_stage_mult = 1.0 + old_atk_def_pct
         permanent_flat = death_max_hp - base["hp"] * old_stage_mult
 

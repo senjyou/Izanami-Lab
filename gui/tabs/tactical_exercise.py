@@ -377,10 +377,9 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
         base_spd = data["speed"]
         base_crit = data["critical_rate"]
 
-        # HP/ATK/DEF从阶段21起维持在阶段20的数值
-        n_for_hp_atk_def = min(n, 20)
-        linear_factor = 1.0 + 0.2 * n_for_hp_atk_def
-        quadratic_factor = 0.005 * max(0, n_for_hp_atk_def - 3) * max(0, n_for_hp_atk_def - 2)
+        # HP/ATK/DEF不再在阶段20截断，后续阶段继续按此公式提升
+        linear_factor = 1.0 + 0.2 * n
+        quadratic_factor = 0.005 * max(0, n - 3) * max(0, n - 2)
         stat_mult = linear_factor + quadratic_factor
 
         hp = int(base_hp * stat_mult)

@@ -88697,7 +88697,7 @@
             "value_tag": "def",
             "value_source": null,
             "duration": 1,
-            "duration_type": "attacker_action",
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
@@ -88705,7 +88705,8 @@
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "source_death_remove": true
+              "source_death_remove": true,
+              "duration_owner": "caster"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -88718,7 +88719,7 @@
             "value_tag": "def",
             "value_source": null,
             "duration": 1,
-            "duration_type": "attacker_action",
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
@@ -88727,6 +88728,7 @@
               "value_type": "percent",
               "stackable": true,
               "source_death_remove": true,
+              "duration_owner": "caster",
               "target_count": 2
             },
             "ignore_defense": 0,
@@ -88740,7 +88742,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "manual: 最高HP敌单体EN伤害 + 邻接2体EN伤害 + Lv11+主目标气绝 + 全て对象def_down(施法者行动结束清除/死亡解除)"
+      "manual: 最高HP敌单体EN伤害 + 邻接2体EN伤害 + Lv11+主目标气绝 + 全て对象def_down(施法者下次行动结束清除/死亡解除)"
     ]
   },
   "120178": {
@@ -95104,7 +95106,7 @@
             "value_tag": "def",
             "value_source": null,
             "duration": 1,
-            "duration_type": "attacker_action",
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
@@ -95112,7 +95114,8 @@
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "source_death_remove": true
+              "source_death_remove": true,
+              "duration_owner": "caster"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -95125,7 +95128,7 @@
             "value_tag": "def",
             "value_source": null,
             "duration": 1,
-            "duration_type": "attacker_action",
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
@@ -95134,6 +95137,7 @@
               "value_type": "percent",
               "stackable": true,
               "source_death_remove": true,
+              "duration_owner": "caster",
               "target_count": 2
             },
             "ignore_defense": 0,
@@ -95147,7 +95151,7 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "manual: 最高HP敌EN攻击+邻接敌EN攻击+防御down(施法者倒下解除)；Lv5+主目标1行动气绝（敌方版：maxlv10）"
+      "manual: 最高HP敌EN攻击+邻接敌EN攻击+防御down(施法者下次行动结束清除/倒下解除)；Lv5+主目标1行动气绝（敌方版：maxlv10）"
     ]
   },
   "220468": {

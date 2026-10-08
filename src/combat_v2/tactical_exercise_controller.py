@@ -161,10 +161,9 @@ class TacticalExerciseController(BattleFlowController):
 
         # 计算阶段n的属性增量百分比
         # ATK/DEF/HP增量: 0.2*n + 0.005*max(0,n-3)*max(0,n-2)
-        # 从阶段21开始，HP/ATK/DEF不再提升，维持在阶段20的数值
-        n_for_hp_atk_def = min(n, 20)
-        atk_def_pct = 0.2 * n_for_hp_atk_def + 0.005 * max(0, n_for_hp_atk_def - 3) * max(0, n_for_hp_atk_def - 2)
-        # SPD增量: 0.05*n （正常提升，不受阶段20上限影响）
+        # 游戏内已暗改：HP/ATK/DEF不再在阶段20截断，后续阶段继续按此公式提升
+        atk_def_pct = 0.2 * n + 0.005 * max(0, n - 3) * max(0, n - 2)
+        # SPD增量: 0.05*n
         spd_pct = 0.05 * n
 
         # 计算阶段n的有效属性值（用于叙事日志显示）
@@ -178,8 +177,7 @@ class TacticalExerciseController(BattleFlowController):
         #            = death_max_hp + base["hp"] * (new_stage_mult - old_stage_mult)
         death_max_hp = enemy.max_hp
         old_n = n - 1
-        old_n_for_hp_atk_def = min(old_n, 20)
-        old_atk_def_pct = 0.2 * old_n_for_hp_atk_def + 0.005 * max(0, old_n_for_hp_atk_def - 3) * max(0, old_n_for_hp_atk_def - 2)
+        old_atk_def_pct = 0.2 * old_n + 0.005 * max(0, old_n - 3) * max(0, old_n - 2)
         old_stage_mult = 1.0 + old_atk_def_pct
         permanent_flat = death_max_hp - base["hp"] * old_stage_mult
 

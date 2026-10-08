@@ -40,6 +40,9 @@ _MOODMAKER_CHAR_BASE_ID = 145  # character_id // 1000 == 145
 _MAGOKORO_AS2_SKILL_ID = 120181
 _MAGOKORO_CHAR_ID = 100303  # 隣歩む想い（base 100 下有多个角色，必须精确匹配）
 
+# character_type → 叙事伤害类型（1/3=物理, 2=能量）
+_DMG_TYPE_MAP = {1: "物理", 2: "能量", 3: "物理"}
+
 
 class BattleConfig:
     def __init__(self, max_turns: int = 15, enable_rdps: bool = True,
@@ -2655,8 +2658,7 @@ class BattleFlowController:
         if not self.narrative:
             return damaged_targets
 
-        _dmg_type_map = {1: "物理", 2: "能量", 3: "物理"}
-        dmg_type = _dmg_type_map.get(caster.character_type, "物理")
+        dmg_type = _DMG_TYPE_MAP.get(caster.character_type, "物理")
 
         primary_target = None
         all_target_names = []
@@ -2868,6 +2870,9 @@ class BattleFlowController:
                 target_unit = self._find_unit(t)
                 max_hp = target_unit.max_hp if target_unit else t.get('hp_before', 0)
                 target_dname = self._get_display_name(t.get('target_id', t['target']))
+                # 追加伤害的伤害类型取决于buff赋予来源（非持有者），取 calc_detail.damage_element
+                _add_elem = (t.get('calc_detail') or {}).get('damage_element')
+                add_dmg_type = _DMG_TYPE_MAP.get(_add_elem, dmg_type)
                 self.narrative.add_damage(
                     attacker_name=caster_dname,
                     attacker_hp=_caster_hp_str,
@@ -2875,7 +2880,7 @@ class BattleFlowController:
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
                     damage=t.get('actual_damage', t['damage']),
-                    damage_type=dmg_type,
+                    damage_type=add_dmg_type,
                     crit=t.get('crit', False),
                     calc_detail=t.get('calc_detail'),
                     max_hp=max_hp,
