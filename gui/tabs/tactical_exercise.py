@@ -865,7 +865,20 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
         out.append(f"    Q1 (第25百分位): {score_stats.get('q1_score', 0):,.1f}")
         out.append(f"    Q3 (第75百分位): {score_stats.get('q3_score', 0):,.1f}")
         out.append(f"    标准差: {score_stats.get('stdev_score', 0):,.1f}")
+        out.append(f"    Roll5期望 (每日5次取最高): {score_stats.get('roll5_mean', 0):,.0f}")
         out.append(f"")
+
+        # 得分区间分布：每1000万（1kw）一档的概率分布
+        dist = score_stats.get("score_distribution") or []
+        if dist:
+            bucket_size = score_stats.get("bucket_size", 10_000_000)
+            total = sum(c for _, c in dist)
+            out.append(f"  得分区间分布 (每{self._format_score_count(bucket_size)}一档, 共{total}场):")
+            for lo, cnt in dist:
+                pct = cnt / total * 100 if total else 0.0
+                label = _cjk_fit(self._format_score_bucket(lo, bucket_size), 16)
+                out.append(f"    {label} {cnt:>5} 场 ({pct:5.1f}%)")
+            out.append(f"")
 
         # 得分明细（平均值）
         out.append(f"  得分明细（场均）:")
@@ -964,6 +977,18 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
                                    "col_aligns": col_aligns})
 
     @staticmethod
+    def _format_score_count(v: int) -> str:
+        """分数格式化为可读单位（万/亿）"""
+        if v >= 100_000_000:
+            return f"{v / 100_000_000:g}亿"
+        return f"{v // 10_000:,}万"
+
+    @classmethod
+    def _format_score_bucket(cls, lo: int, bucket_size: int) -> str:
+        """格式化得分区间标签，如 1000万~2000万 / 1.0亿~1.1亿"""
+        return f"{cls._format_score_count(lo)}~{cls._format_score_count(lo + bucket_size)}"
+
+    @staticmethod
     def _calculate_quantile(data: list, q: float) -> float:
         """计算分位数（使用线性插值法）
 
@@ -1032,6 +1057,25 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
 
         mean_score = _mean(all_scores)
 
+        # Roll5 期望：每日5次演习取最高分。按经验分布5次独立抽样的最大值期望：
+        # E[max of 5] = Σ_i x_(i)·[(i/N)^5 − ((i−1)/N)^5]，x_(i) 为升序第i个分数
+        n_scores = len(sorted_scores)
+        roll5_mean = 0.0
+        for i, x in enumerate(sorted_scores, start=1):
+            p_max = (i / n_scores) ** 5 - ((i - 1) / n_scores) ** 5
+            roll5_mean += x * p_max
+
+        # 得分区间分布：每1000万（1kw）一档，覆盖最低分到最高分的连续区间
+        bucket_size = 10_000_000
+        bucket_counts: Dict[int, int] = {}
+        for s in all_scores:
+            b = int(s // bucket_size)
+            bucket_counts[b] = bucket_counts.get(b, 0) + 1
+        score_distribution = []
+        if bucket_counts:
+            for b in range(min(bucket_counts), max(bucket_counts) + 1):
+                score_distribution.append((b * bucket_size, bucket_counts.get(b, 0)))
+
         return {
             "mean_score": mean_score,
             "max_score": max(all_scores),
@@ -1039,6 +1083,9 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
             "q1_score": self._calculate_quantile(sorted_scores, 0.25),
             "q3_score": self._calculate_quantile(sorted_scores, 0.75),
             "stdev_score": _stdev(all_scores, mean_score),
+            "roll5_mean": roll5_mean,
+            "score_distribution": score_distribution,
+            "bucket_size": bucket_size,
             "mean_damage_to_enemies": _mean(all_ally_damage),
             "mean_enemy_healing_received": _mean(all_enemy_healing_received),
             "mean_ally_damage": _mean(all_ally_damage),

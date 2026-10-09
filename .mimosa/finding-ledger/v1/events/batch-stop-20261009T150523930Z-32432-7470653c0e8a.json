@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261009T150523930Z-32432-7470653c0e8a",
+  "runId": "20261009T150523930Z-32432-7470653c0e8a",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "_calc_score.py",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "_calc_score.py",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "5edd371acd173b6488ccd7806cb2de0894cfed2b",
+  "diffHash": "b4e0c12c93a742600df9af54927169c254dda50242167c8bb945431ac401e52e",
+  "rulesVersion": "unavailable",
+  "sessionHash": "320f71dd60a13d925b8a42562067739dfb45fbeaefef209ddeeff7e465dc31d1",
+  "reportRef": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375-20261009T150523930Z-32432-7470653c0e8a.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-f87a756daa7551f7c37aa1cd",
+    "mimosa-e447d5d458217cb03b0bc507",
+    "mimosa-c6eaa2728fe7698bfb82fd5f"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/combat_v2/services/skill_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/regression/test_reg_sub_unit_shield_display.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-09T15:05:24.228Z"
+}

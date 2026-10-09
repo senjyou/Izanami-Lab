@@ -318,8 +318,10 @@ class BattleNarrativeWriter:
 
     def enchant_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                        hp_before: int, hp_after: int, damage: int, damage_type: str,
-                       modifiers: List[str] = None, calc_detail: dict = None, max_hp: int = 0):
+                       modifiers: List[str] = None, calc_detail: dict = None, max_hp: int = 0,
+                       shield_absorbed: int = 0):
         mods = "".join(f"【{m}】" for m in (modifiers or []))
+        shield_str = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
@@ -330,12 +332,14 @@ class BattleNarrativeWriter:
                         f" dealt:{cd.get('b_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('c_received_mult',1.0):.4f}"
                         f" attr:{cd.get('attr_factor',1.0):.4f}]")
-        self._add(f"  [附魔伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{mods}{calc_info}")
+        self._add(f"  [附魔伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{mods}{shield_str}{calc_info}")
 
     def add_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                    hp_before: int, hp_after: int, damage: int, damage_type: str,
-                   crit: bool = False, calc_detail: dict = None, max_hp: int = 0):
+                   crit: bool = False, calc_detail: dict = None, max_hp: int = 0,
+                   shield_absorbed: int = 0):
         crit_tag = "【Critical】" if crit else ""
+        shield_str = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
@@ -346,7 +350,7 @@ class BattleNarrativeWriter:
                         f" dealt:{cd.get('a_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('b_received_mult',1.0):.4f}"
                         f" attr:{cd.get('attr_factor',1.0):.4f}]")
-        self._add(f"  [追加伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{crit_tag}{calc_info}")
+        self._add(f"  [追加伤害] {attacker_name} ({attacker_hp}) → {target_name} (HP:{hp_after}/{max_hp if max_hp else hp_after}): {damage} 点{damage_type}伤害{crit_tag}{shield_str}{calc_info}")
 
     def hp_ratio_damage(self, attacker_name: str, attacker_hp: str, target_name: str,
                         hp_before: int, hp_after: int, damage: int, damage_type: str,

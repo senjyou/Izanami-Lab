@@ -199,6 +199,7 @@ class UnitState:
     cover_skill_id: int = 0  # 援护技能的技能ID
     guard_rate: float = 0.0  # 护卫减伤百分比（百分比形式，如30表示30%）
     guard_active: bool = False  # 护卫是否激活
+    guard_standalone: bool = False  # 独立guard架势（技能无cover效果，如230500/130095）：对所有伤害减伤
     reflect_rate: float = 0.0  # 反射伤害百分比（百分比形式，如50表示反射受到伤害的50%），cover期间生效
 
     # ========== HP阈值跨越检测（用于on_hp_below触发）==========

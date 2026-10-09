@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261009T115733421Z-22648-2cecace70078",
+  "runId": "20261009T115733421Z-22648-2cecace70078",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "5edd371acd173b6488ccd7806cb2de0894cfed2b",
+  "diffHash": "3dd9ded1daef9e532e5cc21a633d3be1ad6ba75b9c738232b4bc28000989f767",
+  "rulesVersion": "unavailable",
+  "sessionHash": "320f71dd60a13d925b8a42562067739dfb45fbeaefef209ddeeff7e465dc31d1",
+  "reportRef": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375-20261009T115733421Z-22648-2cecace70078.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-f87a756daa7551f7c37aa1cd",
+    "mimosa-e447d5d458217cb03b0bc507",
+    "mimosa-c6eaa2728fe7698bfb82fd5f",
+    "mimosa-0993d7ff038106d06179b683",
+    "mimosa-34d4d6c1544880e22c792574",
+    "mimosa-697e994518188bed80ac142a"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/entities_v2/unit_state.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/services/skill_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/services/damage_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/combat_v2/battle_flow_controller.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/regression/test_reg_standalone_guard_mechanism.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-09T11:57:33.711Z"
+}

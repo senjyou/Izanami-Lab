@@ -629,6 +629,13 @@ class BattleFlowController:
             if self._start_charging(unit, selected_skill, skill_name, skill_type, pre_action_cooldowns):
                 return
 
+        # 同時発動制限：攻方前置窗口（before_skill_use / before_ally_as_attack）到此结束，
+        # execute_skill 内部将进入守方反应窗口（before_enemy_as_attack / before_any_attacked /
+        # before_as_attacked 三连，游戏逻辑上的同一时机）。两个窗口各自独立计算
+        # simultaneous_limit 名额：攻方辅助PS（如追撃符130051）触发后不应占用守方
+        # 格挡/援护PS（如230500ランパートシャッター+）的发动名额（实测双方都会发动）。
+        self.trigger_service._simultaneous_limit_triggered_in_phase = False
+
         skill_result = self.skill_service.execute_skill(
             caster=unit,
             skill_id=selected_skill,
@@ -1540,13 +1547,15 @@ class BattleFlowController:
                     _log.info("[BLOCK_DEBUFFS_CLEANUP] %s: block_buff_by_type removed (attacker %s action ended)",
                               unit.name, attacker.name)
 
-            # 新版cover/guard特殊机制清理：清理所有设置了cover_target的单位
-            # cover/guard在攻击者行动结束时全部清理（不分来源，因为cover的持续时间就是攻击者行动）
-            if unit.cover_target is not None:
+            # 新版cover/guard特殊机制清理：清理所有cover/guard状态已激活的单位
+            # （cover附带型：cover_target已设置；独立guard架势：仅guard_active无cover_target，
+            #   如230500 ランパートシャッター——不清理会残留到后续攻击）
+            if unit.cover_target is not None or unit.guard_active:
                 unit.cover_target = None
                 unit.cover_skill_id = 0
                 unit.guard_rate = 0.0
                 unit.guard_active = False
+                unit.guard_standalone = False
                 unit.reflect_rate = 0.0
                 _log.info("[COVER_CLEANUP] %s: cover/guard/reflect state cleared (attacker %s action ended)",
                           unit.name, attacker.name)
@@ -2700,90 +2709,103 @@ class BattleFlowController:
         self.narrative.skill_use(caster_dname, primary_target, skill_name, skill_type)
         self.narrative.skill_targets(caster_dname, skill_name, list(dict.fromkeys(all_target_names)))
 
-        # 先输出 before_* 类型的 inline PS 日志（在伤害之前触发）
-        for ps_result in skill_result.get("inline_ps_results", []):
-            trigger_timing = ps_result.get("trigger_timing", "")
-            if trigger_timing and trigger_timing.startswith("before_"):
-                ps_owner = ps_result["owner"]
-                ps_name = ps_result["skill_name"]
-                ps_dname = self._get_display_name(ps_owner)
-                if self.narrative:
-                    self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
-                    self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
-                for applied in ps_result["result"].get("effects_applied", []):
-                    self._log_narrative_aura_status(applied, ps_dname)
+        # inline PS 叙事分组：narrate_early=True（before_*窗口及其嵌套链，如after_ps_use链）
+        # 的PS在伤害行之前输出；否则在伤害行之后输出。两组均按执行起始seq排序，
+        # 保证嵌套链（内层结果先append、外层结果后append）仍按实际执行顺序显示。
+        _inline_ps = list(skill_result.get("inline_ps_results", []))
+        _early_ps = []
+        _late_ps = []
+        for _r in _inline_ps:
+            if _r.get("narrate_early", str(_r.get("trigger_timing", "")).startswith("before_")):
+                _early_ps.append(_r)
+            else:
+                _late_ps.append(_r)
+        _early_ps.sort(key=lambda r: r.get("seq", 0))
+        _late_ps.sort(key=lambda r: r.get("seq", 0))
 
-        for applied in skill_result.get("effects_applied", []):
-            if applied.get("effect_type") == "damage":
-                self._log_narrative_damage(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") == "heal":
-                self._log_narrative_heal(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "split_heal_by_damage":
-                self._log_narrative_heal(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "heal_link":
-                self._log_narrative_heal(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "consume_hp":
-                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") in ("aura", "block_buff_by_type", "stealth"):
-                self._log_narrative_aura_block(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "hp_ratio_damage":
-                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") == "damage_special":
-                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") == "lifesteal":
-                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") == "add_fury":
-                self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
-            elif applied.get("effect_type") == "add_status":
-                self._log_narrative_aura_block(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "reset_cooldown":
-                self._log_narrative_other(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_debuff":
-                self._log_narrative_remove(caster, caster_dname, applied)
-            elif applied.get("effect_type") in ("remove_buff", "remove_buff_by_type"):
-                self._log_narrative_remove(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_shield":
-                self._log_narrative_remove(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_sub_unit":
-                self._log_narrative_remove(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "sub_unit":
-                self._log_narrative_other(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "shield_from_damage":
-                self._log_narrative_other(caster, caster_dname, applied)
-            elif applied.get("effect_type") in ("add_ap", "add_ep", "remove_ap"):
-                self._log_narrative_resource(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_pp":
-                self._log_narrative_resource(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_ep":
-                self._log_narrative_resource(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_mark":
-                self._log_narrative_remove(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "modify_pp":
-                self._log_narrative_resource(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "damage_link":
-                self._log_narrative_other(caster, caster_dname, applied)
-            elif applied.get("effect_type") == "remove_damage_links":
-                self._log_narrative_other(caster, caster_dname, applied)
-
-        for ps_result in skill_result.get("inline_ps_results", []):
-            trigger_timing = ps_result.get("trigger_timing", "")
-            # before_* 类型的PS已在伤害前输出，此处跳过
-            if trigger_timing and trigger_timing.startswith("before_"):
-                continue
+        for ps_result in _early_ps:
             ps_owner = ps_result["owner"]
             ps_name = ps_result["skill_name"]
             ps_dname = self._get_display_name(ps_owner)
-
             if self.narrative:
                 self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
                 self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
-
+            _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
             for applied in ps_result["result"].get("effects_applied", []):
-                self._log_narrative_aura_status(applied, ps_dname)
+                self._log_narrative_applied_effect(ps_owner, ps_dname, _ps_dmg_type, applied)
+
+        for applied in skill_result.get("effects_applied", []):
+            self._log_narrative_applied_effect(caster, caster_dname, dmg_type, applied)
+
+        for ps_result in _late_ps:
+            ps_owner = ps_result["owner"]
+            ps_name = ps_result["skill_name"]
+            ps_dname = self._get_display_name(ps_owner)
+            if self.narrative:
+                self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
+                self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
+            _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
+            for applied in ps_result["result"].get("effects_applied", []):
+                self._log_narrative_applied_effect(ps_owner, ps_dname, _ps_dmg_type, applied)
 
         self.narrative.skill_cast(caster_dname, primary_target, skill_name, skill_type)
 
         return damaged_targets
+
+    def _log_narrative_applied_effect(self, caster: UnitState, caster_dname: str,
+                                      dmg_type: str, applied: dict) -> None:
+        """输出单条 effect 的叙事日志（外层技能效果与inline PS效果共用调度）"""
+        etype = applied.get("effect_type")
+        if etype == "damage":
+            self._log_narrative_damage(caster, caster_dname, dmg_type, applied)
+        elif etype == "heal":
+            self._log_narrative_heal(caster, caster_dname, applied)
+        elif etype == "split_heal_by_damage":
+            self._log_narrative_heal(caster, caster_dname, applied)
+        elif etype == "heal_link":
+            self._log_narrative_heal(caster, caster_dname, applied)
+        elif etype == "consume_hp":
+            self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
+        elif etype in ("aura", "block_buff_by_type", "stealth"):
+            self._log_narrative_aura_block(caster, caster_dname, applied)
+        elif etype == "hp_ratio_damage":
+            self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
+        elif etype == "damage_special":
+            self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
+        elif etype == "lifesteal":
+            self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
+        elif etype == "add_fury":
+            self._log_narrative_damage_variants(caster, caster_dname, dmg_type, applied)
+        elif etype == "add_status":
+            self._log_narrative_aura_block(caster, caster_dname, applied)
+        elif etype == "reset_cooldown":
+            self._log_narrative_other(caster, caster_dname, applied)
+        elif etype == "remove_debuff":
+            self._log_narrative_remove(caster, caster_dname, applied)
+        elif etype in ("remove_buff", "remove_buff_by_type"):
+            self._log_narrative_remove(caster, caster_dname, applied)
+        elif etype == "remove_shield":
+            self._log_narrative_remove(caster, caster_dname, applied)
+        elif etype == "remove_sub_unit":
+            self._log_narrative_remove(caster, caster_dname, applied)
+        elif etype == "sub_unit":
+            self._log_narrative_other(caster, caster_dname, applied)
+        elif etype == "shield_from_damage":
+            self._log_narrative_other(caster, caster_dname, applied)
+        elif etype in ("add_ap", "add_ep", "remove_ap"):
+            self._log_narrative_resource(caster, caster_dname, applied)
+        elif etype == "remove_pp":
+            self._log_narrative_resource(caster, caster_dname, applied)
+        elif etype == "remove_ep":
+            self._log_narrative_resource(caster, caster_dname, applied)
+        elif etype == "remove_mark":
+            self._log_narrative_remove(caster, caster_dname, applied)
+        elif etype == "modify_pp":
+            self._log_narrative_resource(caster, caster_dname, applied)
+        elif etype == "damage_link":
+            self._log_narrative_other(caster, caster_dname, applied)
+        elif etype == "remove_damage_links":
+            self._log_narrative_other(caster, caster_dname, applied)
 
     def _log_narrative_aura_status(self, applied: dict, source_dname: str) -> None:
         """输出PS技能的aura/add_status效果日志"""
@@ -2833,9 +2855,13 @@ class BattleFlowController:
                 max_hp = target_unit.max_hp if target_unit else t['hp_before']
                 target_dname = self._get_display_name(t.get('target_id', t['target']))
                 shield_abs = t.get('shield_absorbed', 0)
+                # 显示盾吸收后的HP部分伤害，与主伤害行约定一致（"N点伤害 + [盾吸収:M]"，
+                # N为实际打在血条上的量）。实测：子单位总额6713=盾5138+HP1575，应显示1575，
+                # 显示总额会被读成"全额打在血条上、盾未吸收"
+                _sub_hp_dmg = t.get('actual_damage', t['damage']) - shield_abs
                 self.narrative.sub_unit_damage(
                     sub_unit_name, target_dname,
-                    t.get('actual_damage', t['damage']),
+                    _sub_hp_dmg,
                     t['hp_after'], max_hp, t.get('crit', False),
                     shield_absorbed=shield_abs,
                     calc_detail=t.get('calc_detail'))
@@ -2850,17 +2876,20 @@ class BattleFlowController:
                 modifiers = list(t.get("modifiers", []))
                 if t.get("crit"):
                     modifiers.append("Critical")
+                # 显示盾吸收后的HP部分伤害（与主伤害/子单位行约定一致）
+                _ench_shield_abs = t.get('shield_absorbed', 0)
                 self.narrative.enchant_damage(
                     attacker_name=caster_dname,
                     attacker_hp=_caster_hp_str,
                     target_name=target_dname,
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
-                    damage=t.get('actual_damage', t['damage']),
+                    damage=t.get('actual_damage', t['damage']) - _ench_shield_abs,
                     damage_type=dmg_type,
                     modifiers=modifiers,
                     calc_detail=t.get('calc_detail'),
                     max_hp=max_hp,
+                    shield_absorbed=_ench_shield_abs,
                 )
                 continue
 
@@ -2873,17 +2902,20 @@ class BattleFlowController:
                 # 追加伤害的伤害类型取决于buff赋予来源（非持有者），取 calc_detail.damage_element
                 _add_elem = (t.get('calc_detail') or {}).get('damage_element')
                 add_dmg_type = _DMG_TYPE_MAP.get(_add_elem, dmg_type)
+                # 显示盾吸收后的HP部分伤害（与主伤害/子单位行约定一致）
+                _add_shield_abs = t.get('shield_absorbed', 0)
                 self.narrative.add_damage(
                     attacker_name=caster_dname,
                     attacker_hp=_caster_hp_str,
                     target_name=target_dname,
                     hp_before=t['hp_before'],
                     hp_after=t['hp_after'],
-                    damage=t.get('actual_damage', t['damage']),
+                    damage=t.get('actual_damage', t['damage']) - _add_shield_abs,
                     damage_type=add_dmg_type,
                     crit=t.get('crit', False),
                     calc_detail=t.get('calc_detail'),
                     max_hp=max_hp,
+                    shield_absorbed=_add_shield_abs,
                 )
                 continue
 

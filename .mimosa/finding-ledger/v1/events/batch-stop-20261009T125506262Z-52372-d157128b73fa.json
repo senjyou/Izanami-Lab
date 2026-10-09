@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261009T125506262Z-52372-d157128b73fa",
+  "runId": "20261009T125506262Z-52372-d157128b73fa",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "_dbg_sentri.py",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "_dbg_230502.py",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "_dbg_sentri.py",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "_dbg_230502.py",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "5edd371acd173b6488ccd7806cb2de0894cfed2b",
+  "diffHash": "806a9e68b2ac123a4824dba2a453996c6645fa4a3ba90c1731a71dd736cebc22",
+  "rulesVersion": "unavailable",
+  "sessionHash": "320f71dd60a13d925b8a42562067739dfb45fbeaefef209ddeeff7e465dc31d1",
+  "reportRef": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375-20261009T125506262Z-52372-d157128b73fa.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "tests/regression/test_reg_sentri_refrain_ep_condition.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/test_actor_381305.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-09T12:55:06.558Z"
+}

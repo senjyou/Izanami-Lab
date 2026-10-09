@@ -1,0 +1,180 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261009T133005397Z-39016-dfee6534eef1",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "candidate-select",
+      "target": "_verify_e2e.py",
+      "reason": "changed_file_unreadable: observed changed file no longer exists or cannot be read"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 517,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 3
+    },
+    "change_tracking": {
+      "touched_observed": 4,
+      "touched_retained": 4,
+      "truncated": false,
+      "bash_mutation": false,
+      "bash_discovered": 0,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 3,
+      "selected_files": 3,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 2,
+      "scanned_files": 2,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "changed_file_unreadable": 1,
+      "project_check_failed": 1
+    },
+    "reasons": [
+      {
+        "code": "changed_file_unreadable",
+        "stage": "candidate-select",
+        "target": "_verify_e2e.py",
+        "detail": "observed changed file no longer exists or cannot be read",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "_verify_e2e.py",
+        "detail": "changed_file_unreadable: observed changed file no longer exists or cannot be read",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-10-09T13:30:05.397Z",
+  "session_id": "sess_44751071-a112-4a25-b02b-f64bbeb66375",
+  "target": ".",
+  "revision": "5edd371acd173b6488ccd7806cb2de0894cfed2b",
+  "rules_version": "unavailable",
+  "diff_hash": "741f0ca04776cf278f43fc9a50afa476b6ff444179b9e38cc0508c2ed34ac263",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 2,
+    "changed_files": [
+      {
+        "file": "src/combat_v2/services/skill_service.py",
+        "ranges": [
+          {
+            "start": 5595,
+            "end": 5599
+          },
+          {
+            "start": 5684,
+            "end": 5684
+          },
+          {
+            "start": 5809,
+            "end": 5814
+          },
+          {
+            "start": 5903,
+            "end": 5903
+          },
+          {
+            "start": 6004,
+            "end": 6009
+          },
+          {
+            "start": 6054,
+            "end": 6054
+          }
+        ],
+        "before_hash": "73d342598ed8924f5ab506ac6f875e505a290803d7a7f24d9a11e3d2b05f4c49",
+        "after_hash": "4e9623b0a20d800f80863d86aadab71904671c09305faa7b013ebe39763f358f"
+      },
+      {
+        "file": "tests/regression/test_reg_guard_applies_to_enchant_damage.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 207
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "1c0c20f9e1e733260467b9c745eac94ad1de8e9f2046997ad2f155904e0acdf4"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-10-09T13:30:03.270Z",
+    "completed_at": "2026-10-09T13:30:05.397Z",
+    "duration_ms": 2127,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 2127,
+    "peakMemoryBytes": 176553984,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 2,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375-20261009T133005397Z-39016-dfee6534eef1.json",
+    "latest_report": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375.json",
+    "history_summary": ".mimosa/history/run-20261009T133005397Z-39016-dfee6534eef1.json"
+  }
+}

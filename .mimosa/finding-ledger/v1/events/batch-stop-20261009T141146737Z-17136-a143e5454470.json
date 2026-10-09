@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261009T141146737Z-17136-a143e5454470",
+  "runId": "20261009T141146737Z-17136-a143e5454470",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "5edd371acd173b6488ccd7806cb2de0894cfed2b",
+  "diffHash": "442ff76e9153c02d40cdf9f74dce31427a86899efeb9fb534bbb440b1cca047f",
+  "rulesVersion": "unavailable",
+  "sessionHash": "320f71dd60a13d925b8a42562067739dfb45fbeaefef209ddeeff7e465dc31d1",
+  "reportRef": ".mimosa/reports/task-review-sess_44751071-a112-4a25-b02b-f64bbeb66375-20261009T141146737Z-17136-a143e5454470.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-f87a756daa7551f7c37aa1cd",
+    "mimosa-e447d5d458217cb03b0bc507",
+    "mimosa-c6eaa2728fe7698bfb82fd5f"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/combat_v2/services/skill_service.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/regression/test_reg_prescan_multi_target_front_ally.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-09T14:11:47.028Z"
+}

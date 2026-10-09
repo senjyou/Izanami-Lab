@@ -959,15 +959,18 @@ class DamageService:
     def _get_guard_multiplier(self, unit: UnitState, is_cover_damage: bool = False) -> float:
         """格挡(Guard)乘区: 1.0 - (旧版buff guard减伤 + 新版特殊机制guard减伤)
         - 旧版guard（130009等）：通过buff系统生效，不受is_cover_damage影响
-        - 新版guard（130034 cover附带）：通过unit.guard_active生效，只有cover伤害才享受
+        - 新版guard：通过unit.guard_active生效（guard_standalone区分两种语义）
+          - 独立guard架势（230500/130095等，激活时技能无cover效果）：对所有伤害减伤
+          - cover附带型（130034等）：仅cover转移伤害享受（直接攻击援护者不减免）
         """
         # 旧版guard：通过buff系统
         guard_reduction = self._aggregate_buff_value_signed(unit.buffs, unit.debuffs, SkillEffectType.GUARD.value)
 
-        # 新版guard：只有cover伤害才享受
-        if is_cover_damage:
-            guard_active = getattr(unit, 'guard_active', False)
-            if guard_active and not isinstance(guard_active, MagicMock):
+        # 新版guard：unit.guard_active
+        guard_active = getattr(unit, 'guard_active', False)
+        if guard_active and not isinstance(guard_active, MagicMock):
+            # 独立guard架势对所有伤害生效；cover附带型仅对cover转移伤害生效
+            if getattr(unit, 'guard_standalone', False) or is_cover_damage:
                 guard_rate = getattr(unit, 'guard_rate', 0.0)
                 if not isinstance(guard_rate, MagicMock):
                     guard_reduction += guard_rate / 100.0
