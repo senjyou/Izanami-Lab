@@ -86424,7 +86424,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "mark_name": "攻勢"
+              "mark_name": "攻勢",
+              "remove_all": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -86437,7 +86438,8 @@
     "display_target_type": 3,
     "parse_status": "success",
     "parse_notes": [
-      "manual: 攻勢状态切换EX（无攻勢:净化+进入攻勢；有攻勢:临时攻up+全体攻击+解除）"
+      "manual: 攻勢状态切换EX（无攻勢:净化+进入攻勢；有攻勢:临时攻up+全体攻击+解除）",
+      "fix 2026-10-09: remove_mark加remove_all=true联动移除全部linked buff（debuff_immune+dmg_taken_down），原max_count=1只移除1个导致减伤层残留累积（与敌方版210129同源bug）"
     ]
   },
   "110079": {
@@ -94720,7 +94722,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "mark_name": "攻勢"
+              "mark_name": "攻勢",
+              "remove_all": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -94733,7 +94736,8 @@
     "display_target_type": 3,
     "parse_status": "success",
     "parse_notes": [
-      "manual: 无攻勢→解debuff+攻勢mark(解除不可)+debuff无效+减伤；有攻勢→atk+25%(1次攻击)+敌全体攻击+解攻勢（敌方版，maxlv10）"
+      "manual: 无攻勢→解debuff+攻勢mark(解除不可)+debuff无效+减伤；有攻勢→atk+25%(1次攻击)+敌全体攻击+解攻勢（敌方版，maxlv10）",
+      "fix 2026-10-09: remove_mark加remove_all=true联动移除全部linked buff（debuff_immune+dmg_taken_down），原max_count=1只移除1个导致减伤层残留累积（381305伤害偏低bug）"
     ]
   },
   "220470": {
