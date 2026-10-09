@@ -5649,7 +5649,21 @@ class SkillService:
                         actual_damage=extra_dmg, shield_absorbed=shield_absorbed,
                     )
 
-                # RDPS 归因：子单位伤害（100% 归因于 buff 提供者）
+                # RDPS 归因：子单位伤害（基线分解归因）
+                sub_calc_detail = {
+                    "snapshot_atk": snapshot_atk,
+                    "a_atk": a_atk,
+                    "b_def": b_def,
+                    "base_diff": base,
+                    "power_pct": power_pct * 100,
+                    "crit_factor": 1.5 if is_sub_crit else 1.0,
+                    "a_dealt_mult": a_dealt_mult,
+                    "b_received_mult": b_received_mult,
+                    "advantage": advantage,
+                    "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
+                    "damage_element": 2 if is_en_damage else 1,
+                    "main_hit_count": len(target_info.get("hit_crits") or []) or 1,
+                }
                 rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
                 if rdps_tracker is not None and extra_dmg > 0:
                     rdps_tracker.record_damage_with_attribution(
@@ -5657,7 +5671,7 @@ class SkillService:
                         damage_type="sub_unit",
                         enchant_source_id=sub_buff.source_unit_id,
                         battlefield=battlefield, damage_service=self.damage_service,
-                        enchant_buff=sub_buff,
+                        enchant_buff=sub_buff, calc_detail=sub_calc_detail,
                     )
 
                 self._per_target_enchant_cache["enchant_targets"].append({
@@ -5672,18 +5686,7 @@ class SkillService:
                     "hits": [extra_dmg],
                     "hit_crits": [is_sub_crit],
                     "sub_unit_name": sub_buff.name,
-                    "calc_detail": {
-                        "snapshot_atk": snapshot_atk,
-                        "a_atk": a_atk,
-                        "b_def": b_def,
-                        "base_diff": base,
-                        "power_pct": power_pct * 100,
-                        "crit_factor": 1.5 if is_sub_crit else 1.0,
-                        "a_dealt_mult": a_dealt_mult,
-                        "b_received_mult": b_received_mult,
-                        "advantage": advantage,
-                        "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
-                    },
+                    "calc_detail": sub_calc_detail,
                 })
 
                 _log.info("[SUB_UNIT_DMG] %s sub_unit '%s' -> %s: extra=%d shield=%d (snapshot_atk=%d a_atk=%d b_def=%d power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f) hp: %d->%d",
@@ -5864,7 +5867,20 @@ class SkillService:
                         actual_damage=extra_dmg, shield_absorbed=0,
                     )
 
-                # RDPS 归因：追加伤害（100% 归因于 buff 提供者）
+                # RDPS 归因：追加伤害（基线分解归因）
+                add_calc_detail = {
+                    "source_atk": source_atk,
+                    "c_def": c_def,
+                    "base_diff": base,
+                    "power_pct": power_pct * 100,
+                    "crit_factor": 1.5 if is_add_crit else 1.0,
+                    "a_dealt_mult": a_dealt_mult,
+                    "b_received_mult": b_received_mult,
+                    "attr_factor": a_advantage,
+                    "damage_element": add_damage_element,
+                    "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
+                    "main_hit_count": len(target_info.get("hit_crits") or []) or 1,
+                }
                 rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
                 if rdps_tracker is not None and extra_dmg > 0:
                     rdps_tracker.record_damage_with_attribution(
@@ -5872,7 +5888,7 @@ class SkillService:
                         damage_type="add_dmg",
                         enchant_source_id=ab.source_unit_id,
                         battlefield=battlefield, damage_service=self.damage_service,
-                        enchant_buff=ab,
+                        enchant_buff=ab, calc_detail=add_calc_detail,
                     )
 
                 self._per_target_enchant_cache["enchant_targets"].append({
@@ -5887,18 +5903,7 @@ class SkillService:
                     "hits": [extra_dmg],
                     "hit_crits": [is_add_crit],
                     "modifiers": ["追加"],
-                    "calc_detail": {
-                        "source_atk": source_atk,
-                        "c_def": c_def,
-                        "base_diff": base,
-                        "power_pct": power_pct * 100,
-                        "crit_factor": 1.5 if is_add_crit else 1.0,
-                        "a_dealt_mult": a_dealt_mult,
-                        "b_received_mult": b_received_mult,
-                        "attr_factor": a_advantage,
-                        "damage_element": add_damage_element,
-                        "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
-                    },
+                    "calc_detail": add_calc_detail,
                 })
 
                 _log.info("[ADD_DMG] %s add_damage -> %s: extra=%d (source_atk=%d c_def=%d power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f elem=%d) hp: %d->%d",
@@ -6012,7 +6017,21 @@ class SkillService:
                             actual_damage=extra_dmg, shield_absorbed=0,
                         )
 
-                    # RDPS 归因：附魔伤害（100% 归因于 buff 提供者）
+                    # RDPS 归因：附魔伤害（基线分解归因）
+                    ench_calc_detail = {
+                        "source_atk": source_atk,
+                        "b_atk": b_atk,
+                        "c_def": c_def,
+                        "base_diff": base,
+                        "power_pct": power_pct * 100,
+                        "crit_factor": 1.5 if is_enchant_crit else 1.0,
+                        "b_dealt_mult": b_dealt_mult,
+                        "c_received_mult": c_received_mult,
+                        "attr_factor": b_advantage,
+                        "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
+                        "damage_element": enchant_damage_element,
+                        "main_hit_count": len(target_info.get("hit_crits") or []) or 1,
+                    }
                     rdps_tracker = getattr(battlefield, 'rdps_tracker', None)
                     if rdps_tracker is not None and extra_dmg > 0:
                         rdps_tracker.record_damage_with_attribution(
@@ -6020,7 +6039,7 @@ class SkillService:
                             damage_type="enchant",
                             enchant_source_id=eb.source_unit_id,
                             battlefield=battlefield, damage_service=self.damage_service,
-                            enchant_buff=eb,
+                            enchant_buff=eb, calc_detail=ench_calc_detail,
                         )
 
                     self._per_target_enchant_cache["enchant_targets"].append({
@@ -6035,18 +6054,7 @@ class SkillService:
                         "hits": [extra_dmg],
                         "hit_crits": [is_enchant_crit],
                         "modifiers": ["附魔"],
-                        "calc_detail": {
-                            "source_atk": source_atk,
-                            "b_atk": b_atk,
-                            "c_def": c_def,
-                            "base_diff": base,
-                            "power_pct": power_pct * 100,
-                            "crit_factor": 1.5 if is_enchant_crit else 1.0,
-                            "b_dealt_mult": b_dealt_mult,
-                            "c_received_mult": c_received_mult,
-                            "attr_factor": b_advantage,
-                            "guard_mult": 1.0 - guard_rate if guard_rate > 0 else 1.0,
-                        },
+                        "calc_detail": ench_calc_detail,
                     })
 
                     _log.info("[ENCHANT_DMG] %s enchant -> %s: extra=%d (source_atk=%d b_atk=%d c_def=%d power=%.1f%% crit=%s advantage=%.2f b_dealt=%.4f c_received=%.4f) hp: %d->%d",
@@ -8893,6 +8901,11 @@ class SkillService:
 
         # === BuffState 创建 ===
         _eff_value_tag = getattr(effect, 'value_tag', None)
+        # rdps基线快照：付与瞬间排除我方来源ATK buff的攻击力（附魔/追加/子单位伤害归因用）
+        _rdps_tr_snap = getattr(battlefield, 'rdps_tracker', None)
+        _snap_atk = self.damage_service._calculate_final_stat(caster, "attack")
+        _snap_atk_baseline = (_rdps_tr_snap.compute_ally_excluded_stat(caster, "attack")
+                              if _rdps_tr_snap is not None else _snap_atk)
         aura = BuffState(
             buff_id=f"{_aura_source_unit_id}_{self._current_skill_id}_{mapped_effect_type}_{target.unit_id}" + (f"_{_eff_value_tag}" if _eff_value_tag else ""),
             name=aura_name,
@@ -8902,7 +8915,8 @@ class SkillService:
             timing_type=timing,
             source_unit_id=_aura_source_unit_id,
             source_skill_id=self._current_skill_id,
-            caster_attack=self.damage_service._calculate_final_stat(caster, "attack"),
+            caster_attack=_snap_atk,
+            caster_attack_baseline=_snap_atk_baseline,
             is_debuff=actual_is_debuff,
             value_tag=resolved_value_tag,
             hit_limited=int(effect_flags_aura.get('hit_limited', hit_limited_from_dur)) if effect_flags_aura else hit_limited_from_dur,
@@ -12847,6 +12861,10 @@ class SkillService:
         import uuid
         sub_unit_name = effect_flags.get('sub_unit_name', 'SubUnit')
         caster_atk_snapshot = self.damage_service._calculate_final_stat(caster, "attack")
+        # rdps基线快照：付与瞬间排除我方来源ATK buff的攻击力（子单位伤害归因用）
+        _rdps_tr_snap = getattr(battlefield, 'rdps_tracker', None)
+        caster_atk_snapshot_baseline = (_rdps_tr_snap.compute_ally_excluded_stat(caster, "attack")
+                                        if _rdps_tr_snap is not None else caster_atk_snapshot)
         _log.info("[SUB_UNIT_CREATE] %s: base_atk=%d, final_atk(snapshot)=%d (buffs=%d, atk_up=%d)",
                   caster.name, getattr(caster, 'attack', 0), caster_atk_snapshot,
                   len(caster.buffs),
@@ -12940,6 +12958,7 @@ class SkillService:
                     source_unit_id=caster.unit_id,
                     source_skill_id=self._current_skill_id,
                     caster_attack=caster_atk_snapshot,
+                    caster_attack_baseline=caster_atk_snapshot_baseline,
                     is_debuff=False,
                     is_stackable=True,  # SubUnit can coexist as multiple instances
                     sub_unit_hp=sub_unit_max_hp,

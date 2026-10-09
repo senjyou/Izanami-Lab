@@ -28,6 +28,7 @@ class BuffState:
     stack_count: int = 1
     value_tag: int = 0 # 0=百分比, 1=固定值
     caster_attack: int = 0 # 快照攻击力 (For Poison/Burn)
+    caster_attack_baseline: int = 0  # 基线快照攻击力 (附魔/追加/子单位伤害rdps归因用: 付与瞬间排除我方来源ATK buff后的攻击力, 0=未记录)
     source_unit_id: str = ""
     source_skill_id: int = 0  # 来源技能ID
     is_debuff: bool = False

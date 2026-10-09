@@ -239,7 +239,8 @@ class RDPSTracker:
 
         if damage_type in ("enchant", "add_dmg", "sub_unit"):
             self._record_enchant_damage(caster, target, actual_damage, enchant_source_id, bf,
-                                        enchant_buff)
+                                        ds, enchant_buff=enchant_buff,
+                                        extra_type=damage_type, calc_detail=calc_detail)
             return
 
         if damage_type in ("hp_ratio", "special"):
@@ -297,40 +298,72 @@ class RDPSTracker:
         # crit_payoff = (baseline_ally_nc + bonus_nc) × (eff_crit - 1)
         #             = baseline_crit_payoff + bonus_crit_payoff
         # baseline部分分配到 direct(inherent) / crit_dmg_up / crit_rate_up
-        # bonus部分加入 bonus_for_attribution 做 log-ratio（归因到 non-crit buff 施加者）
+        # bonus部分与baseline部分做对称三方分解：
+        #   - 暴伤加成份额 ×(eff-bcf)/(eff-1) → 暴伤buff
+        #   - 暴率使能份额 ×(bcf-1)/(eff-1)×Δp/p_final → 暴率buff
+        #   - 其余（固有暴击概率下发生的放大 p_base/p_final）→ 非暴击buff（log-ratio）
+        # 修复前 bonus_crit_payoff 100%归非暴击buff，导致暴击率buff在重度buff单位上
+        # 严重低估（bonus_nc可达baseline_nc的8倍以上，实测捕获率仅17.6%）。
         if is_crit:
             baseline_crit_payoff = baseline_ally_non_crit * (effective_crit_factor - 1.0)
             bonus_crit_payoff = bonus_ally_non_crit * (effective_crit_factor - 1.0)
 
+            # 多hit暴击共享（force_crit=any(hit_crits)）：暴击使能概率为P_n=1-(1-p)^n。
+            # 暴率buff的真实边际使能增量=ΔP_n（5hit低暴率时≈n×Δp，放大效应必须计入，
+            # 否则暴率buff被系统性低估——消融实测400259+2%后衛真实边际202万 vs 归因51万）。
+            # 单hit时P_n=p，行为与旧实现完全一致。
+            _n_hits = len(dmg_result.hit_crits) if (dmg_result is not None
+                                                    and dmg_result.hit_crits) else 1
+            if _n_hits > 1:
+                _p_n_final = 1.0 - (1.0 - p_final) ** _n_hits
+                _p_n_base = 1.0 - (1.0 - p_base) ** _n_hits
+            else:
+                _p_n_final, _p_n_base = p_final, p_base
+
             # crit_dmg_up_share (仅基于baseline，不含bonus_nc泄漏)
             if effective_crit_factor > baseline_crit_factor and effective_crit_factor > 1.0:
-                crit_dmg_up_share = baseline_crit_payoff * (effective_crit_factor - baseline_crit_factor) \
-                                    / (effective_crit_factor - 1.0)
+                dmg_up_ratio = (effective_crit_factor - baseline_crit_factor) \
+                               / (effective_crit_factor - 1.0)
+                crit_dmg_up_share = baseline_crit_payoff * dmg_up_ratio
+                bonus_dmg_up_share = bonus_crit_payoff * dmg_up_ratio
             else:
                 crit_dmg_up_share = 0.0
+                bonus_dmg_up_share = 0.0
 
             # crit_rate_up_share (仅基于baseline，不含bonus_nc泄漏)
-            if p_final > p_base and p_final > 0 and effective_crit_factor > 1.0:
-                crit_rate_up_share = baseline_crit_payoff * (baseline_crit_factor - 1.0) \
-                                     / (effective_crit_factor - 1.0) \
-                                     * (p_final - p_base) / p_final
+            if p_final > p_base and _p_n_final > 0 and effective_crit_factor > 1.0:
+                prob_rate = (_p_n_final - _p_n_base) / _p_n_final
+                mult_rate = (baseline_crit_factor - 1.0) / (effective_crit_factor - 1.0)
+                crit_rate_up_share = baseline_crit_payoff * mult_rate * prob_rate
+                bonus_rate_up_share = bonus_crit_payoff * mult_rate * prob_rate
             else:
                 crit_rate_up_share = 0.0
+                bonus_rate_up_share = 0.0
 
-            # true_inherent (仅基于baseline的固有暴击收益)
+            # true_inherent (仅基于baseline的固有暴击收益；概率维度与暴率份额对称用P_n)
             if baseline_crit_factor > 1.0 and p_final > 0:
-                true_inherent = baseline_ally_non_crit * (baseline_crit_factor - 1.0) * p_base / p_final
+                if _p_n_final > 0 and p_final > p_base and effective_crit_factor > 1.0:
+                    true_inherent = baseline_ally_non_crit * (baseline_crit_factor - 1.0) \
+                                    * _p_n_base / _p_n_final
+                else:
+                    true_inherent = baseline_ally_non_crit * (baseline_crit_factor - 1.0) \
+                                    * p_base / p_final
             elif baseline_crit_factor > 1.0:
                 # p_final=0 但仍暴击（强制暴击/技能bonus），整个 baseline 暴击收益归 direct
                 true_inherent = baseline_crit_payoff
             else:
                 true_inherent = 0.0
 
-            # bonus部分 = bonus_nc + bonus_crit_payoff (non-crit buff 的直接收益 + 暴击放大收益)
-            bonus_for_attribution = bonus_ally_non_crit + bonus_crit_payoff
+            # bonus部分 = bonus_nc + bonus_crit_payoff 的非暴击buff份额
+            # （扣除已归暴伤/暴率buff的份额；bonus_crit_payoff×(bcf-1)/(eff-1)×p_base/p_final
+            #   为"暴击本来就会发生"的放大，仍归非暴击buff）
+            bonus_for_attribution = (bonus_ally_non_crit + bonus_crit_payoff
+                                     - bonus_dmg_up_share - bonus_rate_up_share)
         else:
             crit_dmg_up_share = 0.0
             crit_rate_up_share = 0.0
+            bonus_dmg_up_share = 0.0
+            bonus_rate_up_share = 0.0
             true_inherent = 0.0
             bonus_crit_payoff = 0.0
             bonus_for_attribution = bonus_ally_non_crit
@@ -340,9 +373,11 @@ class RDPSTracker:
                     f"dealt={baseline['baseline_dealt_mult']:.3f} recv={baseline['baseline_received_mult']:.3f}")
         self._track(f"  [baseline_ally] {baseline['baseline_ally']:.1f} -> non_crit {baseline_ally_non_crit:.1f}")
         self._track(f"  [actual] {actual_damage} | crit={is_crit} eff_crit_f={effective_crit_factor:.3f} "
-                    f"p_base={p_base:.4f} p_final={p_final:.4f}")
+                    f"p_base={p_base:.4f} p_final={p_final:.4f} n_hits={_n_hits if is_crit else 1} "
+                    f"p_n=({_p_n_base if is_crit else 0:.4f}->{_p_n_final if is_crit else 0:.4f})")
         self._track(f"  [bonus] non_crit={non_crit_damage:.1f} bonus_nc={bonus_ally_non_crit:.1f} "
-                    f"crit_dmg_up={crit_dmg_up_share:.1f} crit_rate_up={crit_rate_up_share:.1f} "
+                    f"crit_dmg_up={crit_dmg_up_share:.1f}(+bonus {bonus_dmg_up_share:.1f}) "
+                    f"crit_rate_up={crit_rate_up_share:.1f}(+bonus {bonus_rate_up_share:.1f}) "
                     f"true_inherent={true_inherent:.1f} bonus_crit_payoff={bonus_crit_payoff:.1f} "
                     f"bonus_for_attr={bonus_for_attribution:.1f}")
         self._track(f"  [direct] {caster.unit_id} += {baseline_ally_non_crit + true_inherent:.1f}")
@@ -351,7 +386,11 @@ class RDPSTracker:
         self._add_contribution(caster.unit_id, "direct_damage",
                                baseline_ally_non_crit + true_inherent)
 
-        if abs(bonus_for_attribution) > 0.5 or crit_dmg_up_share > 0.5 or crit_rate_up_share > 0.5:
+        total_crit_dmg_share = crit_dmg_up_share + bonus_dmg_up_share
+        total_crit_rate_share = crit_rate_up_share + bonus_rate_up_share
+
+        if (abs(bonus_for_attribution) > 0.5 or abs(total_crit_dmg_share) > 0.5
+                or abs(total_crit_rate_share) > 0.5):
             m_base_diff, m_dealt, m_received, m_crit_dmg = self._compute_zone_multipliers(
                 calc, baseline, effective_crit_factor)
 
@@ -375,23 +414,23 @@ class RDPSTracker:
                 self._track(f"  [direct] {caster.unit_id} += {bonus_for_attribution:.1f}")
                 self._add_contribution(caster.unit_id, "direct_damage", bonus_for_attribution)
 
-            # crit_damage_up 归因
-            if crit_dmg_up_share > 0.5:
-                self._track(f"  [crit_dmg_up] share={crit_dmg_up_share:.1f}")
+            # crit_damage_up 归因（baseline + bonus 对称份额；abs()保留负份额守恒）
+            if abs(total_crit_dmg_share) > 0.5:
+                self._track(f"  [crit_dmg_up] share={total_crit_dmg_share:.1f}")
                 self._attribute_buffs_by_value(
                     caster, caster.buffs, caster.debuffs,
                     "CriticalBonusModification",
-                    crit_dmg_up_share, "buff_contribution", "crit_contribution",
+                    total_crit_dmg_share, "buff_contribution", "crit_contribution",
                     battlefield, damage_service,
                     mark_stat_name="crit_damage")
 
-            # crit_rate_up 归因
-            if crit_rate_up_share > 0.5:
-                self._track(f"  [crit_rate_up] share={crit_rate_up_share:.1f}")
+            # crit_rate_up 归因（baseline + bonus 对称份额；abs()保留负份额守恒）
+            if abs(total_crit_rate_share) > 0.5:
+                self._track(f"  [crit_rate_up] share={total_crit_rate_share:.1f}")
                 self._attribute_buffs_by_value(
                     caster, caster.buffs, caster.debuffs,
                     "StatusCriticalChance",
-                    crit_rate_up_share, "buff_contribution", "crit_contribution",
+                    total_crit_rate_share, "buff_contribution", "crit_contribution",
                     battlefield, damage_service)
 
     def _compute_baseline_ally(self, caster: 'UnitState', target: 'UnitState',
@@ -829,31 +868,290 @@ class RDPSTracker:
 
     # ========== 附魔/追加/子单位伤害 ==========
 
+    def compute_ally_excluded_stat(self, unit: 'UnitState', stat: str) -> int:
+        """付与瞬间基线快照：排除我方来源 buff/debuff 后的 ATK/DEF
+
+        供附魔/追加/子单位伤害 buff 创建时记录 caster_attack_baseline 用。
+        与 _compute_baseline_ally 同规则：排除施加者与我方同阵营的buff/debuff，
+        保留敌方施加的（如敌方对我方施放的降攻）。
+        """
+        ds = self._damage_service
+        if ds is None:
+            return 0
+        return self._baseline_stat_value(unit, stat, unit, ds)
+
+    def _baseline_stat_value(self, unit: 'UnitState', stat: str, ref_unit: 'UnitState',
+                             damage_service: 'DamageService') -> int:
+        """计算 unit 属性基线值：排除 ref_unit 我方来源的buff/debuff，保留敌方施加的"""
+        from ..entities_v2.enums import SkillEffectType as SET
+        etype = SET.STATUS_ATTACK.value if stat == "attack" else SET.STATUS_DEFENSE.value
+        eo_b = [b for b in unit.buffs if not self._is_ally_source(b, ref_unit)]
+        eo_d = [d for d in unit.debuffs if not self._is_ally_source(d, ref_unit)]
+        pct = damage_service._aggregate_buff_value_signed(eo_b, eo_d, etype, value_tag=0, unit=unit)
+        fixed = damage_service._aggregate_buff_value_signed(eo_b, eo_d, etype, value_tag=1, unit=unit)
+        raw = unit.attack if stat == "attack" else unit.defense
+        return max(0, int(raw * (1.0 + pct) + fixed))
+
+    def _decompose_enchant_damage(self, caster: 'UnitState', target: 'UnitState',
+                                  actual_damage: int, extra_type: str,
+                                  enchant_buff: Optional['BuffState'],
+                                  calc_detail: Optional[dict],
+                                  battlefield: 'BattlefieldState',
+                                  damage_service: 'DamageService') -> Optional[dict]:
+        """附魔/追加/子单位伤害的基线分解（方案A同规则）
+
+        排除我方来源buff重算基线（baseline_nc），bonus按乘区log-ratio分配：
+        - base乘区（提供者ATK快照/实时ATK）→ 提供者的我方ATK buff
+        - dealt乘区（持有者DealtDamage）→ 持有者的我方DealtDamage buff
+        - received乘区（目标ReceivedDamage）→ 目标身上的我方易伤debuff
+        暴击收益（固定1.5x，暴伤buff不参与）按Δp/p_final归因暴率buff，
+        其余（p_base/p_final固有部分）归提供者direct。
+
+        公式对照（skill_service._process_enchant_damage_for_target）:
+        - enchant:   base = max(0, src_live_atk + min(0, holder_live_atk - def))
+        - add_dmg:   base = max(0, snap + min(0, snap - def))
+        - sub_unit:  base = max(0, snap + min(0, src_live_atk - def))
+
+        返回 dict(baseline_nc/bonus_nc/rate_share/inherent/base_b/baseline_dealt/
+        baseline_received/...)；无法分解时返回 None（退化为100%归提供者）。
+        """
+        if not calc_detail:
+            return None
+        from ..entities_v2.enums import SkillEffectType as SET
+
+        base = calc_detail.get("base_diff", 0) or 0
+        power_pct = calc_detail.get("power_pct", 0) or 0
+        if base <= 0 or power_pct <= 0:
+            return None
+        crit_factor = calc_detail.get("crit_factor", 1.0) or 1.0
+        dealt = calc_detail.get("a_dealt_mult") or calc_detail.get("b_dealt_mult") or 1.0
+        received = calc_detail.get("b_received_mult") or calc_detail.get("c_received_mult") or 1.0
+        attr = calc_detail.get("attr_factor") or calc_detail.get("advantage") or 1.0
+        guard = calc_detail.get("guard_mult", 1.0)
+        if not guard or guard <= 0:
+            guard = 1.0
+        damage_element = calc_detail.get("damage_element", 0) or 0
+
+        d_nc = actual_damage / crit_factor if crit_factor > 1.0 else float(actual_damage)
+
+        def _eo(lst):
+            return [b for b in lst if not self._is_ally_source(b, caster)]
+
+        def _find(unit_id):
+            return self._find_unit_by_id(unit_id or '')
+
+        def _baseline_def() -> int:
+            pct = damage_service._aggregate_buff_value_signed(
+                _eo(target.buffs), _eo(target.debuffs), SET.STATUS_DEFENSE.value,
+                value_tag=0, unit=target)
+            fixed = damage_service._aggregate_buff_value_signed(
+                _eo(target.buffs), _eo(target.debuffs), SET.STATUS_DEFENSE.value,
+                value_tag=1, unit=target)
+            return max(0, int(target.defense * (1.0 + pct) + fixed))
+
+        buff_source = getattr(enchant_buff, 'source_unit_id', '') if enchant_buff else ''
+        provider_unit = _find(buff_source) or caster
+        snap = getattr(enchant_buff, 'caster_attack', 0) if enchant_buff else 0
+        snap_b = getattr(enchant_buff, 'caster_attack_baseline', 0) if enchant_buff else 0
+
+        def _baseline_base() -> int:
+            def_b = _baseline_def()
+            if extra_type == "enchant":
+                # 源单位实时ATK（结算时L5921重算）+ 持有者实时ATK（min项）
+                src_b = self._baseline_stat_value(provider_unit, "attack", caster, damage_service)
+                holder_b = self._baseline_stat_value(caster, "attack", caster, damage_service)
+                return max(0, src_b + min(0, holder_b - def_b))
+            if extra_type == "sub_unit":
+                # 快照 + 源单位实时ATK（min项）
+                sb = snap_b if snap_b > 0 else self._baseline_stat_value(
+                    provider_unit, "attack", caster, damage_service)
+                a_b = self._baseline_stat_value(provider_unit, "attack", caster, damage_service)
+                return max(0, sb + min(0, a_b - def_b))
+            # add_dmg: 快照（caster_attack=0时结算回退持有者实时ATK）
+            if snap > 0:
+                sb = snap_b if snap_b > 0 else self._baseline_stat_value(
+                    provider_unit, "attack", caster, damage_service)
+                return max(0, sb + min(0, sb - def_b))
+            holder_b = self._baseline_stat_value(caster, "attack", caster, damage_service)
+            return max(0, holder_b + min(0, holder_b - def_b))
+
+        base_b = _baseline_base()
+
+        enemy_dealt = damage_service._aggregate_buff_value_signed_filtered(
+            _eo(caster.buffs), _eo(caster.debuffs), SET.DEALT_DAMAGE.value,
+            damage_element=damage_element, unit=caster)
+        baseline_dealt = 1.0 + enemy_dealt
+        enemy_received = damage_service._aggregate_buff_value_signed_filtered(
+            _eo(target.buffs), _eo(target.debuffs), SET.RECEIVED_DAMAGE.value,
+            damage_element=damage_element, unit=target, attacker=caster)
+        baseline_received = max(0.0, 1.0 - enemy_received)
+
+        baseline_nc = base_b * (power_pct / 100.0) * baseline_dealt * baseline_received * attr * guard
+        bonus_nc = d_nc - baseline_nc
+
+        # === 暴击收益（固定1.5x；暴伤buff不进入这些路径） ===
+        # 暴率维度用P_n=1-(1-p)^n（附魔/追加/子单位的暴击共享主攻击any(hit_crits)结果，
+        # 与main路径的多hit使能放大保持一致；单hit时P_n=p行为不变）
+        rate_share = 0.0
+        inherent = 0.0
+        if crit_factor > 1.0:
+            payoff = d_nc * (crit_factor - 1.0)
+            p_base = caster.crit_rate
+            p_final = damage_service._calculate_crit_rate(caster)
+            n_hits = calc_detail.get("main_hit_count", 1) or 1
+            if n_hits > 1:
+                p_n_final = 1.0 - (1.0 - p_final) ** n_hits
+                p_n_base = 1.0 - (1.0 - p_base) ** n_hits
+            else:
+                p_n_final, p_n_base = p_final, p_base
+            if p_final > p_base and p_n_final > 0:
+                rate_share = payoff * (p_n_final - p_n_base) / p_n_final
+                inherent = payoff * p_n_base / p_n_final
+            else:
+                inherent = payoff
+
+        return {
+            "baseline_nc": baseline_nc,
+            "bonus_nc": bonus_nc,
+            "rate_share": rate_share,
+            "inherent": inherent,
+            "base": base,
+            "base_b": base_b,
+            "dealt": dealt,
+            "baseline_dealt": baseline_dealt,
+            "received": received,
+            "baseline_received": baseline_received,
+            "damage_element": damage_element,
+        }
+
     def _record_enchant_damage(self, caster: 'UnitState', target: 'UnitState',
                                actual_damage: int, enchant_source_id: Optional[str],
                                battlefield: 'BattlefieldState',
-                               enchant_buff: Optional['BuffState'] = None):
-        """附魔/追加/子单位伤害：100% 归因于 buff 提供者
+                               damage_service: 'DamageService',
+                               enchant_buff: Optional['BuffState'] = None,
+                               extra_type: str = "",
+                               calc_detail: Optional[dict] = None):
+        """附魔/追加/子单位伤害归因（基线分解）
 
-        若 buff 来自回忆卡，归因到回忆卡的 direct_damage 而非角色 enchant_contribution
+        baseline+固有暴击 → 提供者（或回忆卡）direct；
+        暴率使能收益 → 持有者的我方暴率buff；
+        bonus → base/dealt/received乘区log-ratio归因到具体我方buff施加者。
+        无法分解（无calc_detail）时退化为100%归提供者（旧行为）。
         """
-        # 回忆卡附魔/追加/子单位伤害 → 归因到回忆卡
+        from ..entities_v2.enums import SkillEffectType as SET
+
+        # 回忆卡提供的附魔/追加/子单位 → direct 归到回忆卡
+        card_ids = None
         if enchant_buff is not None and enchant_buff.is_memory_buff and enchant_buff.source_skill_id:
             card_ids = self._skill_to_card.get(enchant_buff.source_skill_id)
+
+        provider_id = enchant_source_id or caster.unit_id
+
+        def _add_direct(amount: float):
             if card_ids:
-                per_card = float(actual_damage) / len(card_ids)
+                per = amount / len(card_ids)
                 for cid in card_ids:
-                    self._track(f"  [enchant] memory_card {cid} += {per_card:.1f} (direct_damage)")
-                    self._add_memory_card_contribution(cid, "direct_damage", per_card)
-                return
+                    self._track(f"  [enchant] memory_card {cid} += {per:.1f} (direct_damage)")
+                    self._add_memory_card_contribution(cid, "direct_damage", per)
+            else:
+                source_name = self._get_unit_name(provider_id, battlefield)
+                self.ensure_unit(provider_id, source_name, caster.side.value)
+                self._track(f"  [enchant] unit {provider_id} += {amount:.1f} (enchant_contribution)")
+                self._add_contribution(provider_id, "enchant_contribution", float(amount))
 
-        if not enchant_source_id:
-            enchant_source_id = caster.unit_id
+        decomp = self._decompose_enchant_damage(
+            caster, target, actual_damage, extra_type, enchant_buff,
+            calc_detail, battlefield, damage_service)
 
-        source_name = self._get_unit_name(enchant_source_id, battlefield)
-        self.ensure_unit(enchant_source_id, source_name, caster.side.value)
-        self._track(f"  [enchant] unit {enchant_source_id} += {actual_damage} (enchant_contribution)")
-        self._add_contribution(enchant_source_id, "enchant_contribution", float(actual_damage))
+        if decomp is None:
+            _add_direct(float(actual_damage))
+            return
+
+        baseline_nc = decomp["baseline_nc"]
+        bonus_nc = decomp["bonus_nc"]
+        rate_share = decomp["rate_share"]
+        inherent = decomp["inherent"]
+
+        self._track(f"  [enchant_decomp] type={extra_type} d_nc={baseline_nc + bonus_nc:.1f} "
+                    f"baseline={baseline_nc:.1f} bonus={bonus_nc:.1f} "
+                    f"rate={rate_share:.1f} inherent={inherent:.1f} "
+                    f"base={decomp['base']}(b={decomp['base_b']}) "
+                    f"dealt={decomp['dealt']:.4f}(b={decomp['baseline_dealt']:.4f}) "
+                    f"recv={decomp['received']:.4f}(b={decomp['baseline_received']:.4f})")
+
+        # direct: baseline + 固有暴击收益
+        direct_total = baseline_nc + inherent
+        if abs(direct_total) > 0.005:
+            _add_direct(direct_total)
+
+        # 暴率使能收益 → 持有者的我方暴率buff
+        if abs(rate_share) > 0.5:
+            self._track(f"  [enchant_crit_rate] share={rate_share:.1f}")
+            self._attribute_buffs_by_value(
+                caster, caster.buffs, caster.debuffs,
+                SET.STATUS_CRITICAL_CHANCE.value,
+                rate_share, "buff_contribution", "crit_contribution",
+                battlefield, damage_service)
+
+        # bonus → 乘区 log-ratio（signed share 守恒）
+        if abs(bonus_nc) > 0.5:
+            zones = {}
+            if decomp["base_b"] > 0:
+                m = decomp["base"] / decomp["base_b"]
+                if m > 0 and abs(m - 1.0) > 1e-9:
+                    zones["base"] = m
+            if decomp["baseline_dealt"] > 0:
+                m = decomp["dealt"] / decomp["baseline_dealt"]
+                if m > 0 and abs(m - 1.0) > 1e-9:
+                    zones["dealt"] = m
+            if decomp["baseline_received"] > 0:
+                m = decomp["received"] / decomp["baseline_received"]
+                if m > 0 and abs(m - 1.0) > 1e-9:
+                    zones["received"] = m
+
+            log_sum = sum(math.log(v) for v in zones.values()) if zones else 0.0
+            self._track(f"  [enchant_bonus] bonus={bonus_nc:.1f} "
+                        f"zones={{{', '.join(f'{k}:{v:.4f}' for k, v in zones.items())}}} "
+                        f"log_sum={log_sum:.4f}")
+
+            if not zones or log_sum == 0:
+                # 无乘区变化（或无法求log）：守恒兜底归提供者
+                if abs(bonus_nc) > 0.5:
+                    self._track(f"  [enchant_bonus] fallback -> provider direct += {bonus_nc:.1f}")
+                    _add_direct(bonus_nc)
+            else:
+                if "base" in zones:
+                    share = bonus_nc * math.log(zones["base"]) / log_sum
+                    if abs(share) > 0.5:
+                        provider_unit = self._find_unit_by_id(provider_id) or caster
+                        self._track(f"  [enchant_zone:base] share={share:.1f} -> {provider_id} ATK buffs")
+                        self._attribute_buffs_by_value(
+                            provider_unit, provider_unit.buffs, provider_unit.debuffs,
+                            SET.STATUS_ATTACK.value, share,
+                            "buff_contribution", "atk_buff_contribution",
+                            battlefield, damage_service,
+                            base_stat_unit=provider_unit, mark_stat_name="attack")
+                if "dealt" in zones:
+                    share = bonus_nc * math.log(zones["dealt"]) / log_sum
+                    if abs(share) > 0.5:
+                        self._track(f"  [enchant_zone:dealt] share={share:.1f}")
+                        self._attribute_buffs_by_value(
+                            caster, caster.buffs, caster.debuffs,
+                            SET.DEALT_DAMAGE.value, share,
+                            "buff_contribution", "dealt_dmg_contribution",
+                            battlefield, damage_service,
+                            mark_stat_name="dealt_damage",
+                            damage_element=decomp["damage_element"])
+                if "received" in zones:
+                    share = bonus_nc * math.log(zones["received"]) / log_sum
+                    if abs(share) > 0.5:
+                        self._track(f"  [enchant_zone:received] share={share:.1f}")
+                        self._attribute_buffs_by_value(
+                            caster, target.buffs, target.debuffs,
+                            SET.RECEIVED_DAMAGE.value, share,
+                            "debuff_contribution", "received_dmg_contribution",
+                            battlefield, damage_service,
+                            damage_element=decomp["damage_element"])
 
     # ========== HP比例/特殊伤害 ==========
 
