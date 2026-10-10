@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-10T05:29:20.507Z",
+  "sessionId": "sess_e4f6af29-6316-45a5-9dab-64d85b993687",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "C:/Users/ARIS/.zcode/cli/memories/projects/muv_luv_girlsgardenx_cl-b9dcd0e4da3b7e71/memory/dealt-damage-base-includes-shield-absorbed.md",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 3,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

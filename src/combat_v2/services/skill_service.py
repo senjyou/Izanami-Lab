@@ -3464,6 +3464,10 @@ class SkillService:
         )
 
         total_damage = 0
+        # 盾/子单位吸收量累计：与ダメージ系转化效果（lifesteal/shield_from_damage/sub_unit_hp）的
+        # 基数口径为「HP损失+盾吸收」（与 _apply_damage_process_damage_links 的 source_total_dmg 一致），
+        # 打在盾上的伤害同样计入与えたダメージ
+        total_shield_absorbed = 0
         targets_hit = []
         self._last_damage_hp_before = {}
         deferred_crit_actions = []
@@ -3657,6 +3661,7 @@ class SkillService:
                 shield_penetration = min(dmg_skill_obj.ignore_shield / 100.0, 1.0)
             actual_damage, shield_absorbed, sub_unit_absorbs = self._apply_damage_absorb_shields_and_subunits(
                 caster, target, dmg_skill_obj, dmg_result, actual_damage, battlefield)
+            total_shield_absorbed += shield_absorbed
             overflow = max(0, actual_damage - hp_before)
 
             # P0-3 Phase 4: HP扣减+计分+暴击延迟独立为方法
@@ -3692,7 +3697,8 @@ class SkillService:
         # P0-3 Phase 2: reflect_damage 反射独立为方法
         reflect_transfers = self._apply_damage_process_reflect(caster, targets_hit, battlefield)
 
-        self._most_recent_damage += total_damage
+        # 与ダメージ系转化基数 = HP损失 + 盾/子单位吸收（打在盾上的伤害也计入）
+        self._most_recent_damage += total_damage + total_shield_absorbed
 
         self._previous_damage_target_ids = set(t["target_id"] for t in targets_hit)
 
@@ -3706,7 +3712,8 @@ class SkillService:
         # lifesteal 嵌在 damage flags 中而非独立 effect_type，需在 damage 完成后触发
         lifesteal_pct = effect_flags.get('lifesteal') if effect_flags else None
         lifesteal_result = None
-        if lifesteal_pct and total_damage > 0 and caster.is_alive:
+        # 触发口径含盾吸收：打在盾上的伤害同样是与えたダメージ（与 _most_recent_damage 基数一致）
+        if lifesteal_pct and (total_damage + total_shield_absorbed) > 0 and caster.is_alive:
             lifesteal_effect = type('obj', (object,), {
                 'effect_type': 'lifesteal',
                 'value': lifesteal_pct,
@@ -6277,7 +6284,7 @@ class SkillService:
                     # 130158 ヒートアップ・ラブ: 累计当次行动中受到的伤害
                     _adj_target._damage_taken_in_action = getattr(_adj_target, '_damage_taken_in_action', 0) + _adj_hp_loss
                     self._per_hit_hp_losses.setdefault(_adj_target.unit_id, []).append(_adj_hp_loss)
-                total_damage_delta += _adj_actual_dmg
+                total_damage_delta += _adj_actual_dmg + _adj_shield_absorbed
                 caster.damage_dealt_total += _adj_actual_dmg
                 _adj_target.damage_taken_total += _adj_actual_dmg
                 # 計分追跡
@@ -6760,10 +6767,11 @@ class SkillService:
                                   caster.name, dt.name, actual, dt.current_hp)
                         # === 伤害统计累加（与主流程 _apply_damage 保持一致） ===
                         # on_crit 追加伤害必须计入统计/lifesteal基础值/scoring
+                        # 基数口径含盾吸收部分（与えたダメージ = HP损失 + 盾吸收）
                         overflow = max(0, actual - hp_before)
                         caster.damage_dealt_total += actual
                         dt.damage_taken_total += actual
-                        self._most_recent_damage += actual
+                        self._most_recent_damage += actual + shield_absorbed
                         tracker = getattr(battlefield, 'scoring_tracker', None)
                         if tracker is not None:
                             caster_side = "ally" if caster.side.value == "ally" else "enemy"
@@ -12232,6 +12240,8 @@ class SkillService:
             targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
 
         total_damage = 0
+        # Shield absorption total: the base-value convention for damage-dealt conversion effects is "HP loss + shield absorption" (same as _apply_damage)
+        total_shield_absorbed = 0
         targets_hit = []
         # 准备per-target附魔处理：收集ENCHANT_DAMAGE/ADD_DAMAGE/SUB_UNIT/carried_debuff buffs
         # 并初始化 _per_target_enchant_cache（_apply_block_enchant_damage 读取此缓存）
@@ -12485,6 +12495,7 @@ class SkillService:
                 # 130158 ヒートアップ・ラブ: 累计当次行动中受到的伤害
                 target._damage_taken_in_action = getattr(target, '_damage_taken_in_action', 0) + hp_loss
                 self._per_hit_hp_losses.setdefault(target.unit_id, []).append(hp_loss)
+            total_shield_absorbed += shield_absorbed
             # 最近受到的伤害：包括被盾吸收的部分（用于反撃系PS）
             received_total = hp_loss + shield_absorbed
             if received_total > 0:
@@ -12574,7 +12585,8 @@ class SkillService:
         total_damage, damage_link_transfers = self._apply_damage_process_damage_links(
             caster, _link_flags, targets_hit, battlefield, total_damage)
 
-        self._most_recent_damage += total_damage
+        # 与ダメージ系转化基数 = HP损失 + 盾/子单位吸收（打在盾上的伤害也计入）
+        self._most_recent_damage += total_damage + total_shield_absorbed
         if value_source != "target_lost_hp":
             self._hp_consumed = 0
 
