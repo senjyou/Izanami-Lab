@@ -1040,6 +1040,7 @@ class SkillService:
                                     "enemy_single_highest_mark_count",
                                     "enemy_single_lowest_mark_count",
                                     "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
+                                    "enemy_column_highest_hp_ratio",
             "enemy_column_lowest_mark_count",
                                     "enemy_column_lowest_mark_count",
                                     "enemy_row_of_lowest_mark_count",
@@ -8070,6 +8071,24 @@ class SkillService:
             else:
                 _log.info("[AURA_APPLY] %s: ally_front -> caster at front, no front ally", caster.name)
 
+        # 列/行锚定特殊索敌（enemy_column_*/enemy_row_of_*）：ALL_PAWNS扩展后必须
+        # 应用列/行过滤（复用damage/add_status路径的_postfilter_damage_targets）。
+        # 此前缺失导致aura效果命中全部敌人而非锚点列
+        # （容疑者を捕捉120122的mark给全部5敌上「風紀」，应为锚点列2体）。
+        # 必须在highest_atk等子串匹配块之前（"enemy_column_highest_atk"含"highest_atk"）。
+        _AURA_COLUMN_ROW_POSTFILTER_TYPES = {
+            "enemy_column_furthest", "enemy_column_mark_priority",
+            "enemy_column_highest_atk", "enemy_column_highest_hp_ratio",
+            "enemy_column_lowest_mark_count", "enemy_row_of_lowest_mark_count",
+        }
+        if effect.target_type in _AURA_COLUMN_ROW_POSTFILTER_TYPES and targets:
+            targets = self._postfilter_damage_targets(
+                effect.target_type, targets, caster,
+                getattr(effect, 'flags', {}) or {},
+            )
+            _log.info("[AURA_APPLY] %s: column/row postfilter %s -> %s",
+                      caster.name, effect.target_type, [t.name for t in targets])
+
         if effect.target_type and "highest_atk" in effect.target_type:
             cache = getattr(self, '_block_aura_target_cache', None)
             if cache is not None and effect.target_type in cache:
@@ -9724,6 +9743,7 @@ class SkillService:
             "enemy_single_highest_mark_count",
             "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
+            "enemy_column_highest_hp_ratio",
             "enemy_column_lowest_mark_count",
             "enemy_row_of_lowest_mark_count",
         }
