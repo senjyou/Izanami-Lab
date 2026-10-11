@@ -1,0 +1,511 @@
+"""Regression tests for character 141301 (ダウナーギャルな副委員長) skill mechanics.
+
+Covers 5 new mechanisms:
+1. conditional_power_bonus multiplier_per_count: AS1 (120119) damage scales by 警棒 mark count
+2. block_debuffs flag (block_buff_by_type extension): PS1 (130127) L11+ debuff immunity
+3. EP_GAIN_UP buff: PS2 (130128) increases EX gauge gain by 50%
+4. scale_by_target_hp_ratio on dmg_dealt_down: PS2 (130128) HP-scaling debuff
+5. cover + mark + atk_down with attacker_action: PS1 (130127) block & debuff cleanup
+
+Related skills:
+- 110054 フェイスストライク (EX): enemy_single + adjacent_enemies + action_damage
+- 120119 とりしまり～ (AS1): enemy_all damage with 警棒 mark scaling + remove_ep
+- 120120 弱点はそこかな？ (AS2): enemy_single_furthest + atk_down stackable
+- 130127 風紀委員会の管轄だよ～ (PS1): mark 警棒 + atk_down + cover + block_debuffs(L11+)
+- 130128 包囲かんりょ～ (PS2): dmg_dealt_down (HP-scaling) + ep_gain_up
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.data.data_loader import DataLoader
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=5000, speed=500, current_hp=None, is_alive=True,
+               skills=None, skill_levels=None, level=15, ap=10, pp=10, ep=0,
+               max_ep=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=2, character_type=1,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=max_ep,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=is_alive,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestReg141301SkillConfig(unittest.TestCase):
+    """Verify that all 5 skills of character 141301 are properly configured
+    in skill_effects_hybrid.json and can be loaded by DataLoader."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_all_5_skills_present_in_hybrid(self):
+        """All 5 skill IDs should be present in skill_effects_hybrid.json."""
+        for skill_id in (110054, 120119, 120120, 130127, 130128):
+            data = self.dl.get_parsed_skill_data(skill_id)
+            self.assertIsNotNone(data,
+                                 f"Skill {skill_id} should be in skill_effects_hybrid")
+
+    def test_ps1_has_simultaneous_limit(self):
+        """PS1 (130127) should have simultaneous_limit=True because the
+        description says '同時発動制限'."""
+        ps1 = self.dl.get_parsed_skill_data(130127)
+        self.assertTrue(ps1.get('simultaneous_limit', False),
+                        "PS1 130127 should have simultaneous_limit=True")
+
+    def test_ps1_trigger_type_before_as_attacked(self):
+        """PS1 (130127) trigger_type should be before_as_attacked."""
+        ps1 = self.dl.get_parsed_skill_data(130127)
+        self.assertEqual(ps1['trigger_type'], 'before_as_attacked')
+
+    def test_ps1_global_condition_includes_attacker_back_row(self):
+        """PS1 (130127) global_condition should include attacker_is_back_row,
+        target_is_other_ally, and self_hp_percent >= 40."""
+        ps1 = self.dl.get_parsed_skill_data(130127)
+        gc = ps1['global_condition']
+        self.assertEqual(gc['type'], 'and')
+        cond_types = [c['type'] for c in gc['conditions']]
+        self.assertIn('attacker_is_back_row', cond_types)
+        self.assertIn('target_is_other_ally', cond_types)
+        # self_hp_percent >= 40 (HP < 40% blocks trigger)
+        shp_conds = [c for c in gc['conditions']
+                     if c['type'] == 'self_hp_percent']
+        self.assertEqual(len(shp_conds), 1)
+        self.assertEqual(shp_conds[0]['operator'], '>=')
+        self.assertEqual(shp_conds[0]['value'], 40)
+
+    def test_ps2_trigger_type_on_turn_end(self):
+        """PS2 (130128) trigger_type should be on_turn_end."""
+        ps2 = self.dl.get_parsed_skill_data(130128)
+        self.assertEqual(ps2['trigger_type'], 'on_turn_end')
+
+    def test_as1_has_mark_scaling_bonus(self):
+        """AS1 (120119) damage effect should have conditional_power_bonus with
+        multiplier_per_count=True, max_multiplier_count=3, value=15.0 (fixed).
+
+        multiplier_per_count / max_multiplier_count 嵌套在 condition 对象内
+        （详见 project_rules.md 11.22）。
+        """
+        as1 = self.dl.get_parsed_skill_data(120119)
+        dmg_effect = as1['effect_blocks'][0]['effects'][0]
+        self.assertEqual(dmg_effect['effect_type'], 'damage')
+        bonus = dmg_effect['flags']['conditional_power_bonus']
+        cond = bonus['condition']
+        self.assertTrue(cond.get('multiplier_per_count'))
+        self.assertEqual(cond.get('max_multiplier_count'), 3)
+        self.assertEqual(bonus.get('value'), 15.0)
+        self.assertEqual(bonus.get('bonus_type'), 'dealt_damage')
+
+    def test_ps2_dmg_dealt_down_has_hp_scaling(self):
+        """PS2 (130128) dmg_dealt_down should have scale_by_target_hp_ratio
+        and attack_limited=1 flags."""
+        ps2 = self.dl.get_parsed_skill_data(130128)
+        effects = ps2['effect_blocks'][0]['effects']
+        dmg_down = next(e for e in effects
+                        if e['effect_type'] == 'dmg_dealt_down')
+        self.assertTrue(dmg_down['flags'].get('scale_by_target_hp_ratio'))
+        self.assertEqual(dmg_down['flags'].get('attack_limited'), 1)
+        self.assertTrue(dmg_down['flags'].get('stackable'))
+
+    def test_ps2_has_ep_gain_up(self):
+        """PS2 (130128) should have an ep_gain_up effect targeting ally_all."""
+        ps2 = self.dl.get_parsed_skill_data(130128)
+        effects = ps2['effect_blocks'][0]['effects']
+        ep_buff = next(e for e in effects
+                       if e['effect_type'] == 'ep_gain_up')
+        self.assertEqual(ep_buff['target_type'], 'ally_all')
+        self.assertEqual(ep_buff['value'], 50.0)
+        self.assertEqual(ep_buff['duration'], 1)
+
+    def test_ps1_block_debuffs_at_l11(self):
+        """PS1 (130127) Block2 (level_min=11) should be block_buff_by_type
+        with block_debuffs=True flag."""
+        ps1 = self.dl.get_parsed_skill_data(130127)
+        block2 = next(b for b in ps1['effect_blocks']
+                      if b.get('level_min') == 11)
+        eff = block2['effects'][0]
+        self.assertEqual(eff['effect_type'], 'block_buff_by_type')
+        self.assertTrue(eff['flags'].get('block_debuffs'))
+        self.assertEqual(eff['duration_type'], 'attacker_action')
+
+    def test_ps1_mark_and_cover_at_l1(self):
+        """PS1 (130127) Block1 should have mark 警棒, atk_down, and cover."""
+        ps1 = self.dl.get_parsed_skill_data(130127)
+        block1 = ps1['effect_blocks'][0]
+        effect_types = [e['effect_type'] for e in block1['effects']]
+        self.assertIn('mark', effect_types)
+        self.assertIn('atk_down', effect_types)
+        self.assertIn('cover', effect_types)
+
+        mark_eff = next(e for e in block1['effects']
+                        if e['effect_type'] == 'mark')
+        self.assertEqual(mark_eff['flags']['mark_name'], '警棒')
+        self.assertTrue(mark_eff['flags'].get('stackable'))
+        self.assertEqual(mark_eff['duration'], -1)
+
+        cover_eff = next(e for e in block1['effects']
+                         if e['effect_type'] == 'cover')
+        self.assertEqual(cover_eff['duration_type'], 'attacker_action')
+
+
+class TestRegEpGainUpMechanism(unittest.TestCase):
+    """EP_GAIN_UP buff: increases EX gauge gain by a percentage.
+
+    In resource_service.generate_ep, when unit has EP_GAIN_UP buff,
+    effective_amount = amount × (1 + ep_gain_up_pct/100).
+    Multiple EP_GAIN_UP buffs use MAX aggregation.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_ep_gain_up_increases_ep_gain(self):
+        """With EP_GAIN_UP=50%, generating 10 EP should yield 15 EP."""
+        rs = ResourceService()
+
+        unit = _make_unit("u1", "Unit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                          ep=0, max_ep=100)
+        # Apply EP_GAIN_UP buff (50%)
+        ep_buff = BuffState(
+            buff_id="test_ep_up", name="ep_gain_up",
+            effect_type=SkillEffectType.EP_GAIN_UP.value,
+            value=50.0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+        unit.buffs.append(ep_buff)
+
+        # apply_ep_gain_down=True enables both EP_GAIN_DOWN and EP_GAIN_UP
+        rs.generate_ep(unit, 10, apply_ep_gain_down=True)
+        self.assertEqual(unit.current_ep, 15,
+                         "With EP_GAIN_UP=50%, 10 EP should become 15 EP")
+
+    def test_ep_gain_up_max_aggregation(self):
+        """Multiple EP_GAIN_UP buffs should use MAX aggregation."""
+        rs = ResourceService()
+
+        unit = _make_unit("u1", "Unit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                          ep=0, max_ep=100)
+        # Two EP_GAIN_UP buffs: 30% and 50% -> MAX = 50%
+        for i, val in enumerate([30.0, 50.0]):
+            unit.buffs.append(BuffState(
+                buff_id=f"test_ep_up_{i}", name="ep_gain_up",
+                effect_type=SkillEffectType.EP_GAIN_UP.value,
+                value=val, duration=1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                is_debuff=False,
+            ))
+
+        rs.generate_ep(unit, 10, apply_ep_gain_down=True)
+        self.assertEqual(unit.current_ep, 15,
+                         "MAX(30%, 50%) = 50%, so 10 EP should become 15 EP")
+
+    def test_ep_gain_up_with_ep_gain_down(self):
+        """EP_GAIN_UP and EP_GAIN_DOWN should both apply multiplicatively."""
+        rs = ResourceService()
+
+        unit = _make_unit("u1", "Unit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                          ep=0, max_ep=100)
+        # EP_GAIN_DOWN=20% (reduces), EP_GAIN_UP=50% (increases)
+        unit.debuffs.append(BuffState(
+            buff_id="test_ep_down", name="ep_gain_down",
+            effect_type=SkillEffectType.EP_GAIN_DOWN.value,
+            value=20.0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        ))
+        unit.buffs.append(BuffState(
+            buff_id="test_ep_up", name="ep_gain_up",
+            effect_type=SkillEffectType.EP_GAIN_UP.value,
+            value=50.0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        ))
+
+        rs.generate_ep(unit, 10, apply_ep_gain_down=True)
+        # 10 * (1 - 0.2) * (1 + 0.5) = 10 * 0.8 * 1.5 = 12
+        self.assertEqual(unit.current_ep, 12,
+                         "10 * (1-0.2) * (1+0.5) = 12 EP")
+
+
+class TestRegBlockDebuffsMechanism(unittest.TestCase):
+    """block_debuffs flag: block_buff_by_type with block_debuffs=True blocks
+    all new debuff applications on the target.
+
+    In aura_service.add_aura, when target has BLOCK_BUFF_BY_TYPE debuff with
+    block_debuffs=True, any new debuff (is_debuff=True) is blocked.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts,
+                          status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, aus
+
+    def test_block_debuffs_blocks_new_debuff(self):
+        """When target has block_debuffs=True, new debuff should be blocked."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+
+        ss, aus = self._make_services(bf)
+
+        # Apply block_debuffs debuff to target first
+        block_debuff = BuffState(
+            buff_id="block_debuffs_test", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+            block_debuffs=True,
+        )
+        target.debuffs.append(block_debuff)
+
+        # Try to apply a new debuff (atk_down)
+        new_debuff = BuffState(
+            buff_id="atk_down_test", name="atk_down",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=30.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=True,
+        )
+
+        result = aus.add_aura(target, new_debuff)
+        self.assertFalse(result,
+                         "New debuff should be blocked by block_debuffs=True")
+        # Ensure no atk_down was added
+        atk_downs = [d for d in target.debuffs
+                     if d.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_downs), 0,
+                         "No atk_down debuff should be on target")
+
+    def test_block_debuffs_does_not_block_buff(self):
+        """block_debuffs=True should NOT block buff (is_debuff=False)."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ALLY,
+                            Position.ALLY_LEFT_FRONT)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster, target]
+        bf.enemy_team = []
+
+        ss, aus = self._make_services(bf)
+
+        # Apply block_debuffs to target
+        block_debuff = BuffState(
+            buff_id="block_debuffs_test", name="buff_block",
+            effect_type=SkillEffectType.BLOCK_BUFF_BY_TYPE.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            is_debuff=True,
+            block_debuffs=True,
+        )
+        target.debuffs.append(block_debuff)
+
+        # Try to apply a buff (atk_up)
+        new_buff = BuffState(
+            buff_id="atk_up_test", name="atk_up",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=30.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=False,
+        )
+
+        result = aus.add_aura(target, new_buff)
+        self.assertTrue(result,
+                        "Buff should NOT be blocked by block_debuffs=True")
+
+
+class TestRegScaleByTargetHpRatio(unittest.TestCase):
+    """scale_by_target_hp_ratio: dmg_dealt_down value scales by target's
+    current HP ratio.
+
+    Formula: final_value = value × (target.current_hp / target.max_hp)
+    At HP 50%, value=20 → final_value=10 (10% reduction).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts,
+                          status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_full_hp_full_value(self):
+        """At HP 100%, scale_by_target_hp_ratio should apply full value."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT,
+                            hp=100000, current_hp=100000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+
+        ss = self._make_services(bf)
+        ss._current_skill_id = 999999
+        ss._current_skill_priority = 1
+
+        effect = type('obj', (object,), {
+            'effect_type': 'dmg_dealt_down',
+            'target_type': 'enemy_single',
+            'target_identifier': None,
+            'value': 30.0,
+            'value_tag': 'dmg',
+            'duration': 1,
+            'duration_type': 'action',
+            'flags': {
+                'value_type': 'percent',
+                'attack_limited': 1,
+                'scale_by_target_hp_ratio': True,
+            },
+        })()
+
+        ss._apply_aura(caster, effect, bf, is_debuff=True)
+
+        debuffs = [d for d in target.debuffs
+                   if d.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertEqual(len(debuffs), 1)
+        # HP 100% -> value * 1.0 = 30.0
+        self.assertAlmostEqual(debuffs[0].value, 30.0, places=4)
+
+    def test_half_hp_half_value(self):
+        """At HP 50%, scale_by_target_hp_ratio should apply half value."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT,
+                            hp=100000, current_hp=50000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+
+        ss = self._make_services(bf)
+        ss._current_skill_id = 999999
+        ss._current_skill_priority = 1
+
+        effect = type('obj', (object,), {
+            'effect_type': 'dmg_dealt_down',
+            'target_type': 'enemy_single',
+            'target_identifier': None,
+            'value': 30.0,
+            'value_tag': 'dmg',
+            'duration': 1,
+            'duration_type': 'action',
+            'flags': {
+                'value_type': 'percent',
+                'attack_limited': 1,
+                'scale_by_target_hp_ratio': True,
+            },
+        })()
+
+        ss._apply_aura(caster, effect, bf, is_debuff=True)
+
+        debuffs = [d for d in target.debuffs
+                   if d.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertEqual(len(debuffs), 1)
+        # HP 50% -> value * 0.5 = 15.0
+        self.assertAlmostEqual(debuffs[0].value, 15.0, places=4)
+
+    def test_zero_hp_zero_value(self):
+        """At HP 0%, scale_by_target_hp_ratio should apply 0 value."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        target = _make_unit("target", "Target", Side.ENEMY,
+                            Position.ENEMY_CENTER_FRONT,
+                            hp=100000, current_hp=0)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+
+        ss = self._make_services(bf)
+        ss._current_skill_id = 999999
+        ss._current_skill_priority = 1
+
+        effect = type('obj', (object,), {
+            'effect_type': 'dmg_dealt_down',
+            'target_type': 'enemy_single',
+            'target_identifier': None,
+            'value': 30.0,
+            'value_tag': 'dmg',
+            'duration': 1,
+            'duration_type': 'action',
+            'flags': {
+                'value_type': 'percent',
+                'attack_limited': 1,
+                'scale_by_target_hp_ratio': True,
+            },
+        })()
+
+        ss._apply_aura(caster, effect, bf, is_debuff=True)
+
+        debuffs = [d for d in target.debuffs
+                   if d.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertEqual(len(debuffs), 1)
+        # HP 0% -> value * 0.0 = 0.0
+        self.assertAlmostEqual(debuffs[0].value, 0.0, places=4)
+
+
+if __name__ == '__main__':
+    unittest.main()

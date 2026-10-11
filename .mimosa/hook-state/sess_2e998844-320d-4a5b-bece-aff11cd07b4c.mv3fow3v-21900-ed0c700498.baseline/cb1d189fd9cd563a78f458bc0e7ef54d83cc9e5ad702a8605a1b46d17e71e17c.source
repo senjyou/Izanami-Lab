@@ -1,0 +1,166 @@
+"""Regression: PS技能造成伤害后必须重新检查累计伤害阈值。
+
+仕様: on_critical等PS技能がダメージを与えた後、被攻撃単位のcumulative_hp_damageが
+      閾値を超えた場合、直ちにon_cumulative_damage PSを再チェックして発動する。
+      （例: アンデッドリベンジ on_critical → それはやりすぎ！+ on_cumulative_damage）
+
+Bug: _execute_trigger_actions内でPS実行後にcumulative_damageの再チェックがなく、
+     Phase2収集時（PS実行前）の閾値未超過がそのまま維持され、
+     PSダメージで閾値を超えてもon_cumulative_damage PSが発動しない。
+
+Fix: _execute_trigger_actions / _execute_global_trigger_actions のPS成功後、
+     damaged_targets_reactionに対してtrigger_cumulative_damageを再実行し、
+     新たな閾値超過があれば再帰的に_execute_trigger_actionsで発動。
+     cumulative_hp_damageはPS成功後に0リセットされるため無限再帰しない。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+ATK_UP = SkillEffectType.STATUS_ATTACK.value
+
+
+class TestRegCumulativeDamageRecheck(unittest.TestCase):
+    """Regression: PS技能造成伤害后必须重新检查累计伤害阈值。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # Caster: キョンシーハッカー (117302) with 130078 アンデッドリベンジ (on_critical)
+        # 高ATKで確実に閾値超過分のダメージを与える
+        self.caster = UnitState(
+            unit_id="caster", name="キョンシーハッカー", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=117302, level=10,
+            element=3, character_type=2,
+            max_hp=100000, current_hp=100000,
+            attack=50000, defense=5000, speed=999,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[130078],
+            skill_levels={130078: 10},
+            skill_cooldowns={},
+        )
+
+        # Enemy: エレーナ・パステルコワ (713405) with 230400 それはやりすぎ！+ (on_cumulative_damage, 75%)
+        # 高HPで130078のダメージ後に生存、cumulative_hp_damageを閾値直前設定
+        self.enemy_max_hp = 100000
+        self.enemy = UnitState(
+            unit_id="enemy", name="エレーナ・パステルコワ", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=713405, level=10,
+            element=1, character_type=1,
+            max_hp=self.enemy_max_hp, current_hp=self.enemy_max_hp,
+            attack=100, defense=100, speed=100,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=10, current_ep=0,
+            skills=[230400],
+            skill_levels={230400: 10},
+            skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.enemy)
+
+        self.controller = BattleFlowController(self.bf, data_loader=self.dl)
+        self.controller._build_display_names()
+        self.controller.skill_service.set_battlefield(self.bf)
+        self.controller._deferred_crit_triggers = []
+
+    def _trigger_undead_revenge(self):
+        """130078 アンデッドリベンジ (on_critical) をトリガーしてactionsを返す。"""
+        self.caster.current_pp = 10
+        self.caster.skill_cooldowns.pop(130078, None)
+        actions = self.controller.trigger_service.trigger_pawn_caused_critical(
+            self.caster, self.bf, count=1)
+        ps_actions = [a for a in actions if a.skill_id == 130078]
+        self.assertGreater(len(ps_actions), 0, "130078 アンデッドリベンジ should trigger on critical")
+        return ps_actions
+
+    def test_ps_damage_triggers_cumulative_damage_recheck(self):
+        """PS(on_critical)ダメージ後にcumulative_hp_damageが閾値超過→on_cumulative_damage PS発動。
+
+        Bug: _execute_trigger_actionsでPS実行後にcumulative_damage再チェックなし。
+             130078のダメージで70%→75%超過しても230400が発動しない。
+        Fix: PS成功後にdamaged_targets_reactionでtrigger_cumulative_damage再実行。
+        """
+        # 敵の累計伤害を70%（閾値75%の直前）に設定
+        self.enemy.cumulative_hp_damage = int(self.enemy_max_hp * 0.70)
+
+        ps_actions = self._trigger_undead_revenge()
+        enemy_hp_before = self.enemy.current_hp
+        caster_hp_before = self.caster.current_hp
+
+        # 130078実行 → 敵にダメージ → cumulative_hp_damageが75%超過
+        # → 230400 それはやりすぎ！+ が再チェックで発動
+        self.controller._execute_trigger_actions(ps_actions, self.caster)
+
+        # 検証1: 130078が敵にダメージを与えた
+        self.assertLess(self.enemy.current_hp, enemy_hp_before,
+                        "130078 should deal damage to enemy")
+
+        # 検証2: 230400が発動した（敵がally全体にダメージ → caster HP減少）
+        self.assertLess(self.caster.current_hp, caster_hp_before,
+                        "230400 それはやりすぎ！+ should have triggered and dealt damage to allies "
+                        "(caster HP should decrease)")
+
+        # 検証3: 230400発動後、cumulative_hp_damageは0にリセット
+        self.assertEqual(self.enemy.cumulative_hp_damage, 0,
+                         "cumulative_hp_damage should be reset to 0 after 230400 executed successfully")
+
+    def test_below_threshold_no_trigger(self):
+        """PSダメージ後も閾値未超過の場合→on_cumulative_damage PS不発動。"""
+        # 敵の累計伤害を10%（閾値75%より十分低い）に設定
+        self.enemy.cumulative_hp_damage = int(self.enemy_max_hp * 0.10)
+
+        ps_actions = self._trigger_undead_revenge()
+        caster_hp_before = self.caster.current_hp
+
+        self.controller._execute_trigger_actions(ps_actions, self.caster)
+
+        # 230400は発動しない（caster HP不変）
+        self.assertEqual(self.caster.current_hp, caster_hp_before,
+                         "230400 should NOT trigger when cumulative_hp_damage stays below 75% threshold")
+
+    def test_exact_threshold_boundary_triggers(self):
+        """PSダメージ後にちょうど閾値→on_cumulative_damage PS発動（>=判定）。"""
+        # 敵の累計伤害を74%に設定（130078のダメージで75%到達）
+        self.enemy.cumulative_hp_damage = int(self.enemy_max_hp * 0.74)
+
+        ps_actions = self._trigger_undead_revenge()
+        caster_hp_before = self.caster.current_hp
+
+        self.controller._execute_trigger_actions(ps_actions, self.caster)
+
+        # 130078のダメージで74%→75%以上到達 → 230400発動
+        self.assertLess(self.caster.current_hp, caster_hp_before,
+                        "230400 should trigger when cumulative_hp_damage reaches exactly 75% threshold")
+
+    def test_cumulative_damage_reset_after_trigger(self):
+        """on_cumulative_damage PS発動後、cumulative_hp_damageは0にリセット。"""
+        # 敵の累計伤害を70%（閾値75%の直前）に設定
+        self.enemy.cumulative_hp_damage = int(self.enemy_max_hp * 0.70)
+
+        ps_actions = self._trigger_undead_revenge()
+        self.controller._execute_trigger_actions(ps_actions, self.caster)
+
+        # 230400発動後、cumulative_hp_damageは0にリセットされる
+        self.assertEqual(self.enemy.cumulative_hp_damage, 0,
+                         "cumulative_hp_damage should be reset to 0 after 230400 executed successfully")
+
+
+if __name__ == '__main__':
+    unittest.main()

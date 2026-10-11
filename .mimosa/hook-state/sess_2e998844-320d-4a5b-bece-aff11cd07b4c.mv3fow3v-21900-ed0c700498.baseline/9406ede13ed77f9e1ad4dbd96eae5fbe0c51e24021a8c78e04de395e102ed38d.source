@@ -1,0 +1,111 @@
+"""扫描 manual 技能中 Lv11+ 效果未拆分到独立 Block 的问题。
+
+问题模式：Block1 lvl=[None,None] 中含多个 effects，部分 effects 应仅 Lv11+ 生效，
+但既没有 level_min:11 flag 也没有独立到 lvl=[11,None] 的 Block2。
+
+检测策略：
+1. 从 skills.json 获取该技能描述，检查是否有 "min_level": 11 的描述
+2. 检查 hybrid 配置：Block1 lvl=[None,None] 中是否有 effect 含 level_min:11 flag
+3. 检查 Block1 lvl=[None,None] 中是否有多 effects 但未拆分
+
+输出可疑技能列表，供人工审查。
+"""
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+
+def main():
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        hybrid = json.load(f)
+    with open('data/skills.json', 'r', encoding='utf-8') as f:
+        raw = json.load(f)
+    skills = raw if isinstance(raw, dict) else {str(s.get('Id')): s for s in raw}
+
+    manual_ids = [sid for sid, v in hybrid.items() if v.get('parse_status') == 'manual']
+
+    safe_print(f"=== 扫描 manual 技能中 Lv11+ 效果混入 Block1 的问题 ===")
+    safe_print(f"")
+
+    suspicious_count = 0
+    for sid in manual_ids:
+        data = hybrid[sid]
+        skill_meta = skills.get(sid, {})
+        descriptions = skill_meta.get('descriptions', [])
+
+        # 检查描述是否有 Lv11+ 段
+        has_lv11_desc = any(d.get('min_level', 1) >= 11 for d in descriptions)
+        if not has_lv11_desc:
+            continue
+
+        lv1_desc = next((d.get('template', '') for d in descriptions if d.get('min_level', 1) == 1), '')
+        lv11_desc = next((d.get('template', '') for d in descriptions if d.get('min_level', 1) >= 11), '')
+
+        blocks = data.get('effect_blocks', [])
+        if not blocks:
+            continue
+
+        # 检查每个 lvl=[None,None] block 中是否有多 effect 且无 level_min flag
+        for i, block in enumerate(blocks):
+            lvl_min = block.get('level_min')
+            lvl_max = block.get('level_max')
+            cond = block.get('condition')
+
+            # 仅检查无 level 限制的 block
+            if lvl_min is not None and lvl_min >= 11:
+                continue
+            # 如果 cond 是 active_level_min:11 也算
+            if cond and isinstance(cond, dict) and cond.get('type') == 'active_level_min' and cond.get('value', 0) >= 11:
+                continue
+
+            effects = block.get('effects', [])
+            if len(effects) <= 1:
+                continue
+
+            # 检查 effects 中是否有 level_min:11 flag
+            has_lv11_flag_in_effects = False
+            for eff in effects:
+                flags = eff.get('flags') or {}
+                eff_lvl_min = flags.get('level_min')
+                eff_cond = eff.get('condition')
+                if eff_lvl_min and eff_lvl_min >= 11:
+                    has_lv11_flag_in_effects = True
+                if eff_cond and isinstance(eff_cond, dict) and eff_cond.get('type') == 'active_level_min' and eff_cond.get('value', 0) >= 11:
+                    has_lv11_flag_in_effects = True
+
+            if has_lv11_flag_in_effects:
+                continue  # 已正确标记 level_min
+
+            # 检查 effects 中是否有 level_max:10 flag（仅 Lv1-10 生效）
+            has_lv10_max_flag = False
+            for eff in effects:
+                flags = eff.get('flags') or {}
+                if flags.get('level_max') is not None and flags.get('level_max') <= 10:
+                    has_lv10_max_flag = True
+
+            # 启发式：Block1 有多 effects，描述分两段，但 effects 都没标 level_min
+            # 输出供人工审查
+            safe_print(f"━━━ [{sid}] {data.get('name', '?')} (type={data.get('skill_type')}) ━━━")
+            safe_print(f"  Lv1-10: {lv1_desc[:200]}")
+            safe_print(f"  Lv11+ : {lv11_desc[:200]}")
+            safe_print(f"  Block{i+1} (lvl=[{lvl_min},{lvl_max}]) 含 {len(effects)} effects，均未标 level_min:11")
+            for j, eff in enumerate(effects):
+                et = eff.get('effect_type')
+                tt = eff.get('target_type')
+                flags = eff.get('flags') or {}
+                eff_cond = eff.get('condition')
+                safe_print(f"    Eff{j+1}: {et} target={tt} flags={json.dumps(flags, ensure_ascii=False)} cond={json.dumps(eff_cond, ensure_ascii=False) if eff_cond else 'None'}")
+            safe_print("")
+            suspicious_count += 1
+
+    safe_print(f"=== 共发现 {suspicious_count} 个可疑技能，需人工审查 ===")
+
+
+if __name__ == '__main__':
+    main()

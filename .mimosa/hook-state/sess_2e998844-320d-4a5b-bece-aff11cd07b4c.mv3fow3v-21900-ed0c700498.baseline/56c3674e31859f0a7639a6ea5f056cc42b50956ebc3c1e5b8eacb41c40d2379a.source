@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""临时 benchmark: 对批量模拟 hot path 做 cProfile 采样，评估 numba 可行性"""
+import cProfile
+import io
+import json
+import logging
+import pstats
+import sys
+import time
+from pathlib import Path
+
+import os
+DISABLE_LOGGING = os.environ.get("NO_BATTLE_LOG", "0") == "1"
+
+ROOT = Path(r"f:\MGG\muv_luv_girlsgardenx_cl\MGGBattleSimulation")
+sys.path.insert(0, str(ROOT))
+
+from src.utils import batch_simulator as bs
+from src.config.panel_config import PanelConfig
+from src.config.player_config import PlayerConfig, SchoolLevels
+from src.config.character_config import CharacterConfig, ModuleConfig
+from src.entities_v2.enums import Position
+from src.combat_v2.battle_logger import battle_logger
+
+if DISABLE_LOGGING:
+    battle_logger().setLevel(logging.ERROR)
+
+DATA_DIR = ROOT / "data"
+
+with open(ROOT / "data" / "global_config.default.json", encoding="utf-8") as f:
+    global_cfg = json.load(f)
+
+sl = global_cfg["school_levels"]
+school = SchoolLevels(
+    physical_level=sl["physical_level"], en_level=sl["en_level"],
+    agility_level=sl["agility_level"], fire_level=sl["fire_level"],
+    water_level=sl["water_level"], wind_level=sl["wind_level"],
+    earth_level=sl["earth_level"], light_level=sl["light_level"],
+    dark_level=sl["dark_level"],
+)
+
+panel = PanelConfig(
+    character_level=global_cfg["character_level"],
+    school_levels=school,
+    equipment_enabled=True,
+    equipment_bonuses=global_cfg.get("equipment", {}),
+    skill_levels={},
+)
+
+# 双方各 3 个角色（数据里存在的 id：110301/110302/110303）
+ALLY_IDS = [110301, 110302, 110303]
+ENEMY_IDS = [110301, 110302, 110303]
+
+bs._worker_init(
+    data_dir=str(DATA_DIR),
+    panel_config=panel,
+    friends_chars=ALLY_IDS,
+    friend_positions=ALLY_IDS,
+    enemies_chars=ENEMY_IDS,
+    enemy_positions=ENEMY_IDS,
+    max_turns=30,
+    positions_ally=[Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT],
+    positions_enemy=[Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT],
+    mem_cards_data=None,
+    enable_rdps=True,
+)
+
+N_BATTLES = 40
+seeds = list(range(12345, 12345 + N_BATTLES))
+
+# warmup 1 场（DataLoader 懒加载 + JIT类预热）
+bs._worker_run_batch([seeds[0]])
+
+pr = cProfile.Profile()
+pr.enable()
+t0 = time.perf_counter()
+res = bs._worker_run_batch(seeds)
+pr.disable()
+elapsed = time.perf_counter() - t0
+
+print(f"\n=== {N_BATTLES} 场战斗（单进程串行，3v3，max_turns=30）"
+      f"[日志={'关' if DISABLE_LOGGING else '开'}] 耗时 {elapsed:.2f}s, 速率 {N_BATTLES/elapsed:.1f} 场/s ===")
+wins = sum(1 for r in res if r["winner"] == "FRIEND")
+print(f"胜场: {wins}/{N_BATTLES}")
+
+s = io.StringIO()
+ps = pstats.Stats(pr, stream=s).sort_stats("tottime")
+ps.print_stats(40)
+print(s.getvalue())

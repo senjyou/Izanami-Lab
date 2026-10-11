@@ -1,0 +1,146 @@
+# -*- coding: utf-8 -*-
+"""回归测试：追加伤害(ADD_DAMAGE)的伤害类型（物理/能量）取决于buff「赋予来源」的
+character_type，而非持有者。
+
+Bug: skill_service 的 ADD_DAMAGE 路径用持有者(caster).character_type 决定伤害类型。
+     实例：心色見つめるムードメーカー(145301, 敏捷/物理) 赋予 繋がり合う母娘の絆
+     (500301, character_type=2/能量) 的追加伤害被误当作能量伤害，错误吃到了回忆卡的
+     +8.4% EN伤害加成 → 27751（应为 26201，物理伤害）。
+
+Fix: 改用赋予来源(ab.source_unit_id)的 character_type，与附魔伤害路径一致。
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+from src.entities_v2.unit_state import BuffState
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+ADD_DAMAGE = "AddDamage"
+DEALT_DAMAGE = "DealtDamage"
+
+
+def _setup(holder_type, source_type, holder_elem=4, source_elem=4, target_elem=4):
+    bb = BattleBuilder()
+    bb.add_ally(unit_id="holder", position=Position.ALLY_LEFT_FRONT,
+                hp=99999, atk=10000, defense=1000, speed=500,
+                element=holder_elem, character_type=holder_type)
+    bb.add_ally(unit_id="source", position=Position.ALLY_CENTER_BACK,
+                hp=99999, atk=10000, defense=1000, speed=400,
+                element=source_elem, character_type=source_type)
+    bb.add_enemy(unit_id="target", position=Position.ENEMY_CENTER_FRONT,
+                 hp=1000000, atk=100, defense=1000, speed=100, element=target_elem)
+    ctx = bb.build()
+    bf, ss = ctx['bf'], ctx['ss']
+    dl = ctx['services']['dl']
+    holder = next(u for u in bf.friend_team if u.unit_id == "holder")
+    source = next(u for u in bf.friend_team if u.unit_id == "source")
+    target = next(u for u in bf.enemy_team if u.unit_id == "target")
+    return bf, ss, holder, source, target, dl
+
+
+def _add_add_damage_buff(holder, source, snapshot_atk=10000, power=15.0):
+    holder.buffs.append(BuffState(
+        buff_id=f"adddmg_{id(holder)}",
+        name="モーニングスター",
+        effect_type=ADD_DAMAGE,
+        value=power,
+        value_tag=0,
+        duration=-1,
+        timing_type=2,
+        source_unit_id=source.unit_id,
+        source_skill_id=110085,
+        caster_attack=snapshot_atk,
+    ))
+
+
+def _add_en_dealt_bonus(holder, pct=8.4):
+    """回忆卡：仅能量伤害+X%（damage_element=2）"""
+    holder.buffs.append(BuffState(
+        buff_id=f"memEN_{id(holder)}",
+        name="ENダメージUP",
+        effect_type=DEALT_DAMAGE,
+        value=pct,
+        value_tag=0,
+        damage_element=2,
+        duration=-1,
+        timing_type=2,
+        is_memory_buff=True,
+    ))
+
+
+def _process_add_damage(ss, bf, holder, target):
+    lists = ss._prepare_enchant_buffs_for_damage_effect(holder)
+    delta = ss._process_enchant_damage_for_target(
+        holder,
+        {"target_id": target.unit_id, "hp_before": target.current_hp,
+         "hit_crits": [False], "hit_evades": [False]},
+        bf, *lists)
+    entries = [t for t in ss._per_target_enchant_cache["enchant_targets"]
+               if "追加" in (t.get("modifiers") or [])]
+    return delta, entries
+
+
+class TestAddDamageElementFollowsSource:
+    def test_physical_when_source_is_physical(self):
+        """持有者能量(2)，但赋予来源物理(3) → 追加伤害为物理，不吃EN加成。
+
+        base=10000×15%=1500；EN+8.4% 不生效 → dealt=1.0 → 1500。
+        """
+        bf, ss, holder, source, target, _ = _setup(holder_type=2, source_type=3)
+        _add_add_damage_buff(holder, source)
+        _add_en_dealt_bonus(holder)
+
+        delta, entries = _process_add_damage(ss, bf, holder, target)
+
+        assert entries, "应产生追加伤害"
+        assert entries[0]["calc_detail"]["damage_element"] == 1, "应判定为物理(1)"
+        assert delta == 1500, f"damage={delta}, expected=1500（物理，不含EN+8.4%）"
+
+    def test_en_when_source_is_en(self):
+        """赋予来源能量(2) → 追加伤害为能量，EN+8.4% 生效 → 1500×1.084=1626。"""
+        bf, ss, holder, source, target, _ = _setup(holder_type=3, source_type=2)
+        _add_add_damage_buff(holder, source)
+        _add_en_dealt_bonus(holder)
+
+        delta, entries = _process_add_damage(ss, bf, holder, target)
+
+        assert entries[0]["calc_detail"]["damage_element"] == 2, "应判定为能量(2)"
+        assert delta == 1626, f"damage={delta}, expected=1626（能量，含EN+8.4%）"
+
+    def test_narrative_label_uses_source_element(self):
+        """叙事日志的伤害类型标签也按来源判定（物理），而非持有者的能量。"""
+        bf, ss, holder, source, target, dl = _setup(holder_type=2, source_type=3)
+        narr = BattleNarrativeWriter()
+        controller = BattleFlowController(bf, BattleConfig(max_turns=5),
+                                          data_loader=dl, narrative=narr)
+        controller._build_display_names()
+        applied = {
+            "effect_type": "damage",
+            "caster_hp": holder.current_hp,
+            "caster_max_hp": holder.max_hp,
+            "targets": [{
+                "target_id": target.unit_id,
+                "target": target.unit_id,
+                "hp_before": 1000,
+                "hp_after": 0,
+                "damage": 1500,
+                "actual_damage": 1500,
+                "modifiers": ["追加"],
+                "crit": False,
+                "calc_detail": {
+                    "damage_element": 1, "source_atk": 10000, "c_def": 1000,
+                    "base_diff": 10000, "power_pct": 15.0, "crit_factor": 1.0,
+                    "a_dealt_mult": 1.0, "b_received_mult": 1.0, "attr_factor": 1.0,
+                },
+            }],
+        }
+        controller._log_narrative_damage(holder, "holder", "能量", applied)
+        text = "\n".join(narr._lines)
+        assert "[追加伤害]" in text
+        assert "点物理伤害" in text
+        assert "点能量伤害" not in text

@@ -1,0 +1,461 @@
+"""Regression: デコイプロトコル must trigger when competing PS has insufficient PP.
+
+Bug: When enemy uses an EX skill (skill_type=3, e.g. 真・紫影の斬撃 210098)
+     that targets all allies, デコイプロトコル (130034, before_any_attacked)
+     failed to trigger because 代助一避 (130013, before_as_attacked) was
+     faster and won the cross-timing simultaneous_limit filter. However, 代助一避
+     had insufficient PP and couldn't actually execute, leaving デコイ filtered
+     out and neither PS triggering.
+
+Root cause: 代助一避's trigger_type was misconfigured as before_enemy_as_attack
+     (attacker-side). Per the skill description ("triggers before an ally positioned
+     directly in front of self is attacked by an enemy"), it should be a defender-side
+     trigger (before_as_attacked). Additionally, PP-insufficient simultaneous_limit
+     PS were not excluded from the speed competition, so a faster PP-insufficient
+     PS would win the filter and block a slower PP-sufficient PS.
+
+Fix: 1) Correct 代助一避's trigger_type to before_as_attacked (defender-side).
+     2) Add PP check to within-timing simultaneous_limit filter (_process_candidates)
+        and cross-timing simultaneous_limit filter (skill_service._apply_damage).
+        PP-insufficient simultaneous_limit PS are excluded from the speed
+        competition, so they won't block PP-sufficient PS. Non-simultaneous_limit
+        PS are unaffected (PP check is NOT in check_triggers).
+
+Also: For true AoE (all alive allies targeted), cover target is selected by
+     position-number priority: 左前(1) > 中前(2) > 右前(3) > 左后(4) >
+     中后(5) > 右后(6), instead of distance-based selection.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, SkillType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+# Skill IDs
+DECOI_PROTOCOL = 130034        # デコイプロトコル (before_any_attacked, simultaneous_limit=true)
+DAISU_HITOMONO_YO = 130013     # 代助一避 (before_as_attacked, simultaneous_limit=true)
+TRUE_SHADOW_SLASH = 210098    # 真・紫影の斬撃 (EX skill, enemy_all, skill_type=3)
+ENEMY_ALL_AS = 220369          # 紫影の斬撃 (AS skill, enemy_all, skill_type=1)
+
+# Effect type constants
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+
+
+def _apply_cross_timing_filter(dl, *action_lists):
+    """Replicate the cross-timing simultaneous_limit filter from _apply_damage.
+
+    Collects all simultaneous_limit PS across the given action lists, finds the
+    fastest one (lowest priority = fastest unit), and filters out slower ones.
+    PP-insufficient simultaneous_limit PS are excluded from the speed competition
+    (matching skill_service._apply_damage cross-timing filter behavior).
+    Returns the filtered lists.
+    """
+    best_key = None
+    best_prio = None
+    for actions in action_lists:
+        for act in actions:
+            parsed = dl.get_parsed_skill_data(act.skill_id)
+            if parsed and parsed.get('simultaneous_limit'):
+                owner = act.instance.owner if act.instance else None
+                skill_meta = dl.get_skill_by_id(act.skill_id)
+                cost = getattr(skill_meta, 'resource_cost', 0) if skill_meta else 0
+                if cost and cost > 0 and owner is not None and owner.current_pp < cost:
+                    continue
+                prio = act.instance.priority if act.instance else 0
+                if best_prio is None or prio < best_prio:
+                    best_prio = prio
+                    best_key = (act.skill_id, act.owner_id)
+
+    if best_key is None:
+        return action_lists
+    result = []
+    for actions in action_lists:
+        filtered = []
+        for act in actions:
+            parsed = dl.get_parsed_skill_data(act.skill_id)
+            if parsed and parsed.get('simultaneous_limit'):
+                if (act.skill_id, act.owner_id) != best_key:
+                    continue
+            filtered.append(act)
+        result.append(filtered)
+    return tuple(result)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegDecoiProtocolExSkill(unittest.TestCase):
+    """デコイプロトコル must trigger when competing simultaneous_limit PS has
+    insufficient PP (even for EX skill true AoE attacks)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_true_shadow_slash_is_ex_skill(self):
+        """真・紫影の斬撃 (210098) must be an EX skill (skill_type=3)."""
+        skill_data = self.dl.get_skill_by_id(TRUE_SHADOW_SLASH)
+        self.assertIsNotNone(skill_data, "真・紫影の斬撃 must exist in data")
+        self.assertEqual(skill_data.skill_type, SkillType.EX.value,
+                         "真・紫影の斬撃 must be EX skill (skill_type=3)")
+
+    def test_daisu_matches_for_ex_skill_when_pp_sufficient(self):
+        """代助一避 (before_as_attacked) DOES match for EX skills when
+        PP is sufficient. EX skills are NOT blocked from before_as_attacked
+        (no skill_type check in defender-side triggers).
+        This is correct behavior per the skill description: 'triggers before
+        an ally positioned in front of self is attacked by an enemy'."""
+        ally_front = _make_unit("ally_front", "前方友方", Side.ALLY,
+                                Position.ALLY_CENTER_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu_owner", "代助一避持有者", Side.ALLY,
+                                 Position.ALLY_CENTER_BACK, hp=100000, speed=600,
+                                 pp=10,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        enemy = _make_unit("enemy", "敌方攻击者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_front, daisu_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        all_targets = [ally_front, daisu_owner]
+        before_as_actions = ts.trigger_before_as_attacked(
+            all_targets, bf, attacker=enemy
+        )
+        daisu_actions = [a for a in before_as_actions if a.skill_id == DAISU_HITOMONO_YO]
+        self.assertGreater(len(daisu_actions), 0,
+                           "代助一避 should match for EX skill when PP is sufficient")
+
+    def test_daisu_still_matches_at_trigger_level_when_pp_insufficient(self):
+        """代助一避 STILL matches at trigger level (trigger_before_as_attacked)
+        when PP is insufficient. PP check is NOT in check_triggers—it's only in
+        the simultaneous_limit filters (within-timing _process_candidates and
+        cross-timing skill_service._apply_damage). This is by design: non-
+        simultaneous_limit PS must not be affected by PP check at trigger level.
+
+        When 代助一避 is the only simultaneous_limit PS in its timing and PP is
+        insufficient, the within-timing filter keeps it (since all candidates
+        are PP-insufficient). It's only filtered out in the cross-timing filter
+        when a PP-sufficient simultaneous_limit PS exists in another timing.
+        """
+        ally_front = _make_unit("ally_front", "前方友方", Side.ALLY,
+                                Position.ALLY_CENTER_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu_owner", "代助一避持有者", Side.ALLY,
+                                 Position.ALLY_CENTER_BACK, hp=100000, speed=600,
+                                 pp=0,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        enemy = _make_unit("enemy", "敌方攻击者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_front, daisu_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        all_targets = [ally_front, daisu_owner]
+        before_as_actions = ts.trigger_before_as_attacked(
+            all_targets, bf, attacker=enemy
+        )
+        daisu_actions = [a for a in before_as_actions if a.skill_id == DAISU_HITOMONO_YO]
+        # 代助一避 still matches at trigger level even with PP=0
+        self.assertGreater(len(daisu_actions), 0,
+                           "代助一避 should still match at trigger level when PP is insufficient "
+                           "(PP check is only in simultaneous_limit filters, not check_triggers)")
+
+    def test_decoi_triggers_when_daisu_pp_insufficient(self):
+        """デコイプロトコル must survive the cross-timing simultaneous_limit filter
+        when 代助一避 has insufficient PP, even though 代助一避 is faster.
+
+        代助一避 matches at trigger level (PP check is NOT in check_triggers) and
+        survives the within-timing filter (only simultaneous_limit PS in its timing).
+        But in the cross-timing filter, PP-insufficient 代助一避 is excluded from the
+        speed competition, so PP-sufficient デコイ wins and survives.
+        """
+        ally_front = _make_unit("ally_front", "前方友方", Side.ALLY,
+                                Position.ALLY_CENTER_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu_owner", "代助一避持有者(速,PP=0)", Side.ALLY,
+                                 Position.ALLY_CENTER_BACK, hp=100000, speed=600,
+                                 pp=0,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        decoi_owner = _make_unit("decoi_owner", "デコイ持有者(遅,PP=10)", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=400,
+                                 pp=10,
+                                 skills=[DECOI_PROTOCOL],
+                                 skill_levels={DECOI_PROTOCOL: 10})
+        enemy = _make_unit("enemy", "敌方攻击者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_front, daisu_owner, decoi_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        all_targets = [ally_front, daisu_owner, decoi_owner]
+        before_enemy_actions = ts.trigger_before_enemy_as_attack(
+            enemy, TRUE_SHADOW_SLASH, all_targets, bf
+        )
+        before_any_actions = ts.trigger_before_any_attacked(
+            all_targets, bf, attacker=enemy
+        )
+        before_as_actions = ts.trigger_before_as_attacked(
+            all_targets, bf, attacker=enemy
+        )
+
+        # 代助一避 matches at trigger level (before_as_attacked) even with PP=0
+        daisu_in_as = any(a.skill_id == DAISU_HITOMONO_YO for a in before_as_actions)
+        self.assertTrue(daisu_in_as,
+                        "代助一避 should match at trigger level even with PP=0 "
+                        "(PP check is only in simultaneous_limit filters)")
+
+        # デコイプロトコル matches at before_any_attacked
+        decoi_in_any = any(a.skill_id == DECOI_PROTOCOL for a in before_any_actions)
+        self.assertTrue(decoi_in_any,
+                        "デコイプロトコル must match at before_any_attacked")
+
+        # Cross-timing filter: PP-insufficient 代助一避 excluded, デコイ wins
+        be, ba, bs = _apply_cross_timing_filter(
+            self.dl, before_enemy_actions, before_any_actions, before_as_actions
+        )
+        daisu_survived = any(a.skill_id == DAISU_HITOMONO_YO for a in bs)
+        decoi_survived = any(a.skill_id == DECOI_PROTOCOL for a in ba)
+        self.assertFalse(daisu_survived,
+                         "代助一避 (PP=0) should be filtered out by cross-timing filter "
+                         "(PP-insufficient simultaneous_limit PS excluded from speed competition)")
+        self.assertTrue(decoi_survived,
+                        "デコイプロトコル (PP sufficient) should survive cross-timing filter "
+                        "when faster 代助一避 has insufficient PP")
+
+    def test_end_to_end_decoi_triggers_when_daisu_pp_zero(self):
+        """End-to-end: executing enemy EX skill should trigger デコイプロトコル
+        when 代助一避 has PP=0 (insufficient), even though 代助 is faster.
+
+        Setup: 代助一避 owner at center back (speed=600, PP=0).
+               デコイ owner at right back (speed=400, PP=10).
+        Enemy uses 真・紫影の斬撃 (EX true AoE).
+        Expected: 代助一避 skipped (PP=0), デコイ triggers and covers 左前.
+        """
+        ally_left_front = _make_unit("ally_lf", "左前", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000)
+        ally_center_front = _make_unit("ally_cf", "中前", Side.ALLY,
+                                       Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_right_front = _make_unit("ally_rf", "右前", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        ally_left_back = _make_unit("ally_lb", "左后", Side.ALLY,
+                                    Position.ALLY_LEFT_BACK, hp=100000)
+        ally_center_back = _make_unit("ally_cb", "中后", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000)
+        daisu_owner = _make_unit("daisu_owner", "代助(右后,PP=0)", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=600,
+                                 pp=0,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        decoi_owner = _make_unit("decoi_owner", "デコイ(右后)", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=400,
+                                 pp=10,
+                                 skills=[DECOI_PROTOCOL],
+                                 skill_levels={DECOI_PROTOCOL: 10})
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_left_front, ally_center_front, ally_right_front,
+                          ally_left_back, ally_center_back, daisu_owner, decoi_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, TRUE_SHADOW_SLASH, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "EX skill execution should succeed")
+
+        # デコイプロトコル should have triggered: cover_target set or guard_active
+        decoi_triggered = (
+            getattr(decoi_owner, 'cover_target', None) is not None or
+            getattr(decoi_owner, 'guard_active', False)
+        )
+        self.assertTrue(decoi_triggered,
+                        "デコイプロトコル should trigger when 代助一避 has PP=0")
+
+        # 代助一避 should NOT have triggered (PP=0, no ReceivedDamage debuff)
+        daisu_received_dmg = any(
+            b.effect_type == RECEIVED_DAMAGE for b in daisu_owner.debuffs
+        )
+        self.assertFalse(daisu_received_dmg,
+                         "代助一避 should NOT trigger (PP=0)")
+
+    def test_end_to_end_decoi_cover_priority_position_number(self):
+        """Cover target for true AoE must be selected by position-number priority,
+        NOT by distance from caster.
+
+        Setup: デコイ holder at 右后 (position 6). All 5 other allies targeted.
+        Distance from 右后 to targets:
+          左前(1): dist=5, 中前(2): dist=2, 右前(3): dist=1,
+          左后(4): dist=4, 中后(5): dist=1
+        Distance-based would select 右前(3) (dist=1, front row).
+        Position-number priority selects 左前(1).
+        """
+        ally_left_front = _make_unit("ally_lf", "左前", Side.ALLY,
+                                     Position.ALLY_LEFT_FRONT, hp=100000)
+        ally_center_front = _make_unit("ally_cf", "中前", Side.ALLY,
+                                       Position.ALLY_CENTER_FRONT, hp=100000)
+        ally_right_front = _make_unit("ally_rf", "右前", Side.ALLY,
+                                      Position.ALLY_RIGHT_FRONT, hp=100000)
+        ally_left_back = _make_unit("ally_lb", "左后", Side.ALLY,
+                                    Position.ALLY_LEFT_BACK, hp=100000)
+        ally_center_back = _make_unit("ally_cb", "中后", Side.ALLY,
+                                      Position.ALLY_CENTER_BACK, hp=100000)
+        decoi_owner = _make_unit("decoi_owner", "デコイ(右后)", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000,
+                                 skills=[DECOI_PROTOCOL],
+                                 skill_levels={DECOI_PROTOCOL: 10})
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_left_front, ally_center_front, ally_right_front,
+                          ally_left_back, ally_center_back, decoi_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, TRUE_SHADOW_SLASH, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "EX skill execution should succeed")
+
+        # Position-number priority: 左前(1) > 中前(2) > 右前(3) > 左后(4) > 中后(5)
+        self.assertEqual(decoi_owner.cover_target, ally_left_front.unit_id,
+                         "Cover target should be 左前 (position 1) by position-number priority, "
+                         "not 右前 (closest by distance). Got: %s" % decoi_owner.cover_target)
+
+    def test_decoi_still_works_for_as_skill(self):
+        """デコイプロトコル must still trigger for AS skill (skill_type=1)
+        true AoE when no competing simultaneous_limit PS is present."""
+        ally_front = _make_unit("ally_front", "前方友方", Side.ALLY,
+                                Position.ALLY_CENTER_FRONT, hp=100000)
+        decoi_owner = _make_unit("decoi_owner", "デコイ持有者", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000,
+                                 skills=[DECOI_PROTOCOL],
+                                 skill_levels={DECOI_PROTOCOL: 10})
+        enemy = _make_unit("enemy", "敌方攻击者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[ENEMY_ALL_AS],
+                           skill_levels={ENEMY_ALL_AS: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_front, decoi_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, ENEMY_ALL_AS, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "AS skill execution should succeed")
+
+        decoi_triggered = (
+            getattr(decoi_owner, 'cover_target', None) is not None or
+            getattr(decoi_owner, 'guard_active', False)
+        )
+        self.assertTrue(decoi_triggered,
+                        "デコイプロトコル should still trigger for AS true AoE skill")
+
+    def test_daisu_wins_when_both_pp_sufficient_for_ex(self):
+        """When both 代助一避 and デコイプロトコル have sufficient PP and 代助 is
+        faster, 代助 wins the simultaneous_limit filter for EX skill too.
+        This confirms simultaneous_limit works for EX skills (not just AS)."""
+        ally_front = _make_unit("ally_front", "前方友方", Side.ALLY,
+                                Position.ALLY_CENTER_FRONT, hp=100000)
+        daisu_owner = _make_unit("daisu_owner", "代助(速)", Side.ALLY,
+                                 Position.ALLY_CENTER_BACK, hp=100000, speed=600,
+                                 pp=10,
+                                 skills=[DAISU_HITOMONO_YO],
+                                 skill_levels={DAISU_HITOMONO_YO: 10})
+        decoi_owner = _make_unit("decoi_owner", "デコイ(遅)", Side.ALLY,
+                                 Position.ALLY_RIGHT_BACK, hp=100000, speed=400,
+                                 pp=10,
+                                 skills=[DECOI_PROTOCOL],
+                                 skill_levels={DECOI_PROTOCOL: 10})
+        enemy = _make_unit("enemy", "敌方", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000,
+                           skills=[TRUE_SHADOW_SLASH],
+                           skill_levels={TRUE_SHADOW_SLASH: 10})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally_front, daisu_owner, decoi_owner]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        result = ss.execute_skill(enemy, TRUE_SHADOW_SLASH, bf, skip_cost=True)
+        self.assertTrue(result.get('success'), "EX skill execution should succeed")
+
+        # 代助一避 should trigger (faster, PP sufficient)
+        daisu_received_dmg = any(
+            b.effect_type == RECEIVED_DAMAGE for b in daisu_owner.debuffs
+        )
+        self.assertTrue(daisu_received_dmg,
+                        "代助一避 (faster, PP sufficient) should trigger for EX skill")
+
+        # デコイプロトコル should NOT trigger (slower, filtered by simultaneous_limit)
+        decoi_triggered = (
+            getattr(decoi_owner, 'cover_target', None) is not None or
+            getattr(decoi_owner, 'guard_active', False)
+        )
+        self.assertFalse(decoi_triggered,
+                         "デコイプロトコル (slower) should be filtered by simultaneous_limit")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

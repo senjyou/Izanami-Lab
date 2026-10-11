@@ -1,0 +1,139 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""回归测试：RDPS 暴击倍率推断 - 伤害无效化hit污染
+
+Bug 背景：敌方 761305「惨禍：ニーナ／ジーナ・ミーシナ」的 PS 230496
+「終幕にはまだ早い！」持有 dmg_invulnerable（伤害无效化），会把被无效化的
+hit 伤害改写为 1。RDPS 归因的 _get_effective_crit_factor 用
+avg_crit/avg_non_crit 从 hit_details 推断暴击倍率，被无效化 hit 污染后
+得到荒谬倍率（如 182550/1 = 182550 倍），导致 base_diff/dealt 乘区拆分出
+数十亿负值（纯夏 buff_contribution = -59亿）。
+
+修复：推断时过滤伤害 <= 1 的无效化 hit；过滤后无非暴击 hit 时回退到
+1.5 + _get_crit_damage_bonus(caster)（暴击伤害加成统计值）。
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.enums import Side, Position
+from src.data.data_loader import DataLoader
+from src.combat_v2.services.damage_service import DamageService, DamageResult
+from src.combat_v2.rdps_tracker import RDPSTracker
+
+
+def _make_caster():
+    return UnitState(
+        unit_id="F_132301", name="唯一無二の幼なじみ", side=Side.ALLY,
+        position=Position.ALLY_RIGHT_FRONT,
+        character_id=132301, level=406, element=4, character_type=1,
+        max_hp=175511, current_hp=175511,
+        attack=113193, defense=8000, speed=1208,
+        crit_rate=0.815, crit_damage=0.49, advantage_damage=0.0,
+        initial_active_point=5, initial_passive_point=5,
+        max_extra_point=8, current_ap=5, current_pp=5, current_ep=3,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_tracker_with_ds():
+    dl = DataLoader()
+    dl.load_all()
+    ds = DamageService()
+    tracker = RDPSTracker()
+    tracker.set_damage_service(ds)
+    tracker.set_battlefield(BattlefieldState())
+    return tracker, ds
+
+
+def _make_result(hit_details, hit_crits, calc_detail=None):
+    return DamageResult(
+        total_damage=sum(hit_details),
+        is_critical=any(hit_crits),
+        attribute_factor=1.335,
+        hit_details=list(hit_details),
+        hit_crits=list(hit_crits),
+        hit_evades=[False] * len(hit_details),
+        calc_detail=calc_detail or {},
+    )
+
+
+class TestEffectiveCritFactorNullifiedHits:
+    """dmg_invulnerable 无效化 hit 不得污染暴击倍率推断"""
+
+    def test_nullified_hit_excluded_from_ratio(self):
+        """761305 实战场景: hit=[1(无效化的非暴击), 182550, 182550, 182550(暴击)]
+
+        修复前: avg_crit/avg_non_crit = 182550/1 = 182550倍 → 归因爆炸
+        修复后: 无效化hit被过滤，无非暴击hit剩余 → 回退到统计暴击伤害加成
+        """
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        result = _make_result([1, 182550, 182550, 182550],
+                              [False, True, True, True])
+        factor = tracker._get_effective_crit_factor(result, {"crit_factor": 1.0},
+                                                    caster, ds)
+        # 回退路径: 1.5 + 暴击伤害加成（该角色无暴伤buff → 加成=crit_damage=0.49）
+        assert factor < 10, f"暴击倍率被污染: {factor}"
+        assert abs(factor - (1.5 + 0.49)) < 0.51 or factor < 10
+
+    def test_mixed_hits_still_use_ratio(self):
+        """正常多段暴击混合（无无效化hit）仍用 hit 比值推断"""
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        # 2hit: 非暴击100000 + 暴击199000 → 比值1.99
+        result = _make_result([100000, 199000], [False, True])
+        factor = tracker._get_effective_crit_factor(result, {"crit_factor": 1.0},
+                                                    caster, ds)
+        assert abs(factor - 1.99) < 0.01
+
+    def test_all_hits_nullified_falls_back_to_stat(self):
+        """全部hit被无效化(全部为1)时回退到统计暴击伤害加成"""
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        result = _make_result([1, 1, 1, 1], [False, True, True, True])
+        factor = tracker._get_effective_crit_factor(result, {"crit_factor": 1.0},
+                                                    caster, ds)
+        assert abs(factor - (1.5 + 0.49)) < 0.01
+
+    def test_calc_crit_factor_still_takes_priority(self):
+        """calc 中已有暴击倍率时优先使用（原行为不变）"""
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        result = _make_result([1, 182550, 182550, 182550],
+                              [False, True, True, True],
+                              calc_detail={"crit_factor": 1.99})
+        factor = tracker._get_effective_crit_factor(result,
+                                                    {"crit_factor": 1.99},
+                                                    caster, ds)
+        assert abs(factor - 1.99) < 0.01
+
+    def test_hit_crit_factors_direct_read_no_inference(self):
+        """calc_detail 记录了逐hit暴击倍率时直接计算有效倍率，不做比值推断
+
+        761305 实战场景: hit_details=[1(无效化), 182550×3(暴击)],
+        hit_crit_factors=[1.0, 1.99, 1.99, 1.99]
+        有效倍率 = 547651 / (1 + 182550/1.99×3) ≈ 1.99（而非被污染的 182550）
+        """
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        result = _make_result([1, 182550, 182550, 182550],
+                              [False, True, True, True])
+        calc = {"crit_factor": 1.0,
+                "hit_crit_factors": [1.0, 1.99, 1.99, 1.99]}
+        factor = tracker._get_effective_crit_factor(result, calc, caster, ds)
+        expected = 547651 / (1.0 + 182550 / 1.99 * 3)
+        assert abs(factor - expected) < 0.01, f"{factor} != {expected}"
+        assert factor < 10
+
+    def test_hit_crit_factors_mixed_multihit(self):
+        """混合暴击多段: hit=[100000(非暴击), 199000(暴击1.99)] → 有效倍率 1.495"""
+        tracker, ds = _make_tracker_with_ds()
+        caster = _make_caster()
+        result = _make_result([100000, 199000], [False, True])
+        calc = {"crit_factor": 1.0, "hit_crit_factors": [1.0, 1.99]}
+        factor = tracker._get_effective_crit_factor(result, calc, caster, ds)
+        assert abs(factor - 1.495) < 0.01

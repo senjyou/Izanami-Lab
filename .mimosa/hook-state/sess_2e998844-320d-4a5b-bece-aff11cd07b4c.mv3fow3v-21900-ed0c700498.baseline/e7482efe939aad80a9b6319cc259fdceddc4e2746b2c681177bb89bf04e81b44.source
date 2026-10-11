@@ -1,0 +1,199 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""回归测试: hp_ratio_damage 必须应用 Guard(格挡)减伤乘区
+
+Bug日志: step_crit_console_tactical_20261008_163906.txt (L289-305)
+  技能 心色見つめるムードメーカー [苦手なのはそこだね！](120155) hp_ratio_damage
+  目标 オルガ＆ナージャ 身上持有 PS 鉄壁の母娘(230499) 给的 Guard 30% 减伤 buff
+  实测: 51776  模拟器: 55736
+
+根因: _apply_hp_ratio_damage 未应用 guard 乘区（Guard buff 的 attack_limited
+  被消耗了，但 30% 减伤从未作用到 hp_ratio_damage 上）。
+  raw = 550453 * 12.5% * 1.075 = 73967.1
+  期望: 73967.1 * (1-0.30) = 51776.98 -> 51776
+  实际: min(73967.1, cap 55736.5) = 55736（Guard 未生效）
+
+Fix: skill_service.py _apply_hp_ratio_damage 中在阈值减伤之前应用
+  _get_guard_multiplier（与 damage/damage_special 路径顺序一致）。
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+GUARD = SkillEffectType.GUARD.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+
+_dl = None
+
+
+def _get_dl():
+    global _dl
+    if _dl is None:
+        _dl = DataLoader()
+        _dl.load_all()
+    return _dl
+
+
+def _make_unit(unit_id, side, max_hp, hp, atk, defense=4000):
+    pos = Position.ALLY_LEFT_BACK if side == Side.ALLY else Position.ENEMY_CENTER_BACK
+    return UnitState(
+        unit_id=unit_id, name=unit_id, side=side, position=pos,
+        character_id=999901 if side == Side.ALLY else 999001,
+        level=10, element=2, character_type=1,
+        max_hp=max_hp, current_hp=hp, attack=atk, defense=defense, speed=500,
+        crit_rate=0.0, crit_damage=50.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+        current_ap=10, current_pp=10, current_ep=0,
+    )
+
+
+def _make_guard_buff(value=30, attack_limited=1):
+    return BuffState(
+        buff_id="test_guard", name="Guard",
+        effect_type=GUARD,
+        value=value, duration=-1, timing_type=2,
+        is_debuff=False, is_stackable=False, value_tag=0,
+        attack_limited=attack_limited,
+    )
+
+
+def _make_received_damage_debuff(value=7.5):
+    """回忆卡「被ダメージ上昇」: ReceivedDamage debuff, 使受击方易伤 +7.5%"""
+    return BuffState(
+        buff_id="test_received", name="ReceivedDamage",
+        effect_type=RECEIVED_DAMAGE,
+        value=value, duration=-1, timing_type=2,
+        is_debuff=True, is_stackable=False, value_tag=0,
+        is_memory_buff=True,
+    )
+
+
+def _make_effect(value=12.5, cap_atk_pct=50):
+    return type('obj', (object,), {
+        'effect_type': 'hp_ratio_damage', 'value': value, 'value_tag': None,
+        'value_source': 'target_current_hp', 'target_type': 'enemy_single',
+        'flags': {'damage_cap_atk_pct': cap_atk_pct}, 'target_identifier': None,
+        'hit_count': None, 'condition': None, 'duration': 1,
+        'duration_type': None, 'ignore_shield': 0, 'ignore_defense': 0,
+    })()
+
+
+def _make_services(bf):
+    dl = _get_dl()
+    rs = ResourceService()
+    ts = TriggerService()
+    ts.set_data_loader(dl)
+    aus = AuraService()
+    dms = DamageService()
+    tgs = TargetService()
+    sts = StatusService()
+    ss = SkillService(dl, rs, target_service=tgs, damage_service=dms,
+                      aura_service=aus, trigger_service=ts, status_service=sts)
+    ts.set_skill_service(ss)
+    ts.set_damage_service(dms)
+    ss.set_battlefield(bf)
+    ss._current_skill_id = 120155
+    ss._block_damage_total = {}
+    ss._current_block_id = 1
+    ss._block_damage_targets = {}
+    ss._current_skill_priority = None
+    ss._hp_consumed = 0
+    ss._most_recent_damage = 0
+    ss._per_hit_hp_losses = {}
+    ss._pending_deaths = set()
+    ss._primary_target = None
+    ss._mark_condition_targets = None
+    ss._mark_condition_target = None
+    ss._newly_created_sub_unit_ids = set()
+    return ss
+
+
+class TestHpRatioAppliesGuard:
+    """_apply_hp_ratio_damage 必须应用 Guard 减伤乘区"""
+
+    def test_log_scenario_exact(self):
+        """复现日志: 550453HP 目标 + Guard30% + 易伤7.5% → 51776 (修复前 55736)
+
+        raw = 550453 * 12.5% * 1.075 = 73967.1
+        guard 30%: 73967.1 * 0.7 = 51776.98 -> 51776
+        cap = 111473.875 * 50% = 55736.5 不截断
+        """
+        # caster ATK = 108755 * 1.025(回忆卡+2.5%) = 111473.875 -> cap 55736.5
+        caster = _make_unit("caster", Side.ALLY, 191583, 191583, 111473)
+        enemy = _make_unit("enemy", Side.ENEMY, 550453, 550453, 8685)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        enemy.buffs.append(_make_guard_buff(value=30))
+        enemy.debuffs.append(_make_received_damage_debuff(value=7.5))
+        ss = _make_services(bf)
+
+        result = ss._apply_hp_ratio_damage(caster, _make_effect(), bf)
+
+        assert result is not None
+        assert result['targets'][0]['actual_damage'] == 51776
+        assert enemy.current_hp == 550453 - 51776
+        # Guard buff 的 attack_limited 由 execute_skill 清理，此处直接调用不消耗，属正常
+
+    def test_guard_applied_before_cap(self):
+        """Guard 在 cap 之前应用: raw*0.7 < cap < raw 时应取 raw*0.7（而非 cap）
+
+        raw = 100000 * 12.5% = 12500
+        guard 30% -> 8750
+        cap = 15000 * 50% = 7500 -> 8750 超 cap -> 7500
+        （若 Guard 在 cap 之后: min(12500,7500)=7500 -> *0.7=5250，与本测试区分）
+        """
+        caster = _make_unit("caster", Side.ALLY, 100000, 100000, 15000)
+        enemy = _make_unit("enemy", Side.ENEMY, 100000, 100000, 5000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        enemy.buffs.append(_make_guard_buff(value=30))
+        ss = _make_services(bf)
+
+        result = ss._apply_hp_ratio_damage(caster, _make_effect(), bf)
+
+        # raw 12500 -> guard 0.7 -> 8750 -> cap 7500 截断 -> 7500
+        assert result['targets'][0]['actual_damage'] == 7500
+
+    def test_guard_reduces_when_below_cap(self):
+        """Guard 生效且未触及 cap: raw=100000*12.5%=12500, guard30% -> 8750, cap=10000 不截断"""
+        caster = _make_unit("caster", Side.ALLY, 100000, 100000, 20000)
+        enemy = _make_unit("enemy", Side.ENEMY, 100000, 100000, 5000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        enemy.buffs.append(_make_guard_buff(value=30))
+        ss = _make_services(bf)
+
+        result = ss._apply_hp_ratio_damage(caster, _make_effect(), bf)
+
+        assert result['targets'][0]['actual_damage'] == 8750
+        assert enemy.current_hp == 100000 - 8750
+
+    def test_no_guard_unchanged(self):
+        """无 Guard buff 时行为不变（向后兼容）: raw=12500 cap=10000 -> 10000"""
+        caster = _make_unit("caster", Side.ALLY, 100000, 100000, 20000)
+        enemy = _make_unit("enemy", Side.ENEMY, 100000, 100000, 5000)
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = _make_services(bf)
+
+        result = ss._apply_hp_ratio_damage(caster, _make_effect(), bf)
+
+        assert result['targets'][0]['actual_damage'] == 10000

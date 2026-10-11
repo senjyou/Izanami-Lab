@@ -1,0 +1,109 @@
+"""Regression: simultaneous_limit 旗标从攻方窗口泄漏到守方窗口。
+
+Bug: 同時発動制限的 phase 旗标按5类流程时机重置，「AS执行前」阶段内含两个
+     逻辑独立的窗口——攻方前置窗口（before_skill_use / before_ally_as_attack）
+     与守方反应窗口（execute_skill 内部的 before_enemy_as_attack /
+     before_any_attacked / before_as_attacked 三连）。攻方辅助PS（追撃符130051，
+     simultaneous_limit）执行后设置旗标，同一攻击的守方格挡PS（230500
+     ランパートシャッター+，simultaneous_limit）被同一旗标拦截，不再触发。
+实例: 唯一無二の幼なじみ 120070「なにするかーーー！！」攻击前，追撃符触发后
+     230500 被拦（日志: "blocked: phase flag already set"），实测游戏双方都发动。
+Fix: execute_skill 前重置 _simultaneous_limit_triggered_in_phase——攻守两窗口
+     各自独立计算 simultaneous_limit 名额。
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+_ATTACKER_AS = 120070   # なにするかーーー！！（唯一無二の幼なじみ AS，damage）
+_TSUIGEKIFU = 130051    # 追撃符（混沌の立役者 PS，before_ally_as_attack，simultaneous_limit）
+_RAMPART = 230500       # ランパートシャッター+（鳴滝七彩 PS，before_any_attacked，simultaneous_limit）
+
+
+def _make_unit(side, unit_id, name, skills, level, position,
+               hp=100000, atk=10000, defense=2000, speed=500):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=position, character_id=999900 + hash(unit_id) % 100, level=level,
+        element=2, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=10,
+        skills=skills, skill_levels={sid: level for sid in skills},
+        skill_cooldowns={},
+    )
+
+
+class TestRegSimultaneousLimitWindows(unittest.TestCase):
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="dummy", hp=1)
+        bb.add_enemy(unit_id="dummy_e", hp=1)
+        ctx = bb.build()
+        self.dl = ctx['services']['dl']
+
+    def _build_battlefield(self):
+        """镜像实测场景：攻方(右前)+追撃符持有者(右后) vs 敌方(中前)"""
+        bf = BattlefieldState()
+        attacker = _make_unit(Side.ALLY, "ally_attacker", "唯一無二の幼なじみ",
+                              skills=[_ATTACKER_AS], level=15,
+                              position=Position.ALLY_RIGHT_FRONT)
+        support = _make_unit(Side.ALLY, "ally_support", "混沌の立役者",
+                             skills=[_TSUIGEKIFU], level=15,
+                             position=Position.ALLY_RIGHT_BACK, speed=1199)
+        enemy = _make_unit(Side.ENEMY, "enemy_guard", "鳴滝七彩",
+                           skills=[_RAMPART], level=10,
+                           position=Position.ENEMY_CENTER_FRONT, speed=552)
+        bf.friend_team = [attacker, support]
+        bf.enemy_team = [enemy]
+        return bf, attacker, support, enemy
+
+    def test_both_windows_trigger_in_same_attack(self):
+        """攻方追撃符与守方ランパートシャッター+应在同一次攻击中各自触发"""
+        bf, attacker, support, enemy = self._build_battlefield()
+        controller = BattleFlowController(bf, BattleConfig(), data_loader=self.dl)
+        controller.skill_service.set_battlefield(bf)
+
+        with self.assertLogs("MGGBattleSim", level="INFO") as cm:
+            controller._execute_unit_action(attacker, 1)
+        logs = cm.output
+
+        # 前提自验证：追撃符（simultaneous_limit）在攻方窗口执行并设置过旗标
+        tsuigekifu_exec = [l for l in logs if "executes [追撃符]" in l]
+        self.assertTrue(tsuigekifu_exec, "攻方窗口：追撃符应执行")
+        flag_set = [l for l in logs if "set phase flag" in l and "130051" in l]
+        self.assertTrue(flag_set, "前提：追撃符作为simultaneous_limit PS设置了phase旗标")
+
+        # 核心断言：守方窗口的230500不被攻方旗标拦截，guard正常激活
+        guard_activated = [l for l in logs if "[GUARD]" in l and "activated" in l]
+        self.assertTrue(guard_activated,
+                        "守方窗口：ランパートシャッター+的guard应激活（实测游戏行为）")
+        blocked = [l for l in logs if "blocked: phase flag already set" in l and "230500" in l]
+        self.assertFalse(blocked, "230500不应被攻方窗口的phase旗标拦截")
+
+    def test_defender_window_without_attacker_ps_still_works(self):
+        """无攻方PS时守方guard照常触发（既有行为回归保护）"""
+        bf, attacker, support, enemy = self._build_battlefield()
+        support.skills = []          # 移除追撃符
+        support.skill_levels = {}
+        controller = BattleFlowController(bf, BattleConfig(), data_loader=self.dl)
+        controller.skill_service.set_battlefield(bf)
+
+        with self.assertLogs("MGGBattleSim", level="INFO") as cm:
+            controller._execute_unit_action(attacker, 1)
+        guard_activated = [l for l in cm.output if "[GUARD]" in l and "activated" in l]
+        self.assertTrue(guard_activated, "无攻方PS干扰时guard应正常激活")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

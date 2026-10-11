@@ -1,0 +1,305 @@
+"""Generate skill_effects_hybrid.json entries for S6 土雷 (161850551) - 4 skills.
+Merges into existing skill_effects_hybrid.json, preserving existing entries.
+
+Skills:
+    220362 土ノ浸食 (AS) - enemy_all block_buff_by_type + self stealth (2行動)
+    220363 土ノ掃射 (AS) - enemy_row EN damage + action_damage 2行動
+    220364 土ノ双弾 (AS) - 2 targets EN damage + action_damage 1行動
+    230385 土ノ付加 (PS) - before_ally_as_attack 4 debuff -5% (同時発動制限)
+
+Requires new effect_type: block_buff_by_type, stealth
+Requires new duration_type: source_action
+Reuses existing: action_damage (status_service 已支持)
+
+Usage:
+    python scripts/_import_s6_skill_effects_tulei.py
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+HYBRID_JSON = ROOT / "data" / "skill_effects_hybrid.json"
+SKILLS_JSON = ROOT / "data" / "skills.json"
+
+EFFECT_TEMPLATE = {
+    "effect_type": None,
+    "target_type": None,
+    "target_identifier": None,
+    "value": None,
+    "value_tag": None,
+    "value_source": None,
+    "duration": None,
+    "duration_type": None,
+    "duration_tag": None,
+    "hit_count": None,
+    "hit_count_tag": None,
+    "condition": None,
+    "flags": None,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+}
+
+SKILL_TEMPLATE = {
+    "skill_id": None,
+    "name": None,
+    "skill_type": None,
+    "resource_cost": None,
+    "cooldown": None,
+    "cooldown_update_timing": None,
+    "ignore_defense": 0,
+    "ignore_shield": 0,
+    "trigger_type": None,
+    "global_condition": None,
+    "effect_blocks": [],
+    "display_target_priority": None,
+    "display_target_range": None,
+    "display_target_type": None,
+    "parse_status": "manual",
+    "parse_notes": [],
+    "simultaneous_limit": None,
+}
+
+
+def make_effect(**kwargs) -> dict:
+    eff = {k: v for k, v in EFFECT_TEMPLATE.items()}
+    for k, v in kwargs.items():
+        eff[k] = v
+    return eff
+
+
+def make_block(block_id: int, effects: list, condition=None) -> dict:
+    return {"block_id": block_id, "condition": condition, "effects": effects}
+
+
+def make_skill(**kwargs) -> dict:
+    skill = {k: v for k, v in SKILL_TEMPLATE.items()}
+    for k, v in kwargs.items():
+        if k in skill:
+            skill[k] = v
+        else:
+            skill[k] = v
+    return skill
+
+
+def load_skills_meta() -> dict[int, dict]:
+    with SKILLS_JSON.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    out: dict[int, dict] = {}
+    for k, v in data.items():
+        try:
+            sid = int(k)
+        except (TypeError, ValueError):
+            continue
+        out[sid] = v
+    return out
+
+
+def build_tulei(skills_meta: dict[int, dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+
+    # 220362 土ノ浸食 (AS) - block_buff_by_type + stealth
+    meta = skills_meta[220362]
+    out["220362"] = make_skill(
+        skill_id=220362,
+        name=meta["name"],
+        skill_type=meta["skill_type"],
+        resource_cost=meta["resource_cost"],
+        cooldown=meta["cooldown"],
+        cooldown_update_timing=meta["cooldown_update_timing"],
+        effect_blocks=[
+            make_block(1, [
+                make_effect(
+                    effect_type="block_buff_by_type",
+                    target_type="enemy_all",
+                    value=None,
+                    duration=2,
+                    duration_type="source_action",
+                    flags={
+                        "blocked_buff_types": [
+                            "max_hp_up", "atk_up", "def_up",
+                            "spd_up", "crit_rate_up",
+                        ],
+                    },
+                ),
+                make_effect(
+                    effect_type="stealth",
+                    target_type="self",
+                    value=1,
+                    duration=2,
+                    duration_type="action",
+                    flags={},
+                ),
+            ]),
+        ],
+        display_target_range=5,
+        display_target_type=3,
+        parse_notes=["AS: 敵全体 buff_block 5类 2行動 + 自身ステルス 2行動 (source_action, 死亡解除)"],
+    )
+
+    # 220363 土ノ掃射 (AS) - enemy_row EN + action_damage 2行動
+    meta = skills_meta[220363]
+    out["220363"] = make_skill(
+        skill_id=220363,
+        name=meta["name"],
+        skill_type=meta["skill_type"],
+        resource_cost=meta["resource_cost"],
+        cooldown=meta["cooldown"],
+        cooldown_update_timing=meta["cooldown_update_timing"],
+        effect_blocks=[
+            make_block(1, [
+                make_effect(
+                    effect_type="damage",
+                    target_type="enemy_row",
+                    value_tag="威力",
+                    hit_count=1,
+                    flags={"is_en_attack": True},
+                ),
+                make_effect(
+                    effect_type="add_status",
+                    target_type="enemy_row",
+                    value=10.0,
+                    duration=2,
+                    duration_type="action",
+                    flags={
+                        "status_type": "action_damage",
+                        "is_en_attack": True,
+                        "value_type": "percent",
+                    },
+                ),
+            ]),
+        ],
+        display_target_range=6,
+        display_target_type=3,
+        parse_notes=["AS: 横一列EN + 行動時ENダメージ 10% 2行動"],
+    )
+
+    # 220364 土ノ双弾 (AS) - 2 targets EN + action_damage 1行動
+    meta = skills_meta[220364]
+    out["220364"] = make_skill(
+        skill_id=220364,
+        name=meta["name"],
+        skill_type=meta["skill_type"],
+        resource_cost=meta["resource_cost"],
+        cooldown=meta["cooldown"],
+        cooldown_update_timing=meta["cooldown_update_timing"],
+        effect_blocks=[
+            make_block(1, [
+                make_effect(
+                    effect_type="damage",
+                    target_type="enemy_single",
+                    value_tag="威力",
+                    hit_count=1,
+                    flags={"target_count": 2, "is_en_attack": True},
+                ),
+                make_effect(
+                    effect_type="add_status",
+                    target_type="enemy_single",
+                    value=10.0,
+                    duration=1,
+                    duration_type="action",
+                    flags={
+                        "status_type": "action_damage",
+                        "is_en_attack": True,
+                        "value_type": "percent",
+                        "target_count": 2,
+                    },
+                ),
+            ]),
+        ],
+        display_target_range=2,
+        display_target_type=3,
+        parse_notes=["AS: 敵2体EN + 行動時ENダメージ 10% 1行動"],
+    )
+
+    # 230385 土ノ付加 (PS) - before_ally_as_attack + 4 debuff -5% (同時発動制限)
+    # 方案 B: 直接对触发的 ally 施加 4 个 debuff
+    meta = skills_meta[230385]
+    out["230385"] = make_skill(
+        skill_id=230385,
+        name=meta["name"],
+        skill_type=meta["skill_type"],
+        resource_cost=meta["resource_cost"],
+        cooldown=meta["cooldown"],
+        cooldown_update_timing=meta["cooldown_update_timing"],
+        trigger_type="before_ally_as_attack",
+        global_condition={"type": "target_is_front_ally"},
+        simultaneous_limit=True,
+        effect_blocks=[
+            make_block(1, [
+                make_effect(
+                    effect_type="atk_down",
+                    target_type="ally_single",
+                    target_identifier="trigger_attacker",
+                    value=5.0,
+                    duration=1,
+                    duration_type="action",
+                    flags={"value_type": "percent", "stackable": True},
+                ),
+                make_effect(
+                    effect_type="def_down",
+                    target_type="ally_single",
+                    target_identifier="trigger_attacker",
+                    value=5.0,
+                    duration=1,
+                    duration_type="action",
+                    flags={"value_type": "percent", "stackable": True},
+                ),
+                make_effect(
+                    effect_type="spd_down",
+                    target_type="ally_single",
+                    target_identifier="trigger_attacker",
+                    value=5.0,
+                    duration=1,
+                    duration_type="action",
+                    flags={"value_type": "percent", "stackable": True},
+                ),
+                make_effect(
+                    effect_type="crit_rate_down",
+                    target_type="ally_single",
+                    target_identifier="trigger_attacker",
+                    value=5.0,
+                    duration=1,
+                    duration_type="action",
+                    flags={"value_type": "percent", "stackable": True},
+                ),
+            ]),
+        ],
+        display_target_range=1,
+        display_target_type=2,
+        parse_notes=["PS: 目の前の味方AS前 atk/def/spd/crt -5% 1行動 (同時発動制限, 方案B: 直接对ally)"],
+    )
+
+    return out
+
+
+def main() -> None:
+    skills_meta = load_skills_meta()
+    new_entries = build_tulei(skills_meta)
+    print(f"[INFO] Built {len(new_entries)} 土雷 skill entries")
+
+    with HYBRID_JSON.open("r", encoding="utf-8") as fh:
+        hybrid = json.load(fh)
+    print(f"[INFO] Loaded {len(hybrid)} existing skill_effects_hybrid.json entries")
+
+    added: list[int] = []
+    skipped: list[int] = []
+    for sid_str, entry in new_entries.items():
+        if sid_str in hybrid:
+            skipped.append(int(sid_str))
+            continue
+        hybrid[sid_str] = entry
+        added.append(int(sid_str))
+
+    print(f"[INFO] Added: {added}")
+    if skipped:
+        print(f"[INFO] Skipped (already present): {skipped}")
+
+    with HYBRID_JSON.open("w", encoding="utf-8") as fh:
+        json.dump(hybrid, fh, ensure_ascii=False, indent=2)
+    print(f"[OK] Wrote {HYBRID_JSON}")
+
+
+if __name__ == "__main__":
+    main()

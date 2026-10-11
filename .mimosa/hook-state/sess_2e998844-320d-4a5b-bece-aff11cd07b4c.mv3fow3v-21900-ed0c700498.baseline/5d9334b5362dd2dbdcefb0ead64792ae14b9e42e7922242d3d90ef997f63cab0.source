@@ -1,0 +1,270 @@
+"""Regression: before_as_attacked PS must NOT trigger on EX skills.
+
+Bug: Skill「油断は禁物ですよ」(130156/230420) has trigger_type=
+     "before_as_attacked" (AS攻击前触发). The _match_trigger_timing
+     for BEFORE_AS_ATTACKED only checked attacker/owner side, but
+     did NOT check the triggering skill's skill_type. As a result,
+     EX skills (skill_type=3, like ルミナグレイス 110001) also
+     triggered this PS, which is incorrect — "AS攻击前触发" should
+     only apply to AS skills (skill_type=1), not EX skills.
+
+Fix: Added skill_type check in _match_trigger_timing's
+     BEFORE_AS_ATTACKED branch: only AS skills trigger, EX/PS
+     skills do not (unless PS explicitly sets allow_ex_trigger=true).
+
+Log evidence (before fix):
+  [使用技能·EX] ノーブル・グレイス 对 姜小花 使用「ルミナグレイス」
+  ⚡[PS触发] 姜小花 发动了被动技能「油断は禁物ですよ」 (触发源: ノーブル・グレイス)
+  ← PS should NOT trigger because ルミナグレイス is EX (skill_type=3)
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, SkillType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerContext, TriggerTiming
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# Skills
+AS_SKILL = 120041      # 四連突: AS skill (skill_type=1), single-target damage
+EX_SKILL = 110001      # ルミナグレイス: EX skill (skill_type=3), single-target damage
+PS_SKILL = 130156      # 油断は禁物ですよ: PS with trigger_type=before_as_attacked
+
+
+def _make_unit(unit_id, name, side, position, *, hp=500000, atk=50000,
+               defense=3000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ep=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=ep,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegBeforeAsAttackedExcludesEx(unittest.TestCase):
+    """before_as_attacked PS should only trigger on AS skills, not EX skills."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def test_ps_does_not_trigger_on_ex_skill(self):
+        """PS「油断は禁物ですよ」(130156) should NOT trigger when
+        attacker uses EX skill (ルミナグレイス 110001).
+
+        Regression: before fix, EX skill also triggered this PS because
+        _match_trigger_timing's BEFORE_AS_ATTACKED branch did not check
+        the triggering skill's skill_type.
+        """
+        # PS holder (ally) - 被攻击者
+        ally = _make_unit("ally", "姜小花", Side.ALLY,
+                         Position.ALLY_CENTER_FRONT, hp=500000, atk=10000,
+                         skills=[PS_SKILL], skill_levels={PS_SKILL: 15})
+        # EX attacker (enemy) - 使用EX技能ルミナグレイス
+        enemy = _make_unit("enemy", "ノーブル・グレイス", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                          skills=[EX_SKILL], skill_levels={EX_SKILL: 15})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        # 记录PS触发前的PP
+        ally_pp_before = ally.current_pp
+
+        # 执行EX技能
+        ss.execute_skill(enemy, EX_SKILL, bf, skip_cost=True)
+
+        # 验证: PS未触发 (PP未消耗)
+        self.assertEqual(ally.current_pp, ally_pp_before,
+                         "PS「油断は禁物ですよ」不应在EX技能前触发 (PP未消耗)")
+
+        # 验证: ally未获得def_up buff (PS未执行)
+        # def_up 在代码中映射为 SkillEffectType.STATUS_DEFENSE.value = "StatusDefense"
+        def_up_buffs = [b for b in ally.buffs
+                        if b.effect_type == SkillEffectType.STATUS_DEFENSE.value]
+        self.assertEqual(len(def_up_buffs), 0,
+                         "ally不应获得def_up buff (EX技能不触发before_as_attacked PS)")
+
+    def test_ps_triggers_on_as_skill(self):
+        """PS「油断は禁物ですよ」(130156) should still trigger when
+        attacker uses AS skill (四連突 120041). This is the normal behavior
+        that must NOT be broken by the fix.
+        """
+        ally = _make_unit("ally", "姜小花", Side.ALLY,
+                         Position.ALLY_CENTER_FRONT, hp=500000, atk=10000,
+                         skills=[PS_SKILL], skill_levels={PS_SKILL: 15})
+        # AS attacker
+        enemy = _make_unit("enemy", "攻撃者", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                          skills=[AS_SKILL], skill_levels={AS_SKILL: 15})
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, ts = self._make_services(bf)
+
+        ally_pp_before = ally.current_pp
+
+        # 执行AS技能
+        ss.execute_skill(enemy, AS_SKILL, bf, skip_cost=True)
+
+        # 验证: PS触发 (PP消耗1)
+        self.assertEqual(ally.current_pp, ally_pp_before - 1,
+                         "PS「油断は禁物ですよ」应在AS技能前触发 (PP消耗1)")
+
+        # PS 130156 的 def_up buff 配置了 attack_limited=1，
+        # 在触发它的 AS 攻击完成后会被消耗（防御反应型PS，仅在本次AS中生效）。
+        # 因此不能通过检查 buff 是否存在来验证 PS 是否触发，
+        # PP 消耗已足够证明 PS 执行了。
+
+    def test_ps_does_not_trigger_on_ex_via_trigger_context(self):
+        """直接验证 _match_trigger_timing: EX技能不匹配BEFORE_AS_ATTACKED。
+
+        这是最小化单元测试，直接验证修复点。
+        """
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        ally = _make_unit("ally", "PS持有者", Side.ALLY,
+                         Position.ALLY_CENTER_FRONT)
+        enemy = _make_unit("enemy", "EX攻击者", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT)
+
+        # 构造 parsed PS 配置 (简化版 130156)
+        parsed = {
+            'trigger_type': 'before_as_attacked',
+            'effect_blocks': [{'effects': []}],
+            'allow_ex_trigger': False,  # 默认不允许EX触发
+        }
+
+        # 场景1: EX技能 (skill_type=3) - 应不触发
+        ctx_ex = TriggerContext(
+            TriggerTiming.BEFORE_AS_ATTACKED,
+            BattlefieldState(),
+            targets=[ally],
+            actor=enemy,
+            skill=EX_SKILL,  # ルミナグレイス (EX)
+        )
+        result_ex = ts._match_trigger_timing(parsed, TriggerTiming.BEFORE_AS_ATTACKED,
+                                              ctx_ex, ally)
+        self.assertFalse(result_ex,
+                         "EX技能不应匹配before_as_attacked (skill_type=3)")
+
+        # 场景2: AS技能 (skill_type=1) - 应触发
+        ctx_as = TriggerContext(
+            TriggerTiming.BEFORE_AS_ATTACKED,
+            BattlefieldState(),
+            targets=[ally],
+            actor=enemy,
+            skill=AS_SKILL,  # 四連突 (AS)
+        )
+        result_as = ts._match_trigger_timing(parsed, TriggerTiming.BEFORE_AS_ATTACKED,
+                                             ctx_as, ally)
+        self.assertTrue(result_as,
+                        "AS技能应匹配before_as_attacked (skill_type=1)")
+
+    def test_allow_ex_trigger_flag_allows_ex(self):
+        """配置了 allow_ex_trigger=true 的PS仍可在EX技能前触发（保留扩展性）。
+
+        虽然目前没有任何PS配置此标志，但保留此扩展性以备未来需求。
+        """
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        ally = _make_unit("ally", "PS持有者", Side.ALLY,
+                         Position.ALLY_CENTER_FRONT)
+        enemy = _make_unit("enemy", "EX攻击者", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT)
+
+        # 构造 allow_ex_trigger=true 的PS配置
+        parsed = {
+            'trigger_type': 'before_as_attacked',
+            'effect_blocks': [{'effects': []}],
+            'allow_ex_trigger': True,  # 允许EX触发
+        }
+
+        ctx_ex = TriggerContext(
+            TriggerTiming.BEFORE_AS_ATTACKED,
+            BattlefieldState(),
+            targets=[ally],
+            actor=enemy,
+            skill=EX_SKILL,
+        )
+        result = ts._match_trigger_timing(parsed, TriggerTiming.BEFORE_AS_ATTACKED,
+                                          ctx_ex, ally)
+        self.assertTrue(result,
+                        "配置allow_ex_trigger=true的PS应能在EX技能前触发")
+
+    def test_ps_does_not_trigger_on_ps_skill(self):
+        """PS技能（作为触发源）也不应触发before_as_attacked。
+
+        PS技能的skill_type=2，不属于AS(1)，因此不应触发。
+        （虽然实际战斗中PS很少作为攻击触发源，但为完整性验证）
+        """
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        ally = _make_unit("ally", "PS持有者", Side.ALLY,
+                         Position.ALLY_CENTER_FRONT)
+        enemy = _make_unit("enemy", "PS攻击者", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT)
+
+        parsed = {
+            'trigger_type': 'before_as_attacked',
+            'effect_blocks': [{'effects': []}],
+            'allow_ex_trigger': False,
+        }
+
+        ctx_ps = TriggerContext(
+            TriggerTiming.BEFORE_AS_ATTACKED,
+            BattlefieldState(),
+            targets=[ally],
+            actor=enemy,
+            skill=PS_SKILL,  # PS技能 (skill_type=2)
+        )
+        result = ts._match_trigger_timing(parsed, TriggerTiming.BEFORE_AS_ATTACKED,
+                                          ctx_ps, ally)
+        self.assertFalse(result,
+                        "PS技能不应匹配before_as_attacked (skill_type=2)")
+
+
+if __name__ == '__main__':
+    unittest.main()

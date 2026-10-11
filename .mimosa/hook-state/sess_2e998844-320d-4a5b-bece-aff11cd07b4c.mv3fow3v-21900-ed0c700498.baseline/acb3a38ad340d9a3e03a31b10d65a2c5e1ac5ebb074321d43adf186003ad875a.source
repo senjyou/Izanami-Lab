@@ -1,0 +1,131 @@
+"""Regression: セントリフレイン (230501) EP条件值错误导致首次攻击不触发。
+
+Bug: 数据中 self_ep_above_or_equal value=2，但实测游戏在 ランパートシャッター+
+     (230500) 使用后 EP=1 时即满足条件（技能描述「自身のEXゲージが0の場合、
+     このスキルは発動しない」即 ep>=1；自身使用+1EP后消耗2EP恒可达）。
+实例: 惨禍：鳴滝七彩 T1R2 首次攻击，实测双PS连发：
+     230500: PP 4→3, EP 0→1
+     230501: PP 3→2, EP 1→2(自身+1) → 效果: remove_ep 2 → EP=0, modify_pp +2 → PP=4
+     链结束恢复 PP=4, EP=0，每次攻击都双发。模拟器因 ep=1 < 2 未触发230501。
+Fix: data/skill_effects_hybrid.json 230501 条件 value 2→1。
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+_ATTACKER_AS = 120070  # なにするかーーー！！（唯一無二の幼なじみ AS，damage）
+_RAMPART = 230500      # ランパートシャッター+（before_any_attacked，guard 50%）
+_SENTRI = 230501       # セントリフレイン（after_ps_use，remove_ep 2 + heal + modify_pp +2）
+
+
+def _make_unit(side, unit_id, name, skills, level, position,
+               hp=100000, atk=10000, defense=2000, speed=500,
+               pp=4, ep=0, ep_cap=6):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=position, character_id=999900 + hash(unit_id) % 100, level=level,
+        element=2, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=pp, max_extra_point=ep_cap,
+        current_ap=4, current_pp=pp, current_ep=ep,
+        skills=skills, skill_levels={sid: level for sid in skills},
+        skill_cooldowns={},
+    )
+
+
+class TestRegSentriRefrainEpCondition(unittest.TestCase):
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="dummy", hp=1)
+        bb.add_enemy(unit_id="dummy_e", hp=1)
+        ctx = bb.build()
+        self.dl = ctx['services']['dl']
+        self.ts = ctx['services']['ts']
+        # 数据前提自验证：230501条件应为 value=1（经DataLoader读取，路径解析不受CWD影响）
+        parsed = self.dl.get_parsed_skill_data(_SENTRI)
+        conds = parsed['global_condition']['conditions']
+        ep_cond = [c for c in conds if c['type'] == 'self_ep_above_or_equal']
+        self.assertEqual(len(ep_cond), 1, "230501应含self_ep_above_or_equal条件")
+        self.assertEqual(ep_cond[0]['value'], 1, "EP条件value应为1（实测EP=1即满足）")
+
+    def test_first_attack_fires_both_ps_and_restores_resources(self):
+        """首次攻击（敌方PP=4,EP=0）：230500后セントリフレイン即触发，链结束PP=4,EP=0"""
+        bf = BattlefieldState()
+        attacker = _make_unit(Side.ALLY, "ally_att", "唯一無二の幼なじみ",
+                              skills=[_ATTACKER_AS], level=15,
+                              position=Position.ALLY_RIGHT_FRONT, atk=20000)
+        enemy = _make_unit(Side.ENEMY, "enemy_n", "鳴滝七彩",
+                           skills=[_RAMPART, _SENTRI], level=10,
+                           position=Position.ENEMY_CENTER_FRONT,
+                           hp=420063, pp=4, ep=0, ep_cap=6)
+        bf.friend_team = [attacker]
+        bf.enemy_team = [enemy]
+        controller = BattleFlowController(bf, BattleConfig(), data_loader=self.dl)
+        controller.skill_service.set_battlefield(bf)
+
+        with self.assertLogs("MGGBattleSim", level="INFO") as cm:
+            controller._execute_unit_action(attacker, 1)
+        logs = cm.output
+
+        # 230500 触发并激活guard
+        self.assertTrue(any("executes [ランパートシャッター+]" in l for l in logs),
+                        "230500应执行")
+        self.assertTrue(any("[GUARD]" in l and "activated" in l for l in logs),
+                        "guard应激活")
+
+        # セントリフレイン经 after_ps_use 链触发（实测：EP=1即满足条件）
+        self.assertTrue(any("PS[セントリフレイン]" in l and "timing=AFTER_SKILL_USE" in l
+                            for l in logs),
+                        "230501应在EP=1时经after_ps_use链触发（实测行为）")
+        self.assertTrue(any("executes [セントリフレイン]" in l for l in logs),
+                        "230501应执行")
+
+        # 资源流程（用户实测核对）: PP 4→3→2→(+2)→4；EP 0→1→2→(-2)→0
+        self.assertEqual(enemy.current_pp, 4,
+                         f"链结束PP应恢复为4: {enemy.current_pp}")
+        self.assertEqual(enemy.current_ep, 0,
+                         f"链结束EP应消耗为0: {enemy.current_ep}")
+
+    def test_ep_condition_boundary_direct(self):
+        """条件边界直查: EP=0不满足, EP=1满足（实测）, HP<50%不满足"""
+        bf = BattlefieldState()
+        attacker = _make_unit(Side.ALLY, "ally_att2", "攻击者",
+                              skills=[], level=15,
+                              position=Position.ALLY_RIGHT_FRONT, atk=20000)
+        enemy = _make_unit(Side.ENEMY, "enemy_n2", "鳴滝七彩",
+                           skills=[_RAMPART, _SENTRI], level=10,
+                           position=Position.ENEMY_CENTER_FRONT,
+                           hp=420063, pp=4, ep=0, ep_cap=6)
+        bf.friend_team = [attacker]
+        bf.enemy_team = [enemy]
+
+        # EP=0 → 不触发（技能描述: EXゲージが0の場合は発動しない）
+        actions = self.ts.trigger_after_ps_use(enemy, _RAMPART, bf)
+        sentri = [a for a in actions if a.skill_id == _SENTRI]
+        self.assertEqual(len(sentri), 0, "EP=0时230501不应触发")
+
+        # EP=1 → 触发（用户实测: ランパートシャッター+后ep=1即满足）
+        enemy.current_ep = 1.0
+        actions = self.ts.trigger_after_ps_use(enemy, _RAMPART, bf)
+        sentri = [a for a in actions if a.skill_id == _SENTRI]
+        self.assertEqual(len(sentri), 1, "EP=1时230501应触发（实测边界）")
+
+        # HP<50% → 不触发
+        enemy.current_hp = int(enemy.max_hp * 0.4)
+        actions = self.ts.trigger_after_ps_use(enemy, _RAMPART, bf)
+        sentri = [a for a in actions if a.skill_id == _SENTRI]
+        self.assertEqual(len(sentri), 0, "HP<50%时230501不应触发")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

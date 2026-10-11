@@ -613,6 +613,10 @@ class TriggerService:
         """
         actions = []
         units_to_check = damaged_units if damaged_units else battlefield.get_all_units()
+        # 同一イベント（同じtrigger_cumulative_damage呼び出し）内で同じPSを1回だけ収集する。
+        # 複数味方が同時に閾値到達（複数同時倒下等）しても発動は1回のみ
+        # （シャドウグー230491: 複数同時倒下でも暗闇は1体にだけ付与）。
+        _ally_ps_actions = {}  # (owner_id, skill_id) -> 既に収集済みのaction
         for unit in units_to_check:
             # 直接型on_cumulative_damage（自身の累計）：死亡単位はPSを発動できないためスキップ。
             # 味方累計型（他の味方が累計…、シャドウグー230491等）：被弾味方が一撃で死亡しても
@@ -670,10 +674,22 @@ class TriggerService:
                     _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
                     for _a in _new_actions:
                         _a.parameters['cumulative_pp_zero_reset'] = _reset_val
-                        # 味方累計型：被弾単位（triggered_by）を記録し、PS成功後に
-                        # 被弾単位のカウンターをリセットして「たびに」の再装填を実現
-                        _a.parameters['cumulative_triggered_by'] = unit
-                    actions.extend(_new_actions)
+                        _ps_key = (_a.owner_id, _a.skill_id)
+                        _kept = _ally_ps_actions.get(_ps_key)
+                        if _kept is not None:
+                            # 同一イベント内に同一PSを既に収集済み（複数味方が同時に閾値到達）：
+                            # 発動は1回のみ。追加で越えた被弾単位をmergedリストに記録し、
+                            # PS実行後に全員分のカウンターをリセットする（残留すると
+                            # 次回の全スキャンで再収集されてしまう）。
+                            _kept.parameters.setdefault('cumulative_triggered_by', []).append(unit)
+                            _log.info("[ALLY_CUMULATIVE_DMG] %s: PS[%s] already collected in this event, merged into single trigger (ps_owner=%s)",
+                                      unit.name, _a.skill_id, _ps_owner.name)
+                            continue
+                        # 味方累計型：被弾単位リスト（triggered_by）を記録し、PS成功後に
+                        # 全員のカウンターをリセットして「たびに」の再装填を実現
+                        _a.parameters['cumulative_triggered_by'] = [unit]
+                        _ally_ps_actions[_ps_key] = _a
+                        actions.append(_a)
 
         return actions
 

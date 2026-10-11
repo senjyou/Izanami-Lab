@@ -1,0 +1,51 @@
+"""Integration: hp_below takes priority over after_ally_attacked for same character.
+
+Tests: When both 130041 (ぽよぽよプロテクト) and 130025 (イケてる♡イケてる) could fire,
+only the hp_below trigger (130041) fires; after_ally_attacked (130025) is suppressed.
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+class TestDebuffTriggerPriority(unittest.TestCase):
+    """hp_below suppresses after_ally_attacked for same owner."""
+
+    def test_hp_below_suppresses_after_ally(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="char116301", hp=20000, atk=10000,
+                    skills=[130041, 130025], level=10, pp=10)
+        bb.add_ally(unit_id="ally_hit", hp=10000)
+        bb.add_enemy(unit_id="enemy", hp=50000, atk=20000)
+        ctx = bb.build()
+        bf, ts = ctx['bf'], ctx['ts']
+        char = next(u for u in bf.friend_team if u.unit_id == "char116301")
+        ally = next(u for u in bf.friend_team if u.unit_id == "ally_hit")
+        enemy = next(u for u in bf.enemy_team if u.unit_id == "enemy")
+
+        # HP crosses 50% (from 100% to 40%)
+        ally.current_hp = 4000
+        ally.prev_hp_percent = 100.0
+        char.current_pp = 10
+
+        # Step 1: hp_below triggers (runs first)
+        hp_actions = ts.trigger_hp_below(bf, [ally])
+        hp_ps = [a for a in hp_actions if a.skill_id == 130041]
+        self.assertEqual(len(hp_ps), 1, "130041 should fire on hp_below")
+
+        # Track owners that fired hp_below
+        owners_with_hp = set(a.instance.owner.unit_id for a in hp_ps)
+
+        # Step 2: after_ally_attacked should be suppressed
+        aa_actions = ts.trigger_after_ally_attacked(
+            [ally], bf, actor=enemy, primary_target=ally
+        )
+        aa_ps = [a for a in aa_actions if a.skill_id == 130025]
+        aa_filtered = [a for a in aa_ps if a.instance.owner.unit_id not in owners_with_hp]
+        self.assertEqual(len(aa_filtered), 0,
+                         "130025 should be suppressed when 130041 already fired")
+
+
+if __name__ == '__main__':
+    unittest.main()

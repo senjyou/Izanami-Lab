@@ -24,6 +24,50 @@ class DamageService:
     def __init__(self):
         self._crit_override_func: Optional[Callable[[Dict], bool]] = None
         self._crit_context: Dict[str, Any] = {}
+        self._darkness_override_func = None  # 黑暗掷骰覆盖（逐步暴击分支决策，与skill_service共用random_draw通道）
+
+    def set_darkness_override(self, func):
+        """设置黑暗掷骰覆盖函数。func接收context dict，返回候选索引（0=MISS, 1=命中）"""
+        self._darkness_override_func = func
+
+    def clear_darkness_override(self):
+        """清除黑暗掷骰覆盖函数，恢复随机判定"""
+        self._darkness_override_func = None
+
+    def _decide_darkness_roll(self, attacker: UnitState, d_pct: float, skill_data) -> bool:
+        """黑暗単一debuffの掷骰（逐步暴击分支决策対応）。True=MISS。
+
+        _darkness_override_func 設定時はユーザー選択を優先：
+        candidates=[{index:0, 黑暗発動→MISS, weight=pct}, {index:1, 命中, weight=100-pct}]、
+        decision_type='darkness'。未設定時は random.random()*100 < d_pct。
+        """
+        override = getattr(self, '_darkness_override_func', None)
+        if override is not None:
+            ctx = {
+                'caster_name': attacker.name,
+                'caster_id': attacker.unit_id,
+                'skill_name': getattr(skill_data, 'name', '?'),
+                'skill_id': getattr(skill_data, 'skill_id', 0),
+                'darkness_pct': d_pct,
+                'candidates': [
+                    {'index': 0, 'description': f'黑暗発動→MISS ({d_pct:g}%)', 'weight': d_pct},
+                    {'index': 1, 'description': f'命中 ({100 - d_pct:g}%)', 'weight': 100 - d_pct},
+                ],
+                'decision_type': 'darkness',
+            }
+            try:
+                selected_idx = override(ctx)
+                if selected_idx in (0, 1):
+                    _log.info("[DARKNESS_MISS] %s: step-crit override -> %s (pct=%.1f%%)",
+                              attacker.name, "MISS" if selected_idx == 0 else "命中", d_pct)
+                    return selected_idx == 0
+                _log.warning("[DARKNESS_MISS] %s: invalid override index %s, fallback to random",
+                             attacker.name, selected_idx)
+            except Exception as e:
+                _log.warning("[DARKNESS_MISS] %s: override error %s, fallback to random",
+                             attacker.name, e)
+        import random as _rng
+        return _rng.random() * 100 < d_pct
 
     def set_crit_override(self, func: Optional[Callable[[Dict], bool]]):
         """设置暴击覆盖函数。func接收context dict，返回bool（True=暴击）"""
@@ -381,11 +425,10 @@ class DamageService:
         # 複数の暗闇debuffは独立共存、各々独立して掷骰、いずれか命中即MISS（実MISS率 = 1 - ∏(1-pᵢ)）
         darkness_debuffs = [d for d in attacker.debuffs if d.effect_type == SkillEffectType.DARKNESS.value]
         if darkness_debuffs:
-            import random as _rng
             darkness_miss = False
             for d_buff in darkness_debuffs:
                 d_pct = getattr(d_buff, 'value', 0) or 0
-                if _rng.random() * 100 < d_pct:
+                if self._decide_darkness_roll(attacker, d_pct, skill_data):
                     darkness_miss = True
                     _log.info("[DARKNESS_MISS] %s: darkness debuff (pct=%.1f%%) triggered MISS on skill %s -> %s",
                               attacker.name, d_pct, getattr(skill_data, 'skill_id', '?'), defender.name)

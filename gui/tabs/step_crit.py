@@ -448,7 +448,7 @@ class StepCritTab(ttk.Frame):
         """用户选择分支"""
         if self._simulator and self._simulator.is_interactive_running():
             self._simulator.make_interactive_branch_decision(block_id)
-            if self._current_branch_decision_type in ("random_draw", "enemy_random"):
+            if self._current_branch_decision_type in ("random_draw", "enemy_random", "darkness"):
                 # 找到候选索引对应的描述
                 cand_desc = ""
                 for i, bid in enumerate(self._branch_candidate_block_ids):
@@ -699,6 +699,8 @@ class StepCritTab(ttk.Frame):
             # 设置random_draw覆盖（概率技能目标抽取，如ミッドサマー・ラブ）
             random_draw_override_func = self._simulator.create_random_draw_override_func("interactive")
             controller.skill_service.set_random_draw_override(random_draw_override_func)
+            # 黑暗掷骰覆盖（damage_service攻击路径；skill_service付与路径共用random_draw通道）
+            controller.damage_service.set_darkness_override(random_draw_override_func)
 
             self._interactive_controller = controller
             self._interactive_narrative = narrative
@@ -709,6 +711,7 @@ class StepCritTab(ttk.Frame):
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
             controller.skill_service.clear_random_draw_override()
+            controller.damage_service.clear_darkness_override()
 
             return result
 
@@ -1199,6 +1202,8 @@ class StepCritTab(ttk.Frame):
             # 设置random_draw覆盖（概率技能目标抽取）
             random_draw_override_func = self._simulator.create_random_draw_override_func("sequence")
             controller.skill_service.set_random_draw_override(random_draw_override_func)
+            # 黑暗掷骰覆盖（damage_service攻击路径；skill_service付与路径共用random_draw通道）
+            controller.damage_service.set_darkness_override(random_draw_override_func)
 
             result = controller.execute_battle()
 
@@ -1206,6 +1211,7 @@ class StepCritTab(ttk.Frame):
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
             controller.skill_service.clear_random_draw_override()
+            controller.damage_service.clear_darkness_override()
 
             # 输出结果
             self._append_output(self._simulator.generate_report())
@@ -1347,6 +1353,8 @@ class StepCritTab(ttk.Frame):
             # 设置random_draw覆盖（概率技能目标抽取，如ミッドサマー・ラブ）
             random_draw_override_func = self._simulator.create_random_draw_override_func("interactive")
             controller.skill_service.set_random_draw_override(random_draw_override_func)
+            # 黑暗掷骰覆盖（damage_service攻击路径；skill_service付与路径共用random_draw通道）
+            controller.damage_service.set_darkness_override(random_draw_override_func)
 
             self._interactive_controller = controller
             self._interactive_narrative = narrative
@@ -1357,6 +1365,7 @@ class StepCritTab(ttk.Frame):
             controller.damage_service.clear_crit_override()
             controller.skill_service.clear_branch_override()
             controller.skill_service.clear_random_draw_override()
+            controller.damage_service.clear_darkness_override()
 
             return result
 

@@ -563,13 +563,13 @@ class StepCritSimulator:
         self._branch_decision_index += 1
 
         candidates_raw = context.get('candidates', [])
-        # random_draw 候选等概率
-        total_weight = len(candidates_raw) or 1
+        # random_draw 候选等概率（ctx提供weight时按权重，如黑暗75/25）
+        total_weight = sum(c.get('weight', 1) for c in candidates_raw) or 1
         candidates = [
             BranchCandidate(
                 block_id=c.get('index', i),
-                weight=1,
-                probability=1.0 / total_weight,
+                weight=c.get('weight', 1),
+                probability=c.get('weight', 1) / total_weight,
                 description=c.get('description', ''),
             )
             for i, c in enumerate(candidates_raw)
@@ -592,9 +592,9 @@ class StepCritSimulator:
             self._interactive_branch_prefill_index += 1
             valid_ids = {c.block_id for c in candidates}
             if selected not in valid_ids:
-                selected = random.choice(candidates).block_id
+                selected = random.choices([c.block_id for c in candidates], weights=[c.weight for c in candidates], k=1)[0]
         else:
-            selected = random.choice(candidates).block_id
+            selected = random.choices([c.block_id for c in candidates], weights=[c.weight for c in candidates], k=1)[0]
 
         point.selected_block_id = selected
         self._branch_decision_points.append(point)
@@ -612,12 +612,12 @@ class StepCritSimulator:
         self._branch_decision_index += 1
 
         candidates_raw = context.get('candidates', [])
-        total_weight = len(candidates_raw) or 1
+        total_weight = sum(c.get('weight', 1) for c in candidates_raw) or 1
         candidates = [
             BranchCandidate(
                 block_id=c.get('index', i),
-                weight=1,
-                probability=1.0 / total_weight,
+                weight=c.get('weight', 1),
+                probability=c.get('weight', 1) / total_weight,
                 description=c.get('description', ''),
             )
             for i, c in enumerate(candidates_raw)
@@ -642,7 +642,7 @@ class StepCritSimulator:
             self._interactive_branch_prefill_index += 1
             valid_ids = {c.block_id for c in candidates}
             if selected not in valid_ids:
-                selected = random.choice(candidates).block_id
+                selected = random.choices([c.block_id for c in candidates], weights=[c.weight for c in candidates], k=1)[0]
             point.selected_block_id = selected
             self._branch_decision_points.append(point)
             self._branch_info_queue.put(("branch_prefill_step", point))
@@ -662,7 +662,7 @@ class StepCritSimulator:
 
         if not self._running or selected == -1:
             if candidates:
-                selected = random.choice(candidates).block_id
+                selected = random.choices([c.block_id for c in candidates], weights=[c.weight for c in candidates], k=1)[0]
             else:
                 selected = 0
 

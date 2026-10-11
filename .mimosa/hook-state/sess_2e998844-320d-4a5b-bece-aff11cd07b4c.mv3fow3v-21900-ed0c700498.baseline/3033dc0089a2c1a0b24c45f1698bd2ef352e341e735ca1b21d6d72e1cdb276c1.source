@@ -1,0 +1,122 @@
+"""配置 230169 バフシャット 和 230170 デバフシャット 的 effect_blocks。
+
+230169 バフシャット:
+- trigger_type: after_as_attack (已正确)
+- 描述: 自身がAS攻撃した後に発動。攻撃した対象が2回行動を終えるまで、対象に向けられるバフを無効にするデバフを付与
+- 效果: block_buff_by_type + flags.block_buffs=True + duration=2 + duration_type="action"（目标行动结束时-1）
+- target_type: enemy_single, target_identifier: primary_target（caster AS攻击的主目标）
+
+230170 デバフシャット:
+- trigger_type: before_ally_attacked (需修改 from on_battle_start)
+- 描述: 味方が敵から攻撃される前に発動。スキル対象の味方単体に、2回行動を終えるまでデバフを無効にするバフを付与
+- 效果: block_buff_by_type + flags.block_debuffs=True + duration=2 + duration_type="action"（目标行动结束时-1）
+- target_type: ally_single, target_identifier: triggered_by（受攻击的友方 = _primary_target）
+- simultaneous_limit: True (已正确)
+"""
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+
+def main():
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        d = json.load(f)
+
+    # 230169 バフシャット
+    d['230169']['trigger_type'] = 'after_as_attack'
+    d['230169']['display_target_type'] = 3  # ENEMIES
+    d['230169']['display_target_range'] = 1  # ONE_PAWN
+    d['230169']['effect_blocks'] = [
+        {
+            "block_id": 1,
+            "condition": None,
+            "effects": [
+                {
+                    "effect_type": "block_buff_by_type",
+                    "target_type": "enemy_single",
+                    "target_identifier": "primary_target",
+                    "value": None,
+                    "value_tag": None,
+                    "value_source": None,
+                    "duration": 2,
+                    "duration_type": "action",  # 目标行动结束时-1
+                    "duration_tag": None,
+                    "hit_count": None,
+                    "hit_count_tag": None,
+                    "condition": None,
+                    "flags": {
+                        "block_buffs": True,  # 阻止全 buff 新付与
+                    },
+                    "ignore_defense": 0,
+                    "ignore_shield": 0,
+                },
+            ],
+        },
+    ]
+    d['230169']['parse_status'] = 'manual'
+    d['230169']['parse_notes'] = ['Manual: バフシャット - block_buffs=True, target=primary_target, dur=2/action']
+
+    # 230170 デバフシャット
+    d['230170']['trigger_type'] = 'before_ally_attacked'  # 修改 from on_battle_start
+    d['230170']['display_target_type'] = 2  # SELF_AND_FRIENDS
+    d['230170']['display_target_range'] = 1  # ONE_PAWN
+    d['230170']['simultaneous_limit'] = True
+    d['230170']['effect_blocks'] = [
+        {
+            "block_id": 1,
+            "condition": None,
+            "effects": [
+                {
+                    "effect_type": "block_buff_by_type",
+                    "target_type": "ally_single",
+                    "target_identifier": "triggered_by",  # 受攻击的友方 = _primary_target
+                    "value": None,
+                    "value_tag": None,
+                    "value_source": None,
+                    "duration": 2,
+                    "duration_type": "action",  # 目标行动结束时-1
+                    "duration_tag": None,
+                    "hit_count": None,
+                    "hit_count_tag": None,
+                    "condition": None,
+                    "flags": {
+                        "block_debuffs": True,  # 阻止全 debuff 新付与
+                    },
+                    "ignore_defense": 0,
+                    "ignore_shield": 0,
+                },
+            ],
+        },
+    ]
+    d['230170']['parse_status'] = 'manual'
+    d['230170']['parse_notes'] = ['Manual: デバフシャット - block_debuffs=True, target=triggered_by, dur=2/action']
+
+    with open('data/skill_effects_hybrid.json', 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+
+    safe_print('OK: 230169/230170 configured')
+
+    # 验证
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        d2 = json.load(f)
+    for sid in ['230169', '230170']:
+        s = d2[sid]
+        safe_print(f'=== {sid} {s["name"]} ===')
+        safe_print(f'trigger_type: {s.get("trigger_type")}')
+        safe_print(f'display_target_type: {s.get("display_target_type")}')
+        safe_print(f'simultaneous_limit: {s.get("simultaneous_limit", False)}')
+        safe_print(f'effect_blocks count: {len(s.get("effect_blocks", []))}')
+        if s.get('effect_blocks'):
+            for b in s['effect_blocks']:
+                for e in b.get('effects', []):
+                    safe_print(f'  effect: {e.get("effect_type")} target={e.get("target_type")} tid={e.get("target_identifier")} dur={e.get("duration")}/{e.get("duration_type")} flags={e.get("flags")}')
+        safe_print('')
+
+
+if __name__ == '__main__':
+    main()

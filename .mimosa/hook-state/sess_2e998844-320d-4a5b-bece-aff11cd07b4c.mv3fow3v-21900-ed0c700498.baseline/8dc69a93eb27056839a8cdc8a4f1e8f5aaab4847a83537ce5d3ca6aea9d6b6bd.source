@@ -1,0 +1,619 @@
+"""
+角色120302 蠱惑のキャンペーンガール（ロージー・ヒューズ）专项测试
+- EX:  110075 特別サービス♪（50%现HP消费+双护盾+アイデアmark 4行動；創作中不发动且EP不扣）
+- AS:  120164 プロモーション・バースト（非創作: 敌单体攻击+アイデア追加攻击+Lv11+吸血；
+       創作中: 回复30%maxHP无攻击）
+- PS1: 130166 スマイル・ファンサービス（累计受伤15%maxHP触发，治疗HP比例最低2体
+       （含自身纯HP比例排序）+PP回复1；創作中不触发且累计计数保留）
+- PS2: 130167 ボルテージ・マックス（HP<20%自身被攻击前触发，致死伤害锁血+回复cure%；
+       創作mark 2行動解除不可；Lv11+ atk/def上升重複可；HP>=20%/創作中/仅剩自身不触发）
+- PS3: 130168 スペシャル・アピール（創作中自身被攻击前触发，减伤dmg%持续至攻击者
+       行动结束（行动级清理，非技能级）；非創作/仅剩自身不触发）
+
+角色信息:
+- 角色: 蠱惑のキャンペーンガール (120302)
+- 属性: 1 (火), 类型: 3 (敏捷), 站位: 灵活, 定位: 辅助
+- 技能: 110075, 120164, 130166, 130167, 130168
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+# 简写
+MARK = SkillEffectType.MARK.value
+SHIELD = SkillEffectType.SHIELD.value
+CHEAT_DEATH = SkillEffectType.CHEAT_DEATH.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+
+EX_SKILL = 110075
+AS_SKILL = 120164
+PS_HEAL = 130166
+PS_CHEAT = 130167
+PS_REDUCE = 130168
+
+# 敌方测试用纯伤害单体AS技能（一閃 120040: 威力156% Lv10, 1hit, 无附加效果）
+ENEMY_ATTACK = 120040
+
+ROSIE_MAX_HP = 20000
+ALLY_A_MAX_HP = 15000
+ALLY_B_MAX_HP = 12000
+
+
+class TestRosieCampaign120302(unittest.TestCase):
+    """角色120302 蠱惑のキャンペーンガール 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # ロージー 120302 (火属性, 敏捷, 前排中央 = 距离敌方最近)
+        self.rosie = UnitState(
+            unit_id="rosie", name="ロージー", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=120302, level=10,
+            element=1, character_type=3,
+            max_hp=ROSIE_MAX_HP, current_hp=ROSIE_MAX_HP,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=10, max_extra_point=10,
+            current_ap=10, current_pp=10, current_ep=10,
+            skills=[EX_SKILL, AS_SKILL, PS_HEAL, PS_CHEAT, PS_REDUCE],
+            skill_levels={EX_SKILL: 10, AS_SKILL: 10, PS_HEAL: 10,
+                          PS_CHEAT: 10, PS_REDUCE: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方A (左后)
+        self.ally_a = UnitState(
+            unit_id="ally_a", name="友方A", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=999101, level=10,
+            element=2, character_type=1,
+            max_hp=ALLY_A_MAX_HP, current_hp=ALLY_A_MAX_HP,
+            attack=7000, defense=4500, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方B (右后)
+        self.ally_b = UnitState(
+            unit_id="ally_b", name="友方B", side=Side.ALLY,
+            position=Position.ALLY_RIGHT_BACK, character_id=999102, level=10,
+            element=5, character_type=2,
+            max_hp=ALLY_B_MAX_HP, current_hp=ALLY_B_MAX_HP,
+            attack=6000, defense=3500, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方 (前排中央, 使用一閃攻击最近友方=ロージー)
+        self.enemy = UnitState(
+            unit_id="enemy", name="敌方", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=100000, current_hp=100000,
+            attack=8000, defense=1000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+            current_ap=10, current_pp=10, current_ep=10,
+            skills=[ENEMY_ATTACK], skill_levels={ENEMY_ATTACK: 10},
+            skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.rosie, self.ally_a, self.ally_b]
+        self.bf.enemy_team = [self.enemy]
+
+        self.controller = BattleFlowController(self.bf, data_loader=self.dl)
+        self.controller._build_display_names()
+        self.controller.skill_service.set_battlefield(self.bf)
+        self.controller._deferred_crit_triggers = []
+        self.ss = self.controller.skill_service
+        self.ts = self.controller.trigger_service
+
+    # ─── helpers ───
+
+    def _add_mark(self, unit, mark_name, duration=4, unremovable=False):
+        """手动施加mark（模拟技能施加的アイデア/創作状态）"""
+        mark = BuffState(
+            buff_id=f"test_mark_{mark_name}", name=mark_name, effect_type=MARK,
+            value=1, duration=duration,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=unit.unit_id, source_skill_id=0,
+            is_debuff=False, unremovable=unremovable,
+        )
+        unit.buffs.append(mark)
+        return mark
+
+    def _get_marks(self, unit, mark_name):
+        return [b for b in unit.buffs + unit.debuffs
+                if b.effect_type == MARK and b.name == mark_name]
+
+    def _enemy_attack_rosie(self):
+        """敌方对ロージー发动一閃攻击（触发before_any_attacked）"""
+        return self.ss.execute_skill(
+            caster=self.enemy, skill_id=ENEMY_ATTACK,
+            battlefield=self.bf, skip_cost=True
+        )
+
+    # ─── EX: 110075 特別サービス♪ ───
+
+    def test_ex_shields_and_idea_mark(self):
+        """EX(110075): 消费50%现HP + 双护盾 + アイデアmark 4行動"""
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=EX_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # HP: 20000 → 消费 int(20000*50%) = 10000 → 10000
+        self.assertEqual(self.rosie.current_hp, 10000,
+                         "EX应消费50%当前HP")
+        # 护盾①: 消费HP×100% = 10000; 护盾②: maxHP×55%(Lv10) = 11000; 合计 21000
+        self.assertEqual(self.rosie.shield, 21000,
+                         f"双护盾合计应为 10000+11000=21000, 实际: {self.rosie.shield}")
+        shield_buffs = [b for b in self.rosie.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 2, "应施加2个护盾buff")
+        # アイデア mark 4行動
+        idea_marks = self._get_marks(self.rosie, "アイデア")
+        self.assertEqual(len(idea_marks), 1, "应施加アイデア mark")
+        self.assertEqual(idea_marks[0].duration, 4, "アイデア应持续4行動")
+
+    def test_ex_blocked_during_sousaku_no_ep_cost(self):
+        """EX(110075): 創作中不发动（execute_condition），EP不扣、HP不变"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        ep_before = self.rosie.current_ep
+        hp_before = self.rosie.current_hp
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=EX_SKILL, battlefield=self.bf, skip_cost=False
+        )
+        self.assertFalse(result["success"], "創作中EX不应发动")
+        self.assertEqual(result.get("error"), "execute_condition not met")
+        self.assertEqual(self.rosie.current_ep, ep_before,
+                         "execute_condition在扣资源前检查，EP不应被消耗")
+        self.assertEqual(self.rosie.current_hp, hp_before, "HP不应被消费")
+        self.assertEqual(self.rosie.shield, 0, "不应获得护盾")
+        self.assertEqual(len(self._get_marks(self.rosie, "アイデア")), 0,
+                         "不应施加アイデア mark")
+
+    # ─── AS: 120164 プロモーション・バースト ───
+
+    def test_as_main_attack_only_without_idea(self):
+        """AS(120164): 非創作无アイデア时仅主攻击（1次伤害），无吸血"""
+        self.rosie.current_hp = 10000
+        enemy_hp_before = self.enemy.current_hp
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 1, "无アイデア时应只有主攻击")
+        self.assertLess(self.enemy.current_hp, enemy_hp_before)
+        # Lv10 cure=0 → 吸血量为0，HP不变
+        self.assertEqual(self.rosie.current_hp, 10000, "Lv10吸血为0，HP不应变化")
+
+    def test_as_extra_attack_with_idea(self):
+        """AS(120164): 持アイデア时追加攻击（2次伤害）"""
+        self._add_mark(self.rosie, "アイデア", duration=4)
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 2, "持アイデア时应有主攻击+追加攻击")
+
+    def test_as_lifesteal_lv15(self):
+        """AS(120164): Lv15持アイデア时吸血=总伤害×50%"""
+        self.rosie.skill_levels[AS_SKILL] = 15
+        self._add_mark(self.rosie, "アイデア", duration=4)
+        self.rosie.current_hp = 5000
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        total_dmg = result["total_damage"]
+        self.assertGreater(total_dmg, 0)
+        # 吸血 = (主攻击+追加攻击总伤害) × 50%
+        expected_heal = int(total_dmg * 50 / 100)
+        self.assertEqual(self.rosie.current_hp, 5000 + expected_heal,
+                         f"吸血应为总伤害{total_dmg}×50%={expected_heal}")
+
+    def test_as_heal_mode_during_sousaku(self):
+        """AS(120164): 創作中切换为自愈模式（回复30%maxHP，无攻击）"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        self.rosie.current_hp = 10000
+        enemy_hp_before = self.enemy.current_hp
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 0, "創作中AS不应造成伤害")
+        self.assertEqual(self.enemy.current_hp, enemy_hp_before, "敌方HP不应变化")
+        # 回复 30% maxHP = 6000
+        self.assertEqual(self.rosie.current_hp, 16000,
+                         f"創作中AS应回复30%maxHP=6000, 实际回复 {self.rosie.current_hp - 10000}")
+
+    def test_as_heal_mode_full_hp_no_overheal(self):
+        """AS(120164): 創作中满血时实际治疗量为0（不溢出）"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.rosie.current_hp, ROSIE_MAX_HP, "满血时实际治疗量应为0")
+
+    # ─── PS1: 130166 スマイル・ファンサービス ───
+
+    def test_ps130166_heal_targets_lowest_hp_including_self(self):
+        """PS(130166): 治疗HP比例最低2体（含自身纯HP比例排序）"""
+        # HP比例: ロージー 20% < 友方A 40% < 友方B 100%
+        self.rosie.current_hp = 4000    # 20%
+        self.ally_a.current_hp = 6000   # 40%
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=PS_HEAL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        # ロージー和友方A被治疗（各 ATK10000×25% = 2500）
+        self.assertEqual(self.rosie.current_hp, 4000 + 2500,
+                         "HP比例最低的自身应被治疗")
+        self.assertEqual(self.ally_a.current_hp, 6000 + 2500,
+                         "HP比例第二低的友方A应被治疗")
+        self.assertEqual(self.ally_b.current_hp, ALLY_B_MAX_HP,
+                         "HP比例最高的友方B不应被治疗")
+
+    def test_ps130166_heal_excludes_full_hp_self(self):
+        """PS(130166): 自身满血时治疗自身以外的低HP友方"""
+        # ロージー 100%, 友方A 40%, 友方B 67%
+        self.ally_a.current_hp = 6000   # 40%
+        self.ally_b.current_hp = 8000   # 67%
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=PS_HEAL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.ally_a.current_hp, 6000 + 2500, "友方A应被治疗")
+        self.assertEqual(self.ally_b.current_hp, 8000 + 2500, "友方B应被治疗")
+        self.assertEqual(self.rosie.current_hp, ROSIE_MAX_HP,
+                         "满血自身不应被治疗（HP比例排序非最低2体）")
+
+    def test_ps130166_trigger_via_cumulative_damage(self):
+        """PS(130166): 累计受伤达15%maxHP时触发，治疗+PP净变化0+计数清零"""
+        # 累计受伤 = 15% × 20000 = 3000
+        self.rosie.cumulative_hp_damage = 3000
+        self.ally_a.current_hp = 6000   # 40%
+        self.ally_b.current_hp = 8000   # 67%
+        pp_before = self.rosie.current_pp
+
+        actions = self.ts.trigger_cumulative_damage(self.bf, [self.rosie])
+        ps_actions = [a for a in actions if a.skill_id == PS_HEAL]
+        self.assertGreater(len(ps_actions), 0, "累计受伤达阈值应触发130166")
+
+        self.controller._execute_global_trigger_actions(actions)
+
+        # 治疗HP比例最低2体（友方A 40% + 友方B 67%）
+        self.assertEqual(self.ally_a.current_hp, 6000 + 2500, "友方A应被治疗")
+        self.assertEqual(self.ally_b.current_hp, 8000 + 2500, "友方B应被治疗")
+        # PP: 触发消耗1 + modify_pp回复1 = 净变化0
+        self.assertEqual(self.rosie.current_pp, pp_before,
+                         "PP净变化应为0（消耗1+回复1）")
+        # 触发成功后累计伤害计数清零
+        self.assertEqual(self.rosie.cumulative_hp_damage, 0,
+                         "触发成功后累计受伤计数应清零")
+
+    def test_ps130166_not_triggered_during_sousaku_counter_preserved(self):
+        """PS(130166): 創作中不触发且累计受伤计数保留"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        # 累计受伤 4000 (超过阈值3000)
+        self.rosie.cumulative_hp_damage = 4000
+        self.ally_a.current_hp = 6000
+
+        actions = self.ts.trigger_cumulative_damage(self.bf, [self.rosie])
+        ps_actions = [a for a in actions if a.skill_id == PS_HEAL]
+        self.assertEqual(len(ps_actions), 0, "創作中130166不应触发")
+
+        # 计数保留（創作结束后可继续触发）
+        self.assertEqual(self.rosie.cumulative_hp_damage, 4000,
+                         "創作中不触发时累计受伤计数应保留")
+        self.assertEqual(self.ally_a.current_hp, 6000, "不应发生治疗")
+
+    def test_ps130166_below_threshold_no_trigger(self):
+        """PS(130166): 累计受伤未达阈值时不触发"""
+        self.rosie.cumulative_hp_damage = 2999  # 阈值3000
+        actions = self.ts.trigger_cumulative_damage(self.bf, [self.rosie])
+        ps_actions = [a for a in actions if a.skill_id == PS_HEAL]
+        self.assertEqual(len(ps_actions), 0, "未达阈值不应触发")
+
+    # ─── PS2: 130167 ボルテージ・マックス ───
+
+    def test_ps130167_triggers_at_low_hp_lethal_attack(self):
+        """PS(130167): HP<20%被致死攻击前触发→锁血+回复30%maxHP+創作mark"""
+        self.rosie.current_hp = 3000  # 15% < 20%
+        self.rosie.shield = 0
+        self.enemy.attack = 50000  # 伤害 (50000-5000)*1.56=70200, 必致死
+        pp_before = self.rosie.current_pp
+
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+
+        # 锁血生效: HP→ maxHP×30%(Lv10) = 6000
+        self.assertTrue(self.rosie.is_alive, "锁血后应存活")
+        self.assertEqual(self.rosie.current_hp, 6000,
+                         f"致死伤害应被耐受并回复30%maxHP=6000, 实际: {self.rosie.current_hp}")
+        # cheat_death已消耗
+        cheat_buffs = [b for b in self.rosie.buffs if b.effect_type == CHEAT_DEATH]
+        self.assertEqual(len(cheat_buffs), 0, "单段锁血触发后应消耗")
+        # 創作mark 2行動、解除不可
+        sousaku = self._get_marks(self.rosie, "創作")
+        self.assertEqual(len(sousaku), 1, "应施加創作mark")
+        self.assertEqual(sousaku[0].duration, 2, "創作应持续2行動")
+        self.assertTrue(getattr(sousaku[0], 'unremovable', False), "創作应解除不可")
+        # PS触发消耗PP 1
+        self.assertEqual(self.rosie.current_pp, pp_before - 1, "PS触发应消耗PP 1")
+
+    def test_ps130167_no_trigger_at_high_hp(self):
+        """PS(130167): HP>=20%时不触发（无锁血、无創作）"""
+        self.rosie.current_hp = 10000  # 50%
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        cheat_buffs = [b for b in self.rosie.buffs if b.effect_type == CHEAT_DEATH]
+        self.assertEqual(len(cheat_buffs), 0, "HP>=20%不应触发锁血")
+        self.assertEqual(len(self._get_marks(self.rosie, "創作")), 0,
+                         "HP>=20%不应施加創作mark")
+        # 正常受伤
+        self.assertLess(self.rosie.current_hp, 10000, "应正常受到伤害")
+
+    def test_ps130167_no_trigger_during_sousaku(self):
+        """PS(130167): 創作中不触发（130168代替触发减伤）"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        self.rosie.current_hp = 3000  # 15%
+        hp_before = self.rosie.current_hp
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        # 无锁血buff
+        cheat_buffs = [b for b in self.rosie.buffs if b.effect_type == CHEAT_DEATH]
+        self.assertEqual(len(cheat_buffs), 0, "創作中130167不应触发锁血")
+        # 創作mark仍只有1个（手动施加的那个）
+        self.assertEqual(len(self._get_marks(self.rosie, "創作")), 1)
+        # 130168触发减伤: (8000-5000)*1.56=4680 → ×0.4 = 1872
+        damage = hp_before - self.rosie.current_hp
+        self.assertLess(damage, 4680 * 0.5, "創作中应触发130168减伤而非130167锁血")
+        self.assertTrue(self.rosie.is_alive)
+
+    def test_ps130167_no_trigger_when_last_ally(self):
+        """PS(130167): 生存友方仅自身时不触发（无锁血→死亡）"""
+        self.ally_a.is_alive = False
+        self.ally_b.is_alive = False
+        self.rosie.current_hp = 3000  # 15%
+        self.rosie.shield = 0
+        self.enemy.attack = 50000  # 必致死
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        cheat_buffs = [b for b in self.rosie.buffs if b.effect_type == CHEAT_DEATH]
+        self.assertEqual(len(cheat_buffs), 0, "仅剩自身时不应触发锁血")
+        self.assertFalse(self.rosie.is_alive, "无锁血时应死亡")
+
+    def test_ps130167_no_trigger_when_other_ally_attacked(self):
+        """PS(130167): 其他友方被攻击时不触发（target_is_self）"""
+        # ロージー移到左后，友方A在前排中央（距离敌方最近成为攻击目标）
+        self.rosie.position = Position.ALLY_LEFT_BACK
+        self.ally_a.position = Position.ALLY_CENTER_FRONT
+        self.rosie.current_hp = 3000  # 15%
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        # 友方A被攻击
+        self.assertLess(self.ally_a.current_hp, ALLY_A_MAX_HP, "友方A应被攻击")
+        # ロージー的PS不触发
+        cheat_buffs = [b for b in self.rosie.buffs if b.effect_type == CHEAT_DEATH]
+        self.assertEqual(len(cheat_buffs), 0, "其他友方被攻击时不应触发锁血")
+        self.assertEqual(len(self._get_marks(self.rosie, "創作")), 0,
+                         "其他友方被攻击时不应施加創作mark")
+        self.assertEqual(self.rosie.current_hp, 3000, "ロージーHP不应变化")
+
+    def test_ps130167_lv15_atk_def_stacking(self):
+        """PS(130167): Lv15触发时atk/def上升（重複可叠加）"""
+        self.rosie.skill_levels[PS_CHEAT] = 15
+        # 第一次触发
+        r1 = self.ss.execute_skill(
+            caster=self.rosie, skill_id=PS_CHEAT, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(r1["success"])
+        atk_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_ATTACK]
+        def_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(atk_buffs), 1, "Lv15触发应施加atk_up")
+        self.assertEqual(len(def_buffs), 1, "Lv15触发应施加def_up")
+        # 模拟創作2行動后过期
+        self.rosie.buffs = [b for b in self.rosie.buffs
+                            if not (b.effect_type == MARK and b.name == "創作")]
+        # 第二次触发
+        r2 = self.ss.execute_skill(
+            caster=self.rosie, skill_id=PS_CHEAT, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(r2["success"])
+        atk_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_ATTACK]
+        def_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(atk_buffs), 2, "重複可: 二次触发后atk_up应叠加2层")
+        self.assertEqual(len(def_buffs), 2, "重複可: 二次触发后def_up应叠加2层")
+
+    def test_ps130167_lv10_no_atk_def(self):
+        """PS(130167): Lv10触发时无atk/def上升"""
+        result = self.ss.execute_skill(
+            caster=self.rosie, skill_id=PS_CHEAT, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        atk_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_ATTACK]
+        def_buffs = [b for b in self.rosie.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(atk_buffs), 0, "Lv10不应施加atk_up")
+        self.assertEqual(len(def_buffs), 0, "Lv10不应施加def_up")
+
+    # ─── PS3: 130168 スペシャル・アピール ───
+
+    def test_ps130168_damage_reduction_during_sousaku(self):
+        """PS(130168): 創作中被攻击→减伤60%（Lv10）覆盖当次攻击"""
+        # 基线: 无創作时伤害
+        hp_before = self.rosie.current_hp
+        result = self.ss.execute_skill(
+            caster=self.enemy, skill_id=ENEMY_ATTACK, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        base_damage = hp_before - self.rosie.current_hp
+        self.assertGreater(base_damage, 0)
+
+        # 重置 + 創作中被攻击
+        self.rosie.current_hp = ROSIE_MAX_HP
+        self.rosie.shield = 0
+        self._add_mark(self.rosie, "創作", duration=2)
+        hp_before = self.rosie.current_hp
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        reduced_damage = hp_before - self.rosie.current_hp
+
+        # 减伤60%: reduced ≈ base × 0.4
+        self.assertGreater(reduced_damage, 0, "应受到伤害")
+        self.assertLess(abs(reduced_damage - base_damage * 0.4), 5,
+                        f"减伤60%后伤害应≈{base_damage * 0.4:.0f}, 实际: {reduced_damage}")
+        # dmg_taken_down buff存在（attacker_action, 行动级清理前不消失）
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertGreater(len(dtd_buffs), 0, "应持有attacker_action减伤buff")
+
+    def test_ps130168_buff_cleaned_at_action_end(self):
+        """PS(130168): 减伤buff在攻击者行动结束时清除（行动级清理）"""
+        self._add_mark(self.rosie, "創作", duration=2)
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        # 攻击技能结束后buff仍在（非技能级清理）
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertGreater(len(dtd_buffs), 0,
+                           "技能级清理后buff应仍存在（仅行动级清理）")
+        # 攻击者行动结束 → 清除
+        self.controller._cleanup_guard_buffs(self.enemy, action_ended=True)
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertEqual(len(dtd_buffs), 0,
+                         "攻击者行动结束后减伤buff应被清除")
+        # 創作mark不受影响（行動系持続2行動）
+        self.assertEqual(len(self._get_marks(self.rosie, "創作")), 1,
+                         "創作mark不应被行动级清理影响")
+
+    def test_ps130168_no_trigger_without_sousaku(self):
+        """PS(130168): 非創作时不触发（无减伤buff）"""
+        hp_before = self.rosie.current_hp
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertEqual(len(dtd_buffs), 0, "非創作时不应触发减伤")
+        # 伤害未被减免: (8000-5000)*1.56 = 4680
+        damage = hp_before - self.rosie.current_hp
+        self.assertGreater(abs(damage - 4680), -5, "伤害应未被减免")
+
+    def test_ps130168_no_trigger_when_last_ally(self):
+        """PS(130168): 生存友方仅自身时不触发"""
+        self.ally_a.is_alive = False
+        self.ally_b.is_alive = False
+        self._add_mark(self.rosie, "創作", duration=2)
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertEqual(len(dtd_buffs), 0, "仅剩自身时不应触发减伤")
+
+    def test_ps130168_no_trigger_when_other_ally_attacked(self):
+        """PS(130168): 其他友方被攻击时不触发（target_is_self）"""
+        self.rosie.position = Position.ALLY_LEFT_BACK
+        self.ally_a.position = Position.ALLY_CENTER_FRONT
+        self._add_mark(self.rosie, "創作", duration=2)
+        result = self._enemy_attack_rosie()
+        self.assertTrue(result["success"])
+        self.assertLess(self.ally_a.current_hp, ALLY_A_MAX_HP, "友方A应被攻击")
+        dtd_buffs = [b for b in self.rosie.buffs
+                     if b.effect_type == RECEIVED_DAMAGE
+                     and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertEqual(len(dtd_buffs), 0,
+                         "其他友方被攻击时130168不应触发")
+
+    # ─── 状态机循环 ───
+
+    def test_state_machine_cycle(self):
+        """状态机循环: EX(アイデア)→AS追打→濒死130167(創作)→AS自愈→130168减伤→行动结束清理"""
+        # Step 1: EX → アイデア + HP消费50% + 双护盾
+        r1 = self.ss.execute_skill(
+            caster=self.rosie, skill_id=EX_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(r1["success"])
+        self.assertEqual(self.rosie.current_hp, 10000)
+        self.assertEqual(len(self._get_marks(self.rosie, "アイデア")), 1)
+        self.assertEqual(self.rosie.shield, 21000)
+
+        # Step 2: AS持アイデア → 主攻击+追加攻击
+        enemy_hp_2 = self.enemy.current_hp
+        r2 = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(r2["success"])
+        dmg_effects = [e for e in r2["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertEqual(len(dmg_effects), 2, "持アイデア时应有2次攻击")
+        self.assertLess(self.enemy.current_hp, enemy_hp_2)
+
+        # Step 3: 濒死(HP<20%)被致死攻击 → 130167锁血 + 創作
+        self.rosie.current_hp = 3000
+        self.rosie.shield = 0
+        self.enemy.attack = 50000
+        r3 = self._enemy_attack_rosie()
+        self.assertTrue(r3["success"])
+        self.assertTrue(self.rosie.is_alive)
+        self.assertEqual(self.rosie.current_hp, 6000, "锁血回复30%maxHP")
+        sousaku = self._get_marks(self.rosie, "創作")
+        self.assertEqual(len(sousaku), 1, "获得創作")
+
+        # Step 4: 創作中AS → 自愈30%maxHP、无攻击
+        enemy_hp_4 = self.enemy.current_hp
+        r4 = self.ss.execute_skill(
+            caster=self.rosie, skill_id=AS_SKILL, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(r4["success"])
+        self.assertEqual(self.rosie.current_hp, 6000 + 6000, "創作中AS回复30%maxHP")
+        self.assertEqual(self.enemy.current_hp, enemy_hp_4, "創作中AS无攻击")
+
+        # Step 5: 創作中被攻击 → 130168减伤
+        self.enemy.attack = 8000
+        hp_before_5 = self.rosie.current_hp
+        r5 = self._enemy_attack_rosie()
+        self.assertTrue(r5["success"])
+        dmg5 = hp_before_5 - self.rosie.current_hp
+        # (8000-5000)*1.56=4680 → 减伤60% ≈ 1872
+        self.assertLess(abs(dmg5 - 4680 * 0.4), 5,
+                        f"創作中被攻击应减伤60%≈{4680 * 0.4:.0f}, 实际: {dmg5}")
+        self.assertTrue(self.rosie.is_alive)
+
+        # Step 6: 攻击者行动结束 → 减伤buff清除、創作保留
+        self.controller._cleanup_guard_buffs(self.enemy, action_ended=True)
+        dtd = [b for b in self.rosie.buffs
+               if b.effect_type == RECEIVED_DAMAGE
+               and getattr(b, 'original_duration_type', '') == 'attacker_action']
+        self.assertEqual(len(dtd), 0, "行动结束后减伤buff清除")
+        self.assertEqual(len(self._get_marks(self.rosie, "創作")), 1,
+                         "創作持续2行動不受行动级清理影响")
+
+
+if __name__ == '__main__':
+    unittest.main()

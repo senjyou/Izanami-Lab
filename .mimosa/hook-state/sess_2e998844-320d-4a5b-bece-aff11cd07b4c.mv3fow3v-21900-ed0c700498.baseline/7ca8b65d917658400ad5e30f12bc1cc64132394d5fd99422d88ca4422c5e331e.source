@@ -1,0 +1,212 @@
+# -*- coding: utf-8 -*-
+"""回归测试: ヒートアップ・ラブ+ (230426) 先于 ラッキー4！ (130047) 执行
+
+Bug (实战验证, step_crit_console_tactical_20260819_120117.txt):
+  同一AS技能同时触发两个PS时:
+    - enemy(戦うアントレプレナー) AS四連突(120041) 4hit全暴击
+      → 触发自身 PS[ラッキー4！](130047, PAWN_CAUSED_CRITICAL, crit_count_mod>=4)
+    - 被攻击 ally(アニス・ベネット) 受到大量伤害
+      → 触发自身 PS[ヒートアップ・ラブ+](230426, AFTER_AS_ATTACKED)
+  修复前两者混在同一Phase1a按速度排序(calculate_priority = -speed*10000),
+  enemy速度高于ally时 ラッキー4！ 先执行 — 与实战不符。
+
+Fix (battle_flow_controller.py _collect_and_run_post_as_triggers):
+  暴击触发器(PAWN_CAUSED_CRITICAL)从Phase1a主批次分离为Phase1a-crit阶段,
+  在被攻撃反応(AFTER_AS_ATTACKED等Phase1a主批次)之后执行, 无视速度快慢。
+
+验证: enemy speed(800) > ally speed(400), 断言 230426 先于 130047 执行。
+"""
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+ENEMY_AS = 120041      # 四連突: 4hit単体攻撃
+LUCKY4_PS = 130047     # ラッキー4！ (PAWN_CAUSED_CRITICAL, crit_count_mod >= 4)
+HEATUP_PS = 230426     # ヒートアップ・ラブ+ (AFTER_AS_ATTACKED)
+
+
+def _make_unit(unit_id, name, side, position, *,
+               hp=100000, atk=10000, defense=4000, speed=500,
+               crit_rate=0.0, element=Attribute.LIGHT.value,
+               level=15, ap=10, pp=10, ep=0,
+               skills=None, skill_levels=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=element,
+        character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestHeatupLoveBeforeLucky4(unittest.TestCase):
+    """同一AS触发的被攻撃反応(230426)必须先于暴击PS(130047)执行"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_controller(self, bf):
+        narrative = BattleNarrativeWriter(data_loader=self.dl)
+        controller = BattleFlowController(
+            bf, BattleConfig(max_turns=1),
+            data_loader=self.dl, narrative=narrative,
+        )
+        controller._build_display_names()
+        return controller
+
+    def test_heatup_love_plus_executes_before_lucky4(self):
+        """enemy(speed 800) AS暴击触发 ラッキー4！, ally(speed 400) 触发 ヒートアップ・ラブ+
+
+        修复前: 两者在Phase1a按速度排序, ラッキー4！(enemy高速) 先执行
+        修复后: 暴击PS分离到Phase1a-crit, ヒートアップ・ラブ+ 先执行
+        """
+        # enemy: 戦うアントレプレナー (高速, crit_rate=1.0保证4hit全暴击)
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー",
+            Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=1000000, atk=2000, defense=5000, speed=800,
+            crit_rate=1.0,
+            element=Attribute.DARK.value,
+            level=15, pp=10,
+            skills=[ENEMY_AS, LUCKY4_PS],
+            skill_levels={ENEMY_AS: 15, LUCKY4_PS: 15},
+        )
+        # ally: アニス・ベネット (低速, 高DEF保证AS伤害不致死, EP>=1满足触发条件)
+        ally = _make_unit(
+            "ally", "アニス・ベネット",
+            Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=1000000, atk=1000, defense=999999, speed=400,
+            crit_rate=0.0,
+            element=Attribute.LIGHT.value,
+            level=15, pp=10, ep=5,
+            skills=[HEATUP_PS],
+            skill_levels={HEATUP_PS: 15},
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+        ss = controller.skill_service
+
+        # 追踪PS执行顺序
+        exec_order = []
+        _orig_exec = ss.execute_skill
+
+        def _tracking(caster, skill_id, **kwargs):
+            if skill_id in (LUCKY4_PS, HEATUP_PS):
+                exec_order.append(skill_id)
+            return _orig_exec(caster=caster, skill_id=skill_id, **kwargs)
+
+        ss.execute_skill = _tracking
+
+        # Step 1: enemy执行AS四連突 (4hit全暴击, crit触发器延迟到caller)
+        controller._deferred_crit_triggers = []
+        skill_result = ss.execute_skill(
+            caster=enemy, skill_id=ENEMY_AS, battlefield=bf,
+            skip_cost=True, defer_crit_triggers=True,
+        )
+        self.assertTrue(skill_result.get("success"))
+
+        # Step 2: 满足230426的damage_taken_in_action_percent >= 0.75条件
+        # (AS伤害被ally高DEF减至最低, 手动模拟已受伤100%)
+        ally._damage_taken_in_action = ally.max_hp
+
+        # Step 3: 收集AS技能的延迟暴击触发器 (与_execute_unit_action L677-682一致)
+        as_pending_crit = skill_result.get("pending_crit_triggers", [])
+        self.assertTrue(as_pending_crit, "AS暴击应产生pending_crit_triggers")
+        controller._deferred_crit_triggers.extend(as_pending_crit)
+
+        # Step 4: 运行统一的5阶段post-AS触发器流程
+        controller._collect_and_run_post_as_triggers(
+            enemy, ENEMY_AS, skill_result, [ally],
+        )
+
+        # 断言: 两个PS都被触发
+        self.assertIn(HEATUP_PS, exec_order,
+                      "ヒートアップ・ラブ+(230426)应被触发")
+        self.assertIn(LUCKY4_PS, exec_order,
+                      "ラッキー4！(130047)应被触发")
+        # 断言: ヒートアップ・ラブ+ 先于 ラッキー4！ (无视enemy速度更高)
+        self.assertLess(
+            exec_order.index(HEATUP_PS), exec_order.index(LUCKY4_PS),
+            "被攻撃反応(ヒートアップ・ラブ+)必须先于暴击PS(ラッキー4！)执行, "
+            "修复前顺序为: %s" % exec_order,
+        )
+
+    def test_lucky4_alone_still_triggers(self):
+        """回归: 仅暴击PS可触发时(无被攻撃反応), Phase1a-crit仍正常执行"""
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー",
+            Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=1000000, atk=2000, defense=5000, speed=800,
+            crit_rate=1.0,
+            element=Attribute.DARK.value,
+            level=15, pp=10,
+            skills=[ENEMY_AS, LUCKY4_PS],
+            skill_levels={ENEMY_AS: 15, LUCKY4_PS: 15},
+        )
+        # ally无PS, 只有受到伤害
+        ally = _make_unit(
+            "ally", "無PS被害者",
+            Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=1000000, defense=999999, speed=400,
+            element=Attribute.LIGHT.value,
+            level=15,
+            skills=[],
+            skill_levels={},
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+        ss = controller.skill_service
+
+        exec_order = []
+        _orig_exec = ss.execute_skill
+
+        def _tracking(caster, skill_id, **kwargs):
+            if skill_id in (LUCKY4_PS, HEATUP_PS):
+                exec_order.append(skill_id)
+            return _orig_exec(caster=caster, skill_id=skill_id, **kwargs)
+
+        ss.execute_skill = _tracking
+
+        controller._deferred_crit_triggers = []
+        skill_result = ss.execute_skill(
+            caster=enemy, skill_id=ENEMY_AS, battlefield=bf,
+            skip_cost=True, defer_crit_triggers=True,
+        )
+        as_pending_crit = skill_result.get("pending_crit_triggers", [])
+        controller._deferred_crit_triggers.extend(as_pending_crit)
+
+        controller._collect_and_run_post_as_triggers(
+            enemy, ENEMY_AS, skill_result, [ally],
+        )
+
+        # 暴击PS在Phase1a-crit阶段独立正常执行
+        self.assertIn(LUCKY4_PS, exec_order,
+                      "ラッキー4！在无被攻撃反応竞争时仍应正常触发")
+
+
+if __name__ == "__main__":
+    unittest.main()

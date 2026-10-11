@@ -1,0 +1,1395 @@
+"""_apply_hp_ratio_damage 单元测试。
+
+测试目标：
+1. 入口检查
+   - 无 target_service / damage_service 返回 None
+
+2. value_source 变体
+   - 默认 (consumed_hp): 基于自身消耗的 HP
+   - "target_lost_hp": 基于目标已损 HP (max_hp - current_hp)
+   - "target_current_hp": 基于目标当前 HP
+   - "caster_current_hp": 基于施法者当前 HP
+
+3. damage_cap_atk_pct
+   - 显式数值
+   - damage_cap_atk_pct_tag 解析
+
+4. 护盾吸收（与普通 damage 一致：en/physical/shield → sub_unit）
+   - EN caster 时 en_shield 优先吸收
+   - 物理 caster 时 physical_shield 吸收
+   - 通用 shield 吸收
+   - sub_unit HP 吸收
+
+5. ignore_shield 穿盾比例
+   - ignore_shield=0（默认，全被盾吸收）
+   - ignore_shield=50（50% 穿盾）
+   - ignore_shield=100（100% 穿盾，盾不吸收）
+
+6. 最低 1 点伤害
+   - 伤害=0 但 actual_damage>0 时最低 1 点
+   - 盾存在时 1 点作用于盾
+   - 盾不存在时 1 点作用于 HP
+
+7. cumulative_hp_damage / last_received_damage
+   - HP 损失累计到 cumulative_hp_damage
+   - 含盾吸收的 received_total 累计到 last_received_damage
+
+8. scoring_tracker 调用
+   - record_damage 被正确调用
+   - overflow 计算
+
+9. 混乱减免
+   - is_confused + confusion_dmg_reduction 应用
+
+10. _hp_consumed 重置
+    - value_source != "target_lost_hp" 时重置为 0
+
+11. 死亡 deferred
+    - current_hp <= 0 时加入 _pending_deaths
+
+12. 返回值结构
+    - 字段完整性
+
+13. 多目标处理
+"""
+import sys
+import os
+import unittest
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+# ─── 工厂函数 ──────────────────────────────────────────────
+
+def _make_unit(unit_id, name, side, position, *, hp=50000, atk=10000,
+               defense=4000, speed=500, current_hp=None, character_type=1):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=2, character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+def _make_effect(**kwargs):
+    """Create a mock effect object with attributes."""
+    defaults = {
+        'effect_type': 'hp_ratio_damage',
+        'value': 100.0,
+        'value_tag': None,
+        'value_source': None,
+        'target_type': 'enemy_single',
+        'flags': {},
+        'target_identifier': None,
+        'hit_count': None,
+        'condition': None,
+        'duration': 1,
+        'duration_type': None,
+        'ignore_shield': 0,
+        'ignore_defense': 0,
+    }
+    defaults.update(kwargs)
+    obj = type('obj', (object,), defaults)()
+    return obj
+
+
+class _BaseHpRatioDamageTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf, with_target=True, with_damage=True):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService() if with_damage else None
+        tgs = TargetService() if with_target else None
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        ss._current_skill_id = 110053
+        # 初始化内部状态
+        ss._block_damage_total = {}
+        ss._current_block_id = 1
+        ss._block_damage_targets = {}
+        ss._current_skill_priority = None
+        ss._hp_consumed = 0
+        ss._most_recent_damage = 0
+        ss._per_hit_hp_losses = {}
+        ss._pending_deaths = set()
+        ss._primary_target = None
+        ss._mark_condition_targets = None
+        ss._mark_condition_target = None
+        ss._newly_created_sub_unit_ids = set()
+        return ss, ts, aus, dms, sts
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 1: 入口检查
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestApplyHpRatioDamageEntry(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 入口检查。"""
+
+    def test_no_target_service_returns_none(self):
+        """无 target_service 时返回 None。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf, with_target=False)
+
+        result = ss._apply_hp_ratio_damage(caster, _make_effect(), bf)
+
+        self.assertIsNone(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 2: value_source 变体
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageValueSource(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: value_source 变体。"""
+
+    def test_default_consumed_hp(self):
+        """默认 value_source=None 时基于 _hp_consumed。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000  # 消耗 10000 HP
+        # dmg_pct=50 → raw_power = 10000 * 50 / 100 = 5000
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        target_hit = result["targets"][0]
+        # 5000 伤害，无盾，全部 HP 损失
+        self.assertEqual(target_hit["damage"], 5000)
+        self.assertEqual(target_hit["actual_damage"], 5000)
+        self.assertEqual(target_hit["hp_before"], 50000)
+        self.assertEqual(target_hit["hp_after"], 45000)
+        # calc_detail 验证
+        self.assertEqual(target_hit["calc_detail"]["value_source"], "consumed_hp")
+        self.assertEqual(target_hit["calc_detail"]["base_value"], 10000)
+        self.assertEqual(target_hit["calc_detail"]["dmg_pct"], 50)
+
+    def test_target_lost_hp(self):
+        """value_source='target_lost_hp' 基于目标已损 HP。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=30000)  # 已损 20000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # dmg_pct=100 → raw_power = 20000 * 100 / 100 = 20000
+        effect = _make_effect(value=100, value_source="target_lost_hp")
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 20000)
+        self.assertEqual(target_hit["actual_damage"], 20000)
+        self.assertEqual(target_hit["hp_after"], 10000)  # 30000 - 20000
+        self.assertEqual(target_hit["calc_detail"]["value_source"], "target_lost_hp")
+        self.assertEqual(target_hit["calc_detail"]["base_value"], 20000)
+
+    def test_target_current_hp(self):
+        """value_source='target_current_hp' 基于目标当前 HP。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=30000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # dmg_pct=50 → raw_power = 30000 * 50 / 100 = 15000
+        effect = _make_effect(value=50, value_source="target_current_hp")
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 15000)
+        self.assertEqual(target_hit["hp_after"], 15000)  # 30000 - 15000
+        self.assertEqual(target_hit["calc_detail"]["value_source"], "target_current_hp")
+        self.assertEqual(target_hit["calc_detail"]["base_value"], 30000)
+
+    def test_caster_current_hp(self):
+        """value_source='caster_current_hp' 基于施法者当前 HP。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            hp=50000, current_hp=20000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # dmg_pct=100 → raw_power = 20000 * 100 / 100 = 20000
+        effect = _make_effect(value=100, value_source="caster_current_hp")
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 20000)
+        self.assertEqual(target_hit["hp_after"], 30000)  # 50000 - 20000
+        self.assertEqual(target_hit["calc_detail"]["value_source"], "caster_current_hp")
+        self.assertEqual(target_hit["calc_detail"]["base_value"], 20000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 3: damage_cap_atk_pct
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageCap(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: damage_cap_atk_pct 伤害上限。"""
+
+    def test_cap_atk_pct_limits_damage(self):
+        """damage_cap_atk_pct 限制伤害为 ATK 的指定百分比。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK, atk=10000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=100000, current_hp=50000)  # 已损 50000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # dmg_pct=100, base=50000, raw=50000
+        # cap_atk_pct=20, atk=10000, cap=2000
+        # raw_power = min(50000, 2000) = 2000
+        effect = _make_effect(
+            value=100, value_source="target_lost_hp",
+            flags={'damage_cap_atk_pct': 20}
+        )
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 2000)
+        self.assertEqual(target_hit["calc_detail"]["cap"], 2000)
+        self.assertEqual(target_hit["calc_detail"]["cap_atk_pct"], 20)
+
+    def test_cap_not_applied_when_below_cap(self):
+        """raw_power < cap 时不应用上限。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK, atk=10000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=45000)  # 已损 5000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # dmg_pct=100, base=5000, raw=5000
+        # cap_atk_pct=20, atk=10000, cap=2000
+        # 但 5000 > 2000，所以仍应用 cap=2000
+        # 改为 cap_atk_pct=100, cap=10000
+        effect = _make_effect(
+            value=100, value_source="target_lost_hp",
+            flags={'damage_cap_atk_pct': 100}
+        )
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # raw=5000, cap=10000, min(5000, 10000)=5000
+        self.assertEqual(target_hit["damage"], 5000)
+
+    def test_cap_atk_pct_tag_resolution(self):
+        """damage_cap_atk_pct_tag 通过 tag 解析数值。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK, atk=10000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=100000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # 使用不存在的 tag，_resolve_tag_value_for_caster 返回 None
+        # 此时 cap_atk_pct 保持默认 0，不应用上限
+        effect = _make_effect(
+            value=100, value_source="target_lost_hp",
+            flags={'damage_cap_atk_pct_tag': 'nonexistent_tag'}
+        )
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # tag 解析失败，cap_atk_pct=0，不应用上限
+        self.assertEqual(target_hit["damage"], 50000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 4: 护盾吸收
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageShield(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 护盾吸收。"""
+
+    def test_en_shield_absorbs_en_damage(self):
+        """EN caster 时 en_shield 优先吸收，盾耗尽后触发最低1点伤害作用于HP。"""
+        # caster character_type=2 (EN)
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=2)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.en_shield = 5000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 5000 全被 en_shield 吸收，但 hp_damage=0 且 actual_damage>0 触发最低1点规则
+        # en_shield 已耗尽，无其他盾，最低1点作用于 HP
+        self.assertEqual(target_hit["shield_absorbed"], 5000)
+        self.assertEqual(target_hit["actual_damage"], 1)  # 最低1点作用于HP
+        self.assertEqual(enemy.en_shield, 0)
+        self.assertEqual(enemy.current_hp, 49999)  # HP -1
+
+    def test_physical_shield_absorbs_physical_damage(self):
+        """物理 caster 时 physical_shield 吸收。"""
+        # caster character_type=1 (物理)
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.physical_shield = 3000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 3000 被 physical_shield 吸收，2000 HP 损失
+        self.assertEqual(target_hit["shield_absorbed"], 3000)
+        self.assertEqual(target_hit["actual_damage"], 2000)
+        self.assertEqual(enemy.physical_shield, 0)
+        self.assertEqual(enemy.current_hp, 48000)
+
+    def test_generic_shield_absorbs(self):
+        """通用 shield 在 en/physical shield 之后吸收。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 2000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 2000 被 shield 吸收，3000 HP 损失
+        self.assertEqual(target_hit["shield_absorbed"], 2000)
+        self.assertEqual(target_hit["actual_damage"], 3000)
+        self.assertEqual(enemy.shield, 0)
+        self.assertEqual(enemy.current_hp, 47000)
+
+    def test_sub_unit_absorbs(self):
+        """sub_unit HP 在护盾之后吸收。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        # 添加 sub_unit buff
+        sub_buff = BuffState(
+            buff_id="sub1", name="SubUnit",
+            effect_type=SkillEffectType.SUB_UNIT.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+            sub_unit_hp=3000,
+            sub_unit_max_hp=3000,
+        )
+        enemy.buffs.append(sub_buff)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 3000 被 sub_unit 吸收，2000 HP 损失
+        self.assertEqual(target_hit["shield_absorbed"], 3000)
+        self.assertEqual(target_hit["actual_damage"], 2000)
+        self.assertEqual(enemy.current_hp, 48000)
+        # sub_unit buff 应被移除（HP 耗尽）
+        sub_remaining = [b for b in enemy.buffs
+                         if b.effect_type == SkillEffectType.SUB_UNIT.value]
+        self.assertEqual(len(sub_remaining), 0)
+
+    def test_shield_chain_absorption(self):
+        """多种护盾链式吸收: en_shield → physical_shield → shield → sub_unit。"""
+        # 使用物理 caster，先 physical_shield，再 shield，再 sub_unit
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.physical_shield = 1000
+        enemy.shield = 1500
+        sub_buff = BuffState(
+            buff_id="sub1", name="SubUnit",
+            effect_type=SkillEffectType.SUB_UNIT.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+            sub_unit_hp=2000,
+            sub_unit_max_hp=2000,
+        )
+        enemy.buffs.append(sub_buff)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 1000 physical_shield + 1500 shield + 2000 sub_unit = 4500 吸收
+        # 5000 - 4500 = 500 HP 损失
+        self.assertEqual(target_hit["shield_absorbed"], 4500)
+        self.assertEqual(target_hit["actual_damage"], 500)
+        self.assertEqual(enemy.current_hp, 49500)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 5: ignore_shield 穿盾比例
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageIgnoreShield(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: ignore_shield 穿盾比例。"""
+
+    def test_ignore_shield_0_all_absorbed(self):
+        """ignore_shield=0 时全被盾吸收，盾有剩余时触发最低1点作用于盾。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 10000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50, ignore_shield=0)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 5000 全被盾吸收，但 hp_damage=0 且 actual_damage>0 触发最低1点规则
+        # shield 还有 5000，最低1点作用于盾，shield_absorbed=5000+1=5001
+        self.assertEqual(target_hit["shield_absorbed"], 5001)
+        self.assertEqual(target_hit["actual_damage"], 0)
+        self.assertEqual(enemy.shield, 4999)  # 10000 - 5000 - 1
+
+    def test_ignore_shield_50_partial_penetration(self):
+        """ignore_shield=50 时 50% 穿盾。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 10000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # raw_power = 5000, shield_penetration = 0.5
+        # direct_damage = 5000 * 0.5 = 2500
+        # shield_portion = 5000 - 2500 = 2500
+        effect = _make_effect(value=50, ignore_shield=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # shield 吸收 2500, HP 损失 2500 (direct) + 0 (shield_portion 用完) = 2500
+        self.assertEqual(target_hit["shield_absorbed"], 2500)
+        self.assertEqual(target_hit["actual_damage"], 2500)
+        self.assertEqual(enemy.shield, 7500)  # 10000 - 2500
+        self.assertEqual(enemy.current_hp, 47500)  # 50000 - 2500
+
+    def test_ignore_shield_100_full_penetration(self):
+        """ignore_shield=100 时 100% 穿盾，盾不吸收。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 10000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # shield_penetration = 1.0, direct_damage = 5000, shield_portion = 0
+        effect = _make_effect(value=50, ignore_shield=100)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 盾完全不吸收
+        self.assertEqual(target_hit["shield_absorbed"], 0)
+        self.assertEqual(target_hit["actual_damage"], 5000)
+        self.assertEqual(enemy.shield, 10000)  # 盾不变
+        self.assertEqual(enemy.current_hp, 45000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 6: 最低 1 点伤害
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageMinOne(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 最低 1 点伤害。"""
+
+    def test_min_damage_to_shield(self):
+        """actual_damage> 0 但 hp_damage=0 时，最低 1 点作用于盾（盾剩余时连扣2点）。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 10000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 1
+        # raw_power = 1, shield_portion=1 被盾吸收
+        # 然后 hp_damage=0 且 actual_damage=1>0 触发最低1点规则
+        # shield 还有 9999，最低1点作用于盾，shield_absorbed=1+1=2
+        effect = _make_effect(value=100)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 1)
+        # 1 点原始伤害 + 1 点最低伤害，都被盾吸收
+        self.assertEqual(target_hit["shield_absorbed"], 2)
+        self.assertEqual(target_hit["actual_damage"], 0)
+        self.assertEqual(enemy.shield, 9998)  # 10000 - 1 - 1
+
+    def test_min_damage_to_hp(self):
+        """actual_damage > 0 但无盾时，最低 1 点作用于 HP。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        # 无任何护盾
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 1
+        effect = _make_effect(value=100)  # raw_power = 1
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # actual_damage=1, shield_absorbed=0, hp_damage=1
+        self.assertEqual(target_hit["damage"], 1)
+        self.assertEqual(target_hit["actual_damage"], 1)
+        self.assertEqual(enemy.current_hp, 49999)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 7: cumulative_hp_damage / last_received_damage
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageCumulative(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 累计伤害计数。"""
+
+    def test_cumulative_hp_damage_updates(self):
+        """HP 损失累计到 cumulative_hp_damage。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 5000 HP 损失
+        self.assertEqual(enemy.cumulative_hp_damage, 5000)
+
+    def test_cumulative_excludes_shield_absorbed(self):
+        """cumulative_hp_damage 不含盾吸收部分。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 3000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 3000 盾吸收 + 2000 HP 损失
+        # cumulative_hp_damage 只记 HP 部分
+        self.assertEqual(enemy.cumulative_hp_damage, 2000)
+
+    def test_last_received_damage_includes_shield(self):
+        """last_received_damage 含盾吸收部分。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 3000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 3000 盾吸收 + 2000 HP 损失 = 5000 received_total
+        self.assertEqual(enemy.last_received_damage, 5000)
+
+    def test_per_hit_hp_losses_recorded(self):
+        """_per_hit_hp_losses 记录每次 HP 损失。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIn("e", ss._per_hit_hp_losses)
+        self.assertEqual(ss._per_hit_hp_losses["e"], [5000])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 8: scoring_tracker
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageScoring(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: scoring_tracker 调用。"""
+
+    def test_scoring_tracker_recorded(self):
+        """scoring_tracker.record_damage 被正确调用。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        # Mock scoring_tracker
+        bf.scoring_tracker = MagicMock()
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        bf.scoring_tracker.record_damage.assert_called_once()
+        call_kwargs = bf.scoring_tracker.record_damage.call_args
+        self.assertEqual(call_kwargs.kwargs["source_id"], "caster")
+        self.assertEqual(call_kwargs.kwargs["target_id"], "e")
+        self.assertEqual(call_kwargs.kwargs["target_side"], "enemy")
+        self.assertEqual(call_kwargs.kwargs["actual_damage"], 5000)
+
+    def test_scoring_tracker_overflow_calculation(self):
+        """overflow = max(0, hp_damage - hp_before)。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=1000)  # 只剩 1000 HP
+        bf = _make_bf(caster, enemy)
+        bf.scoring_tracker = MagicMock()
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        call_kwargs = bf.scoring_tracker.record_damage.call_args
+        # hp_damage = 5000, hp_before = 1000, overflow = 4000
+        self.assertEqual(call_kwargs.kwargs["actual_damage"], 5000)
+        self.assertEqual(call_kwargs.kwargs["overflow"], 4000)
+
+    def test_scoring_tracker_ally_target_no_overflow(self):
+        """target_side='ally' 时 overflow=0（己方不计溢出）。"""
+        # caster 攻击己方（异常场景，但测试逻辑）
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        ally = _make_unit("a", "A", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                          hp=50000, current_hp=1000)
+        bf = _make_bf(caster, ally)
+        bf.scoring_tracker = MagicMock()
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # 改 target_type 为 ally_single 才能选中己方
+        effect = _make_effect(value=50, target_type='ally_single')
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        call_kwargs = bf.scoring_tracker.record_damage.call_args
+        self.assertEqual(call_kwargs.kwargs["target_side"], "ally")
+        self.assertEqual(call_kwargs.kwargs["overflow"], 0)
+
+    def test_no_scoring_tracker_no_error(self):
+        """无 scoring_tracker 时不报错。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        # 不设置 scoring_tracker
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)
+
+        # 不应抛出异常
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+        self.assertIsNotNone(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 9: 混乱减免
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageConfusion(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 混乱减免。"""
+
+    def test_confusion_reduces_damage(self):
+        """is_confused + confusion_dmg_reduction 减免伤害。
+
+        混乱状态下 enemy_single 索敌反转，caster 攻击自己。
+        """
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        caster.is_confused = True
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # 添加 confusion buff
+        confusion_buff = BuffState(
+            buff_id="conf1", name="Confusion",
+            effect_type=SkillEffectType.CONFUSION.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="caster",
+            is_debuff=True,
+            confusion_dmg_reduction=50.0,  # 减免 50%
+        )
+        caster.debuffs.append(confusion_buff)
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 混乱状态索敌反转：ENEMIES 类型选所有友方， caster 攻击自己
+        # 5000 * (1 - 50/100) = 2500
+        self.assertEqual(target_hit["damage"], 2500)
+        self.assertEqual(target_hit["actual_damage"], 2500)
+        self.assertEqual(caster.current_hp, 47500)  # caster 攻击自己
+        self.assertEqual(enemy.current_hp, 50000)  # enemy 未受击
+
+    def test_confusion_min_1_damage(self):
+        """混乱减免后最低 1 点伤害。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        caster.is_confused = True
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 1  # raw_power = 1
+        confusion_buff = BuffState(
+            buff_id="conf1", name="Confusion",
+            effect_type=SkillEffectType.CONFUSION.value,
+            value=0, duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="caster",
+            is_debuff=True,
+            confusion_dmg_reduction=99.0,  # 减免 99%
+        )
+        caster.debuffs.append(confusion_buff)
+        effect = _make_effect(value=100)  # raw_power = 1
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        # 1 * (1 - 99/100) = 0.01 → int(0.01) = 0 → max(1, 0) = 1
+        self.assertEqual(target_hit["damage"], 1)
+        self.assertEqual(target_hit["actual_damage"], 1)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 10: _hp_consumed 重置
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageHpConsumedReset(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: _hp_consumed 重置逻辑。"""
+
+    def test_hp_consumed_reset_for_non_target_lost_hp(self):
+        """value_source != 'target_lost_hp' 时重置 _hp_consumed=0。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50, value_source=None)  # 默认 consumed_hp
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # _hp_consumed 应被重置为 0
+        self.assertEqual(ss._hp_consumed, 0)
+
+    def test_hp_consumed_not_reset_for_target_lost_hp(self):
+        """value_source='target_lost_hp' 时不重置 _hp_consumed。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=30000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000  # 初始值
+        effect = _make_effect(value=100, value_source="target_lost_hp")
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # _hp_consumed 不应被重置，保持 10000
+        self.assertEqual(ss._hp_consumed, 10000)
+
+    def test_most_recent_damage_updated(self):
+        """_most_recent_damage 累加 total_damage。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        ss._most_recent_damage = 1000  # 初始值
+        effect = _make_effect(value=50)
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 1000 + 5000 = 6000
+        self.assertEqual(ss._most_recent_damage, 6000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 11: 死亡 deferred
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageDeath(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 死亡 deferred。"""
+
+    def test_death_added_to_pending_deaths(self):
+        """current_hp <= 0 时加入 _pending_deaths。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=1000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=100)  # raw_power = 10000 > 1000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIn("e", ss._pending_deaths)
+        self.assertEqual(enemy.current_hp, 0)
+
+    def test_no_death_when_survives(self):
+        """存活时不加入 _pending_deaths。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # raw_power = 5000
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertNotIn("e", ss._pending_deaths)
+        self.assertEqual(enemy.current_hp, 45000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 12: 返回值结构
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageReturnStructure(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 返回值结构。"""
+
+    def test_return_value_fields_complete(self):
+        """返回值包含所有字段。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["effect_type"], "hp_ratio_damage")
+        self.assertIn("targets", result)
+        self.assertIn("total_damage", result)
+        self.assertIn("damage", result)
+        self.assertEqual(result["total_damage"], result["damage"])
+
+    def test_target_hit_fields_complete(self):
+        """targets 列表项包含完整字段。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["target"], "E")
+        self.assertEqual(target_hit["target_id"], "e")
+        self.assertEqual(target_hit["hp_before"], 50000)
+        self.assertEqual(target_hit["hp_after"], 45000)
+        self.assertEqual(target_hit["damage"], 5000)
+        self.assertEqual(target_hit["actual_damage"], 5000)
+        self.assertEqual(target_hit["shield_absorbed"], 0)
+        self.assertEqual(target_hit["crit"], False)
+        self.assertIn("hits", target_hit)
+        self.assertEqual(target_hit["hits"], [5000])
+        self.assertIn("calc_detail", target_hit)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 13: 多目标处理
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageMultiTarget(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 多目标处理。"""
+
+    def test_multi_target_damage(self):
+        """多目标技能对所有目标造成伤害。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1, e2)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # target_type='enemy_all' 选中所有敌方
+        effect = _make_effect(value=50, target_type='enemy_all')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertEqual(len(result["targets"]), 2)
+        # 每个目标 5000 伤害
+        for hit in result["targets"]:
+            self.assertEqual(hit["damage"], 5000)
+            self.assertEqual(hit["actual_damage"], 5000)
+        # total_damage = 10000
+        self.assertEqual(result["total_damage"], 10000)
+
+    def test_dead_target_skipped(self):
+        """死亡目标被跳过。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        alive = _make_unit("alive", "A", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        dead = _make_unit("dead", "D", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                          hp=50000, current_hp=0)
+        dead.is_alive = False
+        bf = _make_bf(caster, alive, dead)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50, target_type='enemy_all')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 只处理存活目标
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "alive")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 14: 目标选择路径
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageTargetSelection(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 目标选择路径。"""
+
+    def test_mark_condition_targets_used(self):
+        """_mark_condition_targets 优先使用（target_type='enemy_single'）。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1, e2)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # 设置 _mark_condition_targets 为 [e2]
+        ss._mark_condition_targets = [e2]
+        effect = _make_effect(value=50, target_type='enemy_single')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 应该选中 e2 而非默认的 e1
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "e2")
+
+    def test_mark_condition_target_singular(self):
+        """_mark_condition_target (singular) 优先使用。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1, e2)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        ss._mark_condition_target = e2
+        effect = _make_effect(value=50, target_type='enemy_single')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "e2")
+
+    def test_block_damage_targets_cache_used(self):
+        """_block_damage_targets 缓存优先使用。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1, e2)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        ss._block_damage_targets = {'enemy_single': [e2]}
+        effect = _make_effect(value=50, target_type='enemy_single')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "e2")
+
+    def test_primary_target_used(self):
+        """target_identifier='primary_target' + _primary_target 使用。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        e2 = _make_unit("e2", "E2", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1, e2)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        ss._primary_target = e2
+        effect = _make_effect(value=50, target_type='enemy_single',
+                              target_identifier='primary_target')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "e2")
+
+    def test_default_select_targets(self):
+        """无特殊路径时使用 select_targets 默认选择。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        e1 = _make_unit("e1", "E1", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                        hp=50000, current_hp=50000)
+        bf = _make_bf(caster, e1)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50, target_type='enemy_single')
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertEqual(result["targets"][0]["target_id"], "e1")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 15: damage_dealt_total / damage_taken_total
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageTotals(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: damage_dealt_total / damage_taken_total 更新。"""
+
+    def test_damage_totals_updated(self):
+        """caster.damage_dealt_total 和 target.damage_taken_total 更新。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # 5000 伤害
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # damage_dealt_total 和 damage_taken_total 都应增加 5000
+        self.assertEqual(caster.damage_dealt_total, 5000)
+        self.assertEqual(enemy.damage_taken_total, 5000)
+
+    def test_damage_totals_excludes_shield_absorbed(self):
+        """damage_totals 只计 HP 部分，不含盾吸收。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK,
+                            character_type=1)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        enemy.shield = 3000
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        effect = _make_effect(value=50)  # 5000 伤害
+
+        ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        # 3000 盾吸收 + 2000 HP 损失
+        # damage_totals 只记 HP 部分
+        self.assertEqual(caster.damage_dealt_total, 2000)
+        self.assertEqual(enemy.damage_taken_total, 2000)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Part 16: received_mult（受击方增减伤乘区）
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHpRatioDamageReceivedMult(_BaseHpRatioDamageTest):
+    """_apply_hp_ratio_damage: 受击方增减伤乘区（received_mult）。
+
+    公式: final = min(raw * received_mult, cap)
+    - raw = base_value * dmg_pct / 100
+    - received_mult = 1.0 - (减伤buff - 易伤debuff)
+    - cap = effective_atk * cap_atk_pct / 100
+    """
+
+    def test_dmg_taken_down_reduces_damage(self):
+        """目标持有减伤buff时，hp_ratio_damage 被减伤缩减。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        # 添加 40% 减伤 buff (ReceivedDamage, buffs列表)
+        dmg_down = BuffState(
+            buff_id="dmg_down1", name="DmgTakenDown",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=40.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+        )
+        enemy.buffs.append(dmg_down)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # raw_power = 10000 * 50 / 100 = 5000
+        # received_mult = 1 - 0.4 = 0.6
+        # final = 5000 * 0.6 = 3000
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 3000)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 0.6, places=4)
+        self.assertEqual(enemy.current_hp, 47000)  # 50000 - 3000
+
+    def test_dmg_taken_up_increases_damage(self):
+        """目标持有易伤debuff时，hp_ratio_damage 被易伤放大。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        # 添加 30% 易伤 debuff (ReceivedDamage, debuffs列表)
+        dmg_up = BuffState(
+            buff_id="dmg_up1", name="DmgTakenUp",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=30.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="caster",
+            is_debuff=True,
+        )
+        enemy.debuffs.append(dmg_up)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # raw_power = 10000 * 50 / 100 = 5000
+        # received_mult = 1 - (-0.3) = 1.3
+        # final = 5000 * 1.3 = 6500
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 6500)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 1.3, places=4)
+        self.assertEqual(enemy.current_hp, 43500)  # 50000 - 6500
+
+    def test_down_and_up_cancel_out(self):
+        """减伤buff + 易伤debuff 同时存在时净值计算。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        # 40% 减伤 buff + 7.5% 易伤 debuff => net = 0.4 - 0.075 = 0.325
+        # received_mult = 1 - 0.325 = 0.675
+        dmg_down = BuffState(
+            buff_id="dmg_down1", name="DmgTakenDown",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=40.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+        )
+        dmg_up = BuffState(
+            buff_id="dmg_up1", name="DmgTakenUp",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=7.5, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="caster",
+            is_debuff=True,
+        )
+        enemy.buffs.append(dmg_down)
+        enemy.debuffs.append(dmg_up)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # raw_power = 10000 * 50 / 100 = 5000
+        # received_mult = 0.675
+        # final = 5000 * 0.675 = 3375
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 3375)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 0.675, places=4)
+
+    def test_cap_applied_after_received_mult(self):
+        """公式B: final = min(raw * received_mult, cap)，先应用received_mult再cap。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK, atk=10000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=100000, current_hp=50000)
+        # 40% 减伤 => received_mult = 0.6
+        dmg_down = BuffState(
+            buff_id="dmg_down1", name="DmgTakenDown",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=40.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+        )
+        enemy.buffs.append(dmg_down)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # target_lost_hp: base=50000, dmg_pct=100 => raw=50000
+        # received_mult=0.6 => raw*mult=30000
+        # cap = atk(10000) * 100% = 10000
+        # final = min(30000, 10000) = 10000
+        effect = _make_effect(
+            value=100, value_source="target_lost_hp",
+            flags={'damage_cap_atk_pct': 100}
+        )
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 10000)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 0.6, places=4)
+
+    def test_received_mult_below_cap_uses_raw(self):
+        """raw * received_mult < cap 时，final = raw * received_mult（cap不截断）。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK, atk=10000)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=100000, current_hp=50000)
+        # 40% 减伤 => received_mult = 0.6
+        dmg_down = BuffState(
+            buff_id="dmg_down1", name="DmgTakenDown",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=40.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+        )
+        enemy.buffs.append(dmg_down)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # target_lost_hp: base=5000, dmg_pct=100 => raw=5000
+        # received_mult=0.6 => raw*mult=3000
+        # cap = atk(10000) * 100% = 10000
+        # final = min(3000, 10000) = 3000
+        # 需要已损HP=5000，即 current_hp=95000
+        enemy.current_hp = 95000
+        effect = _make_effect(
+            value=100, value_source="target_lost_hp",
+            flags={'damage_cap_atk_pct': 100}
+        )
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 3000)
+
+    def test_target_current_hp_with_received_mult(self):
+        """value_source='target_current_hp' 也应用 received_mult。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=40000)
+        # 50% 减伤 => received_mult = 0.5
+        dmg_down = BuffState(
+            buff_id="dmg_down1", name="DmgTakenDown",
+            effect_type=SkillEffectType.RECEIVED_DAMAGE.value,
+            value=50.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+            source_unit_id="enemy",
+            is_debuff=False,
+        )
+        enemy.buffs.append(dmg_down)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        # raw = 40000 * 50 / 100 = 20000
+        # received_mult = 0.5 => final = 10000
+        effect = _make_effect(value=50, value_source="target_current_hp")
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 10000)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 0.5, places=4)
+        self.assertEqual(enemy.current_hp, 30000)  # 40000 - 10000
+
+    def test_no_buffs_received_mult_is_one(self):
+        """无增减伤buff时，received_mult=1.0，伤害不受影响。"""
+        caster = _make_unit("caster", "C", Side.ALLY, Position.ALLY_LEFT_BACK)
+        enemy = _make_unit("e", "E", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                           hp=50000, current_hp=50000)
+        bf = _make_bf(caster, enemy)
+        ss, *_ = self._make_services(bf)
+        ss._hp_consumed = 10000
+        # raw = 10000 * 50 / 100 = 5000, received_mult = 1.0, final = 5000
+        effect = _make_effect(value=50)
+
+        result = ss._apply_hp_ratio_damage(caster, effect, bf)
+
+        target_hit = result["targets"][0]
+        self.assertEqual(target_hit["damage"], 5000)
+        self.assertAlmostEqual(target_hit["calc_detail"]["received_mult"], 1.0, places=4)
+
+
+if __name__ == '__main__':
+    unittest.main()

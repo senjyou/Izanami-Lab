@@ -1,0 +1,34 @@
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any
+from ..combat.position import Position, Side
+from ..data.models import CalculatedStats
+from .character_config import CharacterConfig
+from ..entities.memory_card import MemoryCard
+
+@dataclass
+class UnitSetup:
+    """单位预设数据（包含计算后的属性）"""
+    unit_id: str
+    character_id: int
+    name: str
+    side: Side
+    position: Position
+    element: int
+    position_type: int
+    stats: CalculatedStats
+    config: CharacterConfig  # 保留原始配置以备查（如模块效果判断）
+    skill_levels: Dict[int, int]
+
+@dataclass
+class TeamSetup:
+    """队伍预设数据"""
+    units: List[UnitSetup] = field(default_factory=list)
+    memory_cards: List[MemoryCard] = field(default_factory=list)
+    player_config: Optional[Any] = None # PlayerConfig引用，用于属性计算
+
+@dataclass
+class BattleSetup:
+    """战斗启动数据（可序列化存储）"""
+    max_turns: int
+    ally_team: TeamSetup
+    enemy_team: TeamSetup

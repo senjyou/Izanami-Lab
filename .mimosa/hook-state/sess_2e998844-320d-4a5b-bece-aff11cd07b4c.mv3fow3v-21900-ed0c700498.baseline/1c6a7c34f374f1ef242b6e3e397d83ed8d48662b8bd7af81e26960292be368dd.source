@@ -1,0 +1,223 @@
+"""Regression: 装いを新たに (110050) two-stage chained nearest targeting.
+
+History:
+  Skill 110050 「装いを新たに」targets 2 allies with def_up + sub_unit.
+  Original config: target_type="ally_single" + target_count:2, which selects
+  the 2 nearest allies to caster (A=nearest to caster, B=nearest to A).
+
+  In-game bug simulation: the actual game behavior is a two-stage chained
+  nearest selection:
+    Stage 1: A = nearest FRONT-ROW ally to caster (if caster is in front row,
+             A = caster itself)
+    Stage 2: B = nearest ally to A (any row, excluding A)
+
+  This differs from the original implementation when caster is in the back
+  row: the original picks A = nearest ally to caster (could be back row),
+  while the bug picks A = nearest FRONT-ROW ally to caster.
+
+  Changed target_type to "ally_single_chained_nearest" to simulate the bug.
+  Original ally_single + target_count path is preserved in the TWO_PAWNS
+  branch of _select_targets for other skills.
+
+Distinguishing scenarios:
+  1. Caster in front row → A = caster (self)
+  2. Caster in back row → A = nearest front-row ally (not caster, not nearest ally)
+  3. B is nearest to A, NOT nearest to caster (when they differ)
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, SkillEffectType
+
+
+class TestRegYosoiChainedNearest(unittest.TestCase):
+    """装いを新たに (110050) must use two-stage chained nearest targeting."""
+
+    def _build_and_execute(self, caster_pos, ally_positions):
+        """Build battlefield with caster at caster_pos and allies at specified
+        positions, then execute skill 110050.
+
+        Returns (caster, allies_dict, result).
+        """
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=caster_pos,
+                    hp=50000, atk=5000, defense=5000, speed=500,
+                    skills=[110050], level=10, ap=10, pp=10, ep=10)
+        allies = {}
+        for uid, pos in ally_positions:
+            bb.add_ally(unit_id=uid, position=pos,
+                        hp=50000, atk=3000, defense=3000, speed=300,
+                        level=10, ap=10, pp=10, ep=10)
+            allies[uid] = pos
+        bb.add_enemy(unit_id="dummy_enemy", position=Position.ENEMY_CENTER_FRONT,
+                     hp=999999, atk=100, defense=99999, speed=100)
+        ctx = bb.build()
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        result = ss.execute_skill(
+            caster=caster, skill_id=110050,
+            battlefield=bf, skip_cost=True)
+
+        return caster, bf, allies, result
+
+    def _has_def_up(self, unit):
+        """Check if unit has a STATUS_DEFENSE buff (from def_up effect)."""
+        return any(b.effect_type == SkillEffectType.STATUS_DEFENSE.value
+                   for b in unit.buffs)
+
+    def _has_sub_unit(self, unit):
+        """Check if unit has a SUB_UNIT buff."""
+        return any(b.effect_type == SkillEffectType.SUB_UNIT.value
+                   for b in unit.buffs)
+
+    def test_caster_front_row_a_is_self(self):
+        """Caster in front row: A = caster (self), B = nearest ally to caster.
+
+        Setup: caster at CENTER_FRONT, allies at LEFT_BACK and RIGHT_BACK.
+        From CF, priority order is [CF, LF, RF, CB, LB, RB].
+        Excluding caster(CF), nearest is LB (before RB).
+        So B = ally at LEFT_BACK.
+        Expected targets: caster + ally_LB.
+        """
+        caster, bf, allies, result = self._build_and_execute(
+            Position.ALLY_CENTER_FRONT,
+            [("ally_LB", Position.ALLY_LEFT_BACK),
+             ("ally_RB", Position.ALLY_RIGHT_BACK)])
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        caster_unit = next(u for u in bf.friend_team if u.unit_id == "caster")
+        ally_lb = next(u for u in bf.friend_team if u.unit_id == "ally_LB")
+        ally_rb = next(u for u in bf.friend_team if u.unit_id == "ally_RB")
+
+        # A = caster (front row) → should get def_up
+        self.assertTrue(self._has_def_up(caster_unit),
+                        "Caster (front row) should be A and get def_up")
+        # B = ally_LB (nearest to CF among LB, RB)
+        self.assertTrue(self._has_def_up(ally_lb),
+                        "ally_LB should be B (nearest to caster=CF) and get def_up")
+        # ally_RB should NOT get def_up
+        self.assertFalse(self._has_def_up(ally_rb),
+                         "ally_RB should NOT be targeted")
+
+    def test_caster_back_row_a_is_nearest_front_ally(self):
+        """Caster in back row: A = nearest front-row ally, not caster.
+
+        Setup: caster at CENTER_BACK, allies at LEFT_FRONT, CENTER_FRONT, RIGHT_FRONT.
+        From CB, priority order is [CB, CF, LB, RB, LF, RF].
+        Nearest front-row ally = CF (ally at CENTER_FRONT).
+        B = nearest to A(CF) excluding A. From CF: [CF, LF, RF, CB, LB, RB].
+        Excluding CF, nearest is LF.
+        So B = ally at LEFT_FRONT.
+        Expected targets: ally_CF + ally_LF (caster NOT targeted).
+        """
+        caster, bf, allies, result = self._build_and_execute(
+            Position.ALLY_CENTER_BACK,
+            [("ally_LF", Position.ALLY_LEFT_FRONT),
+             ("ally_CF", Position.ALLY_CENTER_FRONT),
+             ("ally_RF", Position.ALLY_RIGHT_FRONT)])
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        caster_unit = next(u for u in bf.friend_team if u.unit_id == "caster")
+        ally_lf = next(u for u in bf.friend_team if u.unit_id == "ally_LF")
+        ally_cf = next(u for u in bf.friend_team if u.unit_id == "ally_CF")
+        ally_rf = next(u for u in bf.friend_team if u.unit_id == "ally_RF")
+
+        # A = ally_CF (nearest front-row ally to caster at CB)
+        self.assertTrue(self._has_def_up(ally_cf),
+                        "ally_CF should be A (nearest front-row ally) and get def_up")
+        # B = ally_LF (nearest to A=CF, excluding CF)
+        self.assertTrue(self._has_def_up(ally_lf),
+                        "ally_LF should be B (nearest to A=CF) and get def_up")
+        # Caster should NOT get def_up (caster is in back row, not A)
+        self.assertFalse(self._has_def_up(caster_unit),
+                         "Caster (back row) should NOT be targeted")
+        # ally_RF should NOT get def_up
+        self.assertFalse(self._has_def_up(ally_rf),
+                         "ally_RF should NOT be targeted")
+
+    def test_b_is_nearest_to_a_not_nearest_to_caster(self):
+        """B is nearest to A, NOT nearest to caster (distinguishing test).
+
+        Setup: caster at RIGHT_BACK, allies at CENTER_FRONT, RIGHT_FRONT, CENTER_BACK.
+        From RB, priority order is [RB, RF, CB, CF, LB, LF].
+        Nearest front-row ally = RF (ally at RIGHT_FRONT).
+        So A = ally_RF.
+        From A(RF), priority order is [RF, CF, RB, CB, LF, LB].
+        Excluding RF, nearest is CF (ally at CENTER_FRONT).
+        So B = ally_CF.
+
+        If B were "nearest to caster(RB) excluding A(RF)":
+        From RB: [RB, RF, CB, CF, LB, LF]. Excluding RB(caster) and RF(A),
+        nearest is CB (ally at CENTER_BACK). But this is NOT the correct behavior.
+
+        Expected targets: ally_RF + ally_CF (ally_CB NOT targeted).
+        """
+        caster, bf, allies, result = self._build_and_execute(
+            Position.ALLY_RIGHT_BACK,
+            [("ally_CF", Position.ALLY_CENTER_FRONT),
+             ("ally_RF", Position.ALLY_RIGHT_FRONT),
+             ("ally_CB", Position.ALLY_CENTER_BACK)])
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        caster_unit = next(u for u in bf.friend_team if u.unit_id == "caster")
+        ally_cf = next(u for u in bf.friend_team if u.unit_id == "ally_CF")
+        ally_rf = next(u for u in bf.friend_team if u.unit_id == "ally_RF")
+        ally_cb = next(u for u in bf.friend_team if u.unit_id == "ally_CB")
+
+        # A = ally_RF (nearest front-row ally to caster at RB)
+        self.assertTrue(self._has_def_up(ally_rf),
+                        "ally_RF should be A (nearest front-row ally to RB) and get def_up")
+        # B = ally_CF (nearest to A=RF, NOT nearest to caster=RB which would be ally_CB)
+        self.assertTrue(self._has_def_up(ally_cf),
+                        "ally_CF should be B (nearest to A=RF) and get def_up")
+        # ally_CB should NOT get def_up (would be selected if B were nearest-to-caster)
+        self.assertFalse(self._has_def_up(ally_cb),
+                         "ally_CB should NOT be targeted (B is nearest-to-A, not nearest-to-caster)")
+        # Caster should NOT get def_up
+        self.assertFalse(self._has_def_up(caster_unit),
+                         "Caster (back row) should NOT be targeted")
+
+    def test_sub_unit_targets_match_def_up_targets(self):
+        """Both def_up and sub_unit effects should target the same allies
+        (both use ally_single_chained_nearest)."""
+        caster, bf, allies, result = self._build_and_execute(
+            Position.ALLY_CENTER_FRONT,
+            [("ally_LB", Position.ALLY_LEFT_BACK),
+             ("ally_RB", Position.ALLY_RIGHT_BACK)])
+
+        self.assertTrue(result.get("success", False),
+                         f"Skill execution failed: {result}")
+
+        caster_unit = next(u for u in bf.friend_team if u.unit_id == "caster")
+        ally_lb = next(u for u in bf.friend_team if u.unit_id == "ally_LB")
+        ally_rb = next(u for u in bf.friend_team if u.unit_id == "ally_RB")
+
+        # Both effects should target caster + ally_LB
+        self.assertTrue(self._has_def_up(caster_unit),
+                        "Caster should get def_up")
+        self.assertTrue(self._has_sub_unit(caster_unit),
+                        "Caster should get sub_unit")
+        self.assertTrue(self._has_def_up(ally_lb),
+                        "ally_LB should get def_up")
+        self.assertTrue(self._has_sub_unit(ally_lb),
+                        "ally_LB should get sub_unit")
+        self.assertFalse(self._has_def_up(ally_rb),
+                         "ally_RB should NOT get def_up")
+        self.assertFalse(self._has_sub_unit(ally_rb),
+                         "ally_RB should NOT get sub_unit")
+
+
+if __name__ == '__main__':
+    unittest.main()

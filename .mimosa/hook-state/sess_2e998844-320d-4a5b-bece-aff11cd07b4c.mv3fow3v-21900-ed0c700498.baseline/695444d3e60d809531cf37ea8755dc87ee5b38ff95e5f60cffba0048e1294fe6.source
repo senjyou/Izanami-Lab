@@ -1,0 +1,95 @@
+# -*- coding: utf-8 -*-
+"""回归测试：子单位伤害 / 附魔伤害 / 追加伤害 的结算顺序必须按「buff 施加顺序」
+（越早施加的 buff 越先结算），而不是固定的 子单位→追加→附魔。
+
+Bug: `_process_enchant_damage_for_target` 用三个固定顺序的循环
+     （sub_unit → add_damage → enchant），与 buff 施加顺序无关，
+     导致后施加的 buff 可能先于先施加的 buff 结算。
+
+Fix: 合并为一个循环，按 `caster.buffs`（=施加顺序）交错结算三类 buff。
+"""
+import os
+import sys
+import itertools
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+from src.entities_v2.unit_state import BuffState
+
+SUB = "SubUnit"
+ADD = "AddDamage"
+ENCH = "EnchantDamage"
+
+
+def _setup():
+    bb = BattleBuilder()
+    bb.add_ally(unit_id="holder", position=Position.ALLY_LEFT_FRONT,
+                hp=99999, atk=10000, defense=1000, speed=500, element=4)
+    bb.add_ally(unit_id="source", position=Position.ALLY_CENTER_BACK,
+                hp=99999, atk=10000, defense=1000, speed=400, element=4)
+    bb.add_enemy(unit_id="target", position=Position.ENEMY_CENTER_FRONT,
+                 hp=1000000, atk=100, defense=1000, speed=100, element=4)
+    ctx = bb.build()
+    bf, ss = ctx['bf'], ctx['ss']
+    holder = next(u for u in bf.friend_team if u.unit_id == "holder")
+    source = next(u for u in bf.friend_team if u.unit_id == "source")
+    target = next(u for u in bf.enemy_team if u.unit_id == "target")
+    return bf, ss, holder, source, target
+
+
+def _mk_buff(kind, holder, source, idx):
+    if kind == SUB:
+        return BuffState(
+            buff_id=f"sub_{idx}", name="願い星", effect_type=SUB, value=5.0,
+            duration=-1, timing_type=2, source_unit_id=source.unit_id,
+            source_skill_id=110084, caster_attack=10000,
+            sub_unit_hp=75592, sub_unit_max_hp=75592)
+    if kind == ADD:
+        return BuffState(
+            buff_id=f"add_{idx}", name="add", effect_type=ADD, value=15.0,
+            value_tag=0, duration=-1, timing_type=2, source_unit_id=source.unit_id,
+            source_skill_id=110085, caster_attack=10000)
+    return BuffState(
+        buff_id=f"ench_{idx}", name="ench", effect_type=ENCH, value=10.0,
+        value_tag=0, duration=-1, timing_type=2, source_unit_id=source.unit_id,
+        source_skill_id=130051, caster_attack=10000)
+
+
+def _label(entry):
+    if entry.get("sub_unit_name"):
+        return SUB
+    mods = entry.get("modifiers") or []
+    if "追加" in mods:
+        return ADD
+    if "附魔" in mods:
+        return ENCH
+    return "?"
+
+
+def _run(apply_order):
+    bf, ss, holder, source, target = _setup()
+    for i, kind in enumerate(apply_order):
+        holder.buffs.append(_mk_buff(kind, holder, source, i))
+
+    lists = ss._prepare_enchant_buffs_for_damage_effect(holder)
+    ss._process_enchant_damage_for_target(
+        holder,
+        {"target_id": target.unit_id, "hp_before": target.current_hp,
+         "hit_crits": [False], "hit_evades": [False]},
+        bf, *lists)
+    entries = ss._per_target_enchant_cache["enchant_targets"]
+    return [_label(e) for e in entries]
+
+
+class TestEnchantGroupOrderByBuffApplication:
+    def test_order_follows_application_order(self):
+        """6种施加顺序都应原样反映到结算顺序。"""
+        for perm in itertools.permutations([SUB, ADD, ENCH]):
+            got = _run(list(perm))
+            assert got == list(perm), f"apply={list(perm)} settle={got}"
+
+    def test_add_then_ench_then_sub(self):
+        """回归重点：先施加追加→再附魔→后子单位（旧实现固定为 sub→add→ench，会失败）。"""
+        assert _run([ADD, ENCH, SUB]) == [ADD, ENCH, SUB]

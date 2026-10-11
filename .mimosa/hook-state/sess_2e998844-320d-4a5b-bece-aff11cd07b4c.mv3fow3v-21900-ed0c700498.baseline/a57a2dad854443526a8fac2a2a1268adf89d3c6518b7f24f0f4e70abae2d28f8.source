@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Rebuild Skills for Character 132301
+使用 SkillDataBuilder 重新生成准确的技能数据SQL
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scripts.skill_data_builder import SkillDataBuilder, SkillDef, ValidationException
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+def rebuild_skills():
+    builder = SkillDataBuilder()
+    
+    try:
+        # ====================================================================
+        # 技能 130080: まじ本気だすぞー！！ (PS)
+        # ====================================================================
+        s130080 = SkillDef(builder, 130080, "まじ本気だすぞー！！")
+        
+        # 触发器1: 使用主动技能前 (BEFORE_SKILL_USE)
+        # 条件1: 自身HP >= 60%
+        # 条件2: 技能类型 IS AS
+        trig1 = s130080.add_trigger("BEFORE_SKILL_USE", 1)
+        trig1.condition("SELF_HP_RATIO", "GTE", 0.6)
+        
+        # 获取 AS 类型ID
+        as_type_id = builder.validate_enum("enum_skill_types", "AS")
+        trig1.condition("SKILL_TYPE", "EQ", as_type_id)
+        
+        # 动作组1.1: 自身 ATK Buff (Lv1-15)
+        # 目标: SELF
+        grp1 = trig1.add_action_group(10, lv_min=1, lv_max=15)
+        grp1.target("SELF")
+        grp1.add_effect("STATUS_ATTACK", 1).param_tag("value_base", "atk").flag("is_stackable", True)
+
+        # 动作组1.2: 自身 DEF Buff (Lv1-15)
+        # 目标: SELF
+        grp2 = trig1.add_action_group(20, lv_min=1, lv_max=15)
+        grp2.target("SELF")
+        grp2.add_effect("STATUS_DEFENSE", 1).param_tag("value_base", "def").flag("is_stackable", True)
+
+        # 动作组1.3: 队友 ATK Buff (Lv11-15)
+        # 目标: FRIENDS (不再是误用的 TEAM_MEMBERS, 也不需要 EXCLUDE_SELF, 因为 FRIENDS 也就是不含自身的友方)
+        # 根据 dump: 4|FRIENDS|友方|友方全体（不含自身）
+        # 所以 TargetType=FRIENDS, Range=ALL_PAWNS 即可 (修正 'ALL' -> 'ALL_PAWNS')
+        grp3 = trig1.add_action_group(30, lv_min=11, lv_max=15)
+        grp3.target("FRIENDS", "ALL_PAWNS")
+        grp3.add_effect("STATUS_ATTACK", 1).param_tag("value_base", "atk2").flag("is_stackable", True)
+
+        # 动作组1.4: 队友 DEF Buff (Lv11-15)
+        # 目标: FRIENDS
+        grp4 = trig1.add_action_group(40, lv_min=11, lv_max=15)
+        grp4.target("FRIENDS", "ALL_PAWNS")
+        grp4.add_effect("STATUS_DEFENSE", 1).param_tag("value_base", "def2").flag("is_stackable", True)
+        
+        # 生成并保存
+        s130080.save()
+
+        # ====================================================================
+        # 技能 130081: ぜ～～ったい負けないから！ (PS)
+        # ====================================================================
+        s130081 = SkillDef(builder, 130081, "ぜ～～ったい負けないから！")
+        
+        # 触发器1: 技能使用后
+        # 条件: 技能使用次数 >= 3
+        trig2 = s130081.add_trigger("AFTER_SKILL_USE", 1)
+        trig2.condition("SKILL_USE_COUNT", "GTE", 3)
+
+        # 动作组1: 立即回复 (Lv1-15)
+        grp_heal = trig2.add_action_group(10, lv_min=1, lv_max=15)
+        grp_heal.target("SELF")
+        grp_heal.add_effect("HEAL", 1).param_tag("value_base", "威力")\
+            .param("value_source_subject", "SELF").param("value_source_attribute", "MAX_HP")\
+            .flag("is_negative", False)
+
+        # 动作组2: HoT (Lv11-15)
+        grp_hot = trig2.add_action_group(20, lv_min=11, lv_max=15)
+        grp_hot.target("SELF")
+        grp_hot.add_effect("HEAL_OVER_TIME", 1).param_tag("value_base", "威力2")\
+            .param("value_source_subject", "SELF").param("value_source_attribute", "MAX_HP")\
+            .duration(tag="duration", unit="ACTION")\
+            .flag("is_negative", False)
+
+        s130081.save()
+        
+    except ValidationException as e:
+        safe_print(f"❌ Validation Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        safe_print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        builder.close()
+
+if __name__ == "__main__":
+    rebuild_skills()

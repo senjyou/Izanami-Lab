@@ -1,0 +1,96 @@
+"""批量获取所有 failed 技能的描述并分类。"""
+import json
+import sys
+import os
+from collections import Counter
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+with open('data/skill_effects_hybrid.json', encoding='utf-8') as f:
+    data = json.load(f)
+
+with open('split_data/SkillMaster.json', encoding='utf-8') as f:
+    skills = json.load(f)
+
+# 构建 SkillMaster 索引
+skillmaster_by_id = {str(s.get('Id')): s for s in skills}
+
+# 收集 failed 技能
+failed_skills = []
+for sid, skill_data in data.items():
+    if skill_data.get('parse_status') == 'failed':
+        failed_skills.append(sid)
+
+print(f'=== Failed 技能描述汇总 ({len(failed_skills)}个) ===')
+print()
+
+# 关键词分类
+keywords = {
+    '凍結': 'freeze',
+    'EXゲージ': 'remove_ep',
+    'ヴェール': 'damage_reduction_buff',
+    'ジャマー': 'jammer',
+    'ヴァンピル': 'vampire',
+    '回復': 'heal',
+    'ダメージ': 'damage',
+    'バフ': 'buff',
+    'デバフ': 'debuff',
+    'マーク': 'mark',
+    '会心': 'crit',
+    '攻撃力': 'atk',
+    '防御力': 'def',
+    '速度': 'spd',
+    'HP': 'hp',
+    '毒': 'poison',
+    '炎上': 'burn',
+    '眩晕': 'stun',
+    '行動時': 'action_damage',
+    'ターン終了': 'turn_end',
+    'ターン開始': 'turn_start',
+    '戦闘開始': 'battle_start',
+    '会心攻撃': 'on_critical',
+    '風紀': 'mark_discipline',
+    '凶兆': 'mark_omen',
+    'メトカ': 'mark_metoka',
+    '深慮': 'mark_deep_thought',
+    '援護': 'cover',
+    '反射': 'reflect',
+    'カウンター': 'counter',
+    'ステルス': 'stealth',
+    'ガード': 'guard',
+}
+
+categories = {}
+for sid in failed_skills:
+    sm = skillmaster_by_id.get(sid, {})
+    name = sm.get('Name', '')
+    desc = ''
+    for dt in sm.get('DescriptionTemplates', []):
+        desc = dt.get('Template', '')
+        break
+    skill_type = sm.get('Type', '?')
+    skill_type_name = {1: 'AS', 2: 'PS', 3: 'EX'}.get(skill_type, '?')
+
+    # 分类
+    found_categories = []
+    for kw, cat in keywords.items():
+        if kw in desc or kw in name:
+            found_categories.append(cat)
+
+    if not found_categories:
+        found_categories = ['other']
+
+    primary_cat = found_categories[0]
+    categories.setdefault(primary_cat, []).append({
+        'sid': sid,
+        'name': name,
+        'type': skill_type_name,
+        'desc': desc,
+    })
+
+print('=== 分类汇总 ===')
+for cat, items in sorted(categories.items(), key=lambda x: -len(x[1])):
+    print(f'\n--- {cat} ({len(items)}个) ---')
+    for item in items:
+        print(f'  {item["sid"]} ({item["type"]}): {item["name"]}')
+        print(f'    {item["desc"][:200]}')

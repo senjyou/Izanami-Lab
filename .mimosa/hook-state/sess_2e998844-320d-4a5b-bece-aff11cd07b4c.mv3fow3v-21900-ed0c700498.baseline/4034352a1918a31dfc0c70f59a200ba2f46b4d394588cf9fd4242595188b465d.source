@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+验证效果参数表重构结果
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+from src.database.db_manager import get_skill_db
+from src.database.effect_params_loader import load_effect_params
+
+setup_console_encoding()
+
+
+def main():
+    """主函数"""
+    safe_print("="*80)
+    safe_print("Effect Params Tables Refactoring Verification")
+    safe_print("="*80)
+    
+    db = get_skill_db()
+    cursor = db.cursor()
+    
+    # 检查新表是否存在
+    safe_print("\n1. Checking new tables...")
+    safe_print("-"*80)
+    
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name LIKE '%param%'
+        ORDER BY name
+    """)
+    
+    tables = [row[0] for row in cursor.fetchall()]
+    safe_print(f"Found {len(tables)} parameter tables:")
+    for table in tables:
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        count = cursor.fetchone()[0]
+        safe_print(f"  {table:40s} {count:6d} rows")
+    
+    # 验证表结构
+    safe_print("\n2. Verifying table structures...")
+    safe_print("-"*80)
+    
+    expected_tables = [
+        'effect_duration_params',
+        'effect_flag_params',
+        'effect_numeric_params',
+        'effect_text_params',
+        'trigger_effect_duration_params',
+        'trigger_effect_flag_params',
+        'trigger_effect_numeric_params',
+        'trigger_effect_text_params'
+    ]
+    
+    for table in expected_tables:
+        if table in tables:
+            safe_print(f"  ✓ {table}")
+        else:
+            safe_print(f"  ✗ {table} MISSING!")
+    
+    # 检查旧表是否已删除
+    safe_print("\n3. Checking old tables removal...")
+    safe_print("-"*80)
+    
+    old_tables = ['effect_params', 'trigger_effect_params']
+    for table in old_tables:
+        if table in tables:
+            safe_print(f"  ✗ {table} still exists (should be removed)")
+        else:
+            safe_print(f"  ✓ {table} removed")
+    
+    # 测试参数加载（如果有数据）
+    safe_print("\n4. Testing parameter loader...")
+    safe_print("-"*80)
+    
+    cursor.execute("SELECT effect_id FROM skill_effects LIMIT 1")
+    row = cursor.fetchone()
+    
+    if row:
+        effect_id = row[0]
+        safe_print(f"  Testing with effect_id: {effect_id}")
+        
+        try:
+            params = load_effect_params(effect_id, db)
+            safe_print(f"  ✓ Loaded {len(params)} parameters")
+            
+            if params:
+                safe_print("\n  Sample parameters:")
+                for key, value in list(params.items())[:5]:
+                    safe_print(f"    {key}: {value}")
+        except Exception as e:
+            safe_print(f"  ✗ Error: {e}")
+    else:
+        safe_print("  No effect data to test (expected for new database)")
+    
+    safe_print("\n" + "="*80)
+    safe_print("Verification Complete!")
+    safe_print("="*80)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        safe_print(f"\nERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

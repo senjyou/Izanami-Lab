@@ -1,0 +1,413 @@
+"""
+角色128301 体育祭の暴れん坊 技能效果测试
+
+- EX: 110026 バイト・ザ・ビクトリー！（主目标+邻接敌人攻击，主目标生存时追加攻击+炎上）
+- AS1: 120064 クラッシュラッシュ（单体攻击，目标炎上时独立倍率乘区+dmg%）
+- AS2: 120065 ホップホップ（单体攻击）
+- PS1: 130070 ファイティングブースト（AS攻击后自身攻UP叠加，Lv11+追加减伤）
+- PS2: 130071 ターンリスタート（回合开始解除所有buff+回血，第1回合不触发）
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+ATK_UP = SkillEffectType.STATUS_ATTACK.value
+DMG_TAKEN_DOWN = SkillEffectType.RECEIVED_DAMAGE.value
+SHIELD = SkillEffectType.SHIELD.value
+BURN = SkillEffectType.CONFLAGRATION.value
+
+
+class TestActor128301(unittest.TestCase):
+    """角色128301 体育祭の暴れん坊 技能效果测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者：体育祭の暴れん坊
+        self.caster = UnitState(
+            unit_id="ally_front", name="诺艾尔", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=128301, level=10,
+            element=1, character_type=1,
+            max_hp=25000, current_hp=25000,
+            attack=10000, defense=8000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=8, current_pp=2, current_ep=0,
+            skills=[110026, 120064, 120065, 130070, 130071],
+            skill_levels={110026: 10, 120064: 10, 120065: 10, 130070: 10, 130071: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方后排
+        self.ally_back = UnitState(
+            unit_id="ally_back", name="友方后排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=999100, level=10,
+            element=3, character_type=2,
+            max_hp=15000, current_hp=15000,
+            attack=5000, defense=4000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央（主目标）
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=4, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=6000, defense=5000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前（邻接）
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=2, character_type=2,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前（邻接）
+        self.enemy_right_front = UnitState(
+            unit_id="enemy_right_front", name="敌方右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=5, character_type=2,
+            max_hp=10000, current_hp=10000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=5, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_back]
+        self.bf.enemy_team = [
+            self.enemy_front, self.enemy_left_front, self.enemy_right_front,
+            self.enemy_back,
+        ]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: バイト・ザ・ビクトリー！ ───
+
+    def test_ex_damage_main_and_adjacent(self):
+        """EX(110026) 攻击主目标+邻接敌人"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110026, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 主目标应受伤
+        self.assertLess(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                        "EX应对主目标造成伤害")
+        # 邻接敌人应受伤
+        self.assertLess(self.enemy_left_front.current_hp, self.enemy_left_front.max_hp,
+                        "EX应对邻接敌人造成伤害")
+
+    def test_ex_target_survived_follow_up(self):
+        """EX(110026) 主目标生存时追加攻击+炎上"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110026, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 主目标生存时应获得炎上
+        burn_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == BURN]
+        self.assertTrue(len(burn_debuffs) > 0, "主目标生存时应被赋予炎上")
+
+    def test_ex_target_killed_no_follow_up(self):
+        """EX(110026) 主目标死亡时不追加攻击"""
+        # 将主目标HP设为极低，第一段攻击即可击杀
+        self.enemy_front.current_hp = 1
+        self.enemy_front.shield = 0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110026, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 主目标死亡，不应有追加的炎上
+        burn_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == BURN]
+        self.assertEqual(len(burn_debuffs), 0, "主目标死亡时不应被赋予炎上")
+
+    # ─── AS1: クラッシュラッシュ ───
+
+    def test_as1_basic_damage(self):
+        """AS1(120064) 基础单体攻击"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120064, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                        "AS1应对目标造成伤害")
+
+    def test_as1_bonus_vs_burn_target(self):
+        """AS1(120064) 目标炎上时易伤乘区增加伤害（bonus_type=received_damage）"""
+        # 先对目标施加炎上
+        burn_debuff = BuffState(
+            buff_id="test_burn", name="炎上",
+            effect_type=BURN, value=0,
+            duration=3, timing_type=2,
+        )
+        self.enemy_front.debuffs.append(burn_debuff)
+
+        # 记录无炎上时的伤害（用另一个目标）
+        hp_without_burn = self.enemy_front.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120064, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 有炎上时伤害应更高（conditional_power_bonus作为易伤生效）
+        damage_with_burn = hp_without_burn - self.enemy_front.current_hp
+        self.assertGreater(damage_with_burn, 0, "AS1应对炎上目标造成伤害")
+
+        # 验证临时易伤debuff在技能结束后已被消耗（attack_limited=1）
+        vuln_debuffs = [d for d in self.enemy_front.debuffs
+                        if d.name == "ConditionalVulnerability"]
+        self.assertEqual(len(vuln_debuffs), 0,
+                         "临时易伤debuff应在技能结束后被attack_limited消耗")
+
+    # ─── AS2: ホップホップ ───
+
+    def test_as2_basic_damage(self):
+        """AS2(120065) 基础单体攻击"""
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120065, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertLess(self.enemy_front.current_hp, self.enemy_front.max_hp,
+                        "AS2应对目标造成伤害")
+
+    # ─── PS1: ファイティングブースト ───
+
+    def test_ps1_atk_up_direct(self):
+        """PS1(130070) 直接执行PS技能获得攻UP"""
+        self.caster.current_pp = 2
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130070, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查是否获得atk_up buff
+        atk_buffs = [b for b in self.caster.buffs if b.effect_type == ATK_UP]
+        self.assertTrue(len(atk_buffs) > 0, "PS1应赋予攻UP")
+
+    def test_ps1_atk_up_stackable(self):
+        """PS1(130070) 攻UP可叠加"""
+        self.caster.current_pp = 4
+
+        # 第一次执行PS1
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130070, battlefield=self.bf, skip_cost=True
+        )
+        # 第二次执行PS1
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130070, battlefield=self.bf, skip_cost=True
+        )
+
+        atk_buffs = [b for b in self.caster.buffs if b.effect_type == ATK_UP]
+        self.assertGreaterEqual(len(atk_buffs), 2, "攻UP应可叠加")
+
+    def test_ps1_atk_up_permanent(self):
+        """PS1(130070) 攻UP为永续(duration=-1)"""
+        self.caster.current_pp = 2
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130070, battlefield=self.bf, skip_cost=True
+        )
+
+        atk_buffs = [b for b in self.caster.buffs if b.effect_type == ATK_UP]
+        self.assertTrue(len(atk_buffs) > 0, "应获得攻UP")
+        self.assertEqual(atk_buffs[0].duration, -1, "攻UP应为永续")
+
+    def test_ps1_lv11_dmg_taken_down(self):
+        """PS1(130070) Lv11+追加被伤害减少"""
+        self.caster.skill_levels[130070] = 11
+        self.caster.current_pp = 2
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=130070, battlefield=self.bf, skip_cost=True
+        )
+
+        dmg_down_buffs = [b for b in self.caster.buffs if b.effect_type == DMG_TAKEN_DOWN]
+        self.assertTrue(len(dmg_down_buffs) > 0, "Lv11+应获得被伤害减少")
+
+    # ─── PS2: ターンリスタート ───
+
+    def test_ps2_remove_all_buffs_and_heal(self):
+        """PS2(130071) 解除所有buff+回血"""
+        self.caster.current_pp = 2
+        self.bf.turn_number = 2  # 第2回合才触发
+
+        # 先添加一些buff
+        atk_buff = BuffState(
+            buff_id="test_atk", name="攻UP",
+            effect_type=ATK_UP, value=20,
+            duration=-1, timing_type=1,
+        )
+        self.caster.buffs.append(atk_buff)
+
+        # 将HP降低
+        self.caster.current_hp = 10000
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # buff应被解除
+        non_memory_buffs = [b for b in self.caster.buffs if not b.is_memory_buff]
+        self.assertEqual(len(non_memory_buffs), 0, "所有非回忆卡buff应被解除")
+
+        # HP应回复
+        self.assertGreater(self.caster.current_hp, 10000, "应回复HP")
+
+    def test_ps2_not_trigger_round1(self):
+        """PS2(130071) 第1回合不触发（global_condition: round_number > 1）"""
+        self.caster.current_pp = 2
+        self.bf.turn_number = 1  # 第1回合
+
+        # 添加buff
+        atk_buff = BuffState(
+            buff_id="test_atk", name="攻UP",
+            effect_type=ATK_UP, value=20,
+            duration=-1, timing_type=1,
+        )
+        self.caster.buffs.append(atk_buff)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130071, battlefield=self.bf, skip_cost=True
+        )
+
+        # 第1回合不应触发（global_condition: round_number > 1）
+        # 技能可能执行但效果不应用，或技能不执行
+        atk_buffs = [b for b in self.caster.buffs if b.effect_type == ATK_UP]
+        self.assertTrue(len(atk_buffs) > 0, "第1回合buff不应被解除")
+
+    def test_ps2_keep_memory_buff(self):
+        """PS2(130071) 不解除回忆卡buff"""
+        self.caster.current_pp = 2
+        self.bf.turn_number = 2
+
+        # 添加回忆卡buff
+        memory_buff = BuffState(
+            buff_id="test_memory", name="回忆卡buff",
+            effect_type=ATK_UP, value=30,
+            duration=-1, timing_type=3,
+            is_memory_buff=True,
+        )
+        self.caster.buffs.append(memory_buff)
+
+        # 添加普通buff
+        normal_buff = BuffState(
+            buff_id="test_normal", name="普通buff",
+            effect_type=ATK_UP, value=20,
+            duration=-1, timing_type=1,
+        )
+        self.caster.buffs.append(normal_buff)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 回忆卡buff应保留
+        memory_buffs = [b for b in self.caster.buffs if b.is_memory_buff]
+        self.assertTrue(len(memory_buffs) > 0, "回忆卡buff应保留")
+
+        # 普通buff应被解除
+        normal_buffs = [b for b in self.caster.buffs if not b.is_memory_buff]
+        self.assertEqual(len(normal_buffs), 0, "普通buff应被解除")
+
+    def test_ps2_keep_debuffs(self):
+        """PS2(130071) 不解除自身debuff"""
+        self.caster.current_pp = 2
+        self.bf.turn_number = 2
+
+        # 添加debuff
+        def_down = BuffState(
+            buff_id="test_def_down", name="防御下降",
+            effect_type=SkillEffectType.STATUS_DEFENSE.value, value=30,
+            duration=2, timing_type=2,
+        )
+        self.caster.debuffs.append(def_down)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # debuff应保留
+        self.assertTrue(len(self.caster.debuffs) > 0, "自身debuff不应被解除")
+
+
+if __name__ == '__main__':
+    unittest.main()

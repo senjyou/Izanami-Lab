@@ -1,0 +1,432 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+逐步暴击分支选择覆盖机制测试
+tests/test_step_crit_branch_override.py
+
+验证 random_choice / probability 分支选择的用户可控机制：
+1. SkillService 分支覆盖注入点
+2. StepCritSimulator 分支选择覆盖（交互式 + 序列模式）
+3. 分支预填序列
+4. 分支决策点记录
+"""
+
+import unittest
+import queue
+import threading
+import time
+from unittest.mock import MagicMock, patch
+from dataclasses import dataclass
+from typing import List, Optional, Dict, Any
+
+
+class TestBranchOverrideDataClasses(unittest.TestCase):
+    """测试分支决策数据类"""
+
+    def test_branch_candidate_creation(self):
+        """测试 BranchCandidate 创建"""
+        from src.combat_v2.step_crit_simulator import BranchCandidate
+        cand = BranchCandidate(block_id=1, weight=75, probability=0.75, description="5hit伤害")
+        self.assertEqual(cand.block_id, 1)
+        self.assertEqual(cand.weight, 75)
+        self.assertAlmostEqual(cand.probability, 0.75)
+        self.assertEqual(cand.description, "5hit伤害")
+
+    def test_branch_decision_point_creation(self):
+        """测试 BranchDecisionPoint 创建"""
+        from src.combat_v2.step_crit_simulator import BranchDecisionPoint, BranchCandidate
+        candidates = [
+            BranchCandidate(block_id=1, weight=1, probability=0.33, description="伤害"),
+            BranchCandidate(block_id=2, weight=1, probability=0.33, description="凍結"),
+            BranchCandidate(block_id=3, weight=1, probability=0.33, description="回復"),
+        ]
+        point = BranchDecisionPoint(
+            index=1,
+            caster_name="测试角色",
+            caster_id="unit_001",
+            skill_name="测试技能",
+            skill_id=110062,
+            group_id=0,
+            candidates=candidates,
+        )
+        self.assertEqual(point.index, 1)
+        self.assertEqual(point.caster_name, "测试角色")
+        self.assertEqual(point.skill_id, 110062)
+        self.assertEqual(len(point.candidates), 3)
+        self.assertIsNone(point.selected_block_id)
+
+
+class TestStepCritSimulatorBranchOverride(unittest.TestCase):
+    """测试 StepCritSimulator 分支选择覆盖机制"""
+
+    def setUp(self):
+        from src.combat_v2.step_crit_simulator import StepCritSimulator
+        self.sim = StepCritSimulator()
+
+    def test_create_branch_override_func_interactive(self):
+        """测试创建交互式分支覆盖函数"""
+        func = self.sim.create_branch_override_func("interactive")
+        self.assertTrue(callable(func))
+
+    def test_create_branch_override_func_sequence(self):
+        """测试创建序列模式分支覆盖函数"""
+        func = self.sim.create_branch_override_func("sequence")
+        self.assertTrue(callable(func))
+
+    def test_create_branch_override_func_invalid_mode(self):
+        """测试无效模式抛出异常"""
+        with self.assertRaises(ValueError):
+            self.sim.create_branch_override_func("invalid")
+
+    def test_sequence_branch_override_without_prefill(self):
+        """测试序列模式分支覆盖（无预填，回退随机）"""
+        func = self.sim.create_branch_override_func("sequence")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+                {'block_id': 3, 'weight': 1, 'description': '回復'},
+            ],
+        }
+        selected = func(ctx)
+        self.assertIn(selected, [1, 2, 3])
+        # 验证决策点被记录
+        bps = self.sim.get_branch_decision_points()
+        self.assertEqual(len(bps), 1)
+        self.assertEqual(bps[0].selected_block_id, selected)
+
+    def test_sequence_branch_override_with_prefill(self):
+        """测试序列模式分支覆盖（有预填）"""
+        self.sim.set_interactive_branch_prefill([2, 3])
+        func = self.sim.create_branch_override_func("sequence")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+                {'block_id': 3, 'weight': 1, 'description': '回復'},
+            ],
+        }
+        # 第一次调用应使用预填的第一个值
+        selected1 = func(ctx)
+        self.assertEqual(selected1, 2)
+        # 第二次调用应使用预填的第二个值
+        selected2 = func(ctx)
+        self.assertEqual(selected2, 3)
+        # 第三次调用预填用完，回退随机
+        selected3 = func(ctx)
+        self.assertIn(selected3, [1, 2, 3])
+
+    def test_sequence_branch_override_invalid_prefill_fallback(self):
+        """测试序列模式分支覆盖（预填值无效时回退随机）"""
+        self.sim.set_interactive_branch_prefill([999])  # 无效 block_id
+        func = self.sim.create_branch_override_func("sequence")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+        selected = func(ctx)
+        self.assertIn(selected, [1, 2])  # 应回退到随机选择
+
+    def test_interactive_branch_override_with_prefill(self):
+        """测试交互式分支覆盖（预填阶段不暂停）"""
+        self.sim._running = True
+        self.sim.set_interactive_branch_prefill([2])
+        func = self.sim.create_branch_override_func("interactive")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+        selected = func(ctx)
+        self.assertEqual(selected, 2)
+        # 验证 branch_prefill_step 事件被发送
+        infos = self.sim.poll_branch_interactive_info()
+        self.assertEqual(len(infos), 1)
+        self.assertEqual(infos[0][0], "branch_prefill_step")
+        self.assertEqual(infos[0][1].selected_block_id, 2)
+
+    def test_interactive_branch_override_user_decision(self):
+        """测试交互式分支覆盖（用户决策）"""
+        self.sim._running = True
+        func = self.sim.create_branch_override_func("interactive")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+
+        # 在另一个线程中模拟用户决策
+        def user_decision():
+            time.sleep(0.1)
+            self.sim.make_interactive_branch_decision(2)
+
+        t = threading.Thread(target=user_decision)
+        t.start()
+
+        selected = func(ctx)
+        t.join()
+
+        self.assertEqual(selected, 2)
+        # 验证 branch_decision 事件被发送
+        infos = self.sim.poll_branch_interactive_info()
+        self.assertEqual(len(infos), 1)
+        self.assertEqual(infos[0][0], "branch_decision")
+
+    def test_interactive_branch_override_stopped(self):
+        """测试交互式分支覆盖（停止时返回随机）"""
+        self.sim._running = False
+        func = self.sim.create_branch_override_func("interactive")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+        selected = func(ctx)
+        self.assertIn(selected, [1, 2])
+
+    def test_stop_interactive_unlocks_branch_wait(self):
+        """测试 stop_interactive 解锁分支决策等待"""
+        self.sim._running = True
+        func = self.sim.create_branch_override_func("interactive")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+
+        # 在另一个线程中停止模拟
+        def stop_sim():
+            time.sleep(0.1)
+            self.sim.stop_interactive()
+
+        t = threading.Thread(target=stop_sim)
+        t.start()
+
+        start_time = time.time()
+        selected = func(ctx)
+        elapsed = time.time() - start_time
+        t.join()
+
+        # 应在 1 秒内返回（停止后立即返回随机结果）
+        self.assertLess(elapsed, 1.0)
+        self.assertIn(selected, [1, 2])
+
+    def test_generate_branch_sequence_string(self):
+        """测试生成分支序列字符串"""
+        self.sim._running = True
+        self.sim.set_interactive_branch_prefill([1, 2, 3])
+        func = self.sim.create_branch_override_func("sequence")
+        ctx = {
+            'caster_name': '测试',
+            'caster_id': 'u1',
+            'skill_name': '技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': 'A'},
+                {'block_id': 2, 'weight': 1, 'description': 'B'},
+                {'block_id': 3, 'weight': 1, 'description': 'C'},
+            ],
+        }
+        func(ctx)
+        func(ctx)
+        func(ctx)
+
+        seq_str = self.sim.generate_branch_sequence_string()
+        self.assertEqual(seq_str, "1,2,3")
+
+    def test_branch_decision_points_in_report(self):
+        """测试分支决策点出现在报告中"""
+        self.sim._running = True
+        self.sim.set_interactive_branch_prefill([1])
+        func = self.sim.create_branch_override_func("sequence")
+        ctx = {
+            'caster_name': '测试角色',
+            'caster_id': 'u1',
+            'skill_name': '测试技能',
+            'skill_id': 110062,
+            'group_id': 0,
+            'candidates': [
+                {'block_id': 1, 'weight': 1, 'description': '伤害'},
+                {'block_id': 2, 'weight': 1, 'description': '凍結'},
+            ],
+        }
+        func(ctx)
+
+        report = self.sim.generate_report()
+        self.assertIn("分支决策记录", report)
+        self.assertIn("测试角色", report)
+        self.assertIn("测试技能", report)
+        self.assertIn("block=1", report)
+
+
+class TestSkillServiceBranchOverride(unittest.TestCase):
+    """测试 SkillService 分支覆盖注入点"""
+
+    def setUp(self):
+        from src.combat_v2.services.skill_service import SkillService
+        from src.combat_v2.services.damage_service import DamageService
+        from src.combat_v2.services.resource_service import ResourceService
+
+        self.data_loader = MagicMock()
+        self.resource_service = ResourceService()
+        self.damage_service = DamageService()
+        self.ss = SkillService(
+            self.data_loader,
+            self.resource_service,
+            damage_service=self.damage_service,
+        )
+
+    def test_set_and_clear_branch_override(self):
+        """测试设置和清除分支覆盖函数"""
+        self.assertIsNone(self.ss._branch_override_func)
+
+        def mock_func(ctx):
+            return 1
+
+        self.ss.set_branch_override(mock_func)
+        self.assertIsNotNone(self.ss._branch_override_func)
+
+        self.ss.clear_branch_override()
+        self.assertIsNone(self.ss._branch_override_func)
+
+    def test_generate_branch_description(self):
+        """测试分支效果描述生成"""
+        from src.combat_v2.services.skill_service import SkillService
+
+        # 创建 mock block
+        mock_block = MagicMock()
+        mock_effect1 = MagicMock()
+        mock_effect1.effect_type = 'damage'
+        mock_effect1.hit_count = 5
+        mock_effect1.flags = {'is_en_attack': True}
+
+        mock_effect2 = MagicMock()
+        mock_effect2.effect_type = 'add_status'
+        mock_effect2.duration = 3
+        mock_effect2.flags = {'status_type': 'freeze'}
+
+        mock_block.effects = [mock_effect1, mock_effect2]
+
+        desc = self.ss._generate_branch_description(mock_block)
+        self.assertIn("5hit EN伤害", desc)
+        self.assertIn("freeze3action", desc)
+
+    def test_generate_branch_description_empty(self):
+        """测试空 block 的描述"""
+        mock_block = MagicMock()
+        mock_block.effects = []
+        desc = self.ss._generate_branch_description(mock_block)
+        self.assertEqual(desc, "无效果")
+
+    def test_generate_branch_description_none(self):
+        """测试 None block 的描述"""
+        desc = self.ss._generate_branch_description(None)
+        self.assertEqual(desc, "无效果")
+
+    def test_generate_branch_description_various_effects(self):
+        """测试各种效果类型的描述"""
+        mock_block = MagicMock()
+
+        effects = [
+            ('heal', {'heal_base': 'max_hp'}, '回復(max_hp)'),
+            ('lifesteal', {}, '吸血50%'),
+            ('remove_ep', {}, '减EP2'),
+            ('dmg_dealt_down', {}, '降攻'),
+            ('dmg_taken_down', {}, '减伤'),
+            ('perfect_evasion', {'hit_count': 2}, '2次回避'),
+            ('shield', {}, '护盾'),
+        ]
+
+        for et, flags, expected in effects:
+            mock_eff = MagicMock()
+            mock_eff.effect_type = et
+            mock_eff.flags = flags
+            if et == 'lifesteal':
+                mock_eff.value = 50
+            if et == 'remove_ep':
+                mock_eff.value = 2
+            if et == 'perfect_evasion':
+                mock_eff.hit_count = 2
+            mock_block.effects = [mock_eff]
+            desc = self.ss._generate_branch_description(mock_block)
+            self.assertIn(expected, desc, f"效果类型 {et} 描述不正确: {desc}")
+
+
+class TestBranchOverrideIntegration(unittest.TestCase):
+    """测试分支覆盖集成（SkillService + StepCritSimulator）"""
+
+    def test_skill_service_calls_branch_override(self):
+        """测试 SkillService 在分支预选择时调用 override 函数"""
+        from src.combat_v2.services.skill_service import SkillService
+        from src.combat_v2.services.damage_service import DamageService
+        from src.combat_v2.services.resource_service import ResourceService
+
+        data_loader = MagicMock()
+        ss = SkillService(
+            data_loader,
+            ResourceService(),
+            damage_service=DamageService(),
+        )
+
+        # 记录 override 调用
+        override_calls = []
+
+        def mock_override(ctx):
+            override_calls.append(ctx)
+            return ctx['candidates'][0]['block_id']  # 总是选第一个
+
+        ss.set_branch_override(mock_override)
+
+        # 验证 override 被设置
+        self.assertIsNotNone(ss._branch_override_func)
+        self.assertEqual(ss._branch_override_func, mock_override)
+
+        # 清除
+        ss.clear_branch_override()
+        self.assertIsNone(ss._branch_override_func)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

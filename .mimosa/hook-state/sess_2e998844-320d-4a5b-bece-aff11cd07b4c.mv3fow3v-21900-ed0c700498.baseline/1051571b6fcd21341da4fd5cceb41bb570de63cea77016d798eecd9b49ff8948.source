@@ -1,0 +1,289 @@
+"""Regression: 与えたダメージ转化基数必须包含盾吸收部分。
+
+Bug: 榊野ヒイロ（敵）用「ファーストブランド+」(damage 75% + shield_from_damage 30%)
+攻击隣歩む想い时，伤害 53352 全部被盾吸收（HP损失0），但转盾基数为 0 →
+「+shield 0 (30% of 0 dmg)」。打在盾上的伤害同样计入与えたダメージ。
+
+同理，吸血(lifesteal)打在盾上的伤害也应计入回血基数；
+内嵌 flags.lifesteal 在 total_damage=0（全盾吸收）时也应触发。
+
+Fix: _apply_damage / _apply_hp_ratio_damage / on_crit / splash 路径的
+_most_recent_damage 累加口径统一为「HP损失 + 盾/子单位吸收」，
+与 _apply_damage_process_damage_links 的 source_total_dmg 口径一致。
+"""
+import sys
+import os
+import unittest
+from types import SimpleNamespace
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import Position, SkillEffectType, AuraUpdateTiming
+
+SUB_UNIT = SkillEffectType.SUB_UNIT.value
+
+
+def make_sub_unit_buff(hp=10_000_000, source_unit_id="src"):
+    """子单位buff（镜像 test_reg_sub_unit_shield_display.py 的構造）。"""
+    return BuffState(
+        buff_id="sub_wish_star", name="願い星",
+        effect_type=SUB_UNIT, value=5.0, duration=-1,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=source_unit_id, source_skill_id=110084,
+        caster_attack=10000, is_debuff=False, is_stackable=True,
+        sub_unit_hp=hp, sub_unit_max_hp=hp,
+        sub_unit_link_group="", just_applied=False,
+    )
+
+
+def make_damage_effect(value=100.0, hit_count=1, flags=None):
+    return SimpleNamespace(
+        effect_type="damage", target_type="enemy_single", target_identifier=None,
+        value=value, hit_count=hit_count, ignore_defense=0, ignore_shield=0,
+        flags=flags or {}, condition=None,
+    )
+
+
+def make_shield_from_damage_effect(value=30.0):
+    return SimpleNamespace(
+        effect_type="shield_from_damage", target_type="self", target_identifier=None,
+        value=value, value_tag=None, value_source=None,
+        duration=-1, duration_type=None, hit_count=None,
+        condition=None, flags={}, ignore_defense=0, ignore_shield=0,
+    )
+
+
+def make_lifesteal_effect(value=25.0):
+    return SimpleNamespace(
+        effect_type="lifesteal", target_type=None, target_identifier=None,
+        value=value, value_tag=None, value_source=None,
+        duration=None, duration_type=None, hit_count=None,
+        condition=None, flags={}, ignore_defense=0, ignore_shield=0,
+    )
+
+
+def make_hp_ratio_effect(value=10.0, value_source="target_current_hp"):
+    return SimpleNamespace(
+        effect_type="hp_ratio_damage", target_type="enemy_single", target_identifier=None,
+        value=value, value_tag=None, value_source=value_source,
+        duration=None, duration_type=None, hit_count=None,
+        condition=None, flags={}, ignore_defense=0, ignore_shield=0,
+    )
+
+
+def _init_ss_for_direct_apply(ss, bf):
+    """初始化_apply_damage所需的全部内部状态（同 tests/unit/test_enchant_damage.py）。"""
+    ss._recursion_guard = True
+    ss._before_attack_triggers_fired = True
+    ss._current_skill_id = 99999
+    ss._current_block_id = 1
+    ss._current_skill_priority = 1
+    ss._block_damage_targets = {}
+    ss._block_damage_total = {}
+    ss._last_damage_hp_before = {}
+    ss._damaged_targets = []
+    ss._current_attack_targets = []
+    ss._pre_scanned_cover_candidates = None
+    ss._pre_scanned_non_damage_enemy_targets = []
+    ss._primary_target = None
+    ss._trigger_attacker = None
+    ss._target_char_type_filter = None
+    ss._target_element_filter = None
+    ss._original_primary_target = None
+    ss._last_primary_target = None
+    ss._most_recent_damage = 0
+    ss._skill_all_attacked_targets = []
+    ss._hp_consumed = 0
+    ss._per_hit_hp_losses = {}
+    ss._block_evaded_targets = set()
+    ss._skill_evaded_targets = set()
+    ss._debuff_immune_blocked_targets = set()
+    ss._on_crit_blocks = []
+    ss._on_crit_applied = False
+    ss._on_crit_block_executed = {}
+    ss._on_crit_target = None
+    ss._on_crit_immediate_blocks = []
+    ss._on_crit_immediate_applied = set()
+    ss._on_crit_effects = []
+    ss._deferred_on_crit_targets = []
+    ss._pending_crit_triggers = []
+    ss._per_target_enchant_cache = None
+    ss._current_main_damage_power = None
+    ss._marks_at_start = {}
+    ss._marks_at_start_by_unit = {}
+    ss._ps_received_targets = []
+    ss._current_skill_is_ps = False
+    ss._last_heal_targets = []
+    ss._newly_created_sub_unit_ids = set()
+    ss._pending_deaths = set()
+
+
+class TestRegDealtBaseIncludesShieldAbsorbed(unittest.TestCase):
+    """转化基数口径：HP损失 + 盾吸收（打在盾上的伤害也算与えたダメージ）。"""
+
+    def _make_ctx(self, enemy_shield=0):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_CENTER_FRONT,
+                    atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_enemy(unit_id="enemy", hp=1000000, defense=0, skills=[])
+        ctx = bb.build()
+        bf = ctx['bf']
+        caster, enemy = ctx['allies'][0], ctx['enemies'][0]
+        caster.crit_rate = 0.0
+        if enemy_shield > 0:
+            enemy.shield = enemy_shield
+        ss = ctx['ss']
+        _init_ss_for_direct_apply(ss, bf)
+        return bf, ss, caster, enemy
+
+    def _absorbed_total(self, enemy, shield_before, hp_before):
+        """目标总承受量 = HP损失 + 盾扣减（本测试只用通用盾字段）。"""
+        return (hp_before - enemy.current_hp) + (shield_before - enemy.shield)
+
+    # ── 基数口径 ─────────────────────────────────────────────
+
+    def test_full_absorption_base_includes_shield(self):
+        """伤害全被盾吸收时 _most_recent_damage 应为承受总量（修复前=0）。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=10_000_000)
+        hp_before, shield_before = enemy.current_hp, enemy.shield
+        result = ss._apply_damage(caster, make_damage_effect(), bf)
+        absorbed = self._absorbed_total(enemy, shield_before, hp_before)
+        self.assertEqual(enemy.current_hp, hp_before, "盾足够大，HP不应损失")
+        self.assertGreater(absorbed, 0, "盾应吸收伤害")
+        self.assertEqual(ss._most_recent_damage, absorbed,
+                         "全盾吸收时基数=盾吸收量（修复前为0）")
+
+    def test_partial_absorption_base_includes_shield(self):
+        """部分吸收时基数 = HP损失 + 盾吸收。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=1)
+        hp_before, shield_before = enemy.current_hp, enemy.shield
+        ss._apply_damage(caster, make_damage_effect(), bf)
+        absorbed = self._absorbed_total(enemy, shield_before, hp_before)
+        self.assertGreater(shield_before - enemy.shield, 0, "盾应被击穿/消耗")
+        self.assertGreater(hp_before - enemy.current_hp, 0, "剩余伤害应打HP")
+        self.assertEqual(ss._most_recent_damage, absorbed,
+                         "基数=HP损失+盾吸收")
+
+    def test_no_shield_base_equals_hp_loss(self):
+        """无盾时基数不变：=HP损失（防回归）。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=0)
+        hp_before = enemy.current_hp
+        ss._apply_damage(caster, make_damage_effect(), bf)
+        self.assertEqual(ss._most_recent_damage, hp_before - enemy.current_hp)
+
+    # ── 消费方：shield_from_damage（ファーストブランド+ 场景） ──
+
+    def test_shield_from_damage_converts_shield_absorbed(self):
+        """伤害全被目标盾吸收后，shield_from_damage 30% 仍应转出>0的盾。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=10_000_000)
+        hp_before, shield_before = enemy.current_hp, enemy.shield
+        ss._apply_damage(caster, make_damage_effect(), bf)
+        base = ss._most_recent_damage
+        self.assertGreater(base, 0, "基数应>0（修复前提）")
+
+        caster_shield_before = caster.shield
+        ss._apply_shield_from_damage(caster, make_shield_from_damage_effect(30.0), bf)
+        gained = caster.shield - caster_shield_before
+        self.assertEqual(gained, int(base * 30 / 100),
+                         "转盾=30%×(HP损失+盾吸收)；修复前为0")
+
+    def test_lifesteal_heals_based_on_shield_absorbed(self):
+        """独立 lifesteal effect：全盾吸收后 25% 吸血仍应回血。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=10_000_000)
+        caster.current_hp = 50000  # 制造缺血空间
+        ss._apply_damage(caster, make_damage_effect(), bf)
+        base = ss._most_recent_damage
+        self.assertGreater(base, 0)
+
+        hp_before = caster.current_hp
+        result = ss._apply_lifesteal(caster, make_lifesteal_effect(25.0), bf)
+        self.assertIsNotNone(result, "lifesteal 不应跳过")
+        self.assertEqual(caster.current_hp - hp_before, int(base * 25 / 100),
+                         "吸血=25%×(HP损失+盾吸收)；修复前回血为0")
+
+    def test_embedded_lifesteal_flag_triggers_on_full_shield(self):
+        """内嵌 flags.lifesteal：全盾吸收(total_damage=0)时也应触发吸血。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_CENTER_FRONT,
+                    atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_enemy(unit_id="enemy", hp=1000000, defense=0, skills=[])
+        ctx = bb.build()
+        bf = ctx['bf']
+        caster, enemy = ctx['allies'][0], ctx['enemies'][0]
+        caster.crit_rate = 0.0
+        caster.current_hp = 50000  # 制造缺血空间，否则回血被max_hp截为0
+        enemy.shield = 10_000_000
+        ss = ctx['ss']
+        _init_ss_for_direct_apply(ss, bf)
+
+        effect = make_damage_effect(flags={"lifesteal": 25.0})
+        result = ss._apply_damage(caster, effect, bf)
+        self.assertIsNotNone(result["lifesteal"],
+                             "全盾吸收时内嵌lifesteal也应触发（修复前 total_damage=0 不触发）")
+        self.assertGreater(result["lifesteal"]["heal_amount"], 0)
+
+    # ── 子单位吸收路径 ────────────────────────────────────────
+
+    def test_sub_unit_absorption_counts_for_shield_from_damage(self):
+        """伤害全被子单位HP吸收时，shield_from_damage 30% 也应转出>0的盾。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=0)
+        enemy.buffs.append(make_sub_unit_buff(hp=10_000_000))
+        sub_buff = enemy.buffs[0]
+        hp_before, sub_hp_before = enemy.current_hp, sub_buff.sub_unit_hp
+        ss._apply_damage(caster, make_damage_effect(), bf)
+
+        sub_absorbed = sub_hp_before - sub_buff.sub_unit_hp
+        self.assertGreater(sub_absorbed, 0, "子单位应吸收全部伤害")
+        self.assertEqual(enemy.current_hp, hp_before, "HP不应损失")
+        self.assertEqual(ss._most_recent_damage, sub_absorbed,
+                         "基数=子单位吸收量（修复前为0）")
+
+        caster_shield_before = caster.shield
+        ss._apply_shield_from_damage(caster, make_shield_from_damage_effect(30.0), bf)
+        self.assertEqual(caster.shield - caster_shield_before,
+                         int(sub_absorbed * 30 / 100),
+                         "打在子单位上的伤害也应计入转盾基数")
+
+    def test_sub_unit_absorption_counts_for_lifesteal(self):
+        """伤害全被子单位HP吸收时，lifesteal 25% 也应回血。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=0)
+        caster.current_hp = 50000
+        enemy.buffs.append(make_sub_unit_buff(hp=10_000_000))
+        sub_buff = enemy.buffs[0]
+        ss._apply_damage(caster, make_damage_effect(), bf)
+
+        sub_absorbed = 10_000_000 - sub_buff.sub_unit_hp
+        self.assertGreater(sub_absorbed, 0, "子单位应吸收全部伤害")
+
+        hp_before = caster.current_hp
+        result = ss._apply_lifesteal(caster, make_lifesteal_effect(25.0), bf)
+        self.assertIsNotNone(result, "lifesteal 不应跳过")
+        self.assertEqual(caster.current_hp - hp_before,
+                         int(sub_absorbed * 25 / 100),
+                         "打在子单位上的伤害也应计入吸血基数")
+
+    # ── hp_ratio_damage 路径 ─────────────────────────────────
+
+    def test_hp_ratio_damage_base_includes_shield(self):
+        """hp_ratio_damage 打在盾上的部分也计入转化基数。"""
+        bf, ss, caster, enemy = self._make_ctx(enemy_shield=10_000_000)
+        enemy.current_hp = 500000
+        hp_before, shield_before = enemy.current_hp, enemy.shield
+        result = ss._apply_hp_ratio_damage(caster, make_hp_ratio_effect(10.0), bf)
+        absorbed = self._absorbed_total(enemy, shield_before, hp_before)
+        self.assertGreater(absorbed, 0, "盾应吸收全部HP比例伤害")
+        self.assertEqual(enemy.current_hp, hp_before, "HP不应损失")
+        self.assertEqual(ss._most_recent_damage, absorbed,
+                         "hp_ratio路径基数=盾吸收量（修复前为0）")
+
+        caster_shield_before = caster.shield
+        ss._apply_shield_from_damage(caster, make_shield_from_damage_effect(30.0), bf)
+        self.assertEqual(caster.shield - caster_shield_before,
+                         int(absorbed * 30 / 100),
+                         "ファーストブランド+在hp_ratio主伤下也应正确转盾")
+
+
+if __name__ == '__main__':
+    unittest.main()

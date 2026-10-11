@@ -1,0 +1,290 @@
+"""敌方772405 惨禍：オルガ＆ナージャ 专项E2E测试（同名己方500301的敌方版）
+
+技能列表（5个，全部Lv10）:
+- EX: 210128 母娘の絆（最高HP敌EN攻击+邻接敌EN攻击+气绝(Lv5+) + 防御down）
+- AS1: 220468 ヴォルコワの血脈∞（HP<40%时盾+回复，HP比例缩放）
+- AS2: 220469 システマ・ヴラシェーニヤ∞（EN攻击；HP>=40%时本技能atk+20%/与damage+5%）
+- PS1: 230498 ストレラ+（自身AS攻击后→PP+1+atk_up+追击刚攻击敌；状态异常时删PP；敌方版无HP/AP门槛）
+- PS2: 230499 鉄壁の母娘（自身被攻击前→guard；シャイ/スマート属性攻击者用guard2）
+
+覆盖维度:
+1. EX 主目标+邻接+气绝+防御down
+2. AS1 HP门槛与盾/回复
+3. AS2 条件增伤对比
+4. PS1 自身攻击后追击+PP机制+状态异常删PP
+5. PS2 属性分档格挡
+6. 配置校验
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+
+EX_ID, AS1_ID, AS2_ID, PS1_ID, PS2_ID = 210128, 220468, 220469, 230498, 230499
+ALL_SKILLS = [EX_ID, AS1_ID, AS2_ID, PS1_ID, PS2_ID]
+
+
+class TestActor772405(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.dms = DamageService()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        # 敌方施法者（土属性EN攻击手视角）
+        self.caster = UnitState(
+            unit_id="caster", name="惨禍オルガナージャ", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=772405, level=10,
+            element=4, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=10, initial_passive_point=10, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=5,
+            skills=ALL_SKILLS,
+            skill_levels={sid: 10 for sid in ALL_SKILLS},
+            skill_cooldowns={},
+        )
+        self.ally_cf = self._mk_ally("ally_cf", "味方中前", Position.ALLY_CENTER_FRONT)
+        self.ally_lf = self._mk_ally("ally_lf", "味方左前", Position.ALLY_LEFT_FRONT)
+        self.ally_rf = self._mk_ally("ally_rf", "味方右前", Position.ALLY_RIGHT_FRONT)
+        self.ally_cb = self._mk_ally("ally_cb", "味方中後", Position.ALLY_CENTER_BACK)
+
+        self.bf.enemy_team = [self.caster]
+        self.bf.friend_team = [self.ally_cf, self.ally_lf, self.ally_rf, self.ally_cb]
+
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs, damage_service=self.dms,
+            aura_service=self.aus, status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    def _mk_ally(self, unit_id, name, position):
+        return UnitState(
+            unit_id=unit_id, name=name, side=Side.ALLY,
+            position=position, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=99999, current_hp=99999,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+    def _reset(self):
+        self.caster.current_hp = self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = 10
+        self.caster.current_pp = 10
+        self.caster.current_ep = 5
+        self.caster.crit_counter = 0
+        self.caster.shield = 0
+        self.caster.is_confused = False
+        self.caster.is_genwaku = False
+        for u in [self.ally_cf, self.ally_lf, self.ally_rf, self.ally_cb]:
+            u.current_hp = u.max_hp
+            u.buffs = []
+            u.debuffs = []
+            u.is_alive = True
+
+    # ─────────────── EX 210128 ───────────────
+
+    def test_ex_210128_main_adjacent_stun_defdown(self):
+        """EX: 最高HP敌主攻击+邻接敌攻击+主目标气绝(Lv10>=5)+防御down。"""
+        self._reset()
+        self.ally_cf.max_hp = 120000  # 最高HP
+        self.ally_cf.current_hp = 120000
+        result = self.ss.execute_skill(caster=self.caster, skill_id=EX_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertLess(self.ally_cf.current_hp, self.ally_cf.max_hp, "主目标(最高HP)应受击")
+        self.assertLess(self.ally_lf.current_hp, self.ally_lf.max_hp, "邻接敌应受击")
+        self.assertLess(self.ally_rf.current_hp, self.ally_rf.max_hp, "邻接敌应受击")
+        self.assertEqual(self.ally_cb.current_hp, self.ally_cb.max_hp, "非邻接不应受击")
+        # 气绝（Lv10 满足 level_min 5）
+        stuns = [d for d in self.ally_cf.debuffs
+                 if d.effect_type in ("knockout", "Knockout")]
+        self.assertGreaterEqual(len(stuns), 1, "Lv10应气绝主目标1行动")
+        # 防御down（主目标+邻接）
+        def_downs_cf = [d for d in self.ally_cf.debuffs if d.effect_type == STATUS_DEFENSE]
+        def_downs_lf = [d for d in self.ally_lf.debuffs if d.effect_type == STATUS_DEFENSE]
+        self.assertGreaterEqual(len(def_downs_cf), 1, "主目标应获得防御down")
+        self.assertGreaterEqual(len(def_downs_lf), 1, "邻接敌应获得防御down")
+
+    # ─────────────── AS1 220468 ───────────────
+
+    def test_as1_220468_shield_heal_below_40pct(self):
+        """AS1: HP<40%时获得盾(atk×50%×缩放)+回复(威力50%×缩放)。"""
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.3)  # 30% < 40%
+        hp_before = self.caster.current_hp
+        result = self.ss.execute_skill(caster=self.caster, skill_id=AS1_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertGreater(self.caster.shield, 0, "应获得盾")
+        self.assertGreater(self.caster.current_hp, hp_before, "应获得回复")
+
+    def test_as1_220468_unusable_above_40pct(self):
+        """AS1: HP>=40%时不可用（gc self_hp_below 40）。"""
+        self._reset()
+        result = self.ss.execute_skill(caster=self.caster, skill_id=AS1_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertFalse(result.get("success", True), "HP>=40%时技能应不可用")
+        self.assertEqual(self.caster.shield, 0, "不应获得盾")
+
+    # ─────────────── AS2 220469 ───────────────
+
+    def test_as2_220469_buffs_above_40pct(self):
+        """AS2: HP>=40%时本技能内atk+20%/与damage+5%→伤害更高。"""
+        self._reset()
+        self.ss.execute_skill(caster=self.caster, skill_id=AS2_ID,
+                              battlefield=self.bf, skip_cost=True)
+        dmg_high = self.ally_cf.max_hp - self.ally_cf.current_hp
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.3)  # 30% < 40%
+        self.ss.execute_skill(caster=self.caster, skill_id=AS2_ID,
+                              battlefield=self.bf, skip_cost=True)
+        dmg_low = self.ally_cf.max_hp - self.ally_cf.current_hp
+        self.assertGreater(dmg_high, dmg_low, "HP>=40%时增伤分支伤害更高")
+
+    # ─────────────── PS1 230498 ───────────────
+
+    def _trigger_ps1(self):
+        return [a for a in self.ts.trigger_after_as_attack(
+            self.caster, AS2_ID, {"total_damage": 100}, self.bf,
+            primary_target=self.ally_cf)
+            if a.skill_id == PS1_ID]
+
+    def test_ps1_230498_chase_and_pp_after_own_attack(self):
+        """PS1: 自身AS攻击后→追击刚攻击敌（含本技能atk_up加成）+PP净0。
+
+        atk_up为duration_type=skill（仅本技能中生效），技能结束后不残留，
+        通过追击伤害验证加成：(atk×1.35 - def) × 78% > 无加成的 (atk-def) × 78%。
+        """
+        self._reset()
+        self.caster.current_pp = 5
+        pp_before = self.caster.current_pp
+        cf_hp_before = self.ally_cf.current_hp
+        ps1 = self._trigger_ps1()
+        self.assertGreater(len(ps1), 0, "自身AS攻击后应触发PS1")
+        self.ss._execute_trigger_actions_inline(ps1, self.bf)
+        self.assertEqual(self.caster.current_pp, pp_before,
+                         "PP应净0：施放消耗1+回复1")
+        chase_dmg = cf_hp_before - self.ally_cf.current_hp
+        self.assertGreater(chase_dmg, (self.caster.attack - self.ally_cf.defense) * 0.78,
+                           "追击伤害应高于无atk_up基线（含+35%加成）")
+
+    def test_ps1_230498_pp_removed_on_status_ailment(self):
+        """PS1: 自身状态异常时，回复的PP被删除（净-1：施放-1+回复+1-删除-1）。"""
+        self._reset()
+        self.caster.current_pp = 5
+        self.caster.debuffs.append(BuffState(
+            buff_id="poison_1", name="毒", effect_type="poison", value=5.0, duration=2,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="ally_cf", source_skill_id=0, is_debuff=True,
+        ))
+        pp_before = self.caster.current_pp
+        ps1 = self._trigger_ps1()
+        self.assertGreater(len(ps1), 0)
+        self.ss._execute_trigger_actions_inline(ps1, self.bf)
+        self.assertEqual(self.caster.current_pp, pp_before - 1,
+                         "状态异常时净-1：施放-1+回复+1-删除-1")
+
+    # ─────────────── PS2 230499 ───────────────
+
+    def _trigger_ps2(self, attacker_element):
+        attacker = self._mk_ally("tmp_atk", "攻撃者", Position.ALLY_CENTER_FRONT)
+        attacker.element = attacker_element
+        return [a for a in self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf, attacker=attacker)
+            if a.skill_id == PS2_ID]
+
+    def test_ps2_230499_guard2_vs_shy_smart(self):
+        """PS2: シャイ(水2)/スマート(风3)属性攻击者→Guard buff guard2（Lv10=75%）。"""
+        self._reset()
+        ps2 = self._trigger_ps2(2)  # 水属性
+        self.assertGreater(len(ps2), 0, "自身被攻击前应触发")
+        self.ss._execute_trigger_actions_inline(ps2, self.bf)
+        guards = [b for b in self.caster.buffs if b.effect_type == "Guard"]
+        self.assertEqual(len(guards), 1, "应获得Guard buff（legacy机制）")
+        self.assertEqual(guards[0].value, 75.0, "水属性攻击者应使用guard2=75%")
+
+    def test_ps2_230499_guard_vs_other(self):
+        """PS2: 其他属性攻击者→Guard buff guard（Lv10=30%）。"""
+        self._reset()
+        ps2 = self._trigger_ps2(1)  # 火属性
+        self.assertGreater(len(ps2), 0)
+        self.ss._execute_trigger_actions_inline(ps2, self.bf)
+        guards = [b for b in self.caster.buffs if b.effect_type == "Guard"]
+        self.assertEqual(len(guards), 1)
+        self.assertEqual(guards[0].value, 30.0, "火属性攻击者应使用guard=30%")
+
+    # ─────────────── 配置校验 ───────────────
+
+    def test_config_validation(self):
+        """配置校验: 敌方版差异点。"""
+        p128 = self.dl.get_parsed_skill_data(EX_ID)
+        stuns = [e for b in p128['effect_blocks'] for e in b['effects']
+                 if e['effect_type'] == 'add_status']
+        self.assertTrue(stuns, "EX应有气绝")
+        self.assertEqual(stuns[0]['flags'].get('level_min'), 5, "气绝进阶阈值应为5")
+
+        p498 = self.dl.get_parsed_skill_data(PS1_ID)
+        self.assertEqual(p498.get('trigger_type'), 'after_as_attack', "敌方PS1应触发自身攻击后")
+        self.assertIsNone(p498.get('global_condition'), "敌方PS1应无HP/AP门槛")
+        blocks = p498['effect_blocks']
+        self.assertIsNone(blocks[0].get('condition'), "Block1应无属性条件")
+        block_types = [e['effect_type'] for b in blocks for e in b['effects']]
+        self.assertIn('modify_pp', block_types)
+        self.assertIn('atk_up', block_types)
+        dmg = [e for b in blocks for e in b['effects'] if e['effect_type'] == 'damage'][0]
+        self.assertTrue(dmg['flags'].get('is_follow_up'), "追击应为is_follow_up")
+        self.assertTrue(dmg['flags'].get('is_en_attack'))
+        b3_cond = blocks[2].get('condition') or {}
+        self.assertEqual(b3_cond.get('type'), 'self_has_status_ailment', "Block3应仅状态异常条件")
+
+        p499 = self.dl.get_parsed_skill_data(PS2_ID)
+        gc499 = p499.get('global_condition') or {}
+        self.assertEqual(gc499.get('type'), 'target_is_self')
+
+        p468 = self.dl.get_parsed_skill_data(AS1_ID)
+        self.assertEqual((p468.get('global_condition') or {}).get('type'), 'self_hp_below')
+
+
+if __name__ == '__main__':
+    unittest.main()

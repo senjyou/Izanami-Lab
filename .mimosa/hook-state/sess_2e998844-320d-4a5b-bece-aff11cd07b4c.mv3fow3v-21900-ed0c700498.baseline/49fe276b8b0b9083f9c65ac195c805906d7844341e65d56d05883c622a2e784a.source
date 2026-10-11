@@ -1,0 +1,191 @@
+"""Regression: 幻惑(Genwaku)によりダメージが回復に転換された際、
+叙事ログに [幻惑回复] として出力されるべきだが、
+従来は [伤害] ... 0 点物理伤害 と出力されていた。
+
+Bug: skill_serviceのgenwaku処理は targets_hit エントリに
+     damage=0, genwaku_heal=actual_heal を格納するが、
+     battle_flow_controller._log_narrative_effects は
+     genwaku_heal フィールドをチェックせず、
+     damage=0 として [伤害] ... 0 点...伤害 を出力していた。
+
+Fix: 1. battle_narrative.py に genwaku_heal() メソッドを追加
+     2. battle_flow_controller.py のダメージ叙事分岐前に
+        genwaku_heal チェックを追加
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+GENWAKU = SkillEffectType.GENWAKU.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WIND.value,
+               character_type=2, skills=None, skill_levels=None,
+               current_hp=None, char_id=146301):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=char_id, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegGenwakuNarrative(unittest.TestCase):
+    """幻惑(伤害转回复)の叙事ログは [幻惑回复] として出力されるべき。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_genwaku_narrative_shows_heal_not_zero_damage(self):
+        """幻惑持有者攻击时，叙事日志应显示 [幻惑回复] 而非 [伤害] 0 点。"""
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120153], skill_levels={120153: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=50.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=3000, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=50000, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        enemy_hp_before = enemy.current_hp
+        result = ss.execute_skill(caster, 120153, bf, skip_cost=True)
+        self.assertTrue(result.get("success"), f"技能执行失败: {result.get('error', '')}")
+
+        # 验证敌方HP增加(回血)
+        self.assertGreater(enemy.current_hp, enemy_hp_before,
+                          "幻惑应使伤害转为回血，敌方HP应增加")
+
+        # 验证 targets_hit 包含 genwaku_heal 字段
+        dmg_effects = [e for e in result.get("effects_applied", [])
+                       if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "应有伤害效果")
+        targets = dmg_effects[0].get("targets", [])
+        genwaku_target = next((t for t in targets if t.get("genwaku_heal") is not None), None)
+        self.assertIsNotNone(genwaku_target, "targets_hit 应包含 genwaku_heal 字段")
+        self.assertGreater(genwaku_target["genwaku_heal"], 0, "genwaku_heal 应大于0")
+
+        # 验证叙事日志输出 [幻惑回复]
+        ctrl._log_narrative_effects(caster, result, "一点突破の戦術", 1, 120153)
+        narrative_text = "\n".join(writer._lines)
+        self.assertIn("[幻惑回复]", narrative_text,
+                      "幻惑回血叙事日志应包含 [幻惑回复]")
+        self.assertNotIn("0 点", narrative_text,
+                         "幻惑回血不应显示 '0 点...伤害'")
+        heal_amount = genwaku_target["genwaku_heal"]
+        self.assertIn(f"+{heal_amount} HP", narrative_text,
+                      "叙事日志应显示回血量")
+
+    def test_genwaku_narrative_multi_hit(self):
+        """多hit技能(120152 3hit)的幻惑回血叙事也应正确显示。"""
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120152, 120153], skill_levels={120152: 10, 120153: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=50.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=200000, atk=5000, defense=3000, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=50000, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        enemy_hp_before = enemy.current_hp
+        result = ss.execute_skill(caster, 120152, bf, skip_cost=True)
+        self.assertTrue(result.get("success"), f"技能执行失败: {result.get('error', '')}")
+
+        self.assertGreater(enemy.current_hp, enemy_hp_before,
+                          "幻惑应使伤害转为回血")
+
+        ctrl._log_narrative_effects(caster, result, "逆転の方策", 1, 120152)
+        narrative_text = "\n".join(writer._lines)
+        self.assertIn("[幻惑回复]", narrative_text,
+                      "多hit幻惑回血叙事日志应包含 [幻惑回复]")
+        self.assertNotIn("0 点", narrative_text,
+                         "幻惑回血不应显示 '0 点...伤害'")
+
+
+if __name__ == '__main__':
+    unittest.main()

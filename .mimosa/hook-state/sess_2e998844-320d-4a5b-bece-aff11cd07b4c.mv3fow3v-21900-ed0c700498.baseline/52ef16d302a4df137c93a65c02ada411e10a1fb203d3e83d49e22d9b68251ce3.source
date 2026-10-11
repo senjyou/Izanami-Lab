@@ -1,0 +1,419 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+批量转储敌人技能数据脚本
+1. 从 SkillMaster.json 中提取所有 2xxxxx 技能（敌方技能），补全 skills.json
+2. 从 SkillMaster.json 中解析技能效果，补全 skill_effects_hybrid.json
+3. 从 EnemyMaster.json + EnemySkillMaster.json 中补全 enemies.json 中缺失的敌方
+"""
+
+import json
+import sys
+from pathlib import Path
+from copy import deepcopy
+
+PROJECT_ROOT = Path(__file__).parent.parent
+SPLIT_DATA_DIR = PROJECT_ROOT / "split_data"
+DATA_DIR = PROJECT_ROOT / "data"
+
+
+def load_json(path: Path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_json(path: Path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def build_skill_entry(skill_data: dict) -> dict:
+    """从 SkillMaster.json 条目构建 skills.json 条目"""
+    sid = skill_data["Id"]
+    tags = {}
+    for tag in skill_data.get("TemplateTags", []):
+        tag_name = tag.get("TagName", "")
+        values = [
+            {"level": v.get("Level", 1), "value": v.get("Value", 0.0)}
+            for v in tag.get("Values", [])
+        ]
+        tags[tag_name] = {
+            "interpolation_mode": tag.get("InterpolationMode", 1),
+            "values": values,
+        }
+
+    descriptions = [
+        {"min_level": d.get("Level", 1), "template": d.get("Template", "")}
+        for d in skill_data.get("DescriptionTemplates", [])
+    ]
+
+    additional_kinds = [
+        {"level": a.get("Level", 1), "value": a.get("Value", 1)}
+        for a in skill_data.get("AdditionalKinds", [])
+    ]
+
+    return {
+        "skill_id": sid,
+        "name": skill_data.get("Name", ""),
+        "skill_type": skill_data.get("Type", 1),
+        "skill_kind": skill_data.get("Kind", 1),
+        "resource_cost": skill_data.get("ResourceCost", 0),
+        "cooldown": skill_data.get("CoolTime"),
+        "cooldown_update_timing": skill_data.get("CoolTimeUpdateTiming"),
+        "default_max_level": skill_data.get("DefaultMaxLevel", 10),
+        "features": skill_data.get("Features", 0),
+        "skill_level_pattern_id": skill_data.get("SkillLevelPatternMasterId", 0),
+        "additional_kinds": additional_kinds,
+        "descriptions": descriptions,
+        "template_tags": tags,
+        "display_info": {},
+    }
+
+
+def dump_missing_skills():
+    """补全 skills.json 中缺失的敌方技能（2xxxxx）"""
+    print("=" * 60)
+    print("[1/3] 补全 skills.json 缺失的敌方技能...")
+    print("=" * 60)
+
+    skill_master = load_json(SPLIT_DATA_DIR / "SkillMaster.json")
+    existing_skills = load_json(DATA_DIR / "skills.json")
+
+    # 收集 SkillMaster 中所有 2xxxxx 技能 ID
+    enemy_skill_ids = set()
+    for item in skill_master:
+        sid = item["Id"]
+        sid_str = str(sid)
+        if sid_str.startswith("2"):
+            enemy_skill_ids.add(sid)
+
+    # 找出缺失的技能
+    missing_ids = enemy_skill_ids - set(int(k) for k in existing_skills.keys())
+    print(f"SkillMaster 中 2xxxxx 技能总数: {len(enemy_skill_ids)}")
+    print(f"skills.json 中已有技能数: {len(existing_skills)}")
+    print(f"缺失技能数: {len(missing_ids)}")
+
+    if not missing_ids:
+        print("[OK] 没有缺失的技能，无需补全")
+        return
+
+    # 构建缺失技能条目
+    skill_master_map = {item["Id"]: item for item in skill_master}
+    added = 0
+    for sid in sorted(missing_ids):
+        item = skill_master_map.get(sid)
+        if item is None:
+            print(f"  [WARN] 技能 {sid} 在 SkillMaster.json 中不存在")
+            continue
+        entry = build_skill_entry(item)
+        existing_skills[str(sid)] = entry
+        added += 1
+
+    # 备份并保存
+    backup_path = DATA_DIR / "skills.json.bak"
+    load_json(DATA_DIR / "skills.json")  # just read to verify
+    import shutil
+    shutil.copy(DATA_DIR / "skills.json", backup_path)
+    print(f"[INFO] 已备份 skills.json -> skills.json.bak")
+
+    save_json(DATA_DIR / "skills.json", existing_skills)
+    print(f"[OK] 已补全 {added} 个缺失技能到 skills.json")
+
+
+def _build_fallback_effect_blocks(skill_data: dict) -> list:
+    """为解析失败的技能构建基础fallback效果块
+
+    根据技能的 Kind 和 Type 构建最小可用效果：
+    - Kind=1 (Attack): 添加基础伤害效果
+    - Kind=2 (Interference/Support): 保持空（被动效果过于复杂）
+    - Kind=3 (Recovery): 保持空
+    """
+    from scripts.parse_skill_hybrid import EffectData, EffectBlock
+
+    kind = skill_data.get("Kind", 0)
+    skill_type = skill_data.get("Type", 1)
+    display_target_type = skill_data.get("DisplayTargetType", 0)
+    display_target_range = skill_data.get("DisplayTargetRange", 0)
+
+    # 解析目标
+    target = "enemy_single"
+    if display_target_type == 3:  # Enemies
+        if display_target_range == 2:  # AllPawns
+            target = "enemy_all"
+        elif display_target_range == 1:  # Line
+            target = "enemy_row"
+        else:
+            target = "enemy_single"
+    elif display_target_type == 1:  # Friends
+        target = "ally_all" if display_target_range == 2 else "ally_single"
+    elif display_target_type == 2:  # Self
+        target = "self"
+
+    effects = []
+
+    if kind == 1:  # Attack
+        eff = EffectData(effect_type="damage", target_type=target)
+        tags = skill_data.get("TemplateTags", [])
+        tag_names = {t.get("TagName") for t in tags}
+        if "威力" in tag_names:
+            eff.value_tag = "威力"
+        elif "dmg" in tag_names:
+            eff.value_tag = "dmg"
+        effects.append(eff)
+
+        # 检查是否有攻撃回数
+        if "攻撃回数" in tag_names:
+            eff.hit_count_tag = "攻撃回数"
+
+    if effects:
+        return [EffectBlock(block_id=1, effects=effects)]
+    return []
+
+
+def _build_fallback_parsed_skill(skill_data: dict) -> dict:
+    """为解析失败的技能构建最小可用的ParsedSkill数据"""
+    from scripts.parse_skill_hybrid import ParsedSkill
+
+    skill_id = skill_data.get("Id")
+    sid_str = str(skill_id)
+    is_passive = sid_str.startswith("13") or sid_str.startswith("23")
+
+    parsed = ParsedSkill(
+        skill_id=skill_id,
+        name=skill_data.get("Name", ""),
+        skill_type=skill_data.get("Type", 1),
+        resource_cost=skill_data.get("ResourceCost"),
+        cooldown=skill_data.get("CoolTime"),
+        cooldown_update_timing=skill_data.get("CoolTimeUpdateTiming"),
+        display_target_priority=skill_data.get("DisplayTargetPriority"),
+        display_target_range=skill_data.get("DisplayTargetRange"),
+        display_target_type=skill_data.get("DisplayTargetType"),
+    )
+
+    if is_passive:
+        parsed.trigger_type = "on_battle_start"
+    else:
+        parsed.effect_blocks = _build_fallback_effect_blocks(skill_data)
+
+    if not parsed.effect_blocks:
+        parsed.parse_status = "failed"
+        parsed.parse_notes = ["No effects resolved (fallback also empty)"]
+    else:
+        parsed.parse_status = "partial"
+        parsed.parse_notes = ["Using fallback effects - text parsing failed"]
+
+    return parsed
+
+
+def dump_missing_skill_effects():
+    """补全 skill_effects_hybrid.json 中缺失的敌方技能效果"""
+    print("\n" + "=" * 60)
+    print("[2/3] 补全 skill_effects_hybrid.json 缺失的敌方技能效果...")
+    print("=" * 60)
+
+    # 导入混合解析器
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from scripts.parse_skill_hybrid import HybridSkillParser
+    from dataclasses import asdict
+
+    skill_master = load_json(SPLIT_DATA_DIR / "SkillMaster.json")
+    existing_effects = load_json(DATA_DIR / "skill_effects_hybrid.json")
+
+    # 收集 SkillMaster 中所有 2xxxxx 技能 ID
+    enemy_skill_ids = set()
+    for item in skill_master:
+        sid = item["Id"]
+        sid_str = str(sid)
+        if sid_str.startswith("2"):
+            enemy_skill_ids.add(sid)
+
+    # 找出缺失的技能
+    missing_ids = [sid for sid in enemy_skill_ids if str(sid) not in existing_effects]
+    print(f"skill_effects_hybrid.json 中已有技能效果数: {len(existing_effects)}")
+    print(f"缺失技能效果数: {len(missing_ids)}")
+
+    if not missing_ids:
+        print("[OK] 没有缺失的技能效果，无需补全")
+        return
+
+    # 解析缺失技能
+    parser = HybridSkillParser()
+    skill_master_map = {item["Id"]: item for item in skill_master}
+
+    added = 0
+    failed = 0
+    fallback_used = 0
+    for sid in sorted(missing_ids):
+        item = skill_master_map.get(sid)
+        if item is None:
+            continue
+
+        parsed = parser.parse_skill(item)
+        parsed_dict = asdict(parsed)
+
+        # 如果解析失败，尝试构建fallback效果
+        if parsed.parse_status == "failed":
+            fallback = _build_fallback_parsed_skill(item)
+            fallback_dict = asdict(fallback)
+            if fallback.parse_status != "failed":
+                parsed_dict = fallback_dict
+                fallback_used += 1
+                print(f"  [FALLBACK] {sid} {item.get('Name', '')}: kind={item.get('Kind')} -> fallback effects generated")
+            else:
+                failed += 1
+                print(f"  [FAILED] {sid} {item.get('Name', '')}: {parsed.parse_notes}")
+
+        existing_effects[str(sid)] = parsed_dict
+
+        if parsed_dict.get("parse_status") == "success":
+            added += 1
+        elif parsed_dict.get("parse_status") == "partial":
+            added += 1
+            if parsed.parse_status != "failed":
+                print(f"  [PARTIAL] {sid} {item.get('Name', '')}: {parsed.parse_notes}")
+
+    # 备份并保存
+    import shutil
+    backup_path = DATA_DIR / "skill_effects_hybrid.json.bak"
+    shutil.copy(DATA_DIR / "skill_effects_hybrid.json", backup_path)
+    print(f"[INFO] 已备份 skill_effects_hybrid.json -> skill_effects_hybrid.json.bak")
+
+    save_json(DATA_DIR / "skill_effects_hybrid.json", existing_effects)
+    print(f"[OK] 已补全 {added} 个技能效果，{failed} 个失败，{fallback_used} 个使用fallback")
+
+
+def dump_missing_enemies():
+    """补全 enemies.json 中缺失的敌方单位"""
+    print("\n" + "=" * 60)
+    print("[3/3] 补全 enemies.json 缺失的敌方单位...")
+    print("=" * 60)
+
+    enemy_master = load_json(SPLIT_DATA_DIR / "EnemyMaster.json")
+    enemy_skill_master = load_json(SPLIT_DATA_DIR / "EnemySkillMaster.json")
+    existing_enemies = load_json(DATA_DIR / "enemies.json")
+
+    # 构建 EnemySkillMaster 映射
+    enemy_skill_map = {}
+    for item in enemy_skill_master:
+        eid = item["EnemyMasterId"]
+        if eid not in enemy_skill_map:
+            enemy_skill_map[eid] = []
+        enemy_skill_map[eid].append(item["SkillMasterId"])
+
+    # 找出缺失的敌方
+    existing_ids = set(int(k) for k in existing_enemies.keys())
+    master_ids = set(item["Id"] for item in enemy_master)
+    missing_ids = master_ids - existing_ids
+
+    print(f"EnemyMaster.json 中敌方总数: {len(master_ids)}")
+    print(f"enemies.json 中已有敌方数: {len(existing_ids)}")
+    print(f"缺失敌方数: {len(missing_ids)}")
+
+    if not missing_ids:
+        print("[OK] 没有缺失的敌方单位，无需补全")
+        return
+
+    enemy_master_map = {item["Id"]: item for item in enemy_master}
+
+    added = 0
+    for eid in sorted(missing_ids):
+        item = enemy_master_map.get(eid)
+        if item is None:
+            continue
+
+        skill_ids = enemy_skill_map.get(eid, [])
+
+        entry = {
+            "enemy_id": eid,
+            "name": item.get("Name", ""),
+            "asset_id": item.get("AssetId", ""),
+            "hp": item.get("Hp", 0),
+            "attack": item.get("Attack", 0),
+            "defense": item.get("Defense", 0),
+            "speed": item.get("Speed", 0),
+            "hp_grade": item.get("HpGrade", 1),
+            "attack_grade": item.get("AttackGrade", 1),
+            "defense_grade": item.get("DefenseGrade", 1),
+            "speed_grade": item.get("SpeedGrade", 1),
+            "critical_rate": item.get("CriticalRate", 0.0),
+            "critical_rate_grade": item.get("CriticalRateGrade", 1),
+            "attribute": item.get("Attribute", 1),
+            "type": item.get("Type", 1),
+            "role_type": item.get("RoleType", 1),
+            "rarity": item.get("Rarity", 1),
+            "skill_ids": skill_ids,
+        }
+        existing_enemies[str(eid)] = entry
+        added += 1
+
+    # 备份并保存
+    import shutil
+    backup_path = DATA_DIR / "enemies.json.bak"
+    shutil.copy(DATA_DIR / "enemies.json", backup_path)
+    print(f"[INFO] 已备份 enemies.json -> enemies.json.bak")
+
+    save_json(DATA_DIR / "enemies.json", existing_enemies)
+    print(f"[OK] 已补全 {added} 个缺失敌方单位到 enemies.json")
+
+
+def verify_tactical_exercise_skills():
+    """验证战术演习中涉及的敌人技能是否都已补全"""
+    print("\n" + "=" * 60)
+    print("[验证] 检查战术演习敌方技能完整性...")
+    print("=" * 60)
+
+    tactical_enemies = load_json(DATA_DIR / "tactical_exercise_enemies.json")
+    skills = load_json(DATA_DIR / "skills.json")
+    effects = load_json(DATA_DIR / "skill_effects_hybrid.json")
+
+    missing_skills = set()
+    missing_effects = set()
+
+    for eid_str, enemy_data in tactical_enemies.items():
+        skill_ids = enemy_data.get("skill_ids", [])
+        for sid in skill_ids:
+            if str(sid) not in skills:
+                missing_skills.add(sid)
+            if str(sid) not in effects:
+                missing_effects.add(sid)
+
+    if missing_skills:
+        print(f"[WARN] skills.json 中仍缺失的技能: {sorted(missing_skills)}")
+    else:
+        print("[OK] 所有战术演习敌方技能已在 skills.json 中")
+
+    if missing_effects:
+        print(f"[WARN] skill_effects_hybrid.json 中仍缺失的技能: {sorted(missing_effects)}")
+    else:
+        print("[OK] 所有战术演习敌方技能已在 skill_effects_hybrid.json 中")
+
+    return len(missing_skills) == 0 and len(missing_effects) == 0
+
+
+def main():
+    print("=" * 60)
+    print("  批量转储敌人技能数据")
+    print("=" * 60)
+
+    # 1. 补全 skills.json
+    dump_missing_skills()
+
+    # 2. 补全 skill_effects_hybrid.json
+    dump_missing_skill_effects()
+
+    # 3. 补全 enemies.json
+    dump_missing_enemies()
+
+    # 4. 验证
+    all_ok = verify_tactical_exercise_skills()
+
+    print("\n" + "=" * 60)
+    if all_ok:
+        print("  转储完成！所有战术演习敌方技能已就绪")
+    else:
+        print("  转储完成，但仍有部分技能缺失，请检查上方警告")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,187 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+RDPS 归因：属性限定乘区 buff 的过滤回归测试
+
+问题（2026-10-07 用户报告）：
+    回忆卡30006「少女たちとの邂逅」（全员与伤害+2%[无属性限制] + 会心率+1%）的RDPS
+    低于 30037「未来を勝ち取るために」（物理+1.75% / EN+1.75% 两条属性限定buff）。
+    正常情况下30006每次攻击贡献2%乘区+暴击收益，应永远高于30037的单条1.75%。
+
+根因：
+    rdps_tracker 的 dealt/received 乘区归因（_compute_baseline_ally 基线聚合 与
+    _attribute_buffs_by_value 权重池）未按伤害属性过滤 DealtDamage/ReceivedDamage buff：
+    物理攻击把30037的EN专属buff（damage_element=2）也计入权重池，
+    每次攻击30037的两条buff都被分摊share（权重 1.75+1.75=3.5 vs 30006的2.0），
+    导致30037归因虚高。而 damage_service 的实际结算是有属性过滤的
+    （_aggregate_buff_value_signed_filtered），基线与实际不一致还破坏守恒分解。
+
+修复：
+    1. damage_service.calculate_damage 的 calc_detail 增加 damage_element（1=物理/2=EN）
+    2. rdps_tracker 基线聚合与归因权重池按 calc.damage_element 过滤
+       （damage_element=0 时保持旧的不过滤行为，兼容 hp_ratio/special 等无属性路径）
+
+本测试锁定：物理/EN攻击下，30006 的 RDPS 必须高于 30037，且守恒成立。
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.damage_service import DamageService, DamageResult
+from src.combat_v2.rdps_tracker import RDPSTracker
+
+DEALT = SkillEffectType.DEALT_DAMAGE.value
+CRIT_CHANCE = SkillEffectType.STATUS_CRITICAL_CHANCE.value
+
+
+def make_unit(unit_id, name, side=Side.ALLY, attack=1000, defense=400,
+              character_type=1):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=Position.ALLY_LEFT_FRONT if side == Side.ALLY else Position.ENEMY_LEFT_FRONT,
+        character_id=100001, level=80, element=1, character_type=character_type,
+        max_hp=50000, attack=attack, defense=defense, speed=100,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=3, initial_passive_point=3, max_extra_point=5,
+        current_hp=50000, current_ap=3, current_pp=3, current_ep=0,
+    )
+
+
+def make_memory_buff(buff_id, effect_type, value, source_skill_id, damage_element=0,
+                     source_unit_id="a1"):
+    return BuffState(
+        buff_id=buff_id, name=f"mem_{source_skill_id}", effect_type=effect_type,
+        value=value, duration=-1, timing_type=3,
+        source_unit_id=source_unit_id, source_skill_id=source_skill_id,
+        is_memory_buff=True, is_stackable=False,
+        value_tag=0, is_debuff=False,
+        damage_element=damage_element,
+    )
+
+
+class TestRDPSElementBuffAttribution(unittest.TestCase):
+    """30006 vs 30037：属性限定乘区buff的归因过滤"""
+
+    def _setup(self):
+        ds = DamageService()
+        bf = BattlefieldState()
+        tracker = RDPSTracker(damage_service=ds)
+        tracker.set_battlefield(bf)
+        caster = make_unit("a1", "PhysicalAttacker", character_type=1)
+        target = make_unit("e1", "Enemy", side=Side.ENEMY)
+        bf.friend_team = [caster]
+        bf.enemy_team = [target]
+
+        # 30006 少女たちとの邂逅: 400054 与伤害+2%(全属性) + 400059 会心率+1%
+        tracker.ensure_memory_card(30006, "少女たちとの邂逅")
+        tracker.register_card_skill(30006, 400054)
+        tracker.register_card_skill(30006, 400059)
+        # 30037 未来を勝ち取るために: 400245 物理+1.75% + 400117 EN+1.75%
+        tracker.ensure_memory_card(30037, "未来を勝ち取るために")
+        tracker.register_card_skill(30037, 400245)
+        tracker.register_card_skill(30037, 400117)
+
+        caster.buffs.extend([
+            make_memory_buff("m054", DEALT, 2.0, 400054, damage_element=0),
+            make_memory_buff("m059", CRIT_CHANCE, 1.0, 400059, damage_element=0),
+            make_memory_buff("m245", DEALT, 1.75, 400245, damage_element=1),
+            make_memory_buff("m117", DEALT, 1.75, 400117, damage_element=2),
+        ])
+        return ds, bf, tracker, caster, target
+
+    def _attack(self, ds, bf, tracker, caster, target, damage_element, dealt_mult=1.0375):
+        base_diff = 600
+        actual = int(base_diff * dealt_mult)
+        calc = {
+            "atk": 1000, "def_orig": 400, "def_after_penetrate": 400,
+            "penetrate_pct": 0, "ignore_def_pct": 0, "base_diff": base_diff,
+            "skill_power": 100, "skill_factor": 1.0, "attr_factor": 1.0,
+            "crit_factor": 1.0, "dealt_mult": dealt_mult, "received_mult": 1.0,
+            "guard_mult": 1.0, "hp_scaling": 1.0,
+            "damage_element": damage_element,
+        }
+        dmg = DamageResult(
+            total_damage=actual, is_critical=False, attribute_factor=1.0,
+            hit_details=[actual], hit_crits=[False], hit_evades=[False],
+            calc_detail=calc,
+        )
+        tracker.record_damage_with_attribution(
+            caster, target, actual, dmg, "main",
+            battlefield=bf, damage_service=ds)
+        return tracker.build_result(units=bf.get_all_units())
+
+    def test_physical_attack_30006_beats_30037(self):
+        """物理攻击：30006（全属性2%）归因必须高于30037（仅物理1.75%生效）"""
+        ds, bf, tracker, caster, target = self._setup()
+        result = self._attack(ds, bf, tracker, caster, target, damage_element=1)
+
+        card06 = result.memory_card_stats.get(30006)
+        card37 = result.memory_card_stats.get(30037)
+        self.assertIsNotNone(card06)
+        self.assertIsNotNone(card37)
+        self.assertGreater(card06.total_rdps, 0)
+        self.assertGreater(card37.total_rdps, 0)
+        # 修复前：物理攻击把EN专属buff也计入权重池（3.5 vs 2.0），30037 > 30006
+        self.assertGreater(card06.total_rdps, card37.total_rdps,
+                           "30006(2%全属性+暴击)的RDPS必须高于30037(1.75%属性限定)")
+        # 权重比例约 2.0 : 1.75
+        ratio = card06.total_rdps / card37.total_rdps
+        self.assertAlmostEqual(ratio, 2.0 / 1.75, delta=0.05,
+                               msg="归因权重应与buff实际贡献比例(2:1.75)一致")
+        self.assertEqual(result.discrepancy, 0)
+
+    def test_en_attack_30006_beats_30037(self):
+        """EN攻击：30006（全属性2%）归因必须高于30037（仅EN 1.75%生效）"""
+        ds, bf, tracker, caster, target = self._setup()
+        result = self._attack(ds, bf, tracker, caster, target, damage_element=2)
+
+        card06 = result.memory_card_stats.get(30006)
+        card37 = result.memory_card_stats.get(30037)
+        self.assertGreater(card06.total_rdps, card37.total_rdps,
+                           "EN攻击下30006同样必须高于30037")
+        self.assertEqual(result.discrepancy, 0)
+
+    def test_en_buff_excluded_from_physical_pool(self):
+        """物理攻击的dealt权重池不应包含EN专属buff（直接构造权重池验证）"""
+        ds, bf, tracker, caster, target = self._setup()
+        # 权重池验证：调用 _attribute_buffs_by_value 传 damage_element=1，
+        # EN buff（m117）不应进入 all_sources
+        share = 1000.0
+        tracker._attribute_buffs_by_value(
+            caster, caster.buffs, caster.debuffs,
+            DEALT, share, "buff_contribution", "dealt_dmg_contribution",
+            bf, ds, damage_element=1)
+        result = tracker.build_result(units=bf.get_all_units())
+        card06 = result.memory_card_stats[30006]
+        card37 = result.memory_card_stats[30037]
+        # 权重比 2.0 : 1.75（EN buff 1.75 被排除）
+        ratio = card06.buff_contribution / card37.buff_contribution
+        self.assertAlmostEqual(ratio, 2.0 / 1.75, delta=0.02)
+        # 总量守恒：share 全部分配到两张卡
+        self.assertAlmostEqual(card06.buff_contribution + card37.buff_contribution,
+                               share, delta=1.0)
+
+    def test_element_zero_keeps_legacy_behavior(self):
+        """damage_element=0（无属性信息路径）保持旧行为：全部buff进入权重池"""
+        ds, bf, tracker, caster, target = self._setup()
+        share = 1000.0
+        tracker._attribute_buffs_by_value(
+            caster, caster.buffs, caster.debuffs,
+            DEALT, share, "buff_contribution", "dealt_dmg_contribution",
+            bf, ds, damage_element=0)
+        result = tracker.build_result(units=bf.get_all_units())
+        card06 = result.memory_card_stats[30006]
+        card37 = result.memory_card_stats[30037]
+        # 未过滤：权重比 2.0 : 3.5（两条1.75都进池）
+        ratio = card06.buff_contribution / card37.buff_contribution
+        self.assertAlmostEqual(ratio, 2.0 / 3.5, delta=0.02)
+
+
+if __name__ == "__main__":
+    unittest.main()

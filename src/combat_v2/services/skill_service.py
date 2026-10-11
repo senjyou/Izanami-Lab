@@ -8606,6 +8606,40 @@ class SkillService:
 
         return value, duration, hit_limited_from_dur, timing, original_dur_type
 
+    def _decide_darkness_roll(self, caster: UnitState, d_pct: float) -> bool:
+        """黑暗単一debuffの掷骰（逐步暴击分支决策対応）。True=MISS。
+
+        _random_draw_override_func 設定時（逐步暴擊モード）はユーザー選択を優先：
+        candidates=[{index:0, 黑暗発動→MISS, weight=pct}, {index:1, 命中, weight=100-pct}]、
+        decision_type='darkness'。未設定時は random.random()*100 < d_pct。
+        """
+        override = getattr(self, '_random_draw_override_func', None)
+        if override is not None:
+            ctx = {
+                'caster_name': caster.name,
+                'caster_id': caster.unit_id,
+                'skill_name': self._get_skill_name(getattr(self, '_current_skill_id', 0)),
+                'skill_id': getattr(self, '_current_skill_id', 0),
+                'darkness_pct': d_pct,
+                'candidates': [
+                    {'index': 0, 'description': f'黑暗発動→MISS ({d_pct:g}%)', 'weight': d_pct},
+                    {'index': 1, 'description': f'命中 ({100 - d_pct:g}%)', 'weight': 100 - d_pct},
+                ],
+                'decision_type': 'darkness',
+            }
+            try:
+                selected_idx = override(ctx)
+                if selected_idx in (0, 1):
+                    _log.info("[DARKNESS_MISS] %s: step-crit override -> %s (pct=%.1f%%)",
+                              caster.name, "MISS" if selected_idx == 0 else "命中", d_pct)
+                    return selected_idx == 0
+                _log.warning("[DARKNESS_MISS] %s: invalid override index %s, fallback to random",
+                             caster.name, selected_idx)
+            except Exception as e:
+                _log.warning("[DARKNESS_MISS] %s: override error %s, fallback to random",
+                             caster.name, e)
+        return random.random() * 100 < d_pct
+
     def _roll_darkness_miss(self, caster: UnitState) -> bool:
         """黑暗判定：施法者持有darkness debuff时按value%掷骰，命中则本次效果MISS。
 
@@ -8614,12 +8648,14 @@ class SkillService:
         - buff/debuff付与：_check_aura_target_skip（_apply_aura路径）与
           _apply_add_status 等付与路径 per-target 掷骰，付与失败
         多层黑暗独立掷骰，任一命中即MISS。不消耗目标回避buff（独立判定链）。
+        逐步暴击モードでは _random_draw_override_func 経由でユーザー選択可能
+        （decision_type='darkness'、候選=[MISS(weight=pct), 命中(weight=100-pct)]）。
         """
         darkness_debuffs = [d for d in caster.debuffs
                             if d.effect_type == SkillEffectType.DARKNESS.value]
         for d_buff in darkness_debuffs:
             d_pct = getattr(d_buff, 'value', 0) or 0
-            if random.random() * 100 < d_pct:
+            if self._decide_darkness_roll(caster, d_pct):
                 _log.info("[DARKNESS_MISS] %s: darkness debuff (pct=%.1f%%) triggered MISS on buff/debuff application",
                           caster.name, d_pct)
                 return True

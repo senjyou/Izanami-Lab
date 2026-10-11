@@ -1,0 +1,211 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import unittest
+from unittest.mock import MagicMock
+import sys
+from pathlib import Path
+
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, DisplayTargetType, DisplayTargetRange, DisplayTargetPriority
+from src.combat_v2.services.target_service import TargetService
+
+class TestTargetService(unittest.TestCase):
+    
+    def setUp(self):
+        self.service = TargetService()
+        self.bf = BattlefieldState()
+        self.caster = MagicMock(spec=UnitState)
+        self.caster.side = Side.ALLY
+        self.caster.position = Position.ALLY_CENTER_FRONT
+        self.caster.unit_id = "caster"
+        self.caster.name = "Caster"
+        self.caster.is_confused = False
+        
+        # Setup Enemy Team (Standard Formation)
+        # Front: Left, Center
+        # Back: Center, Right
+        self.enemy_lf = MagicMock(spec=UnitState, unit_id="e_lf", side=Side.ENEMY, position=Position.ENEMY_LEFT_FRONT, is_alive=True)
+        self.enemy_lf.name = "EnemyLF"
+        self.enemy_cf = MagicMock(spec=UnitState, unit_id="e_cf", side=Side.ENEMY, position=Position.ENEMY_CENTER_FRONT, is_alive=True)
+        self.enemy_cf.name = "EnemyCF"
+        self.enemy_cb = MagicMock(spec=UnitState, unit_id="e_cb", side=Side.ENEMY, position=Position.ENEMY_CENTER_BACK, is_alive=True)
+        self.enemy_cb.name = "EnemyCB"
+        self.enemy_rb = MagicMock(spec=UnitState, unit_id="e_rb", side=Side.ENEMY, position=Position.ENEMY_RIGHT_BACK, is_alive=True)
+        self.enemy_rb.name = "EnemyRB"
+        
+        self.bf.enemy_team = [self.enemy_lf, self.enemy_cf, self.enemy_cb, self.enemy_rb]
+        self.bf.friend_team = [self.caster]
+        
+    def test_select_single_front_priority(self):
+        """测试：敌方单体 + 前排优先"""
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.ENEMIES.value
+        skill.display_target_range = DisplayTargetRange.ONE_PAWN.value
+        skill.display_target_priority = DisplayTargetPriority.FRONT_LINE.value
+        
+        targets = self.service.select_targets(skill, self.caster, self.bf)
+        
+        # 应该选中前排的一个 (LF 或 CF)
+        # 根据 _get_position_order -> LeftFront < CenterFront
+        self.assertEqual(len(targets), 1)
+        self.assertIn(targets[0].unit_id, ["e_lf", "e_cf"])
+        
+    def test_select_single_back_priority(self):
+        """测试：敌方单体 + 后排优先"""
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.ENEMIES.value
+        skill.display_target_range = DisplayTargetRange.ONE_PAWN.value
+        skill.display_target_priority = DisplayTargetPriority.BACK_LINE.value
+        
+        targets = self.service.select_targets(skill, self.caster, self.bf)
+        
+        self.assertEqual(len(targets), 1)
+        self.assertTrue("BACK" in targets[0].position.name) # 应该是 CB 或 RB
+        
+    def test_select_row(self):
+        """测试：敌方横排"""
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.ENEMIES.value
+        # Priority 默认为 None (通常前排)
+        skill.display_target_priority = DisplayTargetPriority.FRONT_LINE.value
+        skill.display_target_range = DisplayTargetRange.LINE.value
+        
+        targets = self.service.select_targets(skill, self.caster, self.bf)
+        
+        # Anchor是前排，Range是Line -> 这里选中所有前排 (LF, CF)
+        self.assertEqual(len(targets), 2)
+        ids = [u.unit_id for u in targets]
+        self.assertIn("e_lf", ids)
+        self.assertIn("e_cf", ids)
+        
+    def test_select_column(self):
+        """测试：敌方竖列 + 中列优先"""
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.ENEMIES.value
+        skill.display_target_priority = DisplayTargetPriority.CENTER_COLUMN.value
+        skill.display_target_range = DisplayTargetRange.COLUMN.value
+        
+        targets = self.service.select_targets(skill, self.caster, self.bf)
+        
+        # Center Col 有 CF 和 CB
+        self.assertEqual(len(targets), 2)
+        ids = [u.unit_id for u in targets]
+        self.assertIn("e_cf", ids)
+        self.assertIn("e_cb", ids)
+
+    def test_select_self(self):
+        """测试：自身"""
+        skill = MagicMock()
+        skill.display_target_type = DisplayTargetType.SELF.value
+        skill.display_target_priority = DisplayTargetPriority.FRONT_LINE.value
+        skill.display_target_range = DisplayTargetRange.ONE_PAWN.value
+
+        targets = self.service.select_targets(skill, self.caster, self.bf)
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].unit_id, "caster")
+
+    def test_euclidean_distance_priority_from_left_front(self):
+        """
+        欧几里得距离排序：从左前(0,0)的索敌优先级
+        期望顺序：左前、中前、左后、中后、右前、右后
+        曼哈顿距离下中后(2)和右前(2)相同，欧几里得下中后(2)<右前(4)
+        """
+        # 创建所有6个位置的敌方单位
+        enemies = []
+        for pos, uid in [
+            (Position.ENEMY_LEFT_FRONT, "e_lf"),
+            (Position.ENEMY_CENTER_FRONT, "e_cf"),
+            (Position.ENEMY_RIGHT_FRONT, "e_rf"),
+            (Position.ENEMY_LEFT_BACK, "e_lb"),
+            (Position.ENEMY_CENTER_BACK, "e_cb"),
+            (Position.ENEMY_RIGHT_BACK, "e_rb"),
+        ]:
+            u = MagicMock(spec=UnitState, unit_id=uid, side=Side.ENEMY,
+                          position=pos, is_alive=True)
+            u.name = uid
+            enemies.append(u)
+
+        self.bf.enemy_team = enemies
+        self.caster.position = Position.ALLY_LEFT_FRONT  # 左前
+
+        # 按距离排序
+        sorted_enemies = sorted(enemies,
+                                key=lambda u: self.service._get_sort_key(self.caster, u))
+
+        order = [u.unit_id for u in sorted_enemies]
+        self.assertEqual(order, ["e_lf", "e_cf", "e_lb", "e_cb", "e_rf", "e_rb"],
+                         f"从左前索敌优先级应为 左前>中前>左后>中后>右前>右后, 实际={order}")
+
+    def test_euclidean_distance_three_targets_from_center_back(self):
+        """
+        欧几里得距离：3目标索敌（模拟なんか痛い攻撃魔法场景）
+        敌方中后位攻击友方，主目标为左前，次目标应为左后和中后（非右前）
+        """
+        # 友方5个位置
+        allies = []
+        for pos, uid in [
+            (Position.ALLY_LEFT_FRONT, "a_lf"),   # 享楽のワイルドカード
+            (Position.ALLY_RIGHT_FRONT, "a_rf"),   # 唯一無二の幼なじみ
+            (Position.ALLY_LEFT_BACK, "a_lb"),     # 渇望秘めし淑女
+            (Position.ALLY_CENTER_BACK, "a_cb"),   # ノーブル・グレイス
+            (Position.ALLY_RIGHT_BACK, "a_rb"),    # 温厚篤実な面倒くさがり
+        ]:
+            u = MagicMock(spec=UnitState, unit_id=uid, side=Side.ALLY,
+                          position=pos, is_alive=True)
+            u.name = uid
+            allies.append(u)
+
+        # 敌方在中后位
+        enemy = MagicMock(spec=UnitState, unit_id="e_cb", side=Side.ENEMY,
+                          position=Position.ENEMY_CENTER_BACK, is_alive=True)
+        enemy.name = "ミリアム"
+
+        self.bf.friend_team = allies
+        self.bf.enemy_team = [enemy]
+
+        # 从敌方中后位看友方，按距离排序
+        sorted_allies = sorted(allies,
+                               key=lambda u: self.service._get_sort_key(enemy, u))
+
+        # 主目标应是最接近的友方
+        primary = sorted_allies[0]
+        # 主目标应为左前或中前或右前之一（距离最近）
+        self.assertIn(primary.unit_id, ["a_lf", "a_cb"],
+                      f"主目标应为距离最近的友方, 实际={primary.unit_id}")
+
+        # 从主目标(左前)出发选2个最近目标
+        if primary.unit_id == "a_lf":
+            remaining = [u for u in sorted_allies[1:] if u.unit_id != "a_lf"]
+            remaining.sort(key=lambda u: self.service._get_sort_key(primary, u))
+            next_two = [u.unit_id for u in remaining[:2]]
+            # 左后(距离1)和中后(距离2)应优先于右前(距离4)
+            self.assertIn("a_lb", next_two,
+                          f"左后应在最近2目标中, next_two={next_two}")
+            self.assertIn("a_cb", next_two,
+                          f"中后应在最近2目标中(欧几里得距离2<右前4), next_two={next_two}")
+            self.assertNotIn("a_rf", next_two,
+                             f"右前不应在最近2目标中(欧几里得距离4>中后2), next_two={next_two}")
+
+    def test_euclidean_vs_manhattan_diagonal(self):
+        """
+        验证欧几里得距离正确区分对角线和直线距离
+        从(0,0)到(1,1)的欧几里得平方距离=2，到(0,2)的欧几里得平方距离=4
+        曼哈顿距离下两者都是2，无法区分
+        """
+        from src.combat_v2.services.target_service import _POS_RC
+
+        # 从左前(0,0)到中后(1,1): 欧几里得平方=1+1=2
+        dist_cb = (1 - 0) ** 2 + (1 - 0) ** 2
+        # 从左前(0,0)到右前(0,2): 欧几里得平方=0+4=4
+        dist_rf = (0 - 0) ** 2 + (2 - 0) ** 2
+
+        self.assertLess(dist_cb, dist_rf,
+                        f"中后(dist²={dist_cb})应比右前(dist²={dist_rf})更近左前")
+
+if __name__ == '__main__':
+    unittest.main()

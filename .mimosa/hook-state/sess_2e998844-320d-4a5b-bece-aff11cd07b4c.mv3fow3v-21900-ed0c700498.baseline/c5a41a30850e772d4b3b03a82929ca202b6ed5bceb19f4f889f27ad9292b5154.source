@@ -1,0 +1,804 @@
+"""add_damage (ADD_DAMAGE) 和 add_damage_to_attack (ENCHANT_DAMAGE) 单元测试。
+
+测试目标：
+1. ADD_DAMAGE (追加伤害):
+   - 公式: max(0, source_atk + min(0, source_atk - c_def)) * power%
+   - 使用buff来源施法时的快照攻击力(ab.caster_attack)
+   - 暴击率/给予伤害倍率/属性克制使用被附魔者(holder)的实时属性
+   - 暴击共享主攻击：force_crit = any(hit_crits)，暴伤固定1.5倍
+   - 结算顺序：追加伤害→附魔伤害→carried_debuff
+   - hit_limited=0永続不消耗；hit_limited>0时递减
+   - 全段闪避/OVERKILL时跳过
+
+2. ENCHANT_DAMAGE (附魔伤害):
+   - 公式: max(0, source_atk + min(0, b_atk - c_def)) * power%
+   - source_atk 优先使用 source_unit 实时ATK，找不到时用 caster_attack 快照
+   - b_atk/c_def: 被附魔者(holder=caster)和目标的实时属性
+   - 暴击共享主攻击
+   - 全段闪避/OVERKILL时跳过
+   - hit_limited=0永続不消耗；hit_limited>0时递减
+   - power_pct=0时跳过伤害但仍施加add_status
+
+3. per-target结算：每个目标的主攻击暴击结果独立判断
+4. 结算顺序：追加伤害→附魔伤害
+"""
+import sys
+import os
+import pytest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.data.data_loader import DataLoader
+
+
+# ─── 工厂函数 ──────────────────────────────────────────────
+
+def make_unit(unit_id="u1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT,
+              hp=100000, max_hp=100000, atk=10000, defense=5000, speed=500,
+              element=2, character_type=1, crit_rate=0.0, crit_damage=0.5,
+              advantage_damage=0.0):
+    """创建测试用单位。HP放大到100000避免测试中死亡。"""
+    return UnitState(
+        unit_id=unit_id, name=unit_id, side=side, position=position,
+        character_id=999901, level=10, element=element, character_type=character_type,
+        max_hp=max_hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=advantage_damage,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=hp, current_ap=10, current_pp=10, current_ep=10,
+    )
+
+
+def make_add_damage_buff(name="add_dmg", value=100.0, caster_attack=10000,
+                          source_unit_id="src1", hit_limited=0, is_stackable=False,
+                          buff_id=None):
+    """创建ADD_DAMAGE buff。value=power%。
+    ADD_DAMAGE使用caster_attack快照ATK，暴击率/造伤乘区用持有者实时属性。
+    """
+    return BuffState(
+        buff_id=buff_id or f"add_{id(object())}_{name}",
+        name=name,
+        effect_type=SkillEffectType.ADD_DAMAGE.value,
+        value=value,
+        duration=-1,
+        timing_type=2,
+        caster_attack=caster_attack,
+        source_unit_id=source_unit_id,
+        source_skill_id=99999,
+        hit_limited=hit_limited,
+        is_stackable=is_stackable,
+        is_debuff=False,
+    )
+
+
+def make_enchant_buff(name="enchant", value=100.0, caster_attack=10000,
+                       source_unit_id="external_src", hit_limited=0,
+                       buff_id=None):
+    """创建ENCHANT_DAMAGE buff。value=power%。
+    ENCHANT_DAMAGE优先使用source_unit实时ATK（找不到则用caster_attack快照）。
+    造伤乘区使用被附魔者(b=holder)的实时属性。
+    """
+    return BuffState(
+        buff_id=buff_id or f"ench_{id(object())}_{name}",
+        name=name,
+        effect_type=SkillEffectType.ENCHANT_DAMAGE.value,
+        value=value,
+        duration=-1,
+        timing_type=2,
+        caster_attack=caster_attack,
+        source_unit_id=source_unit_id,
+        source_skill_id=99999,
+        hit_limited=hit_limited,
+        is_debuff=False,
+    )
+
+
+def make_main_effect(value=100.0, hit_count=1, force_crit=False, cannot_crit=False,
+                     ignore_defense=0):
+    """构造_apply_damage的主攻击effect参数。
+    force_crit/cannot_crit通过flags传递（_apply_damage从effect_flags读取）。
+    """
+    flags = {}
+    if force_crit:
+        flags['force_crit'] = True
+    if cannot_crit:
+        flags['cannot_crit'] = True
+    return SimpleNamespace(
+        effect_type="damage",
+        target_type="enemy_single",
+        target_identifier=None,
+        value=value,
+        hit_count=hit_count,
+        ignore_defense=ignore_defense,
+        ignore_shield=0,
+        flags=flags,
+        condition=None,
+    )
+
+
+def _init_ss_for_direct_apply(ss, bf):
+    """初始化_apply_damage所需的全部内部状态。"""
+    ss._recursion_guard = True
+    ss._before_attack_triggers_fired = True
+    ss._current_skill_id = 99999
+    ss._current_block_id = 1
+    ss._current_skill_priority = 1
+    ss._block_damage_targets = {}
+    ss._block_damage_total = {}
+    ss._last_damage_hp_before = {}
+    ss._damaged_targets = []
+    ss._current_attack_targets = []
+    ss._pre_scanned_cover_candidates = None
+    ss._pre_scanned_non_damage_enemy_targets = []
+    ss._primary_target = None
+    ss._trigger_attacker = None
+    ss._target_char_type_filter = None
+    ss._target_element_filter = None
+    ss._original_primary_target = None
+    ss._last_primary_target = None
+    ss._most_recent_damage = 0
+    ss._skill_all_attacked_targets = []
+    ss._hp_consumed = 0
+    ss._per_hit_hp_losses = {}
+    ss._block_evaded_targets = set()
+    ss._skill_evaded_targets = set()
+    ss._debuff_immune_blocked_targets = set()
+    ss._on_crit_blocks = []
+    ss._on_crit_applied = False
+    ss._on_crit_block_executed = {}
+    ss._on_crit_target = None
+    ss._on_crit_immediate_blocks = []
+    ss._on_crit_immediate_applied = set()
+    ss._on_crit_effects = []
+    ss._deferred_on_crit_targets = []
+    ss._pending_crit_triggers = []
+    ss._per_target_enchant_cache = None
+    ss._current_main_damage_power = None
+    ss._marks_at_start = {}
+    ss._marks_at_start_by_unit = {}
+    ss._ps_received_targets = []
+    ss._current_skill_is_ps = False
+    ss._last_heal_targets = []
+    ss._newly_created_sub_unit_ids = set()
+    ss._pending_deaths = set()
+
+
+def _build_context():
+    """构造最小测试上下文：1友方+1敌方+SkillService。"""
+    from tests.helpers.battle_builder import BattleBuilder
+    bb = BattleBuilder()
+    bb.add_ally(unit_id="ally", atk=10000, hp=100000, defense=0, skills=[])
+    bb.add_enemy(unit_id="enemy", hp=100000, defense=5000)
+    ctx = bb.build()
+    return ctx
+
+
+# ─── ADD_DAMAGE 公式与快照测试 ──────────────────────────────
+
+class TestAddDamageFormula:
+    """ADD_DAMAGE (追加伤害) 公式测试。"""
+
+    def test_add_damage_basic(self):
+        """基础追加伤害: max(0, snapshot_atk + min(0, snapshot_atk - c_def)) * power%。
+        snapshot_atk=10000, c_def=5000, power=100%
+        = max(0, 10000 + min(0, 5000)) * 1.0 = max(0, 10000) * 1.0 = 10000
+        主伤害: (10000-5000)*100% = 5000
+        总伤害: 5000 + 10000 = 15000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        result = ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 总伤害扣减 = 15000
+        assert enemy.current_hp == hp_before - 15000
+        # result中有enchant_targets记录
+        enchant_targets = ss._per_target_enchant_cache
+        # _apply_block_enchant_damage会清空cache并返回结果，但_apply_damage直接调用_process_enchant_damage_for_target
+        # 验证result中包含追加伤害记录
+        # result['targets'][0]是主攻击，enchant结果在 _apply_block_enchant_damage 返回的列表中
+        # _apply_damage内部调用_apply_block_enchant_damage并合并到结果中
+        assert result is not None
+
+    def test_add_damage_uses_snapshot_atk_not_realtime(self):
+        """验证ADD_DAMAGE使用快照ATK而非实时ATK。
+        caster_attack=8000 (snapshot), caster.attack=20000 (realtime)
+        追加伤害: max(0, 8000 + min(0, 8000-5000)) * 100% = 8000
+        主伤害: (20000-5000)*100% = 15000
+        总伤害: 15000 + 8000 = 23000 (而非15000+20000=35000)
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.attack = 20000
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=8000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 验证使用快照ATK，而非实时ATK
+        # 主伤害=15000, 追加伤害=8000, 总=23000
+        assert enemy.current_hp == hp_before - 23000
+
+    def test_add_damage_low_atk_against_high_def(self):
+        """snapshot_atk < c_def时，min(0, snapshot_atk - c_def) 为负，base降为0。
+        snapshot_atk=3000, c_def=5000, power=100%
+        base = max(0, 3000 + min(0, 3000-5000)) = max(0, 3000-2000) = 1000
+        追加伤害 = 1000 * 100% = 1000
+        主伤害: max(0, 10000-5000)*100% = 5000
+        总伤害: 5000 + 1000 = 6000
+        但最低1点伤害规则: max(1, 1000) = 1000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        enemy.defense = 5000
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=3000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主伤害5000 + 追加伤害1000 = 6000
+        assert enemy.current_hp == hp_before - 6000
+
+    def test_add_damage_power_pct(self):
+        """power%影响追加伤害: power=50%。
+        snapshot_atk=10000, c_def=5000, power=50%
+        base = max(0, 10000+0) = 10000
+        追加伤害 = 10000 * 0.5 = 5000
+        主伤害 = 5000
+        总伤害 = 5000 + 5000 = 10000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=50.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        assert enemy.current_hp == hp_before - 10000
+
+
+# ─── ADD_DAMAGE 暴击共享测试 ──────────────────────────────────
+
+class TestAddDamageCritSharing:
+    """ADD_DAMAGE暴击共享测试。"""
+
+    def test_add_damage_crit_when_main_crits(self):
+        """主攻击暴击时，追加伤害也暴击(*1.5)。
+        主伤害暴击因子=crit_damage+1=2.0 (默认crit_damage=0.5): 5000 * 2.0 = 10000
+        追加伤害暴击因子固定1.5: 10000 * 1.5 = 15000
+        总伤害: 10000 + 15000 = 25000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        # 主攻击force_crit
+        effect = make_main_effect(force_crit=True)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, effect, ctx['bf'])
+
+        # 主伤害10000 + 追加伤害15000 = 25000
+        assert enemy.current_hp == hp_before - 25000
+
+    def test_add_damage_no_crit_when_main_no_crit(self):
+        """主攻击未暴击时，追加伤害也不暴击。
+        crit_rate=0, force_crit=False
+        主伤害: 5000 (无暴击)
+        追加伤害: 10000 (无暴击)
+        总伤害: 15000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.crit_rate = 0.0
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        # 强制不暴击
+        ss.damage_service.crit_override = lambda *a, **kw: False
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主伤害5000 + 追加伤害10000 = 15000
+        assert enemy.current_hp == hp_before - 15000
+
+        # 清理
+        ss.damage_service.crit_override = None
+
+
+# ─── ADD_DAMAGE 跳过场景测试 ──────────────────────────────────
+
+class TestAddDamageSkipScenarios:
+    """ADD_DAMAGE跳过场景测试。"""
+
+    def test_add_damage_skip_on_full_evade(self):
+        """主攻击全段闪避时，跳过追加伤害。
+        target有evade buff (1次免疫伤害)，主攻击全闪避=0伤害
+        追加伤害应跳过
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        # 给target evade buff
+        enemy.buffs.append(BuffState(
+            buff_id="evade_test", name="evade",
+            effect_type=SkillEffectType.EVADE.value,
+            value=0, duration=1, timing_type=2, hit_limited=1,
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主攻击全段闪避=0伤害，追加伤害也跳过
+        assert enemy.current_hp == hp_before
+
+    def test_add_damage_skip_on_overkill(self):
+        """主攻击OVERKILL时，跳过追加伤害。
+        target.current_hp=0, is_alive=False, target_was_dead=True
+        走OVERKILL路径：_process_enchant_damage_for_target中is_overkill=True跳过add_damage
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        enemy.current_hp = 0
+        enemy.is_alive = False
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        # OVERKILL路径需要is_using_cached=True
+        ss._block_damage_targets = {"enemy_single": [enemy]}
+
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # OVERKILL路径：HP保持0，不应用追加伤害
+        assert enemy.current_hp == 0
+
+
+# ─── ADD_DAMAGE hit_limited测试 ──────────────────────────────
+
+class TestAddDamageHitLimited:
+    """ADD_DAMAGE hit_limited消耗测试。"""
+
+    def test_add_damage_hit_limited_decrement(self):
+        """hit_limited=2时，每次damage effect后递减1，2次后到期移除。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        buff = make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext",
+            hit_limited=2, buff_id="add_hl_test"
+        )
+        ally.buffs.append(buff)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        # 第一次攻击：hit_limited 2→1
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 1, f"第一次攻击后hit_limited应为1，实际={buff.hit_limited}"
+        assert buff in ally.buffs, "buff不应在第一次后移除"
+
+        # 重置内部状态以进行第二次攻击
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 0, f"第二次攻击后hit_limited应为0，实际={buff.hit_limited}"
+        assert buff not in ally.buffs, "buff应在第二次后移除"
+
+    def test_add_damage_hit_limited_zero_unlimited(self):
+        """hit_limited=0表示永続(无限制)，不应被消耗。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        buff = make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext",
+            hit_limited=0, buff_id="add_unlimited"
+        )
+        ally.buffs.append(buff)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        # 第一次攻击
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 0, "hit_limited=0永続，不应递减"
+        assert buff in ally.buffs, "永续buff不应被移除"
+
+        # 第二次攻击
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 0
+        assert buff in ally.buffs
+
+
+# ─── ADD_DAMAGE 多buff独立结算测试 ──────────────────────────
+
+class TestAddDamageMultipleBuffs:
+    """ADD_DAMAGE 多个stackable buff独立结算测试。"""
+
+    def test_add_damage_stackable_multiple(self):
+        """两个stackable add_damage buff独立结算伤害。
+        buff1: caster_attack=10000, power=100% → 10000
+        buff2: caster_attack=6000, power=100% → 6000
+        主伤害: 5000
+        总伤害: 5000 + 10000 + 6000 = 21000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_add_damage_buff(
+            name="add1", caster_attack=10000, value=100.0,
+            source_unit_id="ext1", is_stackable=True, buff_id="add1"
+        ))
+        ally.buffs.append(make_add_damage_buff(
+            name="add2", caster_attack=6000, value=100.0,
+            source_unit_id="ext2", is_stackable=True, buff_id="add2"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主5000 + 追加1=10000 + 追加2=6000 = 21000
+        assert enemy.current_hp == hp_before - 21000
+
+
+# ─── ENCHANT_DAMAGE 公式测试 ──────────────────────────────────
+
+class TestEnchantDamageFormula:
+    """ENCHANT_DAMAGE (附魔伤害) 公式测试。"""
+
+    def test_enchant_basic_with_snapshot(self):
+        """基础附魔伤害(使用快照ATK，source_unit不存在)。
+        source_atk=caster_attack=10000, b_atk(被附魔者)=10000, c_def=5000, power=100%
+        base = max(0, 10000 + min(0, 10000-5000)) = max(0, 10000) = 10000
+        附魔伤害 = 10000 * 1.0 = 10000
+        主伤害 = 5000
+        总伤害 = 5000 + 10000 = 15000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="not_in_battlefield"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主5000 + 附魔10000 = 15000
+        assert enemy.current_hp == hp_before - 15000
+
+    def test_enchant_uses_source_unit_realtime_atk(self):
+        """source_unit存在时使用其实时ATK而非快照。
+        source_unit: atk=15000 (realtime)
+        buff.caster_attack=8000 (snapshot, 但应被source_unit实时值覆盖)
+        base = max(0, 15000 + min(0, 10000-5000)) = max(0, 15000) = 15000
+        附魔伤害 = 15000
+        主伤害 = 5000
+        总伤害 = 5000 + 15000 = 20000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        # 添加一个外部source_unit到战场
+        from tests.helpers.battle_builder import BattleBuilder
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="ally", atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_ally(unit_id="src_unit", atk=15000, hp=100000, defense=0, skills=[])
+        bb.add_enemy(unit_id="enemy", hp=100000, defense=5000)
+        ctx = bb.build()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=8000, value=100.0, source_unit_id="src_unit"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主5000 + 附魔15000 = 20000
+        assert enemy.current_hp == hp_before - 20000
+
+    def test_enchant_uses_holder_dealt_mult(self):
+        """附魔伤害使用被附魔者(holder=caster)的给予伤害倍率。
+        caster持有dmg_dealt_up buff(+20%)
+        source_atk=10000, b_atk=10000, c_def=5000, power=100%
+        base = max(0, 10000 + min(0, 10000-5000)) = 10000
+        附魔伤害 = 10000 * 1.2 (b_dealt_mult) = 12000
+        主伤害 = 5000 * 1.2 = 6000
+        总伤害 = 6000 + 12000 = 18000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        # 给caster dmg_dealt_up buff (+20%)
+        ally.buffs.append(BuffState(
+            buff_id="dmg_dealt_up_test", name="dmg_dealt_up",
+            effect_type=SkillEffectType.DEALT_DAMAGE.value,
+            value=20.0, duration=-1, timing_type=2,
+            is_debuff=False,
+        ))
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 主6000 + 附魔12000 = 18000
+        assert enemy.current_hp == hp_before - 18000
+
+
+# ─── ENCHANT_DAMAGE 暴击共享测试 ──────────────────────────────
+
+class TestEnchantDamageCritSharing:
+    """ENCHANT_DAMAGE暴击共享测试。"""
+
+    def test_enchant_crit_when_main_crits(self):
+        """主攻击暴击时，附魔伤害也暴击(*1.5)。
+        source_atk=10000, b_atk=10000, c_def=5000, power=100%
+        base = 10000
+        主伤害暴击因子=2.0: 5000 * 2.0 = 10000
+        附魔伤害暴击因子固定1.5: 10000 * 1.5 = 15000
+        总伤害 = 10000 + 15000 = 25000
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        effect = make_main_effect(force_crit=True)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, effect, ctx['bf'])
+
+        # 主10000 + 附魔15000 = 25000
+        assert enemy.current_hp == hp_before - 25000
+
+
+# ─── ENCHANT_DAMAGE 跳过场景测试 ──────────────────────────────
+
+class TestEnchantDamageSkipScenarios:
+    """ENCHANT_DAMAGE跳过场景测试。"""
+
+    def test_enchant_skip_on_full_evade(self):
+        """主攻击全段闪避时，跳过附魔伤害。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        enemy.buffs.append(BuffState(
+            buff_id="evade_test", name="evade",
+            effect_type=SkillEffectType.EVADE.value,
+            value=0, duration=1, timing_type=2, hit_limited=1,
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 全段闪避=0伤害，附魔伤害也跳过
+        assert enemy.current_hp == hp_before
+
+    def test_enchant_skip_on_overkill(self):
+        """主攻击OVERKILL时，跳过附魔伤害。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        enemy.current_hp = 0
+        enemy.is_alive = False
+        ally.buffs.append(make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        ss._block_damage_targets = {"enemy_single": [enemy]}
+
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # OVERKILL路径：HP保持0
+        assert enemy.current_hp == 0
+
+
+# ─── ENCHANT_DAMAGE hit_limited测试 ──────────────────────────
+
+class TestEnchantDamageHitLimited:
+    """ENCHANT_DAMAGE hit_limited消耗测试。"""
+
+    def test_enchant_hit_limited_decrement(self):
+        """hit_limited=2时，每次damage effect后递减1，2次后到期移除。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        buff = make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext",
+            hit_limited=2, buff_id="ench_hl_test"
+        )
+        ally.buffs.append(buff)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        # 第一次攻击：hit_limited 2→1
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 1
+        assert buff in ally.buffs
+
+        # 第二次攻击：hit_limited 1→0并移除
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 0
+        assert buff not in ally.buffs
+
+    def test_enchant_hit_limited_zero_unlimited(self):
+        """hit_limited=0表示永続，不应被消耗。"""
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        buff = make_enchant_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext",
+            hit_limited=0, buff_id="ench_unlimited"
+        )
+        ally.buffs.append(buff)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+        assert buff.hit_limited == 0
+        assert buff in ally.buffs
+
+
+# ─── 结算顺序测试 ──────────────────────────────────────────
+
+class TestEnchantOrdering:
+    """结算顺序测试：sub_unit → add_damage → enchant_damage。"""
+
+    def test_order_add_damage_then_enchant(self):
+        """同时持有ADD_DAMAGE和ENCHANT_DAMAGE时，先结算ADD_DAMAGE再结算ENCHANT。
+        ADD_DAMAGE: caster_attack=10000, power=100% → 10000
+        ENCHANT: caster_attack=8000, power=100% → 8000
+        主伤害: 5000
+        总伤害: 5000 + 10000 + 8000 = 23000
+        通过enchant_targets列表顺序验证（add_damage在前，enchant在后）
+        """
+        ctx = _build_context()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        enemy = ctx['enemies'][0]
+        add_buff = make_add_damage_buff(
+            name="add1", caster_attack=10000, value=100.0,
+            source_unit_id="ext1", buff_id="add_order_test"
+        )
+        ench_buff = make_enchant_buff(
+            name="ench1", caster_attack=8000, value=100.0,
+            source_unit_id="ext2", buff_id="ench_order_test"
+        )
+        ally.buffs.append(add_buff)
+        ally.buffs.append(ench_buff)
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        hp_before = enemy.current_hp
+        result = ss._apply_damage(ally, make_main_effect(), ctx['bf'])
+
+        # 总伤害 = 5000 + 10000 + 8000 = 23000
+        assert enemy.current_hp == hp_before - 23000
+
+
+# ─── per-target独立结算测试 ──────────────────────────────────
+
+class TestEnchantPerTarget:
+    """per-target独立结算测试。"""
+
+    def test_per_target_independent_crit(self):
+        """多目标技能中，每个目标的暴击结果独立判断。
+        target1: 主攻击暴击 → 追加伤害暴击
+        target2: 主攻击不暴击 → 追加伤害不暴击
+        通过crit_override回调实现per-target控制
+
+        暴击因子：主攻击crit_damage+1=2.0，追加伤害固定1.5
+        e1暴击: 主 5000*2.0=10000 + 追加 10000*1.5=15000 = 25000
+        e2非暴击: 主 5000 + 追加 10000 = 15000
+        """
+        from tests.helpers.battle_builder import BattleBuilder
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="ally", atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_enemy(unit_id="e1", hp=100000, defense=5000)
+        bb.add_enemy(unit_id="e2", hp=100000, defense=5000)
+        ctx = bb.build()
+        ss = ctx['ss']
+        ally = ctx['allies'][0]
+        e1 = ctx['enemies'][0]
+        e2 = ctx['enemies'][1]
+        ally.buffs.append(make_add_damage_buff(
+            caster_attack=10000, value=100.0, source_unit_id="ext"
+        ))
+        _init_ss_for_direct_apply(ss, ctx['bf'])
+
+        # 使用target_type=enemy_all 使两个目标都受攻击
+        effect = SimpleNamespace(
+            effect_type="damage", target_type="enemy_all",
+            target_identifier=None, value=100.0, hit_count=1,
+            ignore_defense=0, ignore_shield=0, flags={}, condition=None,
+        )
+
+        # crit_override: e1暴击, e2不暴击 (通过set_crit_override设置)
+        def crit_override(ctx):
+            target_name = ctx.get('target_name', '')
+            return target_name == 'e1'
+        ss.damage_service.set_crit_override(crit_override)
+
+        e1_hp_before = e1.current_hp
+        e2_hp_before = e2.current_hp
+
+        ss._apply_damage(ally, effect, ctx['bf'])
+
+        # e1暴击: 主10000 + 追加15000 = 25000
+        # e2非暴击: 主5000 + 追加10000 = 15000
+        assert e1.current_hp == e1_hp_before - 25000, f"e1 HP错误: {e1_hp_before - e1.current_hp}"
+        assert e2.current_hp == e2_hp_before - 15000, f"e2 HP错误: {e2_hp_before - e2.current_hp}"
+
+        ss.damage_service.clear_crit_override()
+
+
+# ─── 入口 ──────────────────────────────────────────────────
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])

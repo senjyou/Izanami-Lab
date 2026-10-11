@@ -1,0 +1,54 @@
+"""核查 data/tactical_exercise_enemies.json 中所有敌人的站位是否与 EnemyPartyMaster.json 一致。
+
+用法：python scripts/_check_enemy_positions.py
+"""
+import json
+import os
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent.parent
+SPLIT = BASE / "split_data"
+DATA = BASE / "data"
+
+
+def main():
+    with open(SPLIT / "EnemyPartyMaster.json", encoding="utf-8") as f:
+        party_data = json.load(f)
+    with open(DATA / "tactical_exercise_enemies.json", encoding="utf-8") as f:
+        enemies_cfg = json.load(f)
+
+    # 构建 enemy_id -> list of (party_id, position) 映射
+    master_map = {}
+    for entry in party_data:
+        for n in range(1, 7):
+            eid = entry.get(f"Enemy{n}MasterId")
+            if eid is not None:
+                master_map.setdefault(eid, []).append((entry["Id"], n))
+
+    errors = 0
+    for eid_str, cfg in enemies_cfg.items():
+        eid = cfg["enemy_id"]
+        actual = master_map.get(eid, [])
+        if not actual:
+            print(f"WARN: {eid} {cfg['name']}: 未在 EnemyPartyMaster 中找到")
+            continue
+        # 优先匹配 party_id 一致的记录
+        cfg_party = cfg.get("party_id")
+        match = next(((p, n) for p, n in actual if p == cfg_party), None)
+        if match is None:
+            match = actual[0]
+        cfg_pos = cfg.get("position")
+        if cfg_pos != match[1]:
+            print(f"ERROR: {eid} {cfg['name']}: cfg_pos={cfg_pos} -> "
+                  f"actual_pos={match[1]} [party={match[0]}] (cfg_party={cfg_party})")
+            errors += 1
+        else:
+            print(f"OK: {eid} {cfg['name']}: pos={cfg_pos} (party={match[0]})")
+
+    print(f"\n[完成] 检查 {len(enemies_cfg)} 个敌人，{errors} 个站位错误")
+    if errors:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

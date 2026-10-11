@@ -1,0 +1,281 @@
+"""
+回归测试: 伤害+效果技能中非伤害敌方效果目标触发guard/evasion PS
+
+Bug: 敌方使用技能「シャル・ウィ・ダンス？」(210100)时，
+     己方ノーブル・グレイス未触发「アイギスランパード」(130009)，
+     己方混沌の立役者未触发「代助一避」(130013)。
+
+根因: 210100 Block1含 damage(enemy_single_lowest_hp_ratio, 1体) + spd_down(enemy_all, 5体)。
+     trigger_before_any_attacked/before_as_attacked仅接收damage目标(all_block_targets)，
+     target_is_self/target_is_front_ally条件仅检查damage目标列表 => False。
+
+修复方案: 当技能含damage效果时(伤害+效果技能)，预扫描非伤害敌方效果目标
+         (如spd_down的enemy_all目标)，合并到all_block_targets中。
+         这样所有触发器类型(before_any_attacked/before_as_attacked等)和
+         所有条件(target_is_self/target_is_front_ally等)都能检查到全部敌方效果目标。
+         纯效果技能(无damage)不会执行到trigger调用分支，不会误触发。
+         cover PS使用_pre_scanned_cover_candidates(damage-only)选择cover目标，不受影响。
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+GUARD = SkillEffectType.GUARD.value
+EVADE = SkillEffectType.EVADE.value  # perfect_evasion映射到此枚举
+
+
+def _make_ally_unit(unit_id, name, position, **kwargs):
+    defaults = dict(
+        side=Side.ALLY, character_id=999011, level=10,
+        element=2, character_type=3,
+        max_hp=12000, current_hp=12000,
+        attack=6000, defense=4000, speed=400,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=2, initial_passive_point=2, max_extra_point=0,
+        current_ap=4, current_pp=4, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    defaults.update(kwargs)
+    return UnitState(unit_id=unit_id, name=name, position=position, **defaults)
+
+
+def _make_enemy_unit(unit_id, name, position, **kwargs):
+    defaults = dict(
+        side=Side.ENEMY, character_id=999001, level=10,
+        element=2, character_type=1,
+        max_hp=15000, current_hp=15000,
+        attack=10000, defense=5000, speed=300,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+        current_ap=4, current_pp=4, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    defaults.update(kwargs)
+    return UnitState(unit_id=unit_id, name=name, position=position, **defaults)
+
+
+class TestRegDamageEffectSkillTrigger(unittest.TestCase):
+    """伤害+效果技能中非伤害敌方效果目标触发guard/evasion PS"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 己方A: ノーブル・グレイス (持有PS 130009 アイギスランパード, before_any_attacked + target_is_self)
+        # 在左前列, HP满血 => 不是lowest_hp_ratio目标, 但是spd_down目标
+        self.noble = _make_ally_unit(
+            "ally_noble", "ノーブル・グレイス", Position.ALLY_LEFT_FRONT,
+            max_hp=20000, current_hp=20000,
+            skills=[130009], skill_levels={130009: 10},
+            current_pp=4,
+        )
+
+        # 己方B: 代助一避持有者 (持有PS 130013 代助一避, before_as_attacked + target_is_front_ally)
+        # 在左后列, 正前方友方=ノーブル・グレイス(ALLY_LEFT_FRONT)
+        self.daisuke = _make_ally_unit(
+            "ally_daisuke", "代助一避持有者", Position.ALLY_LEFT_BACK,
+            max_hp=20000, current_hp=20000,
+            skills=[130013], skill_levels={130013: 10},
+            current_pp=4,
+        )
+
+        # 己方C: damage目标 (HP最低 => 被enemy_single_lowest_hp_ratio选中)
+        self.ally_target = _make_ally_unit(
+            "ally_target", "damage目标", Position.ALLY_RIGHT_FRONT,
+            max_hp=20000, current_hp=5000,
+        )
+
+        # 敌方施法者: 持有210100 シャル・ウィ・ダンス？
+        self.enemy_caster = _make_enemy_unit(
+            "enemy_caster", "敌方施法者", Position.ENEMY_CENTER_FRONT,
+            skills=[210100], skill_levels={210100: 10},
+            current_ep=7, max_extra_point=7,
+        )
+
+        self.bf.friend_team = [self.noble, self.daisuke, self.ally_target]
+        self.bf.enemy_team = [self.enemy_caster]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_aigis_triggers_when_non_damage_enemy_target(self):
+        """
+        アイギスランパード(before_any_attacked + target_is_self):
+        ノーブル是spd_down目标但非damage目标，应通过all_block_targets扩展触发。
+        """
+        result = self.ss.execute_skill(
+            caster=self.enemy_caster, skill_id=210100,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        guard_buffs = [b for b in self.noble.buffs if b.effect_type == GUARD]
+        self.assertTrue(len(guard_buffs) > 0,
+                        "ノーブル是spd_down目标(非damage目标)，アイギスランパード应触发guard buff")
+
+    def test_daisuke_triggers_when_front_ally_is_non_damage_target(self):
+        """
+        代助一避(before_as_attacked + target_is_front_ally):
+        代助一避持有者在左后列，正前方友方=ノーブル(左前列)。
+        ノーブル是spd_down目标但非damage目标。
+        target_is_front_ally应通过all_block_targets扩展检查到ノーブル => True。
+        代助一避触发，对ally_front(ノーブル)施加perfect_evasion。
+        perfect_evasion会回避spd_down debuff并消耗，因此通过验证spd_down未被施加来确认触发。
+        """
+        result = self.ss.execute_skill(
+            caster=self.enemy_caster, skill_id=210100,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # ノーブル的spd_down应被perfect_evasion回避（代助一避触发）
+        noble_speed_debuffs = [d for d in self.noble.debuffs
+                               if d.effect_type == SkillEffectType.STATUS_SPEED.value]
+        self.assertEqual(len(noble_speed_debuffs), 0,
+                         "ノーブル的spd_down应被perfect_evasion回避（代助一避触发）")
+
+        # 代助一避持有者（非正前方友方）的spd_down应正常施加
+        daisuke_speed_debuffs = [d for d in self.daisuke.debuffs
+                                 if d.effect_type == SkillEffectType.STATUS_SPEED.value]
+        self.assertTrue(len(daisuke_speed_debuffs) > 0,
+                        "代助一避持有者的spd_down应正常施加（未受perfect_evasion保护）")
+
+    def test_aigis_triggers_when_direct_damage_target(self):
+        """
+        对照组: 当ノーブル是damage目标时(HP最低)，アイギスランパード应正常触发。
+        guard buff有attack_limited=1，被攻击后消耗，因此通过伤害减免(guard_mult=0.5)验证。
+        移除代助一避持有者避免perfect_evasion干扰伤害验证。
+        """
+        # 移除代助一避持有者
+        self.bf.friend_team = [self.noble, self.ally_target]
+
+        # ノーブル HP最低 => 成为damage目标
+        self.noble.current_hp = 10000  # 50% HP ratio
+        self.ally_target.current_hp = 19000  # 95% HP ratio
+        # 降低防御使伤害可计算
+        self.noble.defense = 100
+        # 降低敌人攻击力避免击杀
+        self.enemy_caster.attack = 1000
+
+        noble_hp_before = self.noble.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.enemy_caster, skill_id=210100,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # guard触发时伤害减半(guard_mult=0.5)
+        # base_diff = max(1, 1000-100) = 900, skill_factor=1.56
+        # without guard: 900*1.56 = 1404, with guard(0.5): 702
+        noble_damage = noble_hp_before - self.noble.current_hp
+        self.assertGreater(noble_damage, 0, "ノーブル应受到伤害")
+        self.assertLess(noble_damage, 1404,
+                        "guard减伤后伤害应低于无guard的1404，实际: %d" % noble_damage)
+
+    def test_no_trigger_when_not_any_target(self):
+        """
+        对照组: ノーブル既非damage目标也非spd_down目标时不触发。
+        使用仅含damage(enemy_single)的技能，ノーブル不是目标。
+        """
+        # 敌方使用仅damage单体技能 (110001: 敌单体攻击)
+        self.enemy_caster.skills = [110001]
+        self.enemy_caster.skill_levels = {110001: 10}
+        self.enemy_caster.skill_cooldowns = {}
+
+        result = self.ss.execute_skill(
+            caster=self.enemy_caster, skill_id=110001,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # ノーブル HP满，ally_target HP低，damage选ally_target
+        # ノーブル既非damage目标也非非伤害敌方效果目标，不应触发
+        guard_buffs = [b for b in self.noble.buffs if b.effect_type == GUARD]
+        self.assertEqual(len(guard_buffs), 0,
+                         "ノーブル不是任何敌方效果目标，アイギスランパード不应触发")
+
+    def test_no_trigger_for_pure_effect_skill(self):
+        """
+        对照组: 纯效果技能(无damage)不应触发guard/evasion PS。
+        使用仅含spd_down(enemy_all)的纯效果技能，ノーブル是spd_down目标但技能无damage。
+        """
+        # 创建纯效果技能：只有spd_down，没有damage
+        # 使用skill_effects_hybrid中的纯效果技能或手动设置
+        # 210100的Block2是spd_up(ally_all)，不是敌方效果
+        # 我们需要一个纯spd_down(enemy_all)的技能来测试
+        # 由于难以找到现成的纯效果敌方debuff技能，这里通过验证
+        # _has_damage_effects守卫来间接测试：
+        # 纯效果技能不会调用trigger_before_any_attacked等
+        # 验证: 若_pre_scanned_non_damage_enemy_targets为空（因为_has_damage_effects=False），
+        # 则all_block_targets不会被扩展
+
+        # 使用一个仅对己方加buff的纯效果技能（无damage，无敌方效果）
+        # 130009本身是PS技能（guard→self），无damage无敌方效果
+        # 执行PS技能不应触发其他PS
+        result = self.ss.execute_skill(
+            caster=self.noble, skill_id=130009,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 代助一避不应被触发（PS技能无damage，不调用before_attack触发器）
+        evasion_buffs = [b for b in self.noble.buffs if b.effect_type == EVADE]
+        self.assertEqual(len(evasion_buffs), 0,
+                         "纯效果技能(PS guard→self)不应触发代助一避")
+
+    def test_non_damage_enemy_targets_merged_into_all_block_targets(self):
+        """验证非伤害敌方效果目标被合并到all_block_targets中"""
+        result = self.ss.execute_skill(
+            caster=self.enemy_caster, skill_id=210100,
+            battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 预扫描列表应包含ノーブル和代助一避持有者（spd_down->enemy_all的目标）
+        # 不含damage目标(ally_target)，因为已在_pre_scanned_cover_candidates中
+        nd_targets = getattr(self.ss, '_pre_scanned_non_damage_enemy_targets', [])
+        nd_names = [t.name for t in nd_targets]
+        self.assertIn("ノーブル・グレイス", nd_names,
+                      "ノーブル应在非伤害敌方效果目标预扫描列表中")
+        self.assertIn("代助一避持有者", nd_names,
+                      "代助一避持有者应在非伤害敌方效果目标预扫描列表中")
+
+
+if __name__ == '__main__':
+    unittest.main()

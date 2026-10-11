@@ -1,0 +1,334 @@
+"""Regression: 4-skill trigger order verification.
+
+Scenario: When Unit A (ブレイブリフト, speed=900) > Unit B (アンデッドリベンジ+
+ハロウィン・オブ・ザ・デッド, speed=700) > Unit C (それはやりすぎ！+, speed=500),
+and Unit B uses an AS skill that crits on Unit C, the expected trigger order is:
+
+  1. それはやりすぎ！+ (on_cumulative_damage, Phase1a-pre)
+  2. ブレイブリフト (after_self_attacked, triggered by それはやりすぎ！+'s damage)
+  3. アンデッドリベンジ (on_critical, Phase1a)
+  4. ハロウィン・オブ・ザ・デッド (after_as_attack, Phase3)
+
+Key concepts:
+  - Phase1a-pre (累計傷害): on_cumulative_damage — executes before Phase1a,
+    regardless of unit speed. This ensures それはやりすぎ！+ always triggers
+    before アンデッドリベンジ (on_critical) per game behavior.
+  - Phase1a (被攻撃反応+自身行動後発動+暴撃): after_self_attacked /
+    after_ally_attacked / after_as_attacked / after_as_attacked_ally /
+    after_own_action / on_critical — sorted by speed
+  - Phase1b (技能使用次数): skill_use_count — executes after Phase1a
+  - Phase2 (AS攻撃後追撃): after_ally_as_attack — sorted by speed
+  - Phase3 (主动技能结束后): after_as_attack — executes after all damage-related
+    triggers complete
+
+  - after_as_attack (AS攻撃後発動): "アクティブスキルで攻撃した直後" — self used
+    AS skill that dealt damage. 43 skills. Phase3.
+  - after_own_action (自身行動後発動): "アクティブスキルを使用するたび" — self used
+    AS skill (no damage requirement). 2 skills. Phase1a.
+  - after_self_attacked (被攻撃後発動): attacked by ANY skill (AS/PS/EX/global PS),
+    not limited to primary target. Phase1a (inline-triggered by PS damage via
+    _trigger_being_attacked_reactions).
+
+Bug 1: after_as_attack was collected in Phase1 via trigger_after_skill_use (which
+       collected BOTH after_as_attack and after_own_action), causing ハロウィン to
+       execute before アンデッドリベンジ (Phase1a). Fix: split into
+       trigger_after_own_action (Phase1a) and trigger_after_as_attack (Phase3).
+Bug 2: on_cumulative_damage and on_critical were in the same Phase1a list sorted
+       by speed, causing fast units' on_critical to trigger before slow units'
+       on_cumulative_damage. Fix: split on_cumulative_damage into Phase1a-pre,
+       which executes before Phase1a regardless of speed (それはやりすぎ！+ →
+       アンデッドリベンジ, per game behavior).
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+# Skill IDs
+BRAVE_LIFT = 130037          # ブレイブリフト (after_self_attacked)
+UNDEAD_REVENGE = 130078      # アンデッドリベンジ (on_critical)
+HALLOWEEN_DEAD = 130079      # ハロウィン・オブ・ザ・デッド (after_as_attack)
+SOREHAYARI_SUGI = 230400     # それはやりすぎ！+ (on_cumulative_damage)
+YAKAI_PRELUDE = 130149       # 夜会のプレリュード (after_own_action)
+AS_SKILL = 120068            # ゴーストハザード (AS, 敵3体に2ヒットEN攻撃)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=1000000, atk=10000,
+               defense=5000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10, crit_rate=0.0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegFourSkillTriggerOrder(unittest.TestCase):
+    """4技能触发顺序回归测试."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    # ─── Unit tests: trigger_type_filter ───
+
+    def test_after_as_attack_filter_excludes_after_own_action(self):
+        """trigger_after_as_attack must only collect after_as_attack skills,
+        NOT after_own_action skills (both map to AFTER_SKILL_USE)."""
+        bf = BattlefieldState()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        # Unit with both after_as_attack (130079) and after_own_action (130149)
+        unit = _make_unit(
+            "u1", "TestUnit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            skills=[HALLOWEEN_DEAD, YAKAI_PRELUDE],
+            skill_levels={HALLOWEEN_DEAD: 15, YAKAI_PRELUDE: 15},
+        )
+        bf.add_unit(unit)
+
+        actions = ts.trigger_after_as_attack(
+            unit, AS_SKILL, {"total_damage": 100}, bf,
+            primary_target=None,
+        )
+        skill_ids = [a.skill_id for a in actions]
+        self.assertIn(HALLOWEEN_DEAD, skill_ids,
+                      "after_as_attack should collect ハロウィン (130079)")
+        self.assertNotIn(YAKAI_PRELUDE, skill_ids,
+                         "after_as_attack should NOT collect 夜会のプレリュード (130149)")
+
+    def test_after_own_action_filter_excludes_after_as_attack(self):
+        """trigger_after_own_action must only collect after_own_action skills,
+        NOT after_as_attack skills (both map to AFTER_SKILL_USE)."""
+        bf = BattlefieldState()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        unit = _make_unit(
+            "u1", "TestUnit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            skills=[HALLOWEEN_DEAD, YAKAI_PRELUDE],
+            skill_levels={HALLOWEEN_DEAD: 15, YAKAI_PRELUDE: 15},
+        )
+        bf.add_unit(unit)
+
+        actions = ts.trigger_after_own_action(
+            unit, AS_SKILL, {"total_damage": 100}, bf,
+            primary_target=None,
+        )
+        skill_ids = [a.skill_id for a in actions]
+        self.assertIn(YAKAI_PRELUDE, skill_ids,
+                      "after_own_action should collect 夜会のプレリュード (130149)")
+        self.assertNotIn(HALLOWEEN_DEAD, skill_ids,
+                         "after_own_action should NOT collect ハロウィン (130079)")
+
+    # ─── Integration test: full 4-skill trigger order ───
+
+    def test_four_skill_trigger_order(self):
+        """Verify trigger order: それはやりすぎ！+ → ブレイブリフト
+        → アンデッドリベンジ → ハロウィン・オブ・ザ・デッド.
+
+        Setup:
+        - Unit A (ally, speed=900): holds ブレイブリフト (after_self_attacked)
+        - Unit B (ally, speed=700): holds アンデッドリベンジ (on_critical) +
+          ハロウィン (after_as_attack) + AS skill (120068)
+        - Unit C (enemy, speed=500): holds それはやりすぎ！+ (on_cumulative_damage)
+
+        Flow:
+        1. Unit B uses AS (120068) → crits on Unit C (crit_rate=1.0)
+        2. Phase1a-pre: on_cumulative_damage (それはやりすぎ！+, speed=500)
+           executes first, regardless of speed
+        3. それはやりすぎ！+ deals damage to all allies → cumulative_hp_damage reset
+        4. それはやりすぎ！+'s damage triggers after_self_attacked → ブレイブリフト
+        5. Phase1a: on_critical (アンデッドリベンジ, speed=700) executes after
+        6. Phase3: ハロウィン (after_as_attack) executes last
+        """
+        bf = BattlefieldState()
+
+        # Unit A: ブレイブリフト holder (speed=900, highest)
+        unit_a = _make_unit(
+            "ally_a", "UnitA(ブレイブリフト)", Side.ALLY,
+            Position.ALLY_LEFT_FRONT,
+            hp=1000000, atk=10000, speed=900, pp=10, ap=10,
+            skills=[BRAVE_LIFT],
+            skill_levels={BRAVE_LIFT: 15},
+        )
+
+        # Unit B: アンデッドリベンジ + ハロウィン + AS (speed=700, middle)
+        unit_b = _make_unit(
+            "ally_b", "UnitB(アンデッド+ハロウィン)", Side.ALLY,
+            Position.ALLY_CENTER_FRONT,
+            hp=1000000, atk=50000, speed=700, pp=10, ap=10,
+            crit_rate=1.0,  # 100% crit for on_critical trigger
+            skills=[AS_SKILL, UNDEAD_REVENGE, HALLOWEEN_DEAD],
+            skill_levels={AS_SKILL: 15, UNDEAD_REVENGE: 15, HALLOWEEN_DEAD: 15},
+        )
+
+        # Unit C: それはやりすぎ！+ (speed=500, lowest, enemy)
+        unit_c = _make_unit(
+            "enemy_c", "UnitC(それはやりすぎ！+)", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            hp=1000000, atk=1000, speed=500, pp=10, ap=10,
+            skills=[SOREHAYARI_SUGI],
+            skill_levels={SOREHAYARI_SUGI: 15},
+        )
+
+        # Pre-set cumulative_hp_damage near 75% threshold (750000)
+        unit_c.cumulative_hp_damage = 749999
+
+        bf.friend_team = [unit_a, unit_b]
+        bf.enemy_team = [unit_c]
+
+        controller = BattleFlowController(bf, data_loader=self.dl)
+        controller._build_display_names()
+        controller.skill_service.set_battlefield(bf)
+        controller._deferred_crit_triggers = []
+
+        # Record PS execution order by wrapping skill_service.execute_skill
+        execution_order = []
+        original_execute = controller.skill_service.execute_skill
+
+        def recording_execute(*args, **kwargs):
+            result = original_execute(*args, **kwargs)
+            skill_id = kwargs.get('skill_id')
+            caster = kwargs.get('caster')
+            if skill_id and caster:
+                execution_order.append((skill_id, caster.name))
+            return result
+
+        controller.skill_service.execute_skill = recording_execute
+
+        # Execute Unit B's action (AS skill that crits)
+        controller._execute_unit_action(unit_b, turn=1)
+
+        # Filter out the AS skill, keep only PS skills
+        ps_order = [(sid, name) for sid, name in execution_order
+                    if sid != AS_SKILL]
+
+        # Expected order:
+        # 1. それはやりすぎ！+ (230400) - Phase1a-pre, on_cumulative_damage
+        # 2. ブレイブリフト (130037) - inline-triggered by それはやりすぎ！+'s damage
+        # 3. アンデッドリベンジ (130078) - Phase1a, on_critical
+        # 4. ハロウィン・オブ・ザ・デッド (130079) - Phase3, after_as_attack
+        expected_ids = [SOREHAYARI_SUGI, BRAVE_LIFT, UNDEAD_REVENGE, HALLOWEEN_DEAD]
+        actual_ids = [sid for sid, _ in ps_order]
+
+        # Verify all 4 PS skills triggered
+        for sid in expected_ids:
+            self.assertIn(sid, actual_ids,
+                          f"PS {sid} should have triggered. "
+                          f"Actual order: {actual_ids}")
+
+        # Verify relative order (each expected PS must come before the next)
+        # We check pairwise ordering rather than exact list equality because
+        # other PS skills (from buff/debuff triggers, etc.) might also fire
+        pos = {sid: actual_ids.index(sid) for sid in expected_ids}
+        self.assertLess(pos[SOREHAYARI_SUGI], pos[UNDEAD_REVENGE],
+                        "それはやりすぎ！+ must trigger before アンデッドリベンジ "
+                        f"(Phase1a-pre executes before Phase1a, regardless of speed). "
+                        f"Actual: {actual_ids}")
+        self.assertLess(pos[SOREHAYARI_SUGI], pos[BRAVE_LIFT],
+                        "それはやりすぎ！+ must trigger before ブレイブリフト "
+                        f"(ブレイブリフト is triggered by それはやりすぎ！+'s damage). "
+                        f"Actual: {actual_ids}")
+        self.assertLess(pos[BRAVE_LIFT], pos[UNDEAD_REVENGE],
+                        "ブレイブリフト must trigger before アンデッドリベンジ "
+                        f"(ブレイブリフト is inline-triggered during Phase1a-pre, "
+                        f"アンデッドリベンジ is Phase1a). Actual: {actual_ids}")
+        self.assertLess(pos[UNDEAD_REVENGE], pos[HALLOWEEN_DEAD],
+                        "アンデッドリベンジ must trigger before ハロウィン・オブ・ザ・デッド "
+                        f"(ハロウィン is Phase3, after all damage triggers). "
+                        f"Actual: {actual_ids}")
+
+    def test_halloween_not_in_phase1(self):
+        """ハロウィン・オブ・ザ・デッド (after_as_attack) must NOT be collected
+        in Phase1 (which collects after_self_attacked etc.).
+
+        This is the core bug: after_as_attack was previously collected via
+        trigger_after_skill_use (which collected both after_as_attack and
+        after_own_action), causing it to execute in Phase1 before Phase2's
+        on_critical triggers.
+        """
+        bf = BattlefieldState()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        unit_b = _make_unit(
+            "ally_b", "UnitB", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            skills=[UNDEAD_REVENGE, HALLOWEEN_DEAD],
+            skill_levels={UNDEAD_REVENGE: 15, HALLOWEEN_DEAD: 15},
+        )
+        enemy = _make_unit(
+            "enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+        )
+        bf.friend_team = [unit_b]
+        bf.enemy_team = [enemy]
+
+        # Phase1 collects after_self_attacked — should NOT collect ハロウィン
+        after_self = ts.trigger_after_self_attacked(
+            [enemy], bf, actor=unit_b, primary_target=enemy,
+        )
+        skill_ids = [a.skill_id for a in after_self]
+        self.assertNotIn(HALLOWEEN_DEAD, skill_ids,
+                         "ハロウィン (after_as_attack) must NOT be collected "
+                         "by trigger_after_self_attacked (Phase1)")
+
+    def test_on_critical_and_cumulative_separate_phases(self):
+        """on_critical (Phase1a) and on_cumulative_damage (Phase1a-pre) must
+        be collectable in their respective phases. Phase1a-pre executes before
+        Phase1a, ensuring それはやりすぎ！+ always triggers before アンデッドリベンジ
+        regardless of unit speed."""
+        bf = BattlefieldState()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+
+        unit_b = _make_unit(
+            "ally_b", "UnitB(アンデッド)", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            speed=700,
+            skills=[UNDEAD_REVENGE],
+            skill_levels={UNDEAD_REVENGE: 15},
+        )
+        unit_c = _make_unit(
+            "enemy_c", "UnitC(それはやりすぎ)", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            speed=500,
+            skills=[SOREHAYARI_SUGI],
+            skill_levels={SOREHAYARI_SUGI: 15},
+        )
+        bf.friend_team = [unit_b]
+        bf.enemy_team = [unit_c]
+
+        # on_critical collects アンデッドリベンジ
+        crit_actions = ts.trigger_pawn_caused_critical(unit_b, bf, count=1)
+        crit_ids = [a.skill_id for a in crit_actions]
+        self.assertIn(UNDEAD_REVENGE, crit_ids,
+                      "on_critical should collect アンデッドリベンジ")
+
+        # Pre-set cumulative damage near threshold
+        unit_c.cumulative_hp_damage = int(unit_c.max_hp * 0.75)  # exactly at threshold
+
+        # on_cumulative_damage collects それはやりすぎ！+
+        cumul_actions = ts.trigger_cumulative_damage(bf, [unit_c])
+        cumul_ids = [a.skill_id for a in cumul_actions]
+        self.assertIn(SOREHAYARI_SUGI, cumul_ids,
+                      "on_cumulative_damage should collect それはやりすぎ！+")
+
+
+if __name__ == '__main__':
+    unittest.main()

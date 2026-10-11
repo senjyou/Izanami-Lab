@@ -1,0 +1,416 @@
+"""Regression: 幻惑(Genwaku)による回復値の per-hit 分配において、
+余りが最後のhitに蓄積され +2 多く回復してしまう問題の修正。
+
+Bug: battle_flow_controller.py の叙事ログ分配は
+     int(total_heal * hit_dmg / total_original) の比例分配で、
+     各hitの切り捨て誤差が最後のhitに余りとして蓄積される。
+     4hit技能(120071 レバッ！)で hit_details=[35263,60871,60871,60871]
+     total_heal=152513 の場合、分配は [24684, 42609, 42609, 42611] となり、
+     最後のhitが +2 多くなる（本来 42609 のはず）。
+
+Fix: skill_service.py で per-hit 独立に int(hit_dmg * genwaku_pct / 100) を計算し、
+     そのリスト(genwaku_hit_heals)を targets_hit に格納。
+     battle_flow_controller.py は sum(hit_heals)==total_heal（キャップ無し）の場合、
+     per-hit値をそのまま叙事ログに使用する。
+     per-hit独立計算の総和は比例分配+余りより最大(hit_count-1)少なくなるが、
+     これは各hitの切り捨て誤差の正しい集計結果。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+GENWAKU = SkillEffectType.GENWAKU.value
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WIND.value,
+               character_type=2, skills=None, skill_levels=None,
+               current_hp=None, char_id=146301):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=char_id, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegGenwakuPerHitHeal(unittest.TestCase):
+    """幻惑回復の per-hit 分配で余りが最後のhitに蓄積しないこと。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def _find_genwaku_target(self, result):
+        """result から genwaku_heal を持つ target を取り出す。"""
+        for e in result.get("effects_applied", []):
+            if e.get("effect_type") == "damage":
+                for t in e.get("targets", []):
+                    if t.get("genwaku_heal") is not None:
+                        return t
+        return None
+
+    def test_per_hit_heals_independently_calculated(self):
+        """4hit技能の幻惑回復は per-hit独立計算され、余りが最後のhitに蓄積しない。
+
+        Bug: 比例分配 int(total*hit_dmg/total_orig) では切り捨て誤差が
+             最後のhitに余りとして蓄積され、最後のhitが +2 多くなる。
+        Fix: per-hit独立に int(hit_dmg * pct / 100) を計算する。
+        """
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=50000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120071], skill_levels={120071: 10},
+        )
+        # genwaku 70% (実測ログと同じ)
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=70.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=2000000, atk=5000, defense=25496, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=752149, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        result = ss.execute_skill(caster, 120071, bf, skip_cost=True)
+        self.assertTrue(result.get("success"), f"技能执行失败: {result.get('error', '')}")
+
+        genwaku_target = self._find_genwaku_target(result)
+        self.assertIsNotNone(genwaku_target, "应有 genwaku_heal 目标")
+
+        hit_details = genwaku_target.get("hits", [])
+        hit_heals = genwaku_target.get("genwaku_hit_heals", [])
+        self.assertEqual(len(hit_details), 4, "レバッ！应为4hit技能")
+        self.assertEqual(len(hit_heals), 4,
+                         "genwaku_hit_heals 应包含4个per-hit回復値")
+
+        # 検証: 各hit_heal == int(hit_dmg * 70 / 100)
+        for i, (hit_dmg, hit_heal) in enumerate(zip(hit_details, hit_heals)):
+            expected = int(hit_dmg * 70 / 100)
+            self.assertEqual(
+                hit_heal, expected,
+                f"hit[{i}] heal should be int({hit_dmg}*70/100)={expected}, "
+                f"got {hit_heal}"
+            )
+
+        # 検証: 総和は actual_heal と一致（キャップ無しの場合）
+        total_heal = genwaku_target["genwaku_heal"]
+        self.assertEqual(sum(hit_heals), total_heal,
+                         "per-hit回復値の総和は genwaku_heal と一致すべき（キャップ無し）")
+
+    def test_last_hit_not_larger_when_equal_damage(self):
+        """同ダメージのhitが連続する場合、最後のhitの回復値が前面のhitより大きくならない。
+
+        Bug: hit_details=[X,Y,Y,Y] で比例分配すると
+             最後のYだけ余りが蓄積して Y+2 などになる。
+        Fix: per-hit独立計算で全てのYに対して同じ回復値を算出。
+        """
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=50000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120071], skill_levels={120071: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=70.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=2000000, atk=5000, defense=25496, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=752149, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        result = ss.execute_skill(caster, 120071, bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        genwaku_target = self._find_genwaku_target(result)
+        hit_details = genwaku_target.get("hits", [])
+        hit_heals = genwaku_target.get("genwaku_hit_heals", [])
+
+        # 後ろ3hitのダメージが同じ場合、回復値も同じであるべき
+        # (レバッ！は通常 hit[1]=hit[2]=hit[3] になる)
+        if (len(hit_details) == 4
+                and hit_details[1] == hit_details[2]
+                and hit_details[2] == hit_details[3]):
+            self.assertEqual(
+                hit_heals[1], hit_heals[2],
+                f"同ダメージのhit[1]({hit_details[1]})とhit[2]({hit_details[2]})の"
+                f"回復値は同じであるべき: {hit_heals[1]} vs {hit_heals[2]}"
+            )
+            self.assertEqual(
+                hit_heals[2], hit_heals[3],
+                f"同ダメージのhit[2]({hit_details[2]})とhit[3]({hit_details[3]})の"
+                f"回復値は同じであるべき（余り蓄積なし）: {hit_heals[2]} vs {hit_heals[3]}"
+            )
+            # 最後のhitが前面のhitより大きくならないことを明示確認
+            self.assertLessEqual(
+                hit_heals[3], hit_heals[2],
+                f"最後のhitの回復値({hit_heals[3]})が前面({hit_heals[2]})より"
+                f"大きい（余り蓄積bug）: hit_dmg={hit_details[3]}"
+            )
+
+    def test_narrative_uses_per_hit_values_when_uncapped(self):
+        """キャップ無しの場合、叙事ログは per-hit回復値を使用する。
+
+        Bug: 叙事ログは比例分配+余りで最後のhitを多く表示していた。
+        Fix: genwaku_hit_heals が存在し sum==total_heal の場合、per-hit値を使用。
+        """
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=50000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120071], skill_levels={120071: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=70.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=2000000, atk=5000, defense=25496, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=752149, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        result = ss.execute_skill(caster, 120071, bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        genwaku_target = self._find_genwaku_target(result)
+        hit_heals = genwaku_target.get("genwaku_hit_heals", [])
+        total_heal = genwaku_target["genwaku_heal"]
+
+        # キャップ無し確認: per-hit総和 == actual_heal
+        self.assertEqual(sum(hit_heals), total_heal,
+                         "このテストはキャップ無しを前提とする")
+
+        ctrl._log_narrative_effects(caster, result, "测试技能", 1, 120071)
+        narrative_text = "\n".join(writer._lines)
+
+        # 叙事ログに各hitの回復値が per-hit で表示されることを確認
+        # 最後のhitが per-hit値と一致し、余り分が追加されていない
+        last_hit_heal = hit_heals[-1]
+        self.assertIn(
+            f"+{last_hit_heal} HP", narrative_text,
+            f"叙事ログに最後のhitのper-hit回復値(+{last_hit_heal} HP)が表示されるべき"
+        )
+
+        # 余り蓄積した値（last_hit_heal + 1, +2 など）が叙事ログに含まれていないことを確認
+        # 念のため +1, +2, +3 をチェック
+        for extra in (1, 2, 3):
+            wrong_value = last_hit_heal + extra
+            self.assertNotIn(
+                f"+{wrong_value} HP", narrative_text,
+                f"叙事ログに余り蓄積値(+{wrong_value} HP)が含まれてはいけない"
+            )
+
+    def test_capped_heal_falls_back_to_proportional(self):
+        """回復がキャップされた場合（目標HPが満血に近い）、比例分配にフォールバック。
+
+        キャップ時は sum(hit_heals) > actual_heal となり、
+        use_per_hit=False となって比例分配が使われる。
+        この場合、最後のhitに余りがいく可能性はあるが、
+        キャップされた回復値を正しく分配する必要がある。
+        """
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=50000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120071], skill_levels={120071: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=70.0,
+            duration=2, timing_type=1,
+        ))
+
+        # 敵HPを満血に近づけて回復をキャップさせる
+        # max_hp=2000000, current_hp=1999900 (あと100しか回復できない)
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=2000000, atk=5000, defense=25496, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=1999900, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        enemy_hp_before = enemy.current_hp
+        result = ss.execute_skill(caster, 120071, bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        genwaku_target = self._find_genwaku_target(result)
+        hit_heals = genwaku_target.get("genwaku_hit_heals", [])
+        total_heal = genwaku_target["genwaku_heal"]
+
+        # キャップ確認: per-hit総和 > actual_heal
+        self.assertGreater(
+            sum(hit_heals), total_heal,
+            "キャップされている場合、per-hit総和は actual_heal より大きいべき"
+        )
+
+        # 実際の回復量は missing_hp でキャップされている
+        missing_hp = enemy.max_hp - enemy_hp_before
+        self.assertEqual(total_heal, missing_hp,
+                         "キャップ時の actual_heal は missing_hp と一致すべき")
+
+        # 敵HPがmax_hpを超えない
+        self.assertEqual(enemy.current_hp, enemy.max_hp,
+                         "回復後の敵HPは max_hp にキャップされるべき")
+
+        # 叙事ログも出力できることを確認（エラーなく）
+        ctrl._log_narrative_effects(caster, result, "测试技能", 1, 120071)
+        narrative_text = "\n".join(writer._lines)
+        self.assertIn("[幻惑回复]", narrative_text,
+                      "キャップ時も幻惑回复叙事ログが出力されるべき")
+
+    def test_single_hit_genwaku_still_works(self):
+        """1hit技能の幻惑回復は従来通り動作する（per-hit計算の退化ケース）。"""
+        # 120153 は単発AS技能
+        caster = _make_unit(
+            "caster", "攻撃者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[120153], skill_levels={120153: 10},
+        )
+        caster.debuffs.append(BuffState(
+            buff_id="test_genwaku", name="幻惑",
+            effect_type=GENWAKU, value=50.0,
+            duration=2, timing_type=1,
+        ))
+
+        enemy = _make_unit(
+            "enemy", "敵方目標", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=3000, speed=400,
+            element=Attribute.FIRE.value, character_type=1,
+            current_hp=50000, char_id=999001,
+        )
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        writer = BattleNarrativeWriter(data_loader=self.dl)
+        ctrl = BattleFlowController(bf, BattleConfig(max_turns=1),
+                                    data_loader=self.dl, narrative=writer)
+        ctrl.skill_service.set_battlefield(bf)
+        ctrl._build_display_names()
+
+        enemy_hp_before = enemy.current_hp
+        result = ss.execute_skill(caster, 120153, bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        genwaku_target = self._find_genwaku_target(result)
+        self.assertIsNotNone(genwaku_target)
+
+        hit_details = genwaku_target.get("hits", [])
+        hit_heals = genwaku_target.get("genwaku_hit_heals", [])
+        self.assertEqual(len(hit_details), 1, "単発技能")
+        self.assertEqual(len(hit_heals), 1, "per-hitリストも1要素")
+
+        # 1hitの場合、per-hit値 == total_heal
+        self.assertEqual(hit_heals[0], genwaku_target["genwaku_heal"],
+                         "1hitの場合、per-hit値は total_heal と一致")
+
+        # 回復が発生している
+        self.assertGreater(enemy.current_hp, enemy_hp_before,
+                           "幻惑で回復している")
+
+
+if __name__ == '__main__':
+    unittest.main()

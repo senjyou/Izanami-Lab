@@ -1,0 +1,149 @@
+"""Regression: 120011 スピードスラスト (103201 お金大好きな生意気娘).
+
+Validates:
+1. Damage dealt to enemy (single hit)
+2. spd_down applied when target HP >= 50%
+3. spd_down NOT applied when target HP < 50%
+4. spd_down is fixed value (not percent)
+5. spd_down duration=1, duration_type="action"
+6. Only one damage effect (no duplicate)
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+SKILL_ID = 120011  # スピードスラスト
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=0, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10,
+               crit_rate=0.0, crit_damage=0.5, current_hp=None):
+    u = UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+    return u
+
+
+class TestReg103201SpeedThrust(unittest.TestCase):
+    """120011: enemy_single damage + spd_down (target_hp_above:50%, fixed, 1 action)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_battlefield(self, enemy_current_hp=None):
+        """Build a battlefield with caster + 1 enemy.
+
+        If enemy_current_hp is provided, the enemy's HP is set to that value.
+        """
+        bf = BattlefieldState()
+        caster = _make_unit(
+            "caster", "Caster", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=100000, atk=10000, defense=5000, speed=500,
+            skills=[SKILL_ID], skill_levels={SKILL_ID: 10},
+        )
+        enemy_hp = 100000
+        enemy = _make_unit(
+            "enemy", "Enemy", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=enemy_hp, atk=1000, defense=0, speed=800,
+            current_hp=enemy_current_hp,
+        )
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+
+        ss = SkillService(
+            self.dl, ResourceService(),
+            target_service=TargetService(), damage_service=DamageService(),
+            aura_service=AuraService(), trigger_service=TriggerService(),
+            status_service=StatusService(),
+        )
+        ss.set_battlefield(bf)
+        return bf, ss, caster, enemy
+
+    def test_damage_dealt_single_hit(self):
+        """Skill should deal damage with single hit (no duplicate damage effect)."""
+        bf, ss, caster, enemy = self._build_battlefield()
+        caster.current_ap = 5
+        enemy_hp_before = enemy.current_hp
+        ss.execute_skill(caster, SKILL_ID, bf)
+        self.assertLess(enemy.current_hp, enemy_hp_before,
+                        "Damage should be dealt to enemy")
+
+    def test_spd_down_applied_when_target_hp_above_50(self):
+        """spd_down should be applied when target HP >= 50%.
+
+        spd_down effect_type is mapped to StatusSpeed (STATUS_SPEED enum).
+        """
+        bf, ss, caster, enemy = self._build_battlefield(enemy_current_hp=100000)
+        caster.current_ap = 5
+        ss.execute_skill(caster, SKILL_ID, bf)
+        spd_debuffs = [b for b in enemy.debuffs
+                       if b.effect_type == SkillEffectType.STATUS_SPEED.value]
+        self.assertGreater(len(spd_debuffs), 0,
+                           "spd_down should be applied when target HP >= 50%")
+        # Verify duration
+        self.assertEqual(spd_debuffs[0].duration, 1)
+        # Verify value_tag was resolved (Lv10 = 150)
+        self.assertGreater(spd_debuffs[0].value, 0)
+
+    def test_spd_down_not_applied_when_target_hp_below_50(self):
+        """spd_down should NOT be applied when target HP < 50%."""
+        bf, ss, caster, enemy = self._build_battlefield(enemy_current_hp=40000)
+        caster.current_ap = 5
+        ss.execute_skill(caster, SKILL_ID, bf)
+        spd_debuffs = [b for b in enemy.debuffs
+                       if b.effect_type == SkillEffectType.STATUS_SPEED.value]
+        self.assertEqual(len(spd_debuffs), 0,
+                         "spd_down should NOT be applied when target HP < 50%")
+
+    def test_spd_down_is_fixed_value(self):
+        """spd_down should be a fixed value, not percent (per spec 11.8)."""
+        bf, ss, caster, enemy = self._build_battlefield(enemy_current_hp=100000)
+        caster.current_ap = 5
+        ss.execute_skill(caster, SKILL_ID, bf)
+        spd_debuffs = [b for b in enemy.debuffs
+                       if b.effect_type == SkillEffectType.STATUS_SPEED.value]
+        self.assertGreater(len(spd_debuffs), 0)
+        # Lv10 spd = 150 (fixed points)
+        self.assertAlmostEqual(spd_debuffs[0].value, 150.0, delta=0.1)
+
+    def test_no_duplicate_damage_effect(self):
+        """Skill should only have 1 damage effect (no duplicate)."""
+        parsed = self.dl.get_parsed_skill_data(SKILL_ID)
+        damage_effects = []
+        for block in parsed.get('effect_blocks', []):
+            for eff in block.get('effects', []):
+                if eff.get('effect_type') == 'damage':
+                    damage_effects.append(eff)
+        self.assertEqual(len(damage_effects), 1,
+                         "Should have exactly 1 damage effect (no duplicates)")
+
+
+if __name__ == '__main__':
+    unittest.main()

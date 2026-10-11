@@ -1,0 +1,609 @@
+"""
+角色112301 沙耶（渇望秘めし淑女）技能测试
+- EX: 乙女の高ぶり (110011) - EN全体伤害+吸血+Lv11炎上
+- AS1: 禅刃再生 (120020) - EN单体伤害+吸血+EN敌人削PP
+- AS2: 桜華の舞 (120038) - EN单体伤害, HP scaling独立乘区
+- PS1: 鬼神活性 (130029) - 回合结束增伤(可叠加, 1次攻击消耗)
+- PS2: 茶鬼舞踏 (130045) - AS攻击前atk_up+crit_rate_up(HP scaling, 1次攻击消耗)
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+
+SET = SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+
+class TestActor112301(unittest.TestCase):
+    """角色112301 沙耶 技能测试"""
+
+    def setUp(self):
+        self.dl = DataLoader()
+        self.dl.load_all()
+        self.bf = BattlefieldState()
+
+        # 沙耶 (EN/後列/アタッカー)
+        self.caster = UnitState(
+            unit_id='ally_saya', name='saya', side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=112301, level=200,
+            element=2, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=18000, defense=8000, speed=800,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=50,
+            skills=[110011, 120020, 120038, 130029, 130045],
+            skill_levels={110011: 15, 120020: 15, 120038: 15, 130029: 15, 130045: 15},
+            skill_cooldowns={},
+        )
+
+        # EN类型敌人前排
+        self.enemy_en_front = UnitState(
+            unit_id='enemy_en_front', name='enemyEN(F)', side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=200,
+            element=2, character_type=2,
+            max_hp=100000, current_hp=100000,
+            attack=30000, defense=10000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 物理类型敌人前排
+        self.enemy_phys_front = UnitState(
+            unit_id='enemy_phys_front', name='enemyPHY(F)', side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=200,
+            element=1, character_type=1,
+            max_hp=100000, current_hp=100000,
+            attack=30000, defense=10000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # EN类型敌人后排
+        self.enemy_en_back = UnitState(
+            unit_id='enemy_en_back', name='enemyEN(B)', side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999001, level=200,
+            element=2, character_type=2,
+            max_hp=100000, current_hp=100000,
+            attack=30000, defense=10000, speed=500,
+            crit_rate=0.05, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.add_unit(self.caster)
+        self.bf.add_unit(self.enemy_en_front)
+        self.bf.add_unit(self.enemy_phys_front)
+        self.bf.add_unit(self.enemy_en_back)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ============================================================
+    # EX技能 - 乙女の高ぶり (110011)
+    # ============================================================
+
+    def test_ex_damage_and_lifesteal(self):
+        """
+        EX: EN全体伤害+25%吸血
+        验证: 对所有敌人造成EN伤害，自身回复伤害25%的HP
+        """
+        # 先受伤以便测试吸血
+        self.caster.current_hp = 10000
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110011,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 吸血应回复HP
+        self.assertGreater(self.caster.current_hp, 10000,
+                           f"吸血后HP应增加, 当前HP: {self.caster.current_hp}")
+
+    def test_ex_lv11_burn(self):
+        """
+        EX: Lv11+附加3行动炎上
+        验证: Lv15时所有敌人附加炎上debuff
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110011,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 检查敌人是否附加了炎上
+        for enemy in [self.enemy_en_front, self.enemy_phys_front, self.enemy_en_back]:
+            burn_debuffs = [d for d in enemy.debuffs
+                           if d.effect_type == SET.CONFLAGRATION.value]
+            self.assertGreater(len(burn_debuffs), 0,
+                               f"{enemy.name}应有炎上debuff")
+
+    # ============================================================
+    # AS1技能 - 禅刃再生 (120020)
+    # ============================================================
+
+    def test_as1_damage_and_lifesteal(self):
+        """
+        AS1: EN单体伤害+吸血(cure%)
+        验证: 对单体敌人造成EN伤害，自身回复伤害cure%的HP
+        """
+        self.caster.current_hp = 10000
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120020,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        self.assertGreater(self.caster.current_hp, 10000,
+                           f"吸血后HP应增加, 当前HP: {self.caster.current_hp}")
+
+    def test_as1_remove_pp_on_en_enemy(self):
+        """
+        AS1: EN类型敌人削1PP
+        验证: 对EN类型敌人削1PP，物理类型敌人不受影响
+        """
+        # 只保留EN敌人和物理敌人
+        self.enemy_en_back.is_alive = False
+
+        en_pp_before = self.enemy_en_front.current_pp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120020,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # EN敌人PP应减少1
+        self.assertEqual(self.enemy_en_front.current_pp, en_pp_before - 1,
+                         f"EN敌人PP应减少1, 实际: {self.enemy_en_front.current_pp}")
+
+    # ============================================================
+    # AS2技能 - 桜華の舞 (120038)
+    # ============================================================
+
+    def test_as2_full_hp_4x_damage(self):
+        """
+        AS2: 满血时4倍伤害（1+300%）
+        验证: 满血时hp_scaling_factor=4.0
+        """
+        self.caster.current_hp = self.caster.max_hp  # 满血
+        self.caster.crit_rate = 0.0  # 不暴击以便精确计算
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120038,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 满血时伤害应约为基础伤害的4倍
+        # 基础伤害 = (ATK-DEF) * power/100 * attr * dealt * rcvd * guard
+        # hp_scaling_factor = 1.0 + (1.0 * 300) / 100 = 4.0
+        # 验证敌人受到了伤害
+        enemies_damaged = [e for e in self.bf.get_all_units()
+                          if e.side == Side.ENEMY and e.is_alive and e.current_hp < e.max_hp]
+        self.assertGreater(len(enemies_damaged), 0, "应有敌人受到伤害")
+
+    def test_as2_half_hp_damage(self):
+        """
+        AS2: 半血时2.5倍伤害（1+150%）
+        验证: 半血时hp_scaling_factor=2.5
+        """
+        self.caster.current_hp = self.caster.max_hp // 2  # 半血
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120038,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        enemies_damaged = [e for e in self.bf.get_all_units()
+                          if e.side == Side.ENEMY and e.is_alive and e.current_hp < e.max_hp]
+        self.assertGreater(len(enemies_damaged), 0, "应有敌人受到伤害")
+
+    def test_as2_low_hp_minimal_scaling(self):
+        """
+        AS2: 低血时接近1倍伤害（无加成）
+        验证: 低血时hp_scaling_factor接近1.0
+        """
+        self.caster.current_hp = 1  # 几乎0血
+        self.caster.crit_rate = 0.0
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120038,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        # 低血时伤害应远低于满血时
+        enemies_damaged = [e for e in self.bf.get_all_units()
+                          if e.side == Side.ENEMY and e.is_alive and e.current_hp < e.max_hp]
+        self.assertGreater(len(enemies_damaged), 0, "应有敌人受到伤害")
+
+    # ============================================================
+    # PS1技能 - 鬼神活性 (130029)
+    # ============================================================
+
+    def test_ps1_dmg_dealt_up_stackable(self):
+        """
+        PS1: dmg_dealt_up可叠加
+        验证: 多次触发PS1后，dmg_dealt_up buff数量应叠加
+        """
+        buff1 = BuffState(
+            buff_id=f"{self.caster.unit_id}_dealt_dmg_1",
+            name="DealtDamage", effect_type=SET.DEALT_DAMAGE.value,
+            value=40.0, duration=-1, timing_type=2,
+            attack_limited=1,
+            source_unit_id=self.caster.unit_id,
+        )
+        buff2 = BuffState(
+            buff_id=f"{self.caster.unit_id}_dealt_dmg_2",
+            name="DealtDamage", effect_type=SET.DEALT_DAMAGE.value,
+            value=40.0, duration=-1, timing_type=2,
+            attack_limited=1,
+            source_unit_id=self.caster.unit_id,
+        )
+        self.caster.buffs.append(buff1)
+        self.caster.buffs.append(buff2)
+
+        dmg_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.DEALT_DAMAGE.value]
+        self.assertEqual(len(dmg_up_buffs), 2,
+                         f"应有2个dmg_dealt_up buff, 实际: {len(dmg_up_buffs)}")
+
+    def test_ps1_dmg_dealt_up_consumed_after_attack(self):
+        """
+        PS1: dmg_dealt_up在1次攻击后消耗
+        验证: 施加dmg_dealt_up后，攻击1次buff消失
+        """
+        buff = BuffState(
+            buff_id=f"{self.caster.unit_id}_dealt_dmg_test",
+            name="DealtDamage", effect_type=SET.DEALT_DAMAGE.value,
+            value=40.0, duration=-1, timing_type=2,
+            attack_limited=1,
+            source_unit_id=self.caster.unit_id,
+        )
+        self.caster.buffs.append(buff)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120020,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        dmg_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.DEALT_DAMAGE.value]
+        self.assertEqual(len(dmg_up_buffs), 0,
+                         f"攻击后dmg_dealt_up应被消耗, 实际剩余: {len(dmg_up_buffs)}")
+
+    # ============================================================
+    # PS2技能 - 茶鬼舞踏 (130045)
+    # ============================================================
+
+    def test_ps2_atk_up_and_crit_rate_up(self):
+        """
+        PS2: AS攻击前触发atk_up+crit_rate_up
+        验证: before_skill_use触发时，自身获得atk_up和crit_rate_up
+        """
+        ts = self.ss.trigger_service
+        actions = ts.trigger_before_skill_use(self.caster, 120020, self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130045]
+        self.assertGreater(len(ps2_actions), 0, "PS2应被触发")
+
+        # 执行PS2的触发actions
+        for action in ps2_actions:
+            owner = action.instance.owner
+            skill_result = self.ss.execute_skill(
+                caster=owner, skill_id=action.skill_id,
+                battlefield=self.bf, skip_cost=True,
+            )
+            self.assertTrue(skill_result.get("success", False))
+
+        # 验证buff
+        atk_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.STATUS_ATTACK.value]
+        crit_up_buffs = [b for b in self.caster.buffs
+                        if b.effect_type == SET.STATUS_CRITICAL_CHANCE.value]
+        self.assertGreater(len(atk_up_buffs), 0, "应有atk_up buff")
+        self.assertGreater(len(crit_up_buffs), 0, "应有crit_rate_up buff")
+
+    def test_ps2_hp_scaling_full_hp(self):
+        """
+        PS2: 满血时atk_up和crit_rate_up达到最大值
+        验证: 满血时buff value等于配置值（Lv15: atk=50%, crt=40%）
+        """
+        self.caster.current_hp = self.caster.max_hp
+
+        ts = self.ss.trigger_service
+        actions = ts.trigger_before_skill_use(self.caster, 120020, self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130045]
+        for action in ps2_actions:
+            owner = action.instance.owner
+            self.ss.execute_skill(
+                caster=owner, skill_id=action.skill_id,
+                battlefield=self.bf, skip_cost=True,
+            )
+
+        atk_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.STATUS_ATTACK.value]
+        crit_up_buffs = [b for b in self.caster.buffs
+                        if b.effect_type == SET.STATUS_CRITICAL_CHANCE.value]
+
+        if atk_up_buffs:
+            self.assertAlmostEqual(atk_up_buffs[0].value, 50.0, delta=1.0,
+                                   msg=f"满血时atk_up应约50%, 实际: {atk_up_buffs[0].value}")
+        if crit_up_buffs:
+            self.assertAlmostEqual(crit_up_buffs[0].value, 40.0, delta=1.0,
+                                   msg=f"满血时crit_rate_up应约40%, 实际: {crit_up_buffs[0].value}")
+
+    def test_ps2_hp_scaling_half_hp(self):
+        """
+        PS2: 半血时atk_up和crit_rate_up约为最大值的一半
+        验证: 半血时buff value约为满血时的一半
+        """
+        self.caster.current_hp = self.caster.max_hp // 2
+
+        ts = self.ss.trigger_service
+        actions = ts.trigger_before_skill_use(self.caster, 120020, self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130045]
+        for action in ps2_actions:
+            owner = action.instance.owner
+            self.ss.execute_skill(
+                caster=owner, skill_id=action.skill_id,
+                battlefield=self.bf, skip_cost=True,
+            )
+
+        atk_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.STATUS_ATTACK.value]
+        crit_up_buffs = [b for b in self.caster.buffs
+                        if b.effect_type == SET.STATUS_CRITICAL_CHANCE.value]
+
+        if atk_up_buffs:
+            self.assertAlmostEqual(atk_up_buffs[0].value, 25.0, delta=2.0,
+                                   msg=f"半血时atk_up应约25%, 实际: {atk_up_buffs[0].value}")
+        if crit_up_buffs:
+            self.assertAlmostEqual(crit_up_buffs[0].value, 20.0, delta=2.0,
+                                   msg=f"半血时crit_rate_up应约20%, 实际: {crit_up_buffs[0].value}")
+
+    def test_ps2_buff_consumed_after_attack(self):
+        """
+        PS2: atk_up和crit_rate_up在1次攻击后消耗
+        验证: PS2的buff在攻击1次后消失
+        """
+        self.caster.current_hp = self.caster.max_hp
+
+        # 手动施加PS2的buff（模拟PS2触发）
+        atk_buff = BuffState(
+            buff_id=f"{self.caster.unit_id}_atk_up_ps2",
+            name="StatusAttack", effect_type=SET.STATUS_ATTACK.value,
+            value=50.0, duration=-1, timing_type=2,
+            attack_limited=1,
+            source_unit_id=self.caster.unit_id,
+        )
+        crit_buff = BuffState(
+            buff_id=f"{self.caster.unit_id}_crit_up_ps2",
+            name="StatusCriticalChance", effect_type=SET.STATUS_CRITICAL_CHANCE.value,
+            value=40.0, duration=-1, timing_type=2,
+            attack_limited=1,
+            source_unit_id=self.caster.unit_id,
+        )
+        self.caster.buffs.append(atk_buff)
+        self.caster.buffs.append(crit_buff)
+
+        # 确认buff存在
+        atk_up_before = [b for b in self.caster.buffs
+                        if b.effect_type == SET.STATUS_ATTACK.value]
+        self.assertGreater(len(atk_up_before), 0, "攻击前应有atk_up buff")
+
+        # 执行AS1攻击
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120020,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 攻击后buff应被消耗
+        atk_up_after = [b for b in self.caster.buffs
+                       if b.effect_type == SET.STATUS_ATTACK.value]
+        crit_up_after = [b for b in self.caster.buffs
+                        if b.effect_type == SET.STATUS_CRITICAL_CHANCE.value]
+        self.assertEqual(len(atk_up_after), 0,
+                         f"攻击后atk_up应被消耗, 实际剩余: {len(atk_up_after)}")
+        self.assertEqual(len(crit_up_after), 0,
+                         f"攻击后crit_rate_up应被消耗, 实际剩余: {len(crit_up_after)}")
+
+    # ============================================================
+    # 补充测试 - PS1回合结束触发 / PS2 EX过滤 / AS1物理敌人 / EX burn tick / AS2 HP scaling精确比例
+    # ============================================================
+
+    def test_ps1_triggers_on_turn_end_after_round_1(self):
+        """
+        PS1: on_turn_end真实触发，round_number>1时自动给caster施加dmg_dealt_up
+        验证: 通过TriggerService.trigger_turn_end触发，caster.buffs中出现dmg_dealt_up
+        """
+        self.bf.turn_number = 2  # 第2回合（global_condition: round_number > 1）
+
+        ts = self.ss.trigger_service
+        actions = ts.trigger_turn_end(self.bf)
+
+        ps1_actions = [a for a in actions if a.skill_id == 130029]
+        self.assertGreater(len(ps1_actions), 0, "PS1应在round_number>1时触发")
+
+        for action in ps1_actions:
+            owner = action.instance.owner
+            skill_result = self.ss.execute_skill(
+                caster=owner, skill_id=action.skill_id,
+                battlefield=self.bf, skip_cost=True,
+            )
+            self.assertTrue(skill_result.get("success", False))
+
+        dmg_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.DEALT_DAMAGE.value]
+        self.assertGreater(len(dmg_up_buffs), 0, "应有dmg_dealt_up buff")
+
+    def test_ps1_does_not_trigger_on_round_1(self):
+        """
+        PS1: 第1回合（round_number=1）不触发
+        验证: 不消耗PP，不施加dmg_dealt_up buff
+        """
+        self.bf.turn_number = 1
+        pp_before = self.caster.current_pp
+
+        ts = self.ss.trigger_service
+        actions = ts.trigger_turn_end(self.bf)
+
+        ps1_actions = [a for a in actions if a.skill_id == 130029]
+        self.assertEqual(len(ps1_actions), 0, "PS1在第1回合不应触发")
+
+        dmg_up_buffs = [b for b in self.caster.buffs
+                       if b.effect_type == SET.DEALT_DAMAGE.value]
+        self.assertEqual(len(dmg_up_buffs), 0, "第1回合不应有dmg_dealt_up buff")
+        self.assertEqual(self.caster.current_pp, pp_before, "PP不应被消耗")
+
+    def test_ps2_does_not_trigger_before_ex(self):
+        """
+        PS2: before_skill_use在EX技能前不触发（仅AS触发）
+        验证: 传入skill_type=3（EX）时PS2 actions为空
+        """
+        ts = self.ss.trigger_service
+        # 110011 是 EX 技能（skill_type=3）
+        actions = ts.trigger_before_skill_use(self.caster, 110011, self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130045]
+        self.assertEqual(len(ps2_actions), 0, "PS2不应在EX技能前触发")
+
+    def test_as1_does_not_remove_pp_on_physical_enemy(self):
+        """
+        AS1: 对物理类型敌人(character_type=1)不削PP
+        验证: 执行AS1后enemy_phys_front.current_pp保持不变
+        """
+        # 移除EN敌人，只保留物理敌人，确保AS1锁定物理敌人
+        self.enemy_en_front.is_alive = False
+        self.enemy_en_back.is_alive = False
+
+        phys_pp_before = self.enemy_phys_front.current_pp
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120020,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(self.enemy_phys_front.current_pp, phys_pp_before,
+                         f"物理敌人PP应不变, 实际: {self.enemy_phys_front.current_pp}")
+
+    def test_ex_burn_tick_damage(self):
+        """
+        EX Lv15附加炎上(burn_damage_pct=30)，验证burn tick伤害约为ATK×30%
+        验证: apply_burn_damage后敌方HP减少约18000×0.3=5400
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110011,
+            battlefield=self.bf, skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # 找到带炎上debuff的敌人
+        burned_enemy = None
+        for enemy in [self.enemy_en_front, self.enemy_phys_front, self.enemy_en_back]:
+            burn_debuffs = [d for d in enemy.debuffs
+                           if d.effect_type == SET.CONFLAGRATION.value]
+            if burn_debuffs:
+                burned_enemy = enemy
+                break
+        self.assertIsNotNone(burned_enemy, "应有敌人附加炎上")
+
+        # 重置HP到满血以便测量burn伤害
+        burned_enemy.current_hp = burned_enemy.max_hp
+        hp_before = burned_enemy.current_hp
+
+        stsvc = self.ss.status_service
+        total_damage, count, calc_detail = stsvc.apply_burn_damage(burned_enemy)
+
+        self.assertGreater(total_damage, 0, "burn伤害应>0")
+        expected_burn = self.caster.attack * 30 / 100  # ATK × 30% = 5400
+        # 容差±20%以应对buff快照差异
+        self.assertAlmostEqual(total_damage, expected_burn, delta=expected_burn * 0.2,
+                               msg=f"burn伤害应约{expected_burn}, 实际: {total_damage}")
+        self.assertEqual(burned_enemy.current_hp, hp_before - total_damage,
+                         f"HP应减少burn伤害量, before={hp_before}, after={burned_enemy.current_hp}")
+
+    def test_as2_hp_scaling_exact_multiplier(self):
+        """
+        AS2: HP scaling独立乘区精确数值
+        满血=4.0, 半血=2.5, 低血(10%)=1.3
+        验证: 满血伤害 > 半血伤害 > 低血伤害, 且满血/半血 ≈ 1.6 (4.0/2.5)
+        """
+        self.caster.crit_rate = 0.0  # 关闭暴击
+
+        def measure_damage(caster_hp_pct):
+            # 重置敌人HP
+            for e in [self.enemy_en_front, self.enemy_phys_front, self.enemy_en_back]:
+                e.current_hp = e.max_hp
+            # 清空caster buffs/debuffs（确保测量独立）
+            self.caster.buffs.clear()
+            self.caster.debuffs.clear()
+            # 设置caster HP
+            self.caster.current_hp = int(self.caster.max_hp * caster_hp_pct)
+            # 至少1HP
+            if self.caster.current_hp <= 0:
+                self.caster.current_hp = 1
+
+            result = self.ss.execute_skill(
+                caster=self.caster, skill_id=120038,
+                battlefield=self.bf, skip_cost=True,
+            )
+            self.assertTrue(result["success"])
+            # 计算总伤害
+            total_dmg = sum(e.max_hp - e.current_hp
+                           for e in self.bf.enemy_team if e.is_alive)
+            return total_dmg
+
+        dmg_full = measure_damage(1.0)
+        dmg_half = measure_damage(0.5)
+        dmg_low = measure_damage(0.1)
+
+        self.assertGreater(dmg_full, 0, "满血时应有伤害")
+        self.assertGreater(dmg_half, 0, "半血时应有伤害")
+        self.assertGreater(dmg_low, 0, "低血时应有伤害")
+
+        # 验证: 满血 > 半血 > 低血
+        self.assertGreater(dmg_full, dmg_half,
+                           f"满血伤害应>半血伤害, full={dmg_full}, half={dmg_half}")
+        self.assertGreater(dmg_half, dmg_low,
+                           f"半血伤害应>低血伤害, half={dmg_half}, low={dmg_low}")
+
+        # 验证: 满血/半血 ≈ 1.6 (4.0/2.5)
+        ratio_full_half = dmg_full / dmg_half if dmg_half > 0 else 0
+        self.assertAlmostEqual(ratio_full_half, 1.6, delta=0.3,
+                               msg=f"满血/半血比例应约1.6, 实际: {ratio_full_half}")
+
+        # 验证: 半血/低血 ≈ 1.92 (2.5/1.3)
+        ratio_half_low = dmg_half / dmg_low if dmg_low > 0 else 0
+        self.assertGreater(ratio_half_low, 1.5,
+                           f"半血/低血比例应约1.9, 实际: {ratio_half_low}")
+
+
+if __name__ == '__main__':
+    unittest.main()

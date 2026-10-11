@@ -1,0 +1,884 @@
+"""Regression: 新春のメイズ研究者 (102302) skill effects config & behavior.
+
+Character 102302 has 5 skills:
+- EX 110041 餅つき、よいしょ～！: enemy_all damage + poison + reset_cooldown(120093) + お餅 mark
+- AS1 120093 除災招福: enemy_row 3hit + lifesteal + heal_efficacy_down; Lv11+ atk_up/def_up with value_scales_with_self_mark_count
+- AS2 120094 お祓い: enemy_single damage + atk_down 5% (stackable)
+- PS1 130101 お清め: on_pawn_died trigger, heal + max_hp_up + reset_cooldown + お餅 mark
+- PS2 130102 災難除け: on_cumulative_damage trigger (>=40% max_hp), shield
+
+New mechanisms added:
+- on_pawn_died trigger_type: fires when any unit (enemy or ally) dies except owner
+- value_scales_with_self_mark_count flag: scales aura value by min(mark_count, max_count)
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (Side, Position, Attribute, SkillEffectType,
+                                    AuraUpdateTiming)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+EX_SKILL = 110041    # 餅つき、よいしょ～！
+AS1_SKILL = 120093   # 除災招福
+AS2_SKILL = 120094   # お祓い
+PS1_SKILL = 130101   # お清め
+PS2_SKILL = 130102   # 災難除け
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=4000, speed=500, element=Attribute.WATER.value,
+               character_type=1, skills=None, skill_levels=None, pp=4, ep=0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=10, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=100,
+        current_ap=10, current_pp=pp, current_ep=ep,
+        is_alive=hp > 0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestReg102302ShinpunMaze(unittest.TestCase):
+    """新春のメイズ研究者 (102302) skill effects validation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    # ====================================================================
+    # EX 110041 餅つき、よいしょ～！ config validation
+    # ====================================================================
+
+    def test_config_110041_basic_fields(self):
+        """110041 must be EX (skill_type=3, cost=7 AP)."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        self.assertIsNotNone(parsed, "110041 parsed data missing")
+        self.assertEqual(parsed.get('skill_type'), 3)
+        self.assertEqual(parsed.get('resource_cost'), 7)
+        self.assertIsNone(parsed.get('trigger_type'),
+                          "EX has no trigger_type")
+
+    def test_config_110041_has_4_effects_in_single_block(self):
+        """110041 Block1 must have 4 effects: damage + add_status + reset_cooldown + mark."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1, "110041 must have 1 effect block")
+
+        effs = blocks[0].get('effects', [])
+        self.assertEqual(len(effs), 4,
+                         "110041 must have 4 effects: damage/poison/reset_cd/mark")
+
+        types = [e.get('effect_type') for e in effs]
+        self.assertIn('damage', types)
+        self.assertIn('add_status', types)
+        self.assertIn('reset_cooldown', types)
+        self.assertIn('mark', types)
+
+    def test_config_110041_damage_enemy_all(self):
+        """110041 damage must target enemy_all with value_tag=威力."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        dmg = [e for e in effs if e['effect_type'] == 'damage'][0]
+        self.assertEqual(dmg.get('target_type'), 'enemy_all')
+        self.assertEqual(dmg.get('value_tag'), '威力')
+
+    def test_config_110041_poison_2actions_10pct(self):
+        """110041 poison must be 2 actions, 10% current HP, target enemy_all."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        poison = [e for e in effs if e['effect_type'] == 'add_status'][0]
+        self.assertEqual(poison.get('target_type'), 'enemy_all')
+        self.assertEqual(poison.get('duration'), 2)
+        self.assertEqual(poison.get('duration_type'), 'action')
+        self.assertEqual(poison.get('flags', {}).get('status_type'), 'poison')
+        self.assertEqual(poison.get('flags', {}).get('poison_damage_pct'), 10)
+
+    def test_config_110041_reset_cooldown_for_120093(self):
+        """110041 reset_cooldown must target skill_id=120093 (除災招福)."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        reset = [e for e in effs if e['effect_type'] == 'reset_cooldown'][0]
+        self.assertEqual(reset.get('target_type'), 'self')
+        self.assertEqual(reset.get('value'), AS1_SKILL,
+                         "reset_cooldown must target 120093 (除災招福)")
+
+    def test_config_110041_mochi_mark_permanent_stackable(self):
+        """110041 mark must be お餅, is_buff_mark, stackable, duration=-1."""
+        parsed = self.dl.get_parsed_skill_data(EX_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        mark = [e for e in effs if e['effect_type'] == 'mark'][0]
+        self.assertEqual(mark.get('target_type'), 'self')
+        self.assertEqual(mark.get('duration'), -1,
+                         "お餅 mark must be permanent (duration=-1)")
+        flags = mark.get('flags', {})
+        self.assertEqual(flags.get('mark_name'), 'お餅')
+        self.assertTrue(flags.get('is_buff_mark'),
+                        "お餅 must be a buff mark (not debuff)")
+        self.assertTrue(flags.get('stackable'),
+                        "お餅 mark must be stackable")
+
+    # ====================================================================
+    # AS1 120093 除災招福 config validation
+    # ====================================================================
+
+    def test_config_120093_basic_fields(self):
+        """120093 must be AS (skill_type=1, cost=1 AP, cooldown=99)."""
+        parsed = self.dl.get_parsed_skill_data(AS1_SKILL)
+        self.assertIsNotNone(parsed, "120093 parsed data missing")
+        self.assertEqual(parsed.get('skill_type'), 1)
+        self.assertEqual(parsed.get('resource_cost'), 1)
+        self.assertEqual(parsed.get('cooldown'), 99,
+                         "120093 cooldown=99 (戦闘中1度のみ)")
+        self.assertEqual(parsed.get('cooldown_update_timing'), 1)
+
+    def test_config_120093_has_2_blocks(self):
+        """120093 must have 2 blocks: Lv11+ buff + base main effect."""
+        parsed = self.dl.get_parsed_skill_data(AS1_SKILL)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 2,
+                         "120093 must have 2 effect blocks (Lv11+ buff + base)")
+
+    def test_config_120093_block1_lv11_atk_def_up_with_mark_scaling(self):
+        """120093 Block1 (Lv11+) must have atk_up/def_up with value_scales_with_self_mark_count."""
+        parsed = self.dl.get_parsed_skill_data(AS1_SKILL)
+        block1 = parsed['effect_blocks'][0]
+        cond = block1.get('condition')
+        self.assertIsNotNone(cond, "Block1 must have active_level_min condition")
+        self.assertEqual(cond.get('type'), 'active_level_min')
+        self.assertEqual(cond.get('value'), 11)
+
+        effs = block1.get('effects', [])
+        atk_up = [e for e in effs if e['effect_type'] == 'atk_up']
+        def_up = [e for e in effs if e['effect_type'] == 'def_up']
+        self.assertEqual(len(atk_up), 1, "Block1 must have 1 atk_up")
+        self.assertEqual(len(def_up), 1, "Block1 must have 1 def_up")
+
+        for eff in atk_up + def_up:
+            self.assertEqual(eff.get('target_type'), 'self')
+            self.assertEqual(eff.get('duration'), 1)
+            self.assertEqual(eff.get('duration_type'), 'action')
+            flags = eff.get('flags', {})
+            self.assertEqual(flags.get('value_type'), 'percent')
+            self.assertTrue(flags.get('stackable'),
+                            "atk_up/def_up must be stackable (重複可)")
+            self.assertTrue(flags.get('value_scales_with_self_mark_count'),
+                            "must have value_scales_with_self_mark_count flag")
+            self.assertEqual(flags.get('mark_name'), 'お餅')
+            self.assertEqual(flags.get('max_count'), 6,
+                             "max_count=6 (最大6つまで)")
+
+    def test_config_120093_block2_main_effects(self):
+        """120093 Block2 must have damage(enemy_row, 3hit) + lifesteal(25) + heal_efficacy_down(100)."""
+        parsed = self.dl.get_parsed_skill_data(AS1_SKILL)
+        block2 = parsed['effect_blocks'][1]
+        self.assertIsNone(block2.get('condition'),
+                          "Block2 has no condition (always applies)")
+
+        effs = block2.get('effects', [])
+        types = [e['effect_type'] for e in effs]
+        self.assertIn('damage', types)
+        self.assertIn('lifesteal', types)
+        self.assertIn('heal_efficacy_down', types)
+
+        # damage: enemy_row, 3hit
+        dmg = [e for e in effs if e['effect_type'] == 'damage'][0]
+        self.assertEqual(dmg.get('target_type'), 'enemy_row')
+        self.assertEqual(dmg.get('value_tag'), '威力')
+        self.assertEqual(dmg.get('hit_count'), 3,
+                         "must be 3hit (single damage effect with hit_count=3)")
+
+        # lifesteal: self, value=25
+        ls = [e for e in effs if e['effect_type'] == 'lifesteal'][0]
+        self.assertEqual(ls.get('target_type'), 'self')
+        self.assertEqual(ls.get('value'), 25,
+                         "lifesteal 25% of dealt damage")
+
+        # heal_efficacy_down: attacked_targets, 100%, 2 actions
+        hed = [e for e in effs if e['effect_type'] == 'heal_efficacy_down'][0]
+        self.assertEqual(hed.get('target_type'), 'attacked_targets')
+        self.assertEqual(hed.get('value'), 100,
+                         "heal_efficacy_down 100% = complete heal block")
+        self.assertEqual(hed.get('duration'), 2)
+        self.assertEqual(hed.get('duration_type'), 'action')
+        self.assertEqual(hed.get('flags', {}).get('value_type'), 'percent')
+
+    # ====================================================================
+    # AS2 120094 お祓い config validation
+    # ====================================================================
+
+    def test_config_120094_basic_fields(self):
+        """120094 must be AS (skill_type=1, cost=1 AP, no cooldown)."""
+        parsed = self.dl.get_parsed_skill_data(AS2_SKILL)
+        self.assertIsNotNone(parsed, "120094 parsed data missing")
+        self.assertEqual(parsed.get('skill_type'), 1)
+        self.assertEqual(parsed.get('resource_cost'), 1)
+        self.assertIsNone(parsed.get('cooldown'),
+                          "120094 has no cooldown (unlimited use)")
+
+    def test_config_120094_damage_and_atk_down(self):
+        """120094 must have damage(enemy_single) + atk_down(attacked_targets, 5%, stackable)."""
+        parsed = self.dl.get_parsed_skill_data(AS2_SKILL)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1)
+        effs = blocks[0].get('effects', [])
+        self.assertEqual(len(effs), 2)
+
+        dmg = [e for e in effs if e['effect_type'] == 'damage'][0]
+        self.assertEqual(dmg.get('target_type'), 'enemy_single')
+        self.assertEqual(dmg.get('value_tag'), '威力')
+
+        atk_down = [e for e in effs if e['effect_type'] == 'atk_down'][0]
+        self.assertEqual(atk_down.get('target_type'), 'attacked_targets',
+                         "atk_down must target attacked_targets (the actual attacked enemy)")
+        self.assertEqual(atk_down.get('value'), 5)
+        self.assertEqual(atk_down.get('duration'), 1)
+        self.assertEqual(atk_down.get('duration_type'), 'action')
+        self.assertEqual(atk_down.get('flags', {}).get('value_type'), 'percent')
+        self.assertTrue(atk_down.get('flags', {}).get('stackable'),
+                        "atk_down must be stackable (重複可)")
+
+    # ====================================================================
+    # PS1 130101 お清め config validation
+    # ====================================================================
+
+    def test_config_130101_basic_fields(self):
+        """130101 must be PS (skill_type=2, cost=1 PP, cooldown=1)."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        self.assertIsNotNone(parsed, "130101 parsed data missing")
+        self.assertEqual(parsed.get('skill_type'), 2)
+        self.assertEqual(parsed.get('resource_cost'), 1)
+        self.assertEqual(parsed.get('cooldown'), 1)
+        self.assertEqual(parsed.get('cooldown_update_timing'), 2)
+
+    def test_config_130101_trigger_type_on_pawn_died(self):
+        """130101 must use new trigger_type=on_pawn_died (fires on enemy OR ally death)."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        self.assertEqual(parsed.get('trigger_type'), 'on_pawn_died',
+                         "130101 must use on_pawn_died trigger (新規機構)")
+
+    def test_config_130101_has_4_effects(self):
+        """130101 Block1 must have 4 effects: heal + max_hp_up + reset_cooldown + mark."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1)
+        effs = blocks[0].get('effects', [])
+        types = [e['effect_type'] for e in effs]
+        self.assertIn('heal', types)
+        self.assertIn('max_hp_up', types)
+        self.assertIn('reset_cooldown', types)
+        self.assertIn('mark', types)
+
+    def test_config_130101_heal_max_hp_based(self):
+        """130101 heal must use heal_base=max_hp (cure% of max_hp)."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        heal = [e for e in effs if e['effect_type'] == 'heal'][0]
+        self.assertEqual(heal.get('target_type'), 'self')
+        self.assertEqual(heal.get('value_tag'), 'cure')
+        self.assertEqual(heal.get('value_source'), 'max_hp')
+        self.assertEqual(heal.get('flags', {}).get('heal_base'), 'max_hp')
+
+    def test_config_130101_max_hp_up_permanent_stackable_unremovable(self):
+        """130101 max_hp_up must be permanent, stackable, unremovable."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        mhp = [e for e in effs if e['effect_type'] == 'max_hp_up'][0]
+        self.assertEqual(mhp.get('target_type'), 'self')
+        self.assertEqual(mhp.get('value'), 5, "max_hp +5%")
+        self.assertEqual(mhp.get('duration'), -1, "permanent (duration=-1)")
+        flags = mhp.get('flags', {})
+        self.assertEqual(flags.get('value_type'), 'percent')
+        self.assertTrue(flags.get('stackable'), "stackable (重複可)")
+        self.assertTrue(flags.get('unremovable'), "unremovable (解除不可)")
+
+    def test_config_130101_reset_cooldown_and_mark(self):
+        """130101 reset_cooldown(120093) + お餅 mark."""
+        parsed = self.dl.get_parsed_skill_data(PS1_SKILL)
+        effs = parsed['effect_blocks'][0]['effects']
+        reset = [e for e in effs if e['effect_type'] == 'reset_cooldown'][0]
+        self.assertEqual(reset.get('value'), AS1_SKILL)
+
+        mark = [e for e in effs if e['effect_type'] == 'mark'][0]
+        self.assertEqual(mark.get('target_type'), 'self')
+        self.assertEqual(mark.get('duration'), -1)
+        self.assertEqual(mark.get('flags', {}).get('mark_name'), 'お餅')
+        self.assertTrue(mark.get('flags', {}).get('is_buff_mark'))
+        self.assertTrue(mark.get('flags', {}).get('stackable'))
+
+    # ====================================================================
+    # PS2 130102 災難除け config validation
+    # ====================================================================
+
+    def test_config_130102_basic_fields(self):
+        """130102 must be PS (skill_type=2, cost=1 PP, no cooldown)."""
+        parsed = self.dl.get_parsed_skill_data(PS2_SKILL)
+        self.assertIsNotNone(parsed, "130102 parsed data missing")
+        self.assertEqual(parsed.get('skill_type'), 2)
+        self.assertEqual(parsed.get('resource_cost'), 1)
+        self.assertIsNone(parsed.get('cooldown'),
+                          "130102 has no cooldown (cumulative_damage reset is the limiter)")
+
+    def test_config_130102_trigger_on_cumulative_damage_40pct(self):
+        """130102 must trigger on_cumulative_damage >= 40% max_hp."""
+        parsed = self.dl.get_parsed_skill_data(PS2_SKILL)
+        self.assertEqual(parsed.get('trigger_type'), 'on_cumulative_damage')
+        gc = parsed.get('global_condition')
+        self.assertIsNotNone(gc)
+        self.assertEqual(gc.get('type'), 'cumulative_damage_percent')
+        self.assertEqual(gc.get('operator'), '>=')
+        self.assertEqual(gc.get('value'), 40,
+                         "threshold = 40% of max_hp")
+
+    def test_config_130102_shield_max_hp_based_2actions(self):
+        """130102 shield must be shield_base=max_hp, 2 actions."""
+        parsed = self.dl.get_parsed_skill_data(PS2_SKILL)
+        blocks = parsed.get('effect_blocks', [])
+        self.assertEqual(len(blocks), 1)
+        effs = blocks[0].get('effects', [])
+        self.assertEqual(len(effs), 1)
+
+        shield = effs[0]
+        self.assertEqual(shield.get('effect_type'), 'shield')
+        self.assertEqual(shield.get('target_type'), 'self')
+        self.assertEqual(shield.get('value_tag'), 'shield')
+        self.assertEqual(shield.get('duration'), 2)
+        self.assertEqual(shield.get('duration_type'), 'action')
+        self.assertEqual(shield.get('flags', {}).get('shield_base'), 'max_hp')
+
+    # ====================================================================
+    # Behavior: on_pawn_died trigger (新規機構)
+    # ====================================================================
+
+    def test_behavior_on_pawn_died_registered_in_trigger_map(self):
+        """on_pawn_died must be in TRIGGER_TYPE_MAP."""
+        from src.combat_v2.services.trigger_service import TRIGGER_TYPE_MAP
+        from src.entities_v2.enums import TriggerTiming
+        self.assertIn('on_pawn_died', TRIGGER_TYPE_MAP)
+        self.assertEqual(TRIGGER_TYPE_MAP['on_pawn_died'],
+                         TriggerTiming.PAWN_DIED)
+
+    def test_behavior_130101_triggers_on_enemy_death(self):
+        """PS1 130101 should be collected when an enemy dies."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[PS1_SKILL], skill_levels={PS1_SKILL: 10}, pp=4,
+        )
+        enemy = _make_unit(
+            "enemy1", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=0, atk=5000, defense=4000, pp=4,
+        )
+        enemy.is_alive = False
+        other_enemy = _make_unit(
+            "enemy2", "敵B", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=50000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy, other_enemy)
+        _, ts = self._make_services(bf)
+
+        actions = ts.trigger_pawn_died([enemy], bf)
+        ps_actions = [a for a in actions if a.skill_id == PS1_SKILL]
+        self.assertEqual(len(ps_actions), 1,
+                         "PS1 130101 must trigger when an enemy dies")
+
+    def test_behavior_130101_triggers_on_ally_death(self):
+        """PS1 130101 should be collected when an ally (not self) dies."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[PS1_SKILL], skill_levels={PS1_SKILL: 10}, pp=4,
+        )
+        ally = _make_unit(
+            "ally", "味方A", Side.ALLY, Position.ALLY_LEFT_FRONT,
+            hp=0, atk=5000, defense=4000, pp=4,
+        )
+        ally.is_alive = False
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=50000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, ally, enemy)
+        _, ts = self._make_services(bf)
+
+        actions = ts.trigger_pawn_died([ally], bf)
+        ps_actions = [a for a in actions if a.skill_id == PS1_SKILL]
+        self.assertEqual(len(ps_actions), 1,
+                         "PS1 130101 must trigger when an ally dies (not self)")
+
+    def test_behavior_130101_does_not_trigger_on_self_death(self):
+        """PS1 130101 should NOT trigger when the owner (caster) dies."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=0, atk=10000, defense=4000, speed=500,
+            skills=[PS1_SKILL], skill_levels={PS1_SKILL: 10}, pp=4,
+        )
+        caster.is_alive = False
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=50000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        _, ts = self._make_services(bf)
+
+        actions = ts.trigger_pawn_died([caster], bf)
+        ps_actions = [a for a in actions if a.skill_id == PS1_SKILL]
+        self.assertEqual(len(ps_actions), 0,
+                         "PS1 130101 must NOT trigger when owner dies")
+
+    # ====================================================================
+    # Behavior: value_scales_with_self_mark_count (新規機構)
+    # ====================================================================
+
+    def test_behavior_120093_lv11_atk_up_scales_with_mochi_count(self):
+        """AS1 120093 Lv11+ atk_up value must scale with お餅 mark count.
+
+        With 3 お餅 marks and atk=1.5 (Lv11), final atk_up value should be
+        1.5 * 3 = 4.5 (percent).
+        """
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[AS1_SKILL], skill_levels={AS1_SKILL: 11}, pp=4,
+        )
+        # Add 3 お餅 marks to caster
+        for i in range(3):
+            mark = BuffState(
+                buff_id=f"mochi_{i}",
+                name='お餅',
+                effect_type=SkillEffectType.MARK.value,
+                value=0,
+                duration=-1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id=caster.unit_id,
+                is_debuff=False,
+            )
+            caster.buffs.append(mark)
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        # Set cooldown to 0 so AS1 can be used
+        caster.skill_cooldowns = {}
+
+        result = ss.execute_skill(caster, AS1_SKILL, bf)
+        self.assertTrue(result.get('success', False),
+                        f"AS1 execution failed: {result}")
+
+        # Verify atk_up buff was applied with scaled value (1.5 * 3 = 4.5)
+        atk_ups = [b for b in caster.buffs
+                   if b.effect_type == SkillEffectType.STATUS_ATTACK.value
+                   and getattr(b, 'is_debuff', False) is False]
+        # atk_up creates STATUS_ATTACK buff. Let's check the value
+        self.assertGreater(len(atk_ups), 0, "atk_up buff must be applied")
+        # The value should be 1.5 * 3 = 4.5
+        # Note: depending on implementation, the value may be stored differently
+        # We check that the value is non-zero and matches the scaling formula
+        applied_value = atk_ups[0].value
+        self.assertAlmostEqual(applied_value, 4.5, places=2,
+                               msg="atk_up value should be 1.5 * 3 marks = 4.5")
+
+    def test_behavior_120093_lv11_atk_up_capped_at_max_count_6(self):
+        """AS1 120093 Lv11+ atk_up value must cap at max_count=6.
+
+        With 10 お餅 marks and atk=1.5 (Lv11), final atk_up value should be
+        1.5 * min(10, 6) = 1.5 * 6 = 9.0 (percent).
+        """
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[AS1_SKILL], skill_levels={AS1_SKILL: 11}, pp=4,
+        )
+        # Add 10 お餅 marks (exceeds max_count=6)
+        for i in range(10):
+            mark = BuffState(
+                buff_id=f"mochi_{i}",
+                name='お餅',
+                effect_type=SkillEffectType.MARK.value,
+                value=0,
+                duration=-1,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id=caster.unit_id,
+                is_debuff=False,
+            )
+            caster.buffs.append(mark)
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        caster.skill_cooldowns = {}
+
+        result = ss.execute_skill(caster, AS1_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        atk_ups = [b for b in caster.buffs
+                   if b.effect_type == SkillEffectType.STATUS_ATTACK.value
+                   and getattr(b, 'is_debuff', False) is False]
+        self.assertGreater(len(atk_ups), 0, "atk_up buff must be applied")
+        # 1.5 * min(10, 6) = 9.0
+        applied_value = atk_ups[0].value
+        self.assertAlmostEqual(applied_value, 9.0, places=2,
+                               msg="atk_up value should cap at 1.5 * 6 = 9.0")
+
+    def test_behavior_120093_lv11_no_marks_no_buff(self):
+        """AS1 120093 Lv11+ with 0 お餅 marks should apply 0% atk_up (buff still applied, value=0)."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[AS1_SKILL], skill_levels={AS1_SKILL: 11}, pp=4,
+        )
+        # No marks added
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        caster.skill_cooldowns = {}
+
+        result = ss.execute_skill(caster, AS1_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        atk_ups = [b for b in caster.buffs
+                   if b.effect_type == SkillEffectType.STATUS_ATTACK.value
+                   and getattr(b, 'is_debuff', False) is False]
+        if atk_ups:
+            # Buff may or may not be applied when value=0; if applied, value must be 0
+            applied_value = atk_ups[0].value
+            self.assertAlmostEqual(applied_value, 0.0, places=2,
+                                   msg="atk_up value should be 0 with no marks")
+
+    # ====================================================================
+    # Behavior: heal_efficacy_down 100% blocks healing
+    # ====================================================================
+
+    def test_behavior_120093_heal_efficacy_down_blocks_healing(self):
+        """AS1 120093 heal_efficacy_down 100% must reduce heal_received_multiplier to 0."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[AS1_SKILL], skill_levels={AS1_SKILL: 10}, pp=4,
+        )
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        caster.skill_cooldowns = {}
+
+        result = ss.execute_skill(caster, AS1_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        # enemy should have heal_efficacy_down debuff
+        hed = [d for d in enemy.debuffs
+               if d.effect_type == SkillEffectType.RECEIVED_HEALING.value]
+        self.assertGreater(len(hed), 0,
+                           "heal_efficacy_down debuff must be applied to enemy")
+        # value should be -100 (percent) → multiplier = max(0, 1 - 1.0) = 0
+        # Check actual multiplier via damage_service
+        dms = DamageService()
+        mult = dms._get_heal_received_multiplier(enemy)
+        self.assertEqual(mult, 0.0,
+                         "heal_received_multiplier must be 0 with 100% heal_efficacy_down")
+
+    # ====================================================================
+    # Behavior: reset_cooldown resets AS1's cooldown
+    # ====================================================================
+
+    def test_behavior_110041_reset_cooldown_for_120093(self):
+        """EX 110041 reset_cooldown must clear 120093's cooldown on caster."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[EX_SKILL], skill_levels={EX_SKILL: 10}, pp=4,
+            character_type=1, ep=100,
+        )
+        # Set AS1 on cooldown (99 turns remaining)
+        caster.skill_cooldowns[AS1_SKILL] = 99
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        # Execute EX (cost=7 AP, caster has 10 AP)
+        result = ss.execute_skill(caster, EX_SKILL, bf)
+        self.assertTrue(result.get('success', False),
+                        f"EX execution failed: {result}")
+
+        # AS1 cooldown should be cleared
+        self.assertNotIn(AS1_SKILL, caster.skill_cooldowns,
+                         "AS1 120093 cooldown must be reset by EX 110041")
+
+    def test_behavior_130101_reset_cooldown_for_120093(self):
+        """PS1 130101 reset_cooldown must clear 120093's cooldown on caster."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[PS1_SKILL], skill_levels={PS1_SKILL: 10}, pp=4,
+        )
+        # Set AS1 on cooldown
+        caster.skill_cooldowns[AS1_SKILL] = 99
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        # Execute PS1 directly (skill_type=2, cost=1 PP)
+        result = ss.execute_skill(caster, PS1_SKILL, bf)
+        self.assertTrue(result.get('success', False),
+                        f"PS1 execution failed: {result}")
+
+        # AS1 cooldown should be cleared
+        self.assertNotIn(AS1_SKILL, caster.skill_cooldowns,
+                         "AS1 120093 cooldown must be reset by PS1 130101")
+
+    # ====================================================================
+    # Behavior: お餅 mark applied by EX/PS1
+    # ====================================================================
+
+    def test_behavior_110041_applies_mochi_mark(self):
+        """EX 110041 must apply 1 お餅 mark (buff) to self."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[EX_SKILL], skill_levels={EX_SKILL: 10}, pp=4,
+            character_type=1, ep=100,
+        )
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(caster, EX_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        mochi_marks = [b for b in caster.buffs
+                       if b.effect_type == SkillEffectType.MARK.value
+                       and getattr(b, 'name', '') == 'お餅']
+        self.assertEqual(len(mochi_marks), 1,
+                         "EX must apply exactly 1 お餅 mark to self")
+
+    def test_behavior_110041_mochi_mark_is_buff_not_debuff(self):
+        """お餅 mark must be stored in buffs (not debuffs) due to is_buff_mark:true."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[EX_SKILL], skill_levels={EX_SKILL: 10}, pp=4,
+            character_type=1, ep=100,
+        )
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(caster, EX_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        mochi_in_buffs = [b for b in caster.buffs
+                          if b.effect_type == SkillEffectType.MARK.value
+                          and getattr(b, 'name', '') == 'お餅']
+        mochi_in_debuffs = [d for d in caster.debuffs
+                            if d.effect_type == SkillEffectType.MARK.value
+                            and getattr(d, 'name', '') == 'お餅']
+        self.assertGreater(len(mochi_in_buffs), 0,
+                           "お餅 mark must be in buffs (is_buff_mark=true)")
+        self.assertEqual(len(mochi_in_debuffs), 0,
+                         "お餅 mark must NOT be in debuffs")
+
+    # ====================================================================
+    # Behavior: PS2 130102 cumulative damage threshold trigger
+    # ====================================================================
+
+    def test_behavior_130102_triggers_at_40pct_cumulative_damage(self):
+        """PS2 130102 must trigger when cumulative_hp_damage >= 40% max_hp."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[PS2_SKILL], skill_levels={PS2_SKILL: 10}, pp=4,
+        )
+        # Set cumulative_hp_damage to exactly 40% threshold (40000)
+        caster.cumulative_hp_damage = 40000
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        _, ts = self._make_services(bf)
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        ps_actions = [a for a in actions if a.skill_id == PS2_SKILL]
+        self.assertEqual(len(ps_actions), 1,
+                         "PS2 must trigger when cumulative_hp_damage = 40% max_hp")
+
+    def test_behavior_130102_does_not_trigger_below_threshold(self):
+        """PS2 130102 must NOT trigger when cumulative_hp_damage < 40% max_hp."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[PS2_SKILL], skill_levels={PS2_SKILL: 10}, pp=4,
+        )
+        # Set cumulative_hp_damage to 39% (below 40% threshold)
+        caster.cumulative_hp_damage = 39999
+
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        _, ts = self._make_services(bf)
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        ps_actions = [a for a in actions if a.skill_id == PS2_SKILL]
+        self.assertEqual(len(ps_actions), 0,
+                         "PS2 must NOT trigger when cumulative < 40% threshold")
+
+    # ====================================================================
+    # Behavior: EX 110041 applies poison to enemies
+    # ====================================================================
+
+    def test_behavior_110041_applies_poison_to_all_enemies(self):
+        """EX 110041 must apply poison debuff to all enemies."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[EX_SKILL], skill_levels={EX_SKILL: 10}, pp=4,
+            character_type=1, ep=100,
+        )
+        enemy1 = _make_unit(
+            "enemy1", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+        enemy2 = _make_unit(
+            "enemy2", "敵B", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy1, enemy2)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(caster, EX_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        for enemy in (enemy1, enemy2):
+            poisons = [d for d in enemy.debuffs
+                       if d.effect_type == SkillEffectType.POISON.value]
+            self.assertGreater(len(poisons), 0,
+                               f"{enemy.name} must have poison debuff")
+            self.assertEqual(poisons[0].duration, 2,
+                             "poison duration must be 2 actions")
+
+    # ====================================================================
+    # Behavior: AS2 120094 atk_down is stackable
+    # ====================================================================
+
+    def test_behavior_120094_atk_down_applied_to_attacked_target(self):
+        """AS2 120094 atk_down must be applied to the attacked enemy."""
+        caster = _make_unit(
+            "caster", "新春のメイズ研究者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, atk=10000, defense=4000, speed=500,
+            skills=[AS2_SKILL], skill_levels={AS2_SKILL: 10}, pp=4,
+            character_type=1,
+        )
+        enemy = _make_unit(
+            "enemy", "敵A", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=4000, pp=4,
+        )
+
+        bf = _make_bf(caster, enemy)
+        ss, _ = self._make_services(bf)
+
+        result = ss.execute_skill(caster, AS2_SKILL, bf)
+        self.assertTrue(result.get('success', False))
+
+        atk_downs = [d for d in enemy.debuffs
+                     if d.effect_type == SkillEffectType.STATUS_ATTACK.value
+                     and getattr(d, 'is_debuff', False) is True]
+        self.assertGreater(len(atk_downs), 0,
+                           "atk_down debuff must be applied to attacked enemy")
+        # value should be 5 (percent)
+        self.assertAlmostEqual(atk_downs[0].value, 5, places=2,
+                               msg="atk_down value should be 5%")
+
+
+if __name__ == '__main__':
+    unittest.main()

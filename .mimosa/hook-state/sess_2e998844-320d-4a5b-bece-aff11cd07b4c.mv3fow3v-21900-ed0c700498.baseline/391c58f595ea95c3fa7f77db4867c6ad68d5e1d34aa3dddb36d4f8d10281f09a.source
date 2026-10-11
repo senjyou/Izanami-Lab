@@ -1,0 +1,242 @@
+"""Regression: consume_hp (自傷HP消費) must be tracked by scoring_tracker.
+
+Bug: 战术演习模式计分统计缺少敌方自残的伤害（如技能「私に任せて！+」的consume_hp自傷）。
+     _apply_consume_hp 仅更新了 caster.cumulative_hp_damage，缺少:
+     1. caster.damage_dealt_total / caster.damage_taken_total 更新
+     2. scoring_tracker.record_damage 调用
+
+     导致敌方自残的HP消耗未计入战术演习得分(_total_damage_to_enemies)。
+
+修复: 在 _apply_consume_hp 中添加 scoring_tracker.record_damage 调用，
+     source和target均为caster自身。当caster为敌方时，target_side=="enemy"，
+     _total_damage_to_enemies 增加，正确计入得分。
+
+计分公式: Score = 对敌方造成的总伤害（含溢出） - 敌方受到的总回复量
+  - 敌方自残: source=enemy, target=enemy => _total_damage_to_enemies += actual_consume ✓
+  - 己方自残: source=ally,  target=ally  => _total_damage_to_enemies 不变（不计入）✓
+
+日志证据 (step_crit_tactical_20260712_210726.txt):
+  5次「私に任せて！+」自傷: 60723 + 85233 + 109550 + 134807 + 115302 = 505615 HP
+  修复前计分统计敌方造成伤害仅68607（缺失自傷505615）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.scoring_tracker import ScoringTracker
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=5000, speed=500, element=2, character_type=1,
+               current_hp=None):
+    u = UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=10, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+    return u
+
+
+def _make_consume_hp_effect(value=10, hp_base='current_hp'):
+    """创建consume_hp效果对象"""
+    return type('obj', (object,), {
+        'effect_type': 'consume_hp',
+        'value': value,
+        'flags': {'hp_base': hp_base},
+        'target_type': 'self',
+        'target_identifier': None,
+        'hit_count': None,
+        'condition': None,
+    })()
+
+
+class TestRegConsumeHpScoringTracker(unittest.TestCase):
+    """consume_hp自傷必须被scoring_tracker记录"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_skill_service(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                          damage_service=dmgsvc, aura_service=asvc,
+                          status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(ss)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_enemy_consume_hp_tracked_by_scoring_tracker(self):
+        """敌方自残HP消耗应被scoring_tracker记录并计入得分
+
+        敌方HP=100000, consume 10% = 10000
+        _total_damage_to_enemies 应增加 10000
+        """
+        bf = BattlefieldState()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=100000, current_hp=100000)
+        bf.add_unit(enemy)
+
+        ss = self._build_skill_service(bf)
+        effect = _make_consume_hp_effect(value=10, hp_base='current_hp')
+
+        score_before = tracker.get_current_score()
+        hp_before = enemy.current_hp
+
+        result = ss._apply_consume_hp(enemy, effect, bf)
+
+        self.assertEqual(result['consumed'], 10000)
+        self.assertEqual(enemy.current_hp, 90000)
+
+        # scoring_tracker应记录
+        enemy_stats = tracker._unit_stats.get(enemy.unit_id)
+        self.assertIsNotNone(enemy_stats, "scoring_tracker应记录敌方单位")
+        self.assertEqual(enemy_stats.damage_dealt, 10000,
+                         "敌方自残应记录到damage_dealt")
+        self.assertEqual(enemy_stats.damage_received, 10000,
+                         "敌方自残应记录到damage_received")
+
+        # _total_damage_to_enemies应增加（target_side=="enemy"）
+        score_after = tracker.get_current_score()
+        self.assertEqual(score_after - score_before, 10000,
+                         "敌方自残应计入总得分(_total_damage_to_enemies)")
+
+    def test_ally_consume_hp_not_counted_in_enemy_damage(self):
+        """己方自残HP消耗应被记录但不计入对敌方伤害得分
+
+        己方HP=100000, consume 10% = 10000
+        _total_damage_to_enemies 不变（target_side=="ally"）
+        """
+        bf = BattlefieldState()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+
+        ally = _make_unit("ally", "Ally", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                          hp=100000, current_hp=100000)
+        bf.add_unit(ally)
+
+        ss = self._build_skill_service(bf)
+        effect = _make_consume_hp_effect(value=10, hp_base='current_hp')
+
+        score_before = tracker.get_current_score()
+
+        result = ss._apply_consume_hp(ally, effect, bf)
+
+        self.assertEqual(result['consumed'], 10000)
+
+        # scoring_tracker应记录（统计存在）
+        ally_stats = tracker._unit_stats.get(ally.unit_id)
+        self.assertIsNotNone(ally_stats)
+        self.assertEqual(ally_stats.damage_dealt, 10000)
+        self.assertEqual(ally_stats.damage_received, 10000)
+
+        # 但_total_damage_to_enemies不变（己方自残不计入对敌方伤害）
+        score_after = tracker.get_current_score()
+        self.assertEqual(score_after, score_before,
+                         "己方自残不应计入对敌方伤害得分")
+
+    def test_consume_hp_updates_damage_totals(self):
+        """consume_hp应更新damage_dealt_total和damage_taken_total"""
+        bf = BattlefieldState()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=100000, current_hp=100000)
+        bf.add_unit(enemy)
+
+        ss = self._build_skill_service(bf)
+        effect = _make_consume_hp_effect(value=10, hp_base='current_hp')
+
+        dealt_before = enemy.damage_dealt_total
+        taken_before = enemy.damage_taken_total
+
+        ss._apply_consume_hp(enemy, effect, bf)
+
+        self.assertEqual(enemy.damage_dealt_total, dealt_before + 10000,
+                         "damage_dealt_total应更新")
+        self.assertEqual(enemy.damage_taken_total, taken_before + 10000,
+                         "damage_taken_total应更新")
+
+    def test_consume_hp_multiple_accumulate(self):
+        """多次consume_hp应累加到scoring_tracker"""
+        bf = BattlefieldState()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=1000000, current_hp=1000000)
+        bf.add_unit(enemy)
+
+        ss = self._build_skill_service(bf)
+        effect = _make_consume_hp_effect(value=10, hp_base='current_hp')
+
+        total_consumed = 0
+        for _ in range(3):
+            hp_before = enemy.current_hp
+            ss._apply_consume_hp(enemy, effect, bf)
+            total_consumed += (hp_before - enemy.current_hp)
+
+        enemy_stats = tracker._unit_stats.get(enemy.unit_id)
+        self.assertEqual(enemy_stats.damage_dealt, total_consumed,
+                         "多次自残应累加到damage_dealt")
+        self.assertEqual(tracker.get_current_score(), total_consumed,
+                         "总得分应等于累计自残伤害")
+
+    def test_consume_hp_max_hp_base(self):
+        """hp_base='max_hp'时按max_hp计算消耗, 也计入scoring_tracker"""
+        bf = BattlefieldState()
+        tracker = ScoringTracker()
+        bf.scoring_tracker = tracker
+
+        # current_hp < max_hp, 验证按max_hp计算
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=100000, current_hp=50000)
+        bf.add_unit(enemy)
+
+        ss = self._build_skill_service(bf)
+        effect = _make_consume_hp_effect(value=10, hp_base='max_hp')
+
+        # 10% of max_hp(100000) = 10000, 但current_hp=50000, min(10000, 50000-1)=10000
+        result = ss._apply_consume_hp(enemy, effect, bf)
+
+        self.assertEqual(result['consumed'], 10000)
+        self.assertEqual(enemy.current_hp, 40000)
+
+        enemy_stats = tracker._unit_stats.get(enemy.unit_id)
+        self.assertEqual(enemy_stats.damage_dealt, 10000)
+        self.assertEqual(tracker.get_current_score(), 10000)
+
+
+if __name__ == '__main__':
+    unittest.main()

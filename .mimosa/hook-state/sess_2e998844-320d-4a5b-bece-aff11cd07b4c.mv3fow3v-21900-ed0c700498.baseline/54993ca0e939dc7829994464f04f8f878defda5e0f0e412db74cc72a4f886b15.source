@@ -1,0 +1,116 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+ActionAxisService单元测试
+tests/test_action_axis_v2.py
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+# 添加项目根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.enums import Side, Position, Attribute, CharacterType
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.combat_v2.services.action_axis_service import ActionAxisService
+
+class TestActionAxisService(unittest.TestCase):
+    
+    def setUp(self):
+        self.service = ActionAxisService()
+        self.battlefield = BattlefieldState()
+        
+    def _create_unit(self, unit_id, speed, position, ap=100, ep=0, char_id=100) -> UnitState:
+        """创建测试单位"""
+        return UnitState(
+            unit_id=unit_id,
+            name=f"Unit_{unit_id}",
+            side=Side.ALLY if "ally" in position.value else Side.ENEMY,
+            position=position,
+            character_id=char_id,
+            level=50,
+            element=Attribute.FIRE,
+            character_type=CharacterType.PHYSICAL,
+            max_hp=1000,
+            attack=100,
+            defense=50,
+            speed=speed,
+            crit_rate=0.1,
+            crit_damage=1.5,
+            advantage_damage=1.5,
+            initial_active_point=100,
+            initial_passive_point=100,
+            max_extra_point=100,
+            current_hp=1000,
+            current_ap=ap, # 默认有AP
+            current_pp=100,
+            current_ep=ep
+        )
+        
+    def test_generate_action_axis_basic(self):
+        """测试基本的行动轴生成（按速度排序）"""
+        # 创建3个单位，速度不同
+        u1 = self._create_unit("u1", speed=100, position=Position.ALLY_CENTER_FRONT)
+        u2 = self._create_unit("u2", speed=150, position=Position.ALLY_LEFT_FRONT)
+        u3 = self._create_unit("u3", speed=80, position=Position.ENEMY_CENTER_FRONT)
+        
+        self.battlefield.friend_team = [u1, u2]
+        self.battlefield.enemy_team = [u3]
+        
+        self.service.generate_action_axis(self.battlefield)
+        
+        # 期望顺序: u2(150) -> u1(100) -> u3(80)
+        u_next = self.service.get_next_unit()
+        self.assertEqual(u_next.unit_id, "u2")
+        
+        u_next = self.service.get_next_unit()
+        self.assertEqual(u_next.unit_id, "u1")
+        
+        u_next = self.service.get_next_unit()
+        self.assertEqual(u_next.unit_id, "u3")
+        
+        self.assertTrue(self.service.is_empty())
+        
+    def test_speed_tie_position_priority(self):
+        """测试同速时的位置优先级"""
+        # 两个单位速度相同：前排 vs 后排
+        # 位置优先级中，ALLY_CENTER_FRONT(2) 优于 ALLY_CENTER_BACK(5)
+        u1 = self._create_unit("front", speed=100, position=Position.ALLY_CENTER_FRONT)
+        u2 = self._create_unit("back", speed=100, position=Position.ALLY_CENTER_BACK)
+        
+        self.battlefield.friend_team = [u1, u2]
+        self.service.generate_action_axis(self.battlefield)
+        
+        first = self.service.get_next_unit()
+        self.assertEqual(first.unit_id, "front")
+        
+    def test_ap_condition(self):
+        """测试AP/EP条件"""
+        # u1: AP=0, EP=0 -> 应该不入列
+        u1 = self._create_unit("u1", speed=100, position=Position.ALLY_CENTER_FRONT, ap=0, ep=0)
+        # u2: AP=0, EP=100 (Full) -> 应该入列
+        u2 = self._create_unit("u2", speed=100, position=Position.ALLY_LEFT_FRONT, ap=0, ep=100)
+        # u3: AP=10, EP=0 -> 应该入列
+        u3 = self._create_unit("u3", speed=100, position=Position.ALLY_RIGHT_FRONT, ap=10, ep=0)
+        
+        self.battlefield.friend_team = [u1, u2, u3]
+        self.service.generate_action_axis(self.battlefield)
+        
+        # 此时u2和u3都在列表中，顺序取决于位置优先级
+        # ALLY_LEFT_FRONT(1) > ALLY_RIGHT_FRONT(3)
+        
+        units = []
+        while not self.service.is_empty():
+            units.append(self.service.get_next_unit().unit_id)
+            
+        self.assertEqual(len(units), 2)
+        self.assertIn("u2", units)
+        self.assertIn("u3", units)
+        self.assertNotIn("u1", units)
+        self.assertEqual(units[0], "u2") # 位置优先
+
+if __name__ == "__main__":
+    unittest.main()

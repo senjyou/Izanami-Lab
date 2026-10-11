@@ -1,0 +1,358 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Bug验证测试脚本
+验证以下修复：
+1. 木桩命名不重复
+2. 木桩可复数注册
+3. 「なにするかーーー！！」溅射伤害
+4. 多hit攻击目标鞭尸（不转移）
+5. 「レバッ！」击杀后AP回复
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.entities_v2.custom_dummy import (
+    CustomDummyConfig, build_synthetic_character_data,
+    build_custom_skill_data, build_custom_parsed_skill,
+    collect_custom_skill_ids,
+)
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+from src.config.character_config import CharacterConfig
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+
+
+def create_dummy_unit(data_loader, name, side, pos, char_id, hp, atk, defense, speed, ap, pp, ep_max, role_type=0, position_type=3):
+    cfg = CustomDummyConfig(
+        name=name,
+        element=1,
+        character_type=1,
+        position_type=position_type,
+        role_type=role_type if role_type > 0 else 1,
+        hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        ap=ap,
+        pp=pp,
+    )
+    char_data = build_synthetic_character_data(abs(char_id) - 1, cfg)
+    char_data.character_id = char_id
+    data_loader._custom_characters[char_id] = char_data
+    data_loader._custom_character_skills[char_id] = []
+    data_loader._custom_dummy_configs[char_id] = cfg
+
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=200,
+        element=cfg.element,
+        character_type=cfg.character_type,
+        max_hp=hp,
+        current_hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        crit_rate=0.15,
+        crit_damage=0.5,
+        advantage_damage=0.25,
+        initial_active_point=ap,
+        initial_passive_point=pp,
+        max_extra_point=ep_max,
+        current_ap=ap,
+        current_pp=pp,
+        current_ep=0,
+        skills=[],
+        skill_cooldowns={},
+        role_type=role_type,
+        position_type=position_type,
+    )
+
+
+def create_character_unit(data_loader, stat_calculator, char_id, side, pos, panel_config, player_config):
+    char = data_loader.get_character_by_id(char_id)
+    char_config = panel_config.get_character_config(char_id, char.default_rarity)
+    stats = stat_calculator.calculate_stats(char_config, player_config)
+    char_skills = data_loader.load_character_skills()
+    skills = char_skills.get(char_id, [])
+    max_ep = 7
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=char.name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=char_config.level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=stats.hp,
+        current_hp=stats.hp,
+        attack=stats.attack,
+        defense=stats.defense,
+        speed=stats.speed,
+        crit_rate=stats.critical_rate,
+        crit_damage=stats.critical_damage - 1.5,
+        advantage_damage=stats.advantage_damage - 1.25,
+        initial_active_point=stats.initial_ap,
+        initial_passive_point=stats.initial_pp,
+        max_extra_point=max_ep,
+        current_ap=stats.initial_ap,
+        current_pp=stats.initial_pp,
+        current_ep=0,
+        skills=skills,
+        skill_levels=panel_config.skill_levels.get(char_id, {}),
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+    )
+
+
+def run_test(name, friends_config, enemies_config, data_loader, panel_config, player_config, stat_calculator, memory_card_ids=None):
+    print(f"\n{'='*60}")
+    print(f"  测试: {name}")
+    print(f"{'='*60}")
+
+    bf = BattlefieldState()
+    friends = []
+    enemies = []
+
+    for cfg in friends_config:
+        if "is_dummy" in cfg and cfg["is_dummy"]:
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ALLY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ALLY, cfg["pos"], panel_config, player_config,
+            )
+        bf.add_unit(u)
+        friends.append(u)
+
+    for cfg in enemies_config:
+        if "is_dummy" in cfg and cfg["is_dummy"]:
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ENEMY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ENEMY, cfg["pos"], panel_config, player_config,
+            )
+        bf.add_unit(u)
+        enemies.append(u)
+
+    if memory_card_ids:
+        bf.memory_cards = []
+        for card_id in memory_card_ids:
+            memory_data = data_loader.get_memory(card_id)
+            if memory_data:
+                highlights = [
+                    MemoryHighlight(
+                        character_attribute=hl.character_attribute,
+                        character_base_master_id=hl.character_base_master_id,
+                        character_master_id=hl.character_master_id,
+                        character_role=hl.character_role,
+                        character_team_master_id=hl.character_team_master_id,
+                        character_type=hl.character_type,
+                        is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                        party_position=hl.party_position,
+                        skill_master_id=hl.skill_master_id,
+                    )
+                    for hl in memory_data.highlights
+                ]
+                bf.memory_cards.append(MemoryCard(
+                    card_id=card_id,
+                    name=memory_data.name,
+                    description=memory_data.description,
+                    rarity=memory_data.rarity,
+                    highlights=highlights,
+                ))
+                print(f"  装备回忆卡: {memory_data.name} (ID={card_id})")
+            else:
+                print(f"  [WARN] 回忆卡 ID={card_id} 未找到")
+
+    print(f"  己方: {[f'{u.name}({u.position.name})' for u in friends]}")
+    print(f"  敌方: {[f'{u.name}({u.position.name})' for u in enemies]}")
+    print(f"  单位ID: {[u.unit_id for u in bf.get_all_units()]}")
+
+    controller = BattleFlowController(bf, data_loader=data_loader, narrative=BattleNarrativeWriter(data_loader=data_loader))
+    result = controller.execute_battle()
+
+    print(f"  结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in bf.get_all_units():
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        print(f"    [{u.unit_id}] {u.name}({u.position.name}): {s}")
+
+    if controller.narrative:
+        import os
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "battle_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = controller.narrative.generate_filename(log_dir)
+        controller.narrative.write(log_path)
+        print(f"\n  日志已写入: {log_path}")
+        return log_path
+    return None
+
+
+def main():
+    panel_config = PanelConfig(
+        character_level=355,
+        school_levels=SchoolLevels(
+            physical_level=90, en_level=86, agility_level=88,
+            fire_level=94, water_level=93, earth_level=92, wind_level=92,
+            light_level=27, dark_level=27,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=True,
+    )
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data)
+
+    for cid in [132301]:
+        char = data_loader.get_character_by_id(cid)
+        panel_config.rarities[cid] = 14
+        panel_config.affection_levels[cid] = 40
+        skill_ids = data_loader.load_character_skills().get(cid, [])
+        panel_config.skill_levels[cid] = {sid: 15 for sid in skill_ids}
+        module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"), int(f"{char.character_type}3")]
+        panel_config.modules[cid] = [
+            ModuleConfig(module_id=mid, tier=9, level=50)
+            for mid in module_ids
+        ]
+
+    player_config = panel_config.get_player_config()
+
+    log_paths = []
+
+    # Test 1: Log 1 scenario - 2 ally dummies + 1 enemy dummy + 121301
+    # 验证Bug1/Bug2: 木桩命名不重复, 可复数注册
+    print("\n" + "="*70)
+    print("  TEST 1: 验证木桩复数注册 + 命名不重复 (对应log1场景)")
+    print("="*70)
+    log_paths.append(run_test(
+        "Test1_木桩复数注册+命名",
+        [
+            {"is_dummy": True, "name": "木桩", "char_id": -1, "pos": Position.ALLY_LEFT_FRONT,
+             "hp": 3000000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 5, "pp": 5},
+            {"is_dummy": False, "char_id": 132301, "pos": Position.ALLY_CENTER_FRONT},
+            {"is_dummy": True, "name": "木桩", "char_id": -2, "pos": Position.ALLY_RIGHT_FRONT,
+             "hp": 3000000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "木桩", "char_id": -3, "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 3000000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 5, "pp": 5},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # Test 2: Log 2 scenario - 2 ally dummies + 4 enemy dummies + 121301
+    # 验证Bug3: なにするかーーー！！溅射伤害
+    # 验证Bug4: 多hit鞭尸
+    # 验证Bug5: レバッ！击杀AP回复
+    print("\n" + "="*70)
+    print("  TEST 2: 验证溅射伤害+多hit鞭尸+击杀AP回复 (对应log2场景)")
+    print("="*70)
+    log_paths.append(run_test(
+        "Test2_溅射伤害+鞭尸+AP回复",
+        [
+            {"is_dummy": True, "name": "木桩2号", "char_id": -4, "pos": Position.ALLY_LEFT_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+            {"is_dummy": False, "char_id": 132301, "pos": Position.ALLY_CENTER_FRONT},
+            {"is_dummy": True, "name": "木桩2号", "char_id": -5, "pos": Position.ALLY_RIGHT_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+        ],
+        [
+            {"is_dummy": True, "name": "木桩2号", "char_id": -6, "pos": Position.ENEMY_LEFT_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+            {"is_dummy": True, "name": "木桩2号", "char_id": -7, "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+            {"is_dummy": True, "name": "木桩2号", "char_id": -8, "pos": Position.ENEMY_RIGHT_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+            {"is_dummy": True, "name": "木桩2号", "char_id": -9, "pos": Position.ENEMY_LEFT_BACK,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+    ))
+
+    # Test 3: 回忆卡效果验证
+    # 记忆卡10005「勘違いの行方」: 敌方左列前衛防御減少 (skill 400072)
+    print("\n" + "="*70)
+    print("  TEST 3: 验证回忆卡效果触发")
+    print("="*70)
+    log_paths.append(run_test(
+        "Test3_回忆卡效果验证",
+        [
+            {"is_dummy": True, "name": "木桩3号", "char_id": -10, "pos": Position.ALLY_LEFT_FRONT,
+             "hp": 3000000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 5, "pp": 5},
+            {"is_dummy": False, "char_id": 132301, "pos": Position.ALLY_CENTER_FRONT},
+        ],
+        [
+            {"is_dummy": True, "name": "敌方前排左", "char_id": -11, "pos": Position.ENEMY_LEFT_FRONT,
+             "hp": 200000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+        memory_card_ids=[10005],
+    ))
+
+    # Test 4: 回忆卡效果验证(四卡齐上)
+    # 20031: HL1 攻撃上昇【純夏】(base_id=132匹配) + HL2 回復量上昇【前衛】(无条件)
+    # 30008: HL1 防御上昇【ピクシス】 + HL2 攻撃力上昇【物理アタッカー】(无条件)
+    # 30011: HL1 物理ダメージ上昇【コントロール】(role=5不匹配) + HL2 防御上昇【タンク】(role=3不匹配)
+    # 30015: HL1 攻撃上昇【物理タイプ】(type=1匹配) + HL2 攻撃上昇【敏捷タイプ】(type=3不匹配)
+    print("\n" + "="*70)
+    print("  TEST 4: 验证四张攻撃系回忆卡效果叠加")
+    print("="*70)
+    log_paths.append(run_test(
+        "Test4_回忆卡四卡叠加",
+        [
+            {"is_dummy": False, "char_id": 132301, "pos": Position.ALLY_CENTER_FRONT},
+            {"is_dummy": True, "name": "治疗辅助", "char_id": -20, "pos": Position.ALLY_LEFT_FRONT,
+             "hp": 50000, "atk": 1000, "defense": 3000, "speed": 400, "ap": 4, "pp": 4,
+             "ep": 8, "role_type": 5},
+        ],
+        [
+            {"is_dummy": True, "name": "木桩4号", "char_id": -21, "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 2000000, "atk": 1000, "defense": 40000, "speed": 500, "ap": 4, "pp": 4},
+        ],
+        data_loader, panel_config, player_config, stat_calculator,
+        memory_card_ids=[20031, 30008, 30011, 30015],
+    ))
+
+    print("\n" + "="*70)
+    print("  所有测试完成!")
+    print("  请检查以下日志文件:")
+    for p in log_paths:
+        if p:
+            print(f"    {p}")
+    print("="*70)
+
+
+if __name__ == "__main__":
+    main()

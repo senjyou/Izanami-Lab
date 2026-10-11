@@ -1,0 +1,21 @@
+"""检查 230169/230170 当前配置"""
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+d = json.load(open('data/skill_effects_hybrid.json', 'r', encoding='utf-8'))
+for sid in ['230169', '230170']:
+    s = d[sid]
+    safe_print(f'=== {sid} {s["name"]} ===')
+    safe_print(f'trigger_type: {s.get("trigger_type")}')
+    safe_print(f'display_target_type: {s.get("display_target_type")}')
+    safe_print(f'display_target_range: {s.get("display_target_range")}')
+    safe_print(f'simultaneous_limit: {s.get("simultaneous_limit", False)}')
+    safe_print(f'global_condition: {s.get("global_condition")}')
+    safe_print(f'effect_blocks: {s.get("effect_blocks")}')
+    safe_print('')

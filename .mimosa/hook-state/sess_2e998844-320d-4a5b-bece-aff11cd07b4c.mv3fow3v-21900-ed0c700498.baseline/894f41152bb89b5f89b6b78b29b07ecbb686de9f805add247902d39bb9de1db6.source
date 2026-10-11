@@ -1,0 +1,114 @@
+"""Regression: セントリフレイン(230501)叙事顺序——应在《伤害》行之前且有效果行。
+
+Bug: 230501经after_ps_use链嵌套在230500(before_any_attacked窗口)内执行，
+     机制上在伤害之前（命令台日志可证）。但叙事按trigger_timing前缀分批：
+     仅"before_*"在伤害前输出，"after_ps_use"被归入伤害后批次——叙事上
+     230501的触发行延后到了[伤害]之后；且inline PS效果叙事仅输出aura类，
+     230501的remove_ep/heal/modify_pp无任何效果行（观感"无实际效果"）。
+实例: 心色見つめるムードメーカー 120155 vs 鳴滝七彩(230500+230501)。
+Fix: skill_service 记录 narrate_early（before_*窗口及其嵌套链继承）+ seq执行序号；
+     battle_flow_controller 按此分组并按seq排序输出，PS效果改用完整调度。
+"""
+import unittest
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+_ATTACKER_AS = 120155  # 心色 苦手なのはそこだね！(hp_ratio_damage，攻击前触发before_any_attacked)
+_RAMPART = 230500      # ランパートシャッター+（guard，before_any_attacked）
+_SENTRI = 230501       # セントリフレイン（after_ps_use链：remove_ep 2 + heal + modify_pp 2）
+
+
+def _make_unit(side, unit_id, name, skills, level, position,
+               hp=100000, atk=10000, defense=2000, speed=500,
+               pp=4, ep=0, ep_cap=6):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=position, character_id=999900 + hash(unit_id) % 100, level=level,
+        element=2, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=pp, max_extra_point=ep_cap,
+        current_ap=4, current_pp=pp, current_ep=ep,
+        skills=skills, skill_levels={sid: level for sid in skills},
+        skill_cooldowns={},
+    )
+
+
+def _first_index(lines, pred):
+    for i, l in enumerate(lines):
+        if pred(l):
+            return i
+    return -1
+
+
+class TestRegSentriRefrainNarrativeOrder(unittest.TestCase):
+
+    def setUp(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="dummy", hp=1)
+        bb.add_enemy(unit_id="dummy_e", hp=1)
+        ctx = bb.build()
+        self.dl = ctx['services']['dl']
+
+    def _run(self):
+        """镜像实测场景：心色(120155)攻击鳴滝七彩(230500+230501)并返回叙事行"""
+        bf = BattlefieldState()
+        attacker = _make_unit(Side.ALLY, "ally_c", "心色見つめるムードメーカー",
+                              skills=[_ATTACKER_AS], level=15,
+                              position=Position.ALLY_LEFT_BACK, atk=20000)
+        enemy = _make_unit(Side.ENEMY, "enemy_n", "鳴滝七彩",
+                           skills=[_RAMPART, _SENTRI], level=10,
+                           position=Position.ENEMY_CENTER_FRONT,
+                           hp=420063, pp=4, ep=0, ep_cap=6)
+        bf.friend_team = [attacker]
+        bf.enemy_team = [enemy]
+
+        narrative = BattleNarrativeWriter(data_loader=self.dl)
+        controller = BattleFlowController(bf, BattleConfig(), data_loader=self.dl,
+                                          narrative=narrative)
+        controller._build_display_names()
+        controller.skill_service.set_battlefield(bf)
+        controller._execute_unit_action(attacker, 1)
+        return narrative._lines
+
+    def test_both_ps_narrated_before_damage(self):
+        """230500先、230501后，两者触发行均在[伤害]行之前"""
+        lines = self._run()
+        i_rampart = _first_index(lines, lambda l: "ランパートシャッター+" in l and "PS触发" in l)
+        i_sentri = _first_index(lines, lambda l: "セントリフレイン" in l and "PS触发" in l)
+        i_dmg = _first_index(lines, lambda l: "[伤害]" in l)
+        i_cast = _first_index(lines, lambda l: "[技能结束·AS]" in l)
+
+        self.assertTrue(i_rampart >= 0, "应有230500触发行:\n" + "\n".join(lines))
+        self.assertTrue(i_sentri >= 0, "应有230501触发行:\n" + "\n".join(lines))
+        self.assertTrue(i_dmg >= 0, "应有伤害行:\n" + "\n".join(lines))
+        self.assertLess(i_rampart, i_sentri, "230500应先于230501输出")
+        self.assertLess(i_sentri, i_dmg,
+                        "セントリフレイン触发行应在伤害行之前（实测：攻击前触发并执行）")
+        self.assertLess(i_dmg, i_cast)
+
+    def test_ps_effects_narrated_in_early_window(self):
+        """230501的效果（remove_ep/modify_pp）应有叙事行，且在触发行与伤害行之间"""
+        lines = self._run()
+        i_sentri = _first_index(lines, lambda l: "セントリフレイン" in l and "PS触发" in l)
+        i_dmg = _first_index(lines, lambda l: "[伤害]" in l)
+        self.assertTrue(i_sentri >= 0 and i_dmg > i_sentri,
+                        "前提：触发行先于伤害行:\n" + "\n".join(lines))
+        seg = lines[i_sentri:i_dmg]
+        self.assertTrue(any("被削减 2 EP" in l for l in seg),
+                        "230501的remove_ep应有[资源削除]叙事（伤害前窗口内）:\n" + "\n".join(seg))
+        self.assertTrue(any("PP恢复+2" in l for l in seg),
+                        "230501的modify_pp应有[资源恢复]叙事（伤害前窗口内）:\n" + "\n".join(seg))
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

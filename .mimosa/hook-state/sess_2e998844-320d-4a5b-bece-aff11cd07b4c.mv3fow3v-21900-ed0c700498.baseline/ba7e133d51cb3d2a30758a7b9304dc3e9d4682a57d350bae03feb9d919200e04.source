@@ -1,0 +1,275 @@
+"""_aggregate_buff_value单元测试。
+
+验证三类buff聚合规则：memory(sum)/stackable(sum)/non-stackable(MAX)，
+以及条件性buff（hp_threshold/mark_condition/hp_ratio_dynamic）。
+"""
+import sys
+import os
+import pytest
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.damage_service import DamageService
+
+
+def _make_unit(unit_id="u1", hp=50000, max_hp=50000):
+    """创建测试用单位。"""
+    return UnitState(
+        unit_id=unit_id, name=unit_id, side=Side.ALLY,
+        position=Position.ALLY_LEFT_FRONT, character_id=999901,
+        level=10, element=2, character_type=1,
+        max_hp=max_hp, attack=10000, defense=5000, speed=500,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=hp, current_ap=10, current_pp=10, current_ep=10,
+    )
+
+
+def _make_buff(name="b", effect_type="atk_up", value=10.0, duration=-1,
+               value_tag=0, is_stackable=False, is_memory_buff=False,
+               hp_threshold=0.0, mark_condition="", **extra):
+    """创建测试用buff。"""
+    return BuffState(
+        buff_id=f"{name}_{id(object())}", name=name, effect_type=effect_type,
+        value=value, duration=duration, timing_type=2, value_tag=value_tag,
+        is_stackable=is_stackable, is_memory_buff=is_memory_buff,
+        hp_threshold=hp_threshold, mark_condition=mark_condition,
+        **extra,
+    )
+
+
+class TestAggregateBuffValue:
+
+    def test_empty_list_returns_zero(self):
+        """空buff列表返回0。"""
+        assert DamageService._aggregate_buff_value([], "atk_up") == 0.0
+
+    def test_non_matching_effect_type_returns_zero(self):
+        """effect_type不匹配的buff被跳过。"""
+        buffs = [_make_buff(effect_type="def_up", value=20.0)]
+        assert DamageService._aggregate_buff_value(buffs, "atk_up") == 0.0
+
+    def test_non_stackable_takes_max(self):
+        """不可叠加buff取最大值。"""
+        buffs = [
+            _make_buff(name="b1", value=10.0),
+            _make_buff(name="b2", value=30.0),
+            _make_buff(name="b3", value=20.0),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        assert result == 0.30  # 30/100
+
+    def test_stackable_sums(self):
+        """可叠加buff全部求和。"""
+        buffs = [
+            _make_buff(name="b1", value=10.0, is_stackable=True),
+            _make_buff(name="b2", value=30.0, is_stackable=True),
+            _make_buff(name="b3", value=20.0, is_stackable=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        assert result == pytest.approx(0.60)  # (10+30+20)/100
+
+    def test_memory_buff_sums(self):
+        """记忆卡buff无条件可叠加，全部求和。"""
+        buffs = [
+            _make_buff(name="b1", value=10.0, is_memory_buff=True),
+            _make_buff(name="b2", value=30.0, is_memory_buff=True),
+            _make_buff(name="b3", value=20.0, is_memory_buff=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        assert result == pytest.approx(0.60)  # (10+30+20)/100
+
+    def test_mixed_three_types(self):
+        """三种类型混合：memory(sum) + stackable(sum) + non-stackable(MAX)。"""
+        buffs = [
+            _make_buff(name="m1", value=10.0, is_memory_buff=True),
+            _make_buff(name="m2", value=5.0, is_memory_buff=True),
+            _make_buff(name="s1", value=20.0, is_stackable=True),
+            _make_buff(name="s2", value=10.0, is_stackable=True),
+            _make_buff(name="n1", value=15.0),
+            _make_buff(name="n2", value=25.0),  # non-stackable取MAX=25
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        # memory: 15/100, stackable: 30/100, non-stackable: 25/100
+        assert result == pytest.approx(0.15 + 0.30 + 0.25)
+
+    def test_value_tag_fixed(self):
+        """value_tag=1（固定值）时返回原始value。"""
+        buffs = [
+            _make_buff(name="b1", value=500, value_tag=1),
+            _make_buff(name="b2", value=300, value_tag=1),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        assert result == 500.0  # MAX(500, 300)
+
+    def test_value_tag_filter_percent(self):
+        """value_tag过滤器：0=仅百分比，1=仅固定值。"""
+        buffs = [
+            _make_buff(name="pct", value=20.0, value_tag=0),
+            _make_buff(name="fixed", value=500, value_tag=1),
+        ]
+        # 仅聚合百分比buff
+        result_pct = DamageService._aggregate_buff_value(buffs, "atk_up", value_tag=0)
+        assert result_pct == 0.20  # 20/100
+
+        # 仅聚合固定值buff
+        result_fixed = DamageService._aggregate_buff_value(buffs, "atk_up", value_tag=1)
+        assert result_fixed == 500.0
+
+    def test_carried_debuff_skipped(self):
+        """carried_debuff payload不参与聚合。"""
+        buffs = [
+            _make_buff(name="normal", value=20.0),
+            _make_buff(name="carried", value=50.0,
+                       hit_limited_flags={"carried_debuff": True}),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up")
+        assert result == 0.20  # carried被跳过，只算normal
+
+    def test_hp_threshold_buff_active_when_hp_high(self):
+        """hp_threshold条件buff：HP≥阈值时生效。"""
+        unit = _make_unit(hp=45000, max_hp=50000)  # 90% HP
+        buffs = [
+            _make_buff(name="cond", value=30.0, hp_threshold=50.0),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up", unit=unit)
+        assert result == 0.30  # 90% >= 50%，生效
+
+    def test_hp_threshold_buff_skipped_when_hp_low(self):
+        """hp_threshold条件buff：HP<阈值时跳过。"""
+        unit = _make_unit(hp=20000, max_hp=50000)  # 40% HP
+        buffs = [
+            _make_buff(name="cond", value=30.0, hp_threshold=50.0),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up", unit=unit)
+        assert result == 0.0  # 40% < 50%，跳过
+
+    def test_mark_condition_buff_no_attacker_skipped(self):
+        """mark_condition条件buff：无attacker时跳过。"""
+        unit = _make_unit()
+        buffs = [
+            _make_buff(name="cond", value=30.0, mark_condition="kyou_chou"),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up", unit=unit)
+        assert result == 0.0  # 无attacker，跳过
+
+    def test_mark_condition_buff_attacker_lacks_mark_skipped(self):
+        """mark_condition条件buff：attacker不持有mark时跳过。"""
+        unit = _make_unit()
+        attacker = _make_unit(unit_id="attacker")
+        buffs = [
+            _make_buff(name="cond", value=30.0, mark_condition="kyou_chou"),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up", unit=unit, attacker=attacker)
+        assert result == 0.0  # attacker无mark，跳过
+
+    def test_mark_condition_buff_attacker_has_mark_active(self):
+        """mark_condition条件buff：attacker持有mark时生效。"""
+        unit = _make_unit()
+        attacker = _make_unit(unit_id="attacker")
+        attacker.debuffs.append(BuffState(
+            buff_id="mark1", name="kyou_chou", effect_type="Mark",
+            value=1.0, duration=-1, timing_type=2, is_debuff=True,
+        ))
+        buffs = [
+            _make_buff(name="cond", value=30.0, mark_condition="kyou_chou"),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "atk_up", unit=unit, attacker=attacker)
+        assert result == pytest.approx(0.30)  # attacker有mark，生效
+
+    def test_hp_ratio_dynamic_high_hp(self):
+        """hp_ratio_dynamic动态减伤：高HP时效果降低。"""
+        unit = _make_unit(hp=50000, max_hp=50000)  # 100% HP
+        buffs = [
+            _make_buff(name="dyn", effect_type="dmg_taken_down", value=50.0, hp_ratio_dynamic=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "dmg_taken_down", unit=unit)
+        # hp_ratio=1.0 >= 0.4: val = 0.5 * (1-1.0)/0.6 = 0
+        assert result == pytest.approx(0.0)
+
+    def test_hp_ratio_dynamic_mid_hp(self):
+        """hp_ratio_dynamic动态减伤：中等HP时线性插值。"""
+        unit = _make_unit(hp=35000, max_hp=50000)  # 70% HP
+        buffs = [
+            _make_buff(name="dyn", effect_type="dmg_taken_down", value=50.0, hp_ratio_dynamic=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "dmg_taken_down", unit=unit)
+        # hp_ratio=0.7 >= 0.4: val = 0.5 * (1-0.7)/0.6 = 0.5 * 0.5 = 0.25
+        assert result == pytest.approx(0.25)
+
+    def test_hp_ratio_dynamic_low_hp(self):
+        """hp_ratio_dynamic动态减伤：低HP（<40%）时取最大值。"""
+        unit = _make_unit(hp=15000, max_hp=50000)  # 30% HP
+        buffs = [
+            _make_buff(name="dyn", effect_type="dmg_taken_down", value=50.0, hp_ratio_dynamic=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "dmg_taken_down", unit=unit)
+        # hp_ratio=0.3 < 0.4: val = 0.5 (最大值)
+        assert result == pytest.approx(0.50)
+
+    def test_hp_ratio_dynamic_direct_high_hp(self):
+        """hp_ratio_dynamic_direct：高HP时取最大值。"""
+        unit = _make_unit(hp=50000, max_hp=50000)  # 100% HP
+        buffs = [
+            _make_buff(name="dyn", effect_type="dmg_taken_down", value=50.0, hp_ratio_dynamic_direct=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "dmg_taken_down", unit=unit)
+        # val = 0.5 * (50000/50000) = 0.5
+        assert result == pytest.approx(0.50)
+
+    def test_hp_ratio_dynamic_direct_low_hp(self):
+        """hp_ratio_dynamic_direct：低HP时效果降低。"""
+        unit = _make_unit(hp=25000, max_hp=50000)  # 50% HP
+        buffs = [
+            _make_buff(name="dyn", effect_type="dmg_taken_down", value=50.0, hp_ratio_dynamic_direct=True),
+        ]
+        result = DamageService._aggregate_buff_value(buffs, "dmg_taken_down", unit=unit)
+        # val = 0.5 * (25000/50000) = 0.25
+        assert result == pytest.approx(0.25)
+
+    def test_negative_value_non_stackable_takes_max_abs(self):
+        """负值debuff取绝对值最大的（即最负的值）。"""
+        buffs = [
+            _make_buff(name="d1", effect_type="atk_down", value=-10.0, is_debuff=True),
+            _make_buff(name="d2", effect_type="atk_down", value=-30.0, is_debuff=True),
+        ]
+        # 需要通过BuffState的is_debuff
+        for b in buffs:
+            b.is_debuff = True
+        result = DamageService._aggregate_buff_value(buffs, "atk_down", is_debuff_list=True)
+        # non_stackable: abs(-30) > abs(-10), so non_stackable_max = -30/100 = -0.30
+        assert result == -0.30
+
+
+class TestAggregateBuffValueSigned:
+
+    def test_signed_buff_minus_debuff(self):
+        """_aggregate_buff_value_signed: buff加，debuff减。"""
+        unit = _make_unit()
+        unit.buffs = [_make_buff(name="b1", effect_type="atk_up", value=30.0)]
+        unit.debuffs = [_make_buff(name="d1", effect_type="atk_down", value=20.0)]
+
+        dms = DamageService()
+        result = dms._aggregate_buff_value_signed(
+            unit.buffs, unit.debuffs, "atk_up", unit=unit
+        )
+        # buff: atk_up 30/100 = 0.30, debuff: atk_down 20/100 = 0.20
+        # 但这里debuff的effect_type是atk_down，不匹配atk_up
+        # 所以result = 0.30 - 0.0 = 0.30
+        assert result == 0.30
+
+    def test_signed_same_effect_type(self):
+        """同effect_type的buff和debuff净值计算。"""
+        unit = _make_unit()
+        # dealt_damage buff和received_damage debuff不会同effect_type
+        # 但dmg_dealt_up buff和dmg_dealt_down debuff是不同effect_type
+        unit.buffs = [_make_buff(name="b1", effect_type="dmg_dealt_up", value=30.0)]
+        unit.debuffs = [_make_buff(name="d1", effect_type="dmg_dealt_down", value=20.0)]
+
+        dms = DamageService()
+        result = dms._aggregate_buff_value_signed(
+            unit.buffs, unit.debuffs, "dmg_dealt_up", unit=unit
+        )
+        # buff: dmg_dealt_up 0.30, debuff中无dmg_dealt_up → 0
+        assert result == 0.30

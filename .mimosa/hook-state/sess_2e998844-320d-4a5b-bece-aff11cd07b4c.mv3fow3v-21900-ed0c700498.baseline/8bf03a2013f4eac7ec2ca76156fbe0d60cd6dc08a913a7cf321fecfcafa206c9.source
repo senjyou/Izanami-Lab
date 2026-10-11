@@ -1,0 +1,185 @@
+"""Regression: 子单位伤害类型应看赋予源(character_type)，而非持有者。
+
+Bug: 子单位(SUB_UNIT)伤害的 dealt/received 乘区调用未传 damage_element
+     （default 0=不过滤），限定伤害类型的buff（如仅物理增伤/仅EN易伤）
+     会错误地作用于子单位伤害。实测：伤害类型应取决于赋予源（本例
+     隣歩む想い 为EN型），持有者（物理型角色）的物理限定buff不应生效。
+实例: 願い星(source=F_100303 隣歩む想い, EN型)由物理型持有者触发时，
+     乘区出现偏差。主伤害路径(calculate_damage)已按类型过滤两乘区。
+Fix: 子单位伤害类型取 source_unit.character_type（2=EN/1=物理），
+     dealt与received乘区均传 damage_element=sub_damage_element；
+     盾吸收判定复用同一类型。追加伤害(ADD_DAMAGE)/附魔(ENCHANT)的
+     received乘区同步补齐 damage_element 过滤。
+"""
+import re
+import sys
+import os
+import unittest
+from types import SimpleNamespace
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import SkillEffectType, AuraUpdateTiming, Position
+
+DEALT = SkillEffectType.DEALT_DAMAGE.value
+RECEIVED = SkillEffectType.RECEIVED_DAMAGE.value
+SUB_UNIT = SkillEffectType.SUB_UNIT.value
+PHYS = 1
+EN = 2
+
+
+def make_sub_unit_buff(name="願い星", value=100.0, caster_attack=10000,
+                        source_unit_id="src", hp=10000):
+    return BuffState(
+        buff_id=f"sub_{name}", name=name,
+        effect_type=SUB_UNIT, value=value, duration=-1,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        source_unit_id=source_unit_id, source_skill_id=130079,
+        caster_attack=caster_attack, is_debuff=False, is_stackable=True,
+        sub_unit_hp=hp, sub_unit_max_hp=hp,
+        sub_unit_link_group="", just_applied=False,
+    )
+
+
+def make_dealt_buff(value, damage_element):
+    """持有者的给予伤害buff（限伤害类型）。"""
+    return BuffState(
+        buff_id=f"dealt_{damage_element}", name="dealt_up",
+        effect_type=DEALT, value=value, duration=-1, timing_type=2,
+        damage_element=damage_element, is_debuff=False,
+    )
+
+
+def make_received_debuff(value, damage_element):
+    """目标的受击易伤debuff（限伤害类型）。"""
+    return BuffState(
+        buff_id=f"rcvd_{damage_element}", name="taken_up",
+        effect_type=RECEIVED, value=value, duration=-1, timing_type=2,
+        damage_element=damage_element, is_debuff=True,
+    )
+
+
+def make_main_effect(value=100.0, hit_count=1):
+    return SimpleNamespace(
+        effect_type="damage", target_type="enemy_single", target_identifier=None,
+        value=value, hit_count=hit_count, ignore_defense=0, ignore_shield=0,
+        flags={}, condition=None,
+    )
+
+
+def _init_ss_for_direct_apply(ss, bf):
+    """初始化_apply_damage所需的全部内部状态（同 tests/unit/test_enchant_damage.py）。"""
+    ss._recursion_guard = True
+    ss._before_attack_triggers_fired = True
+    ss._current_skill_id = 99999
+    ss._current_block_id = 1
+    ss._current_skill_priority = 1
+    ss._block_damage_targets = {}
+    ss._block_damage_total = {}
+    ss._last_damage_hp_before = {}
+    ss._damaged_targets = []
+    ss._current_attack_targets = []
+    ss._pre_scanned_cover_candidates = None
+    ss._pre_scanned_non_damage_enemy_targets = []
+    ss._primary_target = None
+    ss._trigger_attacker = None
+    ss._target_char_type_filter = None
+    ss._target_element_filter = None
+    ss._original_primary_target = None
+    ss._last_primary_target = None
+    ss._most_recent_damage = 0
+    ss._skill_all_attacked_targets = []
+    ss._hp_consumed = 0
+    ss._per_hit_hp_losses = {}
+    ss._block_evaded_targets = set()
+    ss._skill_evaded_targets = set()
+    ss._debuff_immune_blocked_targets = set()
+    ss._on_crit_blocks = []
+    ss._on_crit_applied = False
+    ss._on_crit_block_executed = {}
+    ss._on_crit_target = None
+    ss._on_crit_immediate_blocks = []
+    ss._on_crit_immediate_applied = set()
+    ss._on_crit_effects = []
+    ss._deferred_on_crit_targets = []
+    ss._pending_crit_triggers = []
+    ss._per_target_enchant_cache = None
+    ss._current_main_damage_power = None
+    ss._marks_at_start = {}
+    ss._marks_at_start_by_unit = {}
+    ss._ps_received_targets = []
+    ss._current_skill_is_ps = False
+    ss._last_heal_targets = []
+    ss._newly_created_sub_unit_ids = set()
+    ss._pending_deaths = set()
+
+
+class TestRegSubUnitDamageTypeFollowsSource(unittest.TestCase):
+    """子单位伤害类型=赋予源character_type；限定类型的乘区buff按此过滤。"""
+
+    def _run(self, source_char_type):
+        """构造：物理持有者 + 指定类型赋予源 + 双类型限定buff，返回子单位伤害日志字段。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="holder", position=Position.ALLY_LEFT_FRONT,
+                    atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_ally(unit_id="source", position=Position.ALLY_CENTER_FRONT,
+                    atk=10000, hp=100000, defense=0, skills=[])
+        bb.add_enemy(unit_id="enemy", hp=100000, defense=5000)
+        ctx = bb.build()
+        bf = ctx['bf']
+        holder, source, enemy = ctx['allies'][0], ctx['allies'][1], ctx['enemies'][0]
+        holder.character_type = PHYS       # 持有者：物理型
+        source.character_type = source_char_type  # 赋予源：EN/物理
+        holder.crit_rate = 0.0
+        holder.skill_levels = {}
+
+        # 子单位buff（赋予源=source）
+        holder.buffs.append(make_sub_unit_buff(source_unit_id=source.unit_id))
+        # 持有者的给予伤害buff：物理限定+50%，EN限定+30%（取最大聚合→按类型过滤后唯一）
+        holder.buffs.append(make_dealt_buff(50.0, PHYS))
+        holder.buffs.append(make_dealt_buff(30.0, EN))
+        # 目标的受击易伤debuff：物理限定+40%，EN限定+20%
+        enemy.debuffs.append(make_received_debuff(40.0, PHYS))
+        enemy.debuffs.append(make_received_debuff(20.0, EN))
+
+        ss = ctx['ss']
+        _init_ss_for_direct_apply(ss, bf)
+        with self.assertLogs("MGGBattleSim", level="INFO") as cm:
+            ss._apply_damage(holder, make_main_effect(), bf)
+        lines = [l for l in cm.output if "sub_unit '願い星' -> " in l and "extra=" in l]
+        self.assertEqual(len(lines), 1, "应有1条子单位伤害日志:\n" + "\n".join(cm.output[-20:]))
+        line = lines[0]
+        m = re.search(r"extra=(\d+).*elem=(\d+).*a_dealt=([\d.]+) b_received=([\d.]+)\)", line)
+        self.assertIsNotNone(m, f"日志格式不符: {line}")
+        return {
+            "extra": int(m.group(1)), "elem": int(m.group(2)),
+            "a_dealt": float(m.group(3)), "b_received": float(m.group(4)),
+        }
+
+    def test_en_source_filters_physical_buffs(self):
+        """赋予源为EN型：物理限定buff不生效，仅EN限定buff生效"""
+        r = self._run(EN)
+        self.assertEqual(r["elem"], EN, "子单位伤害类型应为EN（赋予源character_type=2）")
+        self.assertAlmostEqual(r["a_dealt"], 1.30, places=3,
+                               msg=f"dealt应为1.0+EN限定0.30（实际{r['a_dealt']}，含物理限定0.50则错误）")
+        self.assertAlmostEqual(r["b_received"], 1.20, places=3,
+                               msg=f"received应为1.0+EN限定0.20（实际{r['b_received']}，含物理限定0.40则错误）")
+        # base=10000 power100% → 10000×1.30×1.20 = 15600（±1容差：浮点截断）
+        self.assertAlmostEqual(r["extra"], 15600, delta=1,
+                               msg=f"子单位伤害应为15600（实际{r['extra']}）")
+
+    def test_physical_source_filters_en_buffs(self):
+        """赋予源为物理型：EN限定buff不生效，仅物理限定buff生效（对照）"""
+        r = self._run(PHYS)
+        self.assertEqual(r["elem"], PHYS, "子单位伤害类型应为物理（赋予源character_type=1）")
+        self.assertAlmostEqual(r["a_dealt"], 1.50, places=3)
+        self.assertAlmostEqual(r["b_received"], 1.40, places=3)
+        # 10000×1.50×1.40 = 21000（±1容差：浮点截断）
+        self.assertAlmostEqual(r["extra"], 21000, delta=1,
+                               msg=f"子单位伤害应为21000（实际{r['extra']}）")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

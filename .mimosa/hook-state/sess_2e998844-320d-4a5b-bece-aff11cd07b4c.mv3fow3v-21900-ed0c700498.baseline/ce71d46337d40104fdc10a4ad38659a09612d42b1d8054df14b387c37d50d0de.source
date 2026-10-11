@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""将 split_data/ModuleStatusMaster.json 的 Tier10 数据合并到 data/module_status.json
+
+增量更新：仅追加各模块缺失的 tier 10 条目，不覆盖已有 tier 1-9 数据。
+"""
+import json
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent.parent
+RAW_PATH = BASE / "split_data" / "ModuleStatusMaster.json"
+TARGET_PATH = BASE / "data" / "module_status.json"
+
+raw = json.load(open(RAW_PATH, encoding="utf-8"))
+cur = json.load(open(TARGET_PATH, encoding="utf-8"))
+
+# 按 ModuleMasterId 分组 tier
+groups = {}
+for x in raw:
+    groups.setdefault(x["ModuleMasterId"], {})[x["Tier"]] = x
+
+added = 0
+for mid_str, tiers in cur.items():
+    mid = int(mid_str)
+    module_raw = groups.get(mid, {})
+    for tier in sorted(module_raw.keys()):
+        if str(tier) in tiers:
+            continue  # 已存在
+        s = module_raw[tier]
+        tiers[str(tier)] = {
+            "module_id": s["ModuleMasterId"],
+            "tier": s["Tier"],
+            "hp_base": 0 if s["HpBase"] is None else s["HpBase"],
+            "hp_per_level": 0 if s["HpPerLevel"] is None else s["HpPerLevel"],
+            "hp_rate": 0.0 if s["HpRate"] is None else s["HpRate"],
+            "attack_base": 0 if s["AttackBase"] is None else s["AttackBase"],
+            "attack_per_level": 0 if s["AttackPerLevel"] is None else s["AttackPerLevel"],
+            "attack_rate": 0.0 if s["AttackRate"] is None else s["AttackRate"],
+            "defense_base": 0 if s["DefenseBase"] is None else s["DefenseBase"],
+            "defense_per_level": 0 if s["DefensePerLevel"] is None else s["DefensePerLevel"],
+            "defense_rate": 0.0 if s["DefenseRate"] is None else s["DefenseRate"],
+        }
+        added += 1
+        print(f"  [新增] module {mid} tier {tier}")
+
+# 保持 dict key 顺序：tier 数值顺序
+for mid_str in cur:
+    cur[mid_str] = {k: cur[mid_str][k] for k in sorted(cur[mid_str], key=int)}
+
+json.dump(cur, open(TARGET_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+print(f"完成：新增 {added} 个 tier 条目 -> {TARGET_PATH}")

@@ -1,0 +1,115 @@
+"""回归测试: after_as_attack（自身AS攻撃後）要求触发的AS为攻击技能（含伤害效果）。
+
+Bug: 敌方 772405 オルガ＆ナージャ 使用支援型AS「ヴォルコワの血脈∞」(220468, 盾+回复,
+无伤害效果) 时，误触发了追击型PS「ストレラ+」(230498, trigger_type=after_as_attack)。
+该类PS的描述均为「自身がアクティブスキルで攻撃した後に発動」，要求AS为攻击技能。
+
+修复: trigger_service._match_trigger_timing 的 AFTER_SKILL_USE 分支中，
+对 trigger_type=after_as_attack 增加「AS技能须含伤害效果」判定，否则不触发。
+（after_ps_use / after_enemy_skill_use 语义不同，不受此限制）
+"""
+import os
+import sys
+import unittest
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+PS1 = 230498          # ストレラ+ : after_as_attack 追击型
+AS_SUPPORT = 220468   # ヴォルコワの血脈∞ : 盾+回复（无伤害）
+AS_ATTACK = 220469    # システマ・ヴラシェーニヤ∞ : EN攻击
+
+
+class TestAfterAsAttackRequiresDamage(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+        self.caster = UnitState(
+            unit_id="caster", name="惨禍オルガナージャ", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=772405, level=10,
+            element=4, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=10, initial_passive_point=10, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=5,
+            skills=[PS1, AS_SUPPORT, AS_ATTACK],
+            skill_levels={PS1: 10, AS_SUPPORT: 10, AS_ATTACK: 10},
+            skill_cooldowns={},
+        )
+        self.ally = UnitState(
+            unit_id="ally", name="味方", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=99999, current_hp=99999,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.enemy_team = [self.caster]
+        self.bf.friend_team = [self.ally]
+
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.dms = DamageService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs, damage_service=self.dms,
+            aura_service=self.aus, status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    def _ps1_actions(self, skill_id, primary_target):
+        return [a for a in self.ts.trigger_after_as_attack(
+            self.caster, skill_id, {"total_damage": 100}, self.bf,
+            primary_target=primary_target)
+            if a.skill_id == PS1]
+
+    def test_support_as_does_not_trigger_ps1(self):
+        """支援型AS(盾+回复)无伤害效果 → 不应触发追击型PS1"""
+        actions = self._ps1_actions(AS_SUPPORT, self.caster)
+        self.assertEqual(actions, [], "支援AS不应触发 after_as_attack 追击PS")
+
+    def test_attack_as_still_triggers_ps1(self):
+        """攻击型AS(含伤害) → 仍正常触发PS1（无回归）"""
+        actions = self._ps1_actions(AS_ATTACK, self.ally)
+        self.assertEqual(len(actions), 1, "攻击AS应正常触发 after_as_attack 追击PS")
+
+    def test_support_as_config_has_no_damage(self):
+        """配置校验: 220468 仅 shield/heal，不含任何伤害效果"""
+        parsed = self.dl.get_parsed_skill_data(AS_SUPPORT)
+        effect_types = [e['effect_type'] for b in parsed['effect_blocks']
+                        for e in b['effects']]
+        self.assertEqual(set(effect_types), {'shield', 'heal'})
+        self.assertNotIn('damage', effect_types)
+
+
+if __name__ == '__main__':
+    unittest.main()

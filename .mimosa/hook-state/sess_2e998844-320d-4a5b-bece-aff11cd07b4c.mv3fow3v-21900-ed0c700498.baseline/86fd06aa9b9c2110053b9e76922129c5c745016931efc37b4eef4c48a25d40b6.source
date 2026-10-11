@@ -1,0 +1,605 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+第七赛季对抗压制战 (Circle Battle S7) 回归测试
+
+覆盖 S7 引入的新机制与17个新技能配置：
+1. caster_hp_ratio_inverse / caster_hp_ratio_floor（付与時施法者HP比例缩放，一次性冻结）
+   — サーヴェント 210133 カタラクトブレイク / シェラッグ 220459 コキュートバリア
+2. 新索敵型 enemy_single_highest_hp_ratio_en_priority（EN優先）— 220463 ウェーブバッシュ
+3. 新索敵型 enemy_column_highest_hp_ratio（HP割合最高敵の縦列）— 220462 ストリームブレイク
+4. 新trigger条件 enemy_has_evade_buff — 230490 スティッキーロック
+5. once_per_battle 全局PS标记（230489 ダイブスリープ戦闘中1回）
+6. 17个技能的 hybrid 配置数据级校验（effect blocks / 关键flags）
+7. 集成：第7期阶段数据可完整战斗（无异常）
+"""
+
+import unittest
+from unittest.mock import MagicMock
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, Attribute, SkillEffectType, AuraUpdateTiming,
+    DisplayTargetType, DisplayTargetRange, TriggerTiming,
+)
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.trigger_service import TriggerService
+
+
+def _make_unit(unit_id, name, side, position, attack=1000, defense=500,
+               max_hp=10000, current_hp=10000, speed=500, crit_rate=0.0,
+               element=Attribute.FIRE.value, character_type=1, is_alive=True):
+    """构造真实 UnitState 用于测试"""
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=1, element=element, character_type=character_type,
+        max_hp=max_hp, attack=attack, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=current_hp, current_ap=4, current_pp=4, current_ep=0.0,
+        is_alive=is_alive,
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    return bf
+
+
+S7_SKILL_IDS = [
+    210133, 220461, 220462, 220463, 230493,      # サーヴェント
+    220455, 230487, 230488, 230489,              # スウォング
+    220458, 220459, 220460, 230492,              # シェラッグ
+    220456, 220457, 230490, 230491,              # フロニュート
+]
+
+
+# =============================================================================
+# 1. caster_hp_ratio_inverse：付与時施法者HP比例缩放（一次性冻结）
+# =============================================================================
+class TestS7CasterHpRatioInverse(unittest.TestCase):
+    """S7 210133/220459: 效果值 = value × min(1, (1-hp_ratio)/(1-floor))，floor=0.3"""
+
+    def _make_skill_service(self):
+        svc = SkillService(
+            data_loader=MagicMock(),
+            resource_service=MagicMock(),
+            target_service=TargetService(),
+            damage_service=MagicMock(),
+            aura_service=AuraService(),
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+        svc._current_skill_id = 220459
+        return svc
+
+    def _make_effect(self, **kwargs):
+        e = MagicMock()
+        defaults = dict(effect_type="dmg_taken_down", target_type="ally_all",
+                        target_identifier=None, value=50, value_tag=None,
+                        duration=-1, duration_type="action", hit_count=None,
+                        condition=None,
+                        flags={"value_type": "percent", "attack_limited": 1,
+                               "caster_hp_ratio_inverse": True,
+                               "caster_hp_ratio_floor": 0.3})
+        defaults.update(kwargs)
+        for k, v in defaults.items():
+            setattr(e, k, v)
+        return e
+
+    def test_full_hp_value_zero(self):
+        """施法者满血(100%) → 缩放值 = 0×(1-1)/0.7 = 0"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        ally = _make_unit("a", "Ally", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, ally)
+        effect = self._make_effect()
+        result = svc._apply_aura(caster, effect, bf, is_debuff=False)
+        self.assertIsNotNone(result)
+        buffs = [b for b in ally.buffs if b.effect_type == "ReceivedDamage"]
+        self.assertEqual(len(buffs), 1)
+        self.assertAlmostEqual(buffs[0].value, 0.0, places=4)
+
+    def test_hp30_percent_max_value(self):
+        """施法者HP=30%（floor）→ 缩放值 = 50×(0.7/0.7) = 50（最大值）"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            max_hp=10000, current_hp=3000)
+        ally = _make_unit("a", "Ally", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, ally)
+        effect = self._make_effect()
+        svc._apply_aura(caster, effect, bf, is_debuff=False)
+        buffs = [b for b in ally.buffs if b.effect_type == "ReceivedDamage"]
+        self.assertAlmostEqual(buffs[0].value, 50.0, places=4)
+
+    def test_hp_below_floor_capped(self):
+        """施法者HP=15%（低于floor）→ 仍为最大值50，不超上限"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            max_hp=10000, current_hp=1500)
+        ally = _make_unit("a", "Ally", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, ally)
+        svc._apply_aura(caster, self._make_effect(), bf, is_debuff=False)
+        buffs = [b for b in ally.buffs if b.effect_type == "ReceivedDamage"]
+        self.assertAlmostEqual(buffs[0].value, 50.0, places=4)
+
+    def test_hp65_percent_scaled(self):
+        """施法者HP=65% → 50×(0.35/0.7) = 25"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            max_hp=10000, current_hp=6500)
+        ally = _make_unit("a", "Ally", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, ally)
+        svc._apply_aura(caster, self._make_effect(), bf, is_debuff=False)
+        buffs = [b for b in ally.buffs if b.effect_type == "ReceivedDamage"]
+        self.assertAlmostEqual(buffs[0].value, 25.0, places=4)
+
+    def test_value_frozen_at_application(self):
+        """付与時冻结：后续HP变化不改变已付与buff的value"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            max_hp=10000, current_hp=6500)
+        ally = _make_unit("a", "Ally", Side.ENEMY, Position.ENEMY_LEFT_FRONT)
+        bf = _make_bf(caster, ally)
+        svc._apply_aura(caster, self._make_effect(), bf, is_debuff=False)
+        buffs = [b for b in ally.buffs if b.effect_type == "ReceivedDamage"]
+        self.assertAlmostEqual(buffs[0].value, 25.0, places=4)
+        caster.current_hp = 3000  # 施法者回血到30%
+        self.assertAlmostEqual(buffs[0].value, 25.0, places=4)
+
+    def test_dmg_taken_up_same_mechanism(self):
+        """被ダメ増方向（210133）同样生效：dmg_taken_up value=30, caster HP=50% → 30×(0.5/0.7)≈21.43"""
+        svc = self._make_skill_service()
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                            max_hp=10000, current_hp=5000)
+        target = _make_unit("a", "Target", Side.ALLY, Position.ALLY_CENTER_FRONT)
+        bf = _make_bf(caster, target)
+        effect = self._make_effect(effect_type="dmg_taken_up", target_type="enemy_all", value=30)
+        svc._apply_aura(caster, effect, bf, is_debuff=True)
+        debuffs = [d for d in target.debuffs if d.effect_type == "ReceivedDamage"]
+        self.assertEqual(len(debuffs), 1)
+        self.assertAlmostEqual(debuffs[0].value, 30.0 * (0.5 / 0.7), places=4)
+
+
+# =============================================================================
+# 2. 新索敵型 enemy_single_highest_hp_ratio_en_priority（EN優先）
+# =============================================================================
+class TestS7EnPriorityTargeting(unittest.TestCase):
+    """S7 220463 ウェーブバッシュ: ENタイプ(character_type=2)優先でHP割合最高"""
+
+    def setUp(self):
+        self.svc = SkillService(
+            data_loader=MagicMock(),
+            resource_service=MagicMock(),
+            target_service=TargetService(),
+            damage_service=MagicMock(),
+            aura_service=AuraService(),
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+
+    def _postfilter(self, units):
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        return self.svc._postfilter_damage_targets(
+            "enemy_single_highest_hp_ratio_en_priority", list(units), caster, {})
+
+    def test_prefers_en_type_over_higher_ratio(self):
+        """ENタイプがいる場合、HP割合が低くてもENタイプから選択"""
+        en_low = _make_unit("e1", "EN_Low", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                            max_hp=10000, current_hp=5000, character_type=2)
+        non_en_high = _make_unit("e2", "NonEN_High", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                                 max_hp=10000, current_hp=9900, character_type=1)
+        best = self._postfilter([en_low, non_en_high])
+        self.assertEqual(best[0].unit_id, "e1")
+
+    def test_falls_back_to_highest_ratio_without_en(self):
+        """ENタイプがいない場合、全体からHP割合最高を選択"""
+        u1 = _make_unit("e1", "U1", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=10000, current_hp=5000, character_type=1)
+        u2 = _make_unit("e2", "U2", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                        max_hp=10000, current_hp=9900, character_type=3)
+        best = self._postfilter([u1, u2])
+        self.assertEqual(best[0].unit_id, "e2")
+
+    def test_en_type_single(self):
+        """全員ENタイプ → HP割合最高のEN"""
+        e1 = _make_unit("e1", "EN1", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=10000, current_hp=5000, character_type=2)
+        e2 = _make_unit("e2", "EN2", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                        max_hp=10000, current_hp=8000, character_type=2)
+        best = self._postfilter([e1, e2])
+        self.assertEqual(best[0].unit_id, "e2")
+
+
+# =============================================================================
+# 3. 新索敵型 enemy_column_highest_hp_ratio（HP割合最高敵の縦列）
+# =============================================================================
+class TestS7ColumnHighestHpRatio(unittest.TestCase):
+    """S7 220462 ストリームブレイク: HP割合最高の敵を含む縦列"""
+
+    def setUp(self):
+        self.svc = SkillService(
+            data_loader=MagicMock(),
+            resource_service=MagicMock(),
+            target_service=TargetService(),
+            damage_service=MagicMock(),
+            aura_service=AuraService(),
+            status_service=MagicMock(),
+            trigger_service=MagicMock(),
+        )
+
+    def test_selects_column_of_highest_ratio(self):
+        """HP割合最高の敵の縦列（同列前后位）が選択される"""
+        # 左列: front 90% / back 10%；中列: front 95% / back 20%
+        lf = _make_unit("lf", "LF", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=10000, current_hp=9000)
+        lb = _make_unit("lb", "LB", Side.ALLY, Position.ALLY_LEFT_BACK,
+                        max_hp=10000, current_hp=1000)
+        cf = _make_unit("cf", "CF", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                        max_hp=10000, current_hp=9500)
+        cb_ = _make_unit("cb", "CB", Side.ALLY, Position.ALLY_CENTER_BACK,
+                         max_hp=10000, current_hp=2000)
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        targets = self.svc._postfilter_damage_targets(
+            "enemy_column_highest_hp_ratio", [lf, lb, cf, cb_], caster, {})
+        ids = sorted(t.unit_id for t in targets)
+        # 中列 front(95%) がアンカー → 中列2体
+        self.assertEqual(ids, ["cb", "cf"])
+
+    def test_single_column_member(self):
+        """縦列に相手がいない場合は単体"""
+        lf = _make_unit("lf", "LF", Side.ALLY, Position.ALLY_LEFT_FRONT,
+                        max_hp=10000, current_hp=9000)
+        cf = _make_unit("cf", "CF", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                        max_hp=10000, current_hp=5000)
+        caster = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        targets = self.svc._postfilter_damage_targets(
+            "enemy_column_highest_hp_ratio", [lf, cf], caster, {})
+        self.assertEqual([t.unit_id for t in targets], ["lf"])
+
+
+# =============================================================================
+# 4. 新trigger条件 enemy_has_evade_buff（230490 スティッキーロック）
+# =============================================================================
+class TestS7EnemyHasEvadeBuff(unittest.TestCase):
+    """S7 230490: 対象の敵が回避バフを所持していない場合はスキルが発動しない"""
+
+    def _make_trigger_service(self):
+        return TriggerService()
+
+    def test_true_when_enemy_has_evade(self):
+        ts = self._make_trigger_service()
+        owner = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        enemy = _make_unit("a", "Ally", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        evade = BuffState(buff_id="ev1", name="回避", effect_type=SkillEffectType.EVADE.value,
+                          value=100, duration=-1, timing_type=AuraUpdateTiming.DURABLE_WHEN_USED.value,
+                          hit_limited=1)
+        enemy.buffs.append(evade)
+        bf = _make_bf(owner, enemy)
+        ctx = TriggerContext = MagicMock()
+        from src.combat_v2.services.trigger_service import TriggerContext as TC
+        ctx = TC(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK, battlefield=bf)
+        result = ts._check_condition({"global_condition": {"type": "enemy_has_evade_buff"}},
+                                     owner, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx)
+        self.assertTrue(result)
+
+    def test_false_when_no_evade(self):
+        ts = self._make_trigger_service()
+        owner = _make_unit("c", "Caster", Side.ENEMY, Position.ENEMY_CENTER_FRONT)
+        enemy = _make_unit("a", "Ally", Side.ALLY, Position.ALLY_LEFT_FRONT)
+        bf = _make_bf(owner, enemy)
+        from src.combat_v2.services.trigger_service import TriggerContext as TC
+        ctx = TC(timing=TriggerTiming.BEFORE_ALLY_AS_ATTACK, battlefield=bf)
+        result = ts._check_condition({"global_condition": {"type": "enemy_has_evade_buff"}},
+                                     owner, TriggerTiming.BEFORE_ALLY_AS_ATTACK, ctx)
+        self.assertFalse(result)
+
+
+# =============================================================================
+# 5. S7 hybrid 配置数据级校验
+# =============================================================================
+class TestS7HybridConfigs(unittest.TestCase):
+    """17个S7技能的 hybrid 配置关键点校验"""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        with (ROOT / "data" / "skill_effects_hybrid.json").open("r", encoding="utf-8") as f:
+            cls.hy = json.load(f)
+        with (ROOT / "data" / "circle_battle_enemies.json").open("r", encoding="utf-8") as f:
+            cls.cb = json.load(f)
+
+    def test_all_s7_skills_present(self):
+        for sid in S7_SKILL_IDS:
+            self.assertIn(str(sid), self.hy, f"skill {sid} missing in hybrid")
+
+    def test_s7_season_imported(self):
+        self.assertIn("season_7", self.cb)
+        stages = self.cb["season_7"]
+        self.assertEqual(len(stages), 100)
+        # 阶段100: 5个敌人（slot2空），boss为Lv200变体 170121663
+        self.assertEqual(len(stages["100"]["enemies"]), 5)
+        enemy_ids = {e["enemy_id"] for e in stages["100"]["enemies"]}
+        self.assertEqual(enemy_ids, {167120351, 133120451, 169120351, 170121663, 168120351})
+        # 阶段1: boss为低等级变体 170121651（同S6霞光的分级enemy_id机制）
+        enemy_ids_s1 = {e["enemy_id"] for e in stages["1"]["enemies"]}
+        self.assertIn(170121651, enemy_ids_s1)
+        self.assertEqual(len(enemy_ids_s1), 5)
+
+    def test_220455_ally_count_power_blocks(self):
+        """スウォームファング: 4个block按生存味方数选择威力1-4，各3hit"""
+        s = self.hy["220455"]
+        blocks = s["effect_blocks"]
+        self.assertEqual(len(blocks), 4)
+        expect = [(">=", 4, "威力1"), ("==", 3, "威力2"), ("==", 2, "威力3"), ("<=", 1, "威力4")]
+        for block, (op, val, tag) in zip(blocks, expect):
+            cond = block["condition"]
+            self.assertEqual(cond["type"], "ally_alive_count")
+            self.assertEqual(cond["operator"], op)
+            self.assertEqual(cond["value"], val)
+            eff = block["effects"][0]
+            self.assertEqual(eff["effect_type"], "damage")
+            self.assertEqual(eff["value_tag"], tag)
+            self.assertEqual(eff["hit_count"], 3)
+
+    def test_230487_counter_triggers_on_any_attack(self):
+        """カウンターバイト: after_self_attacked + trigger_attacker 反撃"""
+        s = self.hy["230487"]
+        self.assertEqual(s["trigger_type"], "after_self_attacked")
+        eff = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(eff["effect_type"], "damage")
+        self.assertEqual(eff["target_identifier"], "trigger_attacker")
+        self.assertNotIn("is_en_attack", eff["flags"])  # 物理反撃
+
+    def test_230488_on_ally_killed_removes_stack(self):
+        """デスレイジハイ: on_ally_killed + 雌伏解除1 + 全体攻防+3.5%重複可"""
+        s = self.hy["230488"]
+        self.assertEqual(s["trigger_type"], "on_ally_killed")
+        rm = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(rm["effect_type"], "remove_mark")
+        self.assertEqual(rm["value"], 1)
+        self.assertEqual(rm["flags"]["mark_name"], "雌伏")
+        buffs = s["effect_blocks"][1]["effects"]
+        self.assertEqual({b["effect_type"] for b in buffs}, {"atk_up", "def_up"})
+        for b in buffs:
+            self.assertEqual(b["value"], 3.5)
+            self.assertTrue(b["flags"]["stackable"])
+
+    def test_230489_once_per_battle_stealth_and_marks(self):
+        """ダイブスリープ: once_per_battle + ステルス永久 + 雌伏4層 + spd_down×4 linked"""
+        s = self.hy["230489"]
+        self.assertTrue(s.get("once_per_battle"))
+        self.assertEqual(s["trigger_type"], "on_turn_start")
+        effects = s["effect_blocks"][0]["effects"]
+        stealth = effects[0]
+        self.assertEqual(stealth["effect_type"], "stealth")
+        self.assertEqual(stealth["duration"], -1)
+        mark = effects[1]
+        self.assertEqual(mark["effect_type"], "mark")
+        self.assertEqual(mark["value"], 4)  # multi-layer
+        self.assertTrue(mark["flags"]["stackable"])
+        self.assertTrue(mark["flags"]["unremovable"])
+        self.assertEqual(mark["flags"]["mark_name"], "雌伏")
+        spd_downs = [e for e in effects[2:] if e["effect_type"] == "spd_down"]
+        self.assertEqual(len(spd_downs), 4)
+        for e in spd_downs:
+            self.assertEqual(e["value"], 12.5)
+            self.assertEqual(e["flags"]["linked_mark"], "雌伏")
+            self.assertTrue(e["flags"]["unremovable"])
+
+    def test_220459_barrier_flags(self):
+        """コキュートバリア: dmg_taken_down ally_all + attack_limited + caster_hp_ratio"""
+        s = self.hy["220459"]
+        eff = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(eff["effect_type"], "dmg_taken_down")
+        self.assertEqual(eff["target_type"], "ally_all")
+        self.assertEqual(eff["value"], 50)
+        self.assertEqual(eff["flags"]["attack_limited"], 1)
+        self.assertTrue(eff["flags"]["caster_hp_ratio_inverse"])
+        self.assertAlmostEqual(eff["flags"]["caster_hp_ratio_floor"], 0.3)
+
+    def test_210133_ex_debuff(self):
+        """カタラクトブレイク: EX AP6 全体EN攻撃 + dmg_taken_up(dmg tag, 重複可, caster_hp_ratio)"""
+        s = self.hy["210133"]
+        self.assertEqual(s["skill_type"], 3)
+        self.assertEqual(s["resource_cost"], 6)
+        dmg = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(dmg["target_type"], "enemy_all")
+        self.assertTrue(dmg["flags"]["is_en_attack"])
+        self.assertEqual(dmg["value_tag"], "威力")
+        debuff = s["effect_blocks"][0]["effects"][1]
+        self.assertEqual(debuff["effect_type"], "dmg_taken_up")
+        self.assertEqual(debuff["value_tag"], "dmg")
+        self.assertTrue(debuff["flags"]["stackable"])
+        self.assertEqual(debuff["flags"]["attack_limited"], 1)
+        self.assertTrue(debuff["flags"]["caster_hp_ratio_inverse"])
+
+    def test_220461_ruin_boost(self):
+        """ルインブースト: HP>=80%条件(技能级) + 自身強化unremovable + action_damage"""
+        s = self.hy["220461"]
+        self.assertEqual(s["global_condition"], {"type": "self_hp_above", "value": 80})
+        effs = s["effect_blocks"][0]["effects"]
+        self.assertEqual({e["effect_type"] for e in effs}, {"atk_up", "dmg_dealt_up", "add_status"})
+        for e in effs[:2]:
+            self.assertTrue(e["flags"]["unremovable"])
+            self.assertTrue(e["flags"]["stackable"])
+        dot = effs[2]
+        self.assertEqual(dot["flags"]["status_type"], "action_damage")
+        self.assertTrue(dot["flags"]["is_en_attack"])
+        self.assertEqual(dot["value_tag"], "dmg")
+        self.assertEqual(dot["duration"], 1)
+
+    def test_220462_220463_new_target_types(self):
+        """ストリームブレイク/ウェーブバッシュ: 新索敵型 + EN攻撃"""
+        s = self.hy["220462"]
+        eff = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(eff["target_type"], "enemy_column_highest_hp_ratio")
+        self.assertEqual(eff["hit_count"], 5)
+        self.assertTrue(eff["flags"]["is_en_attack"])
+        s2 = self.hy["220463"]
+        eff2 = s2["effect_blocks"][0]["effects"][0]
+        self.assertEqual(eff2["target_type"], "enemy_single_highest_hp_ratio_en_priority")
+        self.assertTrue(eff2["flags"]["is_en_attack"])
+
+    def test_230493_preemptive_and_advantage(self):
+        """ファストジャッジ: on_turn_start + 先制EN攻撃 + 属性有利分支"""
+        s = self.hy["230493"]
+        self.assertEqual(s["trigger_type"], "on_turn_start")
+        dmg = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(dmg["target_type"], "enemy_single_highest_spd")
+        self.assertTrue(dmg["flags"]["is_preemptive"])
+        self.assertTrue(dmg["flags"]["is_en_attack"])
+        block2 = s["effect_blocks"][1]
+        self.assertEqual(block2["condition"]["type"], "prev_target_element_advantage")
+        self.assertEqual({e["effect_type"] for e in block2["effects"]},
+                         {"spd_down", "skill_power_down"})
+        for e in block2["effects"]:
+            self.assertEqual(e["value"], 50)
+            self.assertEqual(e["duration"], 1)
+
+    def test_220456_guy_down_duration(self):
+        """グーイダウン: duration_owner=caster + source_death_remove"""
+        s = self.hy["220456"]
+        for eff in s["effect_blocks"][0]["effects"]:
+            self.assertIn(eff["effect_type"], ("atk_down", "def_down"))
+            self.assertEqual(eff["value"], 12.5)
+            self.assertEqual(eff["flags"]["duration_owner"], "caster")
+            self.assertTrue(eff["flags"]["source_death_remove"])
+            self.assertTrue(eff["flags"]["stackable"])
+            self.assertEqual(eff["duration"], 1)
+
+    def test_220457_flat_spd_down(self):
+        """スラッジバレット: EN攻撃 + spd_down固定値30"""
+        s = self.hy["220457"]
+        effs = s["effect_blocks"][0]["effects"]
+        self.assertEqual(effs[0]["effect_type"], "damage")
+        self.assertTrue(effs[0]["flags"]["is_en_attack"])
+        self.assertEqual(effs[0]["value_tag"], "威力")
+        spd = effs[1]
+        self.assertEqual(spd["effect_type"], "spd_down")
+        self.assertEqual(spd["value"], 30)
+        self.assertEqual(spd["flags"]["value_type"], "flat")
+
+    def test_230490_sticky_lock(self):
+        """スティッキーロック: before_ally_as_attack + 回避buff条件 + sure_hit + 同時発動制限"""
+        s = self.hy["230490"]
+        self.assertEqual(s["trigger_type"], "before_ally_as_attack")
+        self.assertTrue(s.get("simultaneous_limit"))
+        self.assertEqual(s["global_condition"], {"type": "enemy_has_evade_buff"})
+        eff = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(eff["effect_type"], "sure_hit")
+        self.assertEqual(eff["target_identifier"], "trigger_attacker")
+        self.assertEqual(eff["duration_type"], "attacker_action")
+
+    def test_230491_shadow_go(self):
+        """シャドウグー: on_cumulative_damage 25% + 暗闇75% + HP>=50%時PP回復"""
+        s = self.hy["230491"]
+        self.assertEqual(s["trigger_type"], "on_cumulative_damage")
+        self.assertEqual(s["global_condition"]["type"], "ally_cumulative_damage_percent")
+        self.assertEqual(s["global_condition"]["value"], 25)
+        dark = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(dark["effect_type"], "add_status")
+        self.assertEqual(dark["flags"]["status_type"], "darkness")
+        self.assertEqual(dark["value"], 75)
+        self.assertEqual(dark["duration"], 1)
+        block2 = s["effect_blocks"][1]
+        self.assertEqual(block2["condition"]["type"], "status_target_hp_above")
+        pp = block2["effects"][0]
+        self.assertEqual(pp["effect_type"], "modify_pp")
+        self.assertEqual(pp["value"], 1)
+
+    def test_220458_shell_clarify(self):
+        """シェルクレア: デバフ全解除 + 5種stat buff + シェルmark"""
+        s = self.hy["220458"]
+        rm = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(rm["effect_type"], "remove_all_debuffs")
+        effs = s["effect_blocks"][1]["effects"]
+        stat_types = [e["effect_type"] for e in effs if e["effect_type"] != "mark"]
+        self.assertEqual(stat_types, ["max_hp_up", "atk_up", "def_up", "spd_up", "crit_rate_up"])
+        for e in effs:
+            if e["effect_type"] == "mark":
+                self.assertEqual(e["flags"]["mark_name"], "シェル")
+                self.assertTrue(e["flags"]["is_buff_mark"])
+            else:
+                self.assertEqual(e["value"], 7.5)
+                self.assertTrue(e["flags"]["stackable"])
+
+    def test_230492_aqua_oracle(self):
+        """アクアオラクル: after_ally_attacked 回復 + HP<30%時幻惑"""
+        s = self.hy["230492"]
+        self.assertEqual(s["trigger_type"], "after_ally_attacked")
+        heal = s["effect_blocks"][0]["effects"][0]
+        self.assertEqual(heal["effect_type"], "heal")
+        self.assertEqual(heal["target_identifier"], "trigger_attacker")
+        self.assertEqual(heal["value_tag"], "威力")
+        block2 = s["effect_blocks"][1]
+        self.assertEqual(block2["condition"]["type"], "heal_target_hp_below")
+        self.assertEqual(block2["condition"]["value"], 30)
+        gen = block2["effects"][0]
+        self.assertEqual(gen["effect_type"], "genwaku")
+        self.assertEqual(gen["target_identifier"], "trigger_attacker")
+        self.assertEqual(gen["value"], 50)
+        self.assertEqual(gen["duration"], 1)
+
+
+# =============================================================================
+# 6. 集成：第7期阶段战斗可完整执行（冒烟）
+# =============================================================================
+class TestS7IntegrationSmoke(unittest.TestCase):
+    """第7期阶段1完整战斗不抛异常"""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        with (ROOT / "data" / "circle_battle_enemies.json").open("r", encoding="utf-8") as f:
+            cls.cb = json.load(f)
+
+    def test_stage1_battle_runs(self):
+        import random as _random
+        from src.data.data_loader import DataLoader
+        from src.combat_v2.circle_battle_controller import CircleBattleController
+        from src.combat_v2.battle_flow_controller import BattleConfig
+        from src.utils.batch_simulator import _create_circle_battle_enemy_worker
+
+        dl = DataLoader()
+        dl.load_all()
+        stage_data = self.cb["season_7"]["1"]
+
+        _random.seed(2026)
+        bf = BattlefieldState()
+        POS = [Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT,
+               Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK]
+        for i in range(6):
+            bf.add_unit(_make_unit(f"A_{i}", f"Ally{i}", Side.ALLY, POS[i],
+                                   max_hp=100000, current_hp=100000,
+                                   attack=5000, defense=5000, speed=800))
+        for enemy_data in stage_data["enemies"]:
+            u = _create_circle_battle_enemy_worker(dl, enemy_data)
+            if u:
+                bf.add_unit(u)
+        bc = BattleConfig()
+        bc.max_turns = stage_data.get("max_turns", 5)
+        controller = CircleBattleController(bf, data_loader=dl, config=bc, season=7, stage=1)
+        result = controller.execute_battle()
+        self.assertIn(result.get("result"), ("FINISHED", "TIMEOUT", "TIMEOUT_LOSS"))
+        self.assertTrue(result.get("is_circle_battle"))
+
+        # ダイブスリープ（once_per_battle）: スウォング的战斗中仅标记一次
+        swong = next((u for u in bf.enemy_team if u.name == "スウォング"), None)
+        if swong is not None:
+            self.assertIn(230489, swong.once_per_battle_triggered)
+
+
+if __name__ == "__main__":
+    unittest.main()

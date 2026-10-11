@@ -1,0 +1,45 @@
+"""Regression: ぽよぽよプロテクト(130041) triggered_by target selection.
+
+Bug: Shield was given to nearest ally or PS owner instead of HP-crossed ally.
+Fix: target_identifier='triggered_by' in aura + primary_target in trigger params.
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+class TestRegPoyopoyoTarget(unittest.TestCase):
+
+    def test_shield_given_to_hp_crossed_ally(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="owner", hp=20000, atk=10000, skills=[130041], level=10, pp=10)
+        bb.add_ally(unit_id="ally_crossed", hp=10000)
+        bb.add_enemy(unit_id="enemy", hp=50000)
+        ctx = bb.build()
+        bf, ts, ss = ctx['bf'], ctx['ts'], ctx['ss']
+        owner = next(u for u in bf.friend_team if u.unit_id == "owner")
+        ally = next(u for u in bf.friend_team if u.unit_id == "ally_crossed")
+
+        ally.current_hp = 4000
+        ally.prev_hp_percent = 100.0
+        owner.current_pp = 10
+
+        actions = ts.trigger_hp_below(bf, [ally])
+        ps_acts = [a for a in actions if a.skill_id == 130041]
+        self.assertTrue(len(ps_acts) > 0, "130041 should trigger")
+
+        # Execute and verify shield target
+        ss._execute_global_trigger_actions = None  # not testing here
+        # Use inline execution for test
+        from src.entities_v2.enums import SkillEffectType
+        SHIELD = SkillEffectType.SHIELD.value
+        shield_before = len([b for b in ally.buffs if b.effect_type == SHIELD])
+        ss._execute_trigger_actions_inline(ps_acts, bf)
+        shields = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shields), shield_before + 1,
+                         f"shield should be added to crossed ally, got {[b.effect_type for b in ally.buffs]}")
+
+
+if __name__ == '__main__':
+    unittest.main()

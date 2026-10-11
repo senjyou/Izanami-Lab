@@ -1,0 +1,40 @@
+"""Regression: コン・フオーコ(130123) knockout upgrade + narrative duration.
+
+Bug 1: knockout_upgrade flag didn't detect existing Knockout (normalized='Knockout' vs 'knockout')
+Bug 2: Status_detail used original 'duration' instead of 'final_duration' in narrative
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, SkillEffectType
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+
+
+class TestRegKnockoutUpgrade(unittest.TestCase):
+
+    def test_existing_1action_knockout_upgraded_to_2(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[130123], level=10)
+        bb.add_enemy(unit_id="enemy_front", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        bb.add_enemy(unit_id="enemy_back", position=Position.ENEMY_CENTER_BACK, hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        target = next(u for u in bf.enemy_team if u.unit_id == "enemy_front")
+
+        # Pre-apply 1-action knockout
+        from src.entities_v2.unit_state import BuffState
+        from src.entities_v2.enums import AuraUpdateTiming
+        target.debuffs.append(BuffState(
+            buff_id="pre_knockout", name=KNOCKOUT, effect_type=KNOCKOUT,
+            value=0, duration=1, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=caster.unit_id, is_debuff=True
+        ))
+
+        result = ss.execute_skill(caster=caster, skill_id=130123, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        stuns = [d for d in target.debuffs if d.effect_type == KNOCKOUT]
+        self.assertEqual(len(stuns), 1, "should still have exactly 1 knockout (not 2)")
+        self.assertEqual(stuns[0].duration, 2,
+                         f"should be upgraded to duration=2, got {stuns[0].duration}")

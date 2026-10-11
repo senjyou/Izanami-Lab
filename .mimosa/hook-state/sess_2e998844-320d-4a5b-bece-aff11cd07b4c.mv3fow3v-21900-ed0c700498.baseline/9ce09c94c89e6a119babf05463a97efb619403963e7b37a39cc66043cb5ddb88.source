@@ -1,0 +1,907 @@
+"""
+角色131302 砂浜の策謀家 专项E2E测试
+- EX: 110071 少しお行儀悪いですが……（HP比例伤害+AP分支+Lv11+ damage_link to_primary_target）
+- AS1: 120158 たまには子供っぽく（global_condition: HP<50% AND 无暑気；解除link+atk_up+暑気mark）
+- AS2: 120159 夏のせいです（无暑気: shield+敌列减伤；有暑気: 5hit EN攻击+lifesteal+击杀追加heal）
+- PS1: 130156 油断は禁物ですよ（before_as_attacked: def_up with hp_ratio_dynamic_direct）
+- PS2: 130157 わたくしがしっかりしないと（on_turn_start once: max_hp_up+damage_link friends→caster）
+
+覆盖维度：
+1. EX hp_ratio_damage + ATK cap + AP分支(self_has_ap/self_no_ap) + Lv11+ damage_link
+2. AS1 global_condition 双条件检查 + remove_damage_links + 暑気mark
+3. AS2 暑気状态切换 + 5hit + lifesteal + target_killed heal
+4. PS1 before_as_attacked + hp_ratio_dynamic_direct
+5. PS2 on_turn_start + max_hp_up + damage_link to_caster + once_per_battle(cooldown=99)
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState, DamageLinkEntry
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+# 注意：dmg_dealt_up/dmg_dealt_down 共用 DEALT_DAMAGE 枚举
+# atk_up/atk_down 共用 STATUS_ATTACK，def_up/def_down 共用 STATUS_DEFENSE
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+STATUS_ATTACK = SkillEffectType.STATUS_ATTACK.value
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+STATUS_MAX_HP = SkillEffectType.STATUS_MAX_HP.value
+MARK = SkillEffectType.MARK.value
+SHIELD = SkillEffectType.SHIELD.value
+HEAL_OVER_TIME = SkillEffectType.HEAL_OVER_TIME.value
+
+
+class TestActor131302(unittest.TestCase):
+    """角色131302 砂浜の策謀家 专项E2E测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 131302 砂浜の策謀家 (水属性attr=2, EN型character_type=2, 前排)
+        # 默认Lv10，部分测试用Lv15验证Lv11+分支
+        self.caster = UnitState(
+            unit_id="ally_front", name="砂浜の策謀家", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=131302, level=10,
+            element=2, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110071, 120158, 120159, 130156, 130157],
+            skill_levels={110071: 10, 120158: 10, 120159: 10,
+                          130156: 10, 130157: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方左前（用于PS2 damage_link转送测试）
+        self.ally_left = UnitState(
+            unit_id="ally_left", name="友方左前", side=Side.ALLY,
+            position=Position.ALLY_LEFT_FRONT, character_id=100001, level=10,
+            element=1, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=7000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央（HP最高，作为EX的目标）
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前（用于AS2 enemy_front debuff测试）
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_left]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_back, self.enemy_left_front]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def _reset_enemies(self):
+        """重置敌方状态。"""
+        for e in self.bf.enemy_team:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.damage_links = []
+            e.is_alive = True
+            e.current_ap = 4
+
+    def _reset_caster(self, hp=None, ap=10):
+        """重置施法者状态。"""
+        self.caster.current_hp = hp if hp is not None else self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.damage_links = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = ap
+
+    def _reset_ally_left(self):
+        """重置友方左前。"""
+        self.ally_left.current_hp = self.ally_left.max_hp
+        self.ally_left.buffs = []
+        self.ally_left.debuffs = []
+        self.ally_left.damage_links = []
+        self.ally_left.is_alive = True
+
+    # ─── EX: 110071 少しお行儀悪いですが…… ───
+
+    def test_ex_lv10_hp_ratio_damage_with_atk_cap(self):
+        """EX(110071) Lv10: 对最高HP比例敌人造成 current_hp×35% 伤害（上限 atk×75%）。
+
+        caster.atk=10000, enemy_front.current_hp=30000
+        基础伤害 = 30000×35% = 10500
+        上限 = 10000×75% = 7500
+        预期伤害 = min(10500, 7500) = 7500
+        """
+        self._reset_caster(hp=self.caster.max_hp, ap=0)  # ap=0 走 self_no_ap 分支
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证伤害约为 7500（ATK cap 生效）
+        hp_loss = self.enemy_front.max_hp - self.enemy_front.current_hp
+        # 允许±10%误差（属性克制、防御等影响）
+        self.assertLess(abs(hp_loss - 7500), 1500,
+                        f"EX伤害应受ATK×75%上限约束，预期约7500，实际{hp_loss}")
+
+    def test_ex_lv10_self_has_ap_branch(self):
+        """EX(110071) Lv10 self_has_ap分支: 自身有AP时消耗1AP削目标2AP。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        # enemy_front AP=4
+        caster_ap_before = self.caster.current_ap
+        enemy_ap_before = self.enemy_front.current_ap
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 caster AP -1（注意 skip_cost 不消耗 EX 资源，但 remove_ap effect 仍生效）
+        self.assertEqual(self.caster.current_ap, caster_ap_before - 1,
+                         "self_has_ap 分支应消耗 caster 1 AP")
+        # 验证 enemy AP -2
+        self.assertEqual(self.enemy_front.current_ap, enemy_ap_before - 2,
+                         "self_has_ap 分支应削减目标 2 AP")
+
+    def test_ex_lv10_self_no_ap_branch_atk_down(self):
+        """EX(110071) Lv10 self_no_ap分支: 自身无AP时对目标施加 atk_down 2action stackable。
+
+        注意：atk_down 的 target_type 是 enemy_single_highest_hp_ratio，会重新选目标。
+        Block1 hp_ratio_damage 命中 enemy_front 后，其 HP 比例下降，
+        highest_hp_ratio 可能选另一个敌人。这里验证"任一敌方有 atk_down"。
+        """
+        self._reset_caster(hp=self.caster.max_hp, ap=0)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证任一敌方有 atk_down debuff
+        all_atk_down = []
+        for e in self.bf.enemy_team:
+            all_atk_down.extend([d for d in e.debuffs if d.effect_type == STATUS_ATTACK])
+        self.assertTrue(len(all_atk_down) > 0, "self_no_ap 分支应对目标施加 atk_down")
+        self.assertEqual(all_atk_down[0].duration, 2, "atk_down 应持续 2 action")
+        self.assertTrue(all_atk_down[0].is_stackable, "atk_down 应可叠加")
+
+    def test_ex_lv15_damage_link_to_primary_target(self):
+        """EX(110071) Lv15: 附加 damage_link(self_and_primary_target, to_primary_target)。
+
+        Lv15 时 dmg tag=25%，duration=1action, unremovable
+        caster (outgoing) -> primary_target (incoming)
+        caster 受伤时 25% 转送给 primary_target
+        """
+        # 设置 Lv15
+        self.caster.skill_levels[110071] = 15
+        self._reset_caster(hp=self.caster.max_hp, ap=0)  # ap=0 避免 AP 分支干扰
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 caster 有 outgoing damage_link entry
+        caster_outgoing = [dl for dl in self.caster.damage_links
+                           if dl.direction == "outgoing"]
+        self.assertTrue(len(caster_outgoing) > 0,
+                        "caster 应有 outgoing damage_link (to_primary_target)")
+        self.assertEqual(caster_outgoing[0].partner_unit_id, self.enemy_front.unit_id,
+                         "outgoing link 的 partner 应为 primary_target(enemy_front)")
+        self.assertAlmostEqual(caster_outgoing[0].value, 25.0, places=1,
+                               msg="Lv15 时 dmg 应为 25%")
+        self.assertTrue(caster_outgoing[0].is_unremovable, "damage_link 应 unremovable")
+
+        # 验证 primary_target 有 incoming damage_link entry
+        target_incoming = [dl for dl in self.enemy_front.damage_links
+                           if dl.direction == "incoming"]
+        self.assertTrue(len(target_incoming) > 0,
+                        "primary_target 应有 incoming damage_link (配对记录)")
+
+        # 恢复 Lv10
+        self.caster.skill_levels[110071] = 10
+
+    # ─── AS1: 120158 たまには子供っぽく ───
+
+    def test_as1_blocked_by_full_hp(self):
+        """AS1(120158) HP>=50%时不发动（global_condition: self_hp_below 50%）。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)  # HP=100%
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120158, battlefield=self.bf, skip_cost=True
+        )
+        # global_condition 不满足时返回 error
+        self.assertFalse(result.get("success", False),
+                         "HP>=50% 时 AS1 不应发动")
+        self.assertEqual(result.get("error"), "global_condition not met")
+
+        # 验证未施加任何buff
+        self.assertEqual(len(self.caster.buffs), 0, "不应施加任何 buff")
+
+    def test_as1_blocked_by_hot_mark(self):
+        """AS1(120158) 持有暑気mark时不发动（global_condition: self_lacks_mark 暑気）。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3), ap=5)  # HP=30% < 50%
+        self._reset_enemies()
+        # 预先施加暑気mark
+        hot_mark = BuffState(
+            buff_id="hot_mark_test", name="暑気", effect_type=MARK, value=0,
+            duration=-1, timing_type=2, is_debuff=False,
+            unremovable=True,
+        )
+        self.caster.buffs.append(hot_mark)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120158, battlefield=self.bf, skip_cost=True
+        )
+        self.assertFalse(result.get("success", False),
+                         "持有暑気 mark 时 AS1 不应发动")
+        self.assertEqual(result.get("error"), "global_condition not met")
+
+    def test_as1_remove_links_atk_up_hot_mark(self):
+        """AS1(120158) 正常发动: 清除damage_links + atk_up + 暑気mark。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3), ap=5)  # HP=30% < 50%
+        self._reset_enemies()
+        # 预先施加 damage_link
+        fake_link = DamageLinkEntry(
+            link_id="test_link_1", partner_unit_id=self.ally_left.unit_id,
+            value=50.0, source_skill_id=130157, source_unit_id=self.caster.unit_id,
+            direction="incoming", is_unremovable=True, duration=-1, duration_type="",
+        )
+        self.caster.damage_links.append(fake_link)
+        self.assertEqual(len(self.caster.damage_links), 1)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120158, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 damage_links 被清除
+        self.assertEqual(len(self.caster.damage_links), 0,
+                         "AS1 应清除自身所有 damage_links")
+
+        # 验证 atk_up buff
+        atk_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_ATTACK]
+        self.assertTrue(len(atk_up_buffs) > 0, "AS1 应施加 atk_up buff")
+
+        # 验证暑気 mark（is_buff_mark=True → 存为 buff）
+        hot_marks = [b for b in self.caster.buffs
+                     if b.effect_type == MARK and getattr(b, 'name', '') == "暑気"]
+        self.assertTrue(len(hot_marks) > 0, "AS1 应施加暑気 mark")
+        self.assertTrue(hot_marks[0].unremovable, "暑気 mark 应 unremovable")
+
+    # ─── AS2: 120159 夏のせいです ───
+
+    def test_as2_no_hot_shield_and_debuff(self):
+        """AS2(120159) 无暑気分支: 自身shield + 敌前列dmg_dealt_down 5%。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        # 确保无暑気mark
+        self.assertEqual(len([b for b in self.caster.buffs
+                              if b.effect_type == MARK]), 0)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120159, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 caster 有 shield buff
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertTrue(len(shield_buffs) > 0, "无暑気分支应施加 shield buff")
+        self.assertEqual(shield_buffs[0].duration, 1, "shield 应持续 1 action")
+
+        # 验证敌方前排有 dmg_dealt_down debuff
+        enemy_front_debuffs = [d for d in self.enemy_front.debuffs
+                               if d.effect_type == DEALT_DAMAGE]
+        self.assertTrue(len(enemy_front_debuffs) > 0,
+                        "敌方前排应有 dmg_dealt_down debuff")
+        self.assertTrue(enemy_front_debuffs[0].is_stackable,
+                        "dmg_dealt_down 应可叠加")
+        self.assertEqual(enemy_front_debuffs[0].duration, 1,
+                         "dmg_dealt_down 应持续 1 action")
+
+    def test_as2_with_hot_5hit_lifesteal(self):
+        """AS2(120159) 有暑気分支: 5hit EN攻击 + lifesteal 40%。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.5), ap=5)  # HP=50% 用于验证lifesteal
+        self._reset_enemies()
+        # 预先施加暑気mark
+        hot_mark = BuffState(
+            buff_id="hot_mark_test", name="暑気", effect_type=MARK, value=0,
+            duration=-1, timing_type=2, is_debuff=False,
+            unremovable=True,
+        )
+        self.caster.buffs.append(hot_mark)
+
+        caster_hp_before = self.caster.current_hp
+        enemy_hp_before = self.enemy_front.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120159, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 damage effect hit_count=5
+        dmg_effects = [e for e in result.get("effects_applied", [])
+                       if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "应有 damage effect")
+        # 检查是否有 5hit 信息
+        first_dmg = dmg_effects[0]
+        # hits 数组位于 targets[0] 内（per-target 结构），而非 effect dict 顶层
+        first_target = first_dmg["targets"][0] if first_dmg.get("targets") else {}
+        hit_count = first_dmg.get("hit_count") or len(first_target.get("hits", []))
+        self.assertEqual(hit_count, 5,
+                         f"AS2 有暑気分支应为 5hit，实际: hit_count={hit_count}")
+
+        # 验证敌方受到伤害
+        self.assertLess(self.enemy_front.current_hp, enemy_hp_before,
+                        "敌方应受到伤害")
+
+        # 验证 lifesteal（caster HP 应增加）
+        actual_damage = enemy_hp_before - self.enemy_front.current_hp
+        expected_heal = int(actual_damage * 0.4)  # lifesteal 40%
+        hp_gain = self.caster.current_hp - caster_hp_before
+        # 允许 ±5 误差（取整）
+        self.assertGreater(hp_gain, 0, "caster 应通过 lifesteal 回复 HP")
+        self.assertLess(abs(hp_gain - expected_heal), 100,
+                        f"lifesteal 回复量应约为 {expected_heal}，实际 {hp_gain}")
+
+    def test_as2_with_hot_target_killed_heal(self):
+        """AS2(120159) 有暑気分支击杀时: 追加 max_hp 7.5% 回复。"""
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3), ap=5)  # HP=30%
+        # 设置敌方HP极低，确保5hit击杀
+        self._reset_enemies()
+        self.enemy_front.current_hp = 100  # 一击必杀
+        # 预先施加暑気mark
+        hot_mark = BuffState(
+            buff_id="hot_mark_test", name="暑気", effect_type=MARK, value=0,
+            duration=-1, timing_type=2, is_debuff=False,
+            unremovable=True,
+        )
+        self.caster.buffs.append(hot_mark)
+
+        caster_hp_before = self.caster.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120159, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证敌方被击杀
+        self.assertFalse(self.enemy_front.is_alive, "敌方应被击杀")
+
+        # 验证 caster 回复（lifesteal + 击杀追加heal）
+        # 击杀追加heal = max_hp × 7.5% = 20000 × 7.5% = 1500
+        hp_gain = self.caster.current_hp - caster_hp_before
+        expected_kill_heal = int(self.caster.max_hp * 0.075)
+        self.assertGreater(hp_gain, expected_kill_heal - 100,
+                           f"击杀时应追加 max_hp 7.5% 回复 (≥{expected_kill_heal})，实际总回复 {hp_gain}")
+
+    # ─── PS1: 130156 油断は禁物ですよ ───
+
+    def test_ps1_before_as_attacked_def_up(self):
+        """PS1(130156) before_as_attacked触发: def_up with hp_ratio_dynamic_direct（施加时冻结）。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}  # 清除冷却
+
+        # 触发 before_as_attacked（caster是被攻击目标）
+        trigger_actions = self.ts.trigger_before_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_front, skill_id=120048
+        )
+
+        # 验证PS1(130156)被收集
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130156]
+        self.assertTrue(len(ps1_actions) > 0, "PS1(130156)应在被AS攻击前被收集")
+
+        # 执行PS1
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_as_attacked"
+        )
+
+        # 验证 caster 有 def_up buff
+        def_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertTrue(len(def_up_buffs) > 0, "PS1 应施加 def_up buff")
+        # hp_ratio_dynamic_direct: value在施加时按HP比例冻结（满血时=原值）
+        # Lv15满血: 13.5 * 1.0 = 13.5
+        self.assertGreater(def_up_buffs[0].value, 0,
+                           "def_up value应已按HP比例冻结（满血时应>0）")
+        self.assertEqual(def_up_buffs[0].attack_limited, 1,
+                         "def_up 应 attack_limited=1（1次攻击后消失）")
+
+    def test_ps1_def_up_high_hp_more_effect(self):
+        """PS1(130156) HP越高 def_up 效果越强（hp_ratio_dynamic_direct 施加时冻结）。
+
+        注意：hp_ratio_dynamic_direct 的 buff.value 在施加时按当时HP比例冻结。
+        高HP时冻结值更大，低HP时冻结值更小。后续HP变化不影响已冻结的value。
+        """
+        from src.combat_v2.services.damage_service import DamageService as _DS
+        dms = _DS()
+
+        # 测试1: 高HP（100%）
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        actions_high = self.ts.trigger_before_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_front, skill_id=120048
+        )
+        ps1_high = [a for a in actions_high if a.skill_id == 130156]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_high, self.bf, trigger_timing="before_as_attacked"
+        )
+        # 实际有效防御力（value已在施加时按HP比例冻结）
+        effective_def_high = dms._calculate_final_stat(self.caster, "defense")
+
+        # 测试2: 低HP（30%）
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3), ap=5)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        actions_low = self.ts.trigger_before_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_front, skill_id=120048
+        )
+        ps1_low = [a for a in actions_low if a.skill_id == 130156]
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_low, self.bf, trigger_timing="before_as_attacked"
+        )
+        effective_def_low = dms._calculate_final_stat(self.caster, "defense")
+
+        # 高HP时的实际防御力应大于低HP时（hp_ratio_dynamic_direct 线性）
+        self.assertGreater(effective_def_high, effective_def_low,
+                           f"HP 100% 时有效防御力({effective_def_high})应大于 HP 30% 时({effective_def_low})")
+
+    # ─── PS2: 130157 わたくしがしっかりしないと ───
+
+    def test_ps2_turn_start_max_hp_up_and_damage_link(self):
+        """PS2(130157) on_turn_start: max_hp_up + damage_link(friends→caster, to_caster)。
+
+        Lv10: hp=80%, dmg=50%, once per battle (cooldown=99)
+        """
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_ally_left()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        original_max_hp = self.caster.max_hp
+
+        # 触发回合开始
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+
+        # 验证PS2(130157)被收集
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130157]
+        self.assertTrue(len(ps2_actions) > 0, "PS2(130157)应在回合开始时被收集")
+
+        # 执行PS2
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="turn_start"
+        )
+
+        # 验证 caster max_hp 增加 80%
+        expected_max_hp = int(original_max_hp * 1.8)
+        self.assertAlmostEqual(self.caster.max_hp, expected_max_hp, delta=1,
+                               msg=f"max_hp 应增加 80%（{original_max_hp}→{expected_max_hp}）")
+        # 注意：_apply_max_hp_up 直接修改 target.max_hp，不创建 STATUS_MAX_HP buff
+        # 所以不验证 buff 存在性，只验证 max_hp 数值增加
+
+        # 验证友方单位（ally_left）有 outgoing damage_link 指向 caster
+        ally_outgoing = [dl for dl in self.ally_left.damage_links
+                         if dl.direction == "outgoing"]
+        self.assertTrue(len(ally_outgoing) > 0,
+                        "友方单位应有 outgoing damage_link")
+        self.assertEqual(ally_outgoing[0].partner_unit_id, self.caster.unit_id,
+                         "outgoing link 的 partner 应为 caster")
+        self.assertAlmostEqual(ally_outgoing[0].value, 50.0, places=1,
+                               msg="Lv10 时 dmg 应为 50%")
+        self.assertTrue(ally_outgoing[0].is_unremovable, "damage_link 应 unremovable")
+
+        # 验证 caster 有 incoming damage_link（配对记录）
+        caster_incoming = [dl for dl in self.caster.damage_links
+                           if dl.direction == "incoming"
+                           and dl.partner_unit_id == self.ally_left.unit_id]
+        self.assertTrue(len(caster_incoming) > 0,
+                        "caster 应有指向 ally_left 的 incoming damage_link")
+
+        # 验证 PS2 进入冷却（cooldown=99）
+        self.assertIn(130157, self.caster.skill_cooldowns,
+                      "PS2 执行后应进入冷却")
+        self.assertGreaterEqual(self.caster.skill_cooldowns[130157], 99,
+                                "PS2 冷却应≥99（once per battle）")
+
+    def test_ps2_once_per_battle_cooldown_99(self):
+        """PS2(130157) 战斗中只发动1次（cooldown=99，第二次不触发）。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_ally_left()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 第一次触发
+        actions1 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions1 = [a for a in actions1 if a.skill_id == 130157]
+        self.assertTrue(len(ps2_actions1) > 0, "第一次应被收集")
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions1, self.bf, trigger_timing="turn_start"
+        )
+
+        # 第二次触发（冷却中）
+        actions2 = self.ts.trigger_turn_start(self.bf)
+        ps2_actions2 = [a for a in actions2 if a.skill_id == 130157]
+        self.assertEqual(len(ps2_actions2), 0,
+                         "冷却中时 PS2 不应再次被收集（once per battle）")
+
+    # ─── 补充: damage_link 实际转送 / mark全链 / attack_limited消耗 / select_skill / shield数值 ───
+
+    def _setup_enemy_attacker(self, skill_id=120048, level=10):
+        """给 enemy_back 装备 AS 技能并重置状态，用于让敌方攻击我方。"""
+        self.enemy_back.skills = [skill_id]
+        self.enemy_back.skill_levels = {skill_id: level}
+        self.enemy_back.skill_cooldowns = {}
+        self.enemy_back.current_ap = 10
+        self.enemy_back.current_hp = self.enemy_back.max_hp
+        self.enemy_back.buffs = []
+        self.enemy_back.debuffs = []
+        self.enemy_back.is_alive = True
+
+    def test_ex_lv15_damage_link_actual_transfer(self):
+        """EX(110071) Lv15: damage_link伤害共享——caster受伤时primary_target受到25%共享伤害，
+        caster自身承受全部伤害（不回退HP）。"""
+        self.caster.skill_levels[110071] = 15
+        self._reset_caster(hp=self.caster.max_hp, ap=0)
+        self._reset_enemies()
+
+        # Step 1: 执行EX Lv15，建立damage_link (caster outgoing -> enemy_front)
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110071, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertTrue(any(dl.direction == "outgoing" for dl in self.caster.damage_links),
+                        "caster应有outgoing damage_link")
+        # 验证is_sharing标记
+        self.assertTrue(any(getattr(dl, 'is_sharing', False) for dl in self.caster.damage_links),
+                        "110071的damage_link应为is_sharing=True（伤害共享）")
+
+        # Step 2: 重置enemy_front HP（EX已对其造成伤害），隔离共享测试
+        self.enemy_front.current_hp = self.enemy_front.max_hp
+        self.enemy_front.buffs = []
+        self.enemy_front.debuffs = []
+        # 设置caster HP较低，确保被120048(lowest_hp_priority)选中
+        self.caster.current_hp = int(self.caster.max_hp * 0.8)
+        self.ally_left.current_hp = self.ally_left.max_hp
+        self._setup_enemy_attacker()
+
+        enemy_front_hp_before = self.enemy_front.current_hp
+        caster_hp_before = self.caster.current_hp
+
+        # Step 3: enemy_back执行120048攻击caster（触发damage_link共享）
+        dmg_result = self.ss.execute_skill(
+            caster=self.enemy_back, skill_id=120048, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(dmg_result["success"])
+
+        # 验证caster受伤（伤害共享：caster承受全部伤害，不回退HP）
+        self.assertLess(self.caster.current_hp, caster_hp_before, "caster应受到伤害")
+
+        # 验证enemy_front受到共享伤害（25% of caster原始伤害）
+        # is_sharing=True：caster承受100%原始伤害，enemy_front承受25%原始伤害
+        actual_caster_dmg = caster_hp_before - self.caster.current_hp  # 100%原始伤害
+        enemy_front_transfer = enemy_front_hp_before - self.enemy_front.current_hp
+        self.assertGreater(enemy_front_transfer, 0,
+                           "enemy_front应受到damage_link共享伤害")
+        # 共享伤害 = caster实际HP损失 × 25%
+        expected_transfer = int(actual_caster_dmg * 0.25)
+        self.assertLess(abs(enemy_front_transfer - expected_transfer),
+                        max(100, expected_transfer * 0.3),
+                        f"共享伤害应约为{expected_transfer}（caster HP损失×25%），实际{enemy_front_transfer}")
+
+        self.caster.skill_levels[110071] = 10
+
+    def test_ps2_damage_link_to_caster_actual_transfer(self):
+        """PS2(130157) damage_link to_caster: ally_left受伤时caster受到50%转送伤害。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_ally_left()
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # Step 1: 触发PS2，建立damage_link (ally_left outgoing -> caster incoming)
+        trigger_actions = self.ts.trigger_turn_start(self.bf)
+        ps2_actions = [a for a in trigger_actions if a.skill_id == 130157]
+        self.assertTrue(len(ps2_actions) > 0, "PS2应被收集")
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="turn_start"
+        )
+
+        # 验证ally_left有outgoing link指向caster
+        ally_outgoing = [dl for dl in self.ally_left.damage_links
+                         if dl.direction == "outgoing"]
+        self.assertTrue(len(ally_outgoing) > 0, "ally_left应有outgoing damage_link")
+        self.assertEqual(ally_outgoing[0].partner_unit_id, self.caster.unit_id,
+                         "outgoing link的partner应为caster")
+
+        # Step 2: 设置场景，让enemy_back攻击ally_left
+        # ally_left HP较低，确保被120048(lowest_hp_priority)选中
+        self.ally_left.current_hp = int(self.ally_left.max_hp * 0.5)
+        self.caster.current_hp = self.caster.max_hp  # caster满血
+        self._setup_enemy_attacker()
+
+        caster_hp_before = self.caster.current_hp
+        ally_hp_before = self.ally_left.current_hp
+
+        # Step 3: enemy_back执行120048攻击ally_left（触发damage_link转送给caster）
+        dmg_result = self.ss.execute_skill(
+            caster=self.enemy_back, skill_id=120048, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(dmg_result["success"])
+
+        # 验证ally_left受伤
+        self.assertLess(self.ally_left.current_hp, ally_hp_before,
+                        "ally_left应受到伤害")
+
+        # 验证caster受到转送伤害（50% of ally_left原始伤害）
+        # outgoing方向：ally_left HP回退50%伤害，剩余50%为净HP损失
+        # 所以 caster_transfer ≈ ally_left净HP损失（两者都≈50% of 原始伤害）
+        actual_ally_dmg = ally_hp_before - self.ally_left.current_hp  # 净HP损失（≈50%原始）
+        caster_transfer = caster_hp_before - self.caster.current_hp
+        self.assertGreater(caster_transfer, 0,
+                           "caster应受到damage_link转送伤害")
+        # 转送伤害应与ally_left净HP损失相近（都是50%原始伤害，整数取整可能有1-2点差异）
+        self.assertLess(abs(caster_transfer - actual_ally_dmg),
+                        max(50, actual_ally_dmg * 0.1),
+                        f"转送伤害应约为{actual_ally_dmg}（与ally_left净HP损失相近），实际{caster_transfer}")
+
+    def test_as1_then_as2_hot_mark_chain(self):
+        """AS1→AS2暑気mark全链: AS1付与暑気→AS2进入有暑気分支(5hit伤害)。"""
+        # Step 1: AS1发动（HP<50% + 无暑気）→ 付与暑気mark
+        self._reset_caster(hp=int(self.caster.max_hp * 0.3), ap=5)
+        self._reset_enemies()
+
+        result1 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120158, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result1["success"], "AS1应成功发动")
+
+        # 验证暑気mark已付与
+        hot_marks = [b for b in self.caster.buffs
+                     if b.effect_type == MARK and getattr(b, 'name', '') == "暑気"]
+        self.assertTrue(len(hot_marks) > 0, "AS1应付与暑気mark")
+
+        # Step 2: AS2发动（有暑気→Block2: 5hit EN攻击）
+        enemy_hp_before = self.enemy_front.current_hp
+        caster_hp_before = self.caster.current_hp
+
+        result2 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120159, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result2["success"], "AS2应成功发动")
+
+        # 验证AS2执行了Block2（damage效果），而非Block1（shield）
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 0,
+                         "有暑気时AS2不应施加shield（应执行Block2伤害分支）")
+
+        # 验证敌方受到伤害
+        self.assertLess(self.enemy_front.current_hp, enemy_hp_before,
+                        "AS2有暑気分支应对敌方造成伤害")
+
+        # 验证5hit
+        dmg_effects = [e for e in result2.get("effects_applied", [])
+                       if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "应有damage effect")
+        first_dmg = dmg_effects[0]
+        first_target = first_dmg["targets"][0] if first_dmg.get("targets") else {}
+        hit_count = first_dmg.get("hit_count") or len(first_target.get("hits", []))
+        self.assertEqual(hit_count, 5, f"AS2有暑気分支应为5hit，实际: {hit_count}")
+
+        # 验证lifesteal（caster HP应增加）
+        self.assertGreater(self.caster.current_hp, caster_hp_before,
+                           "AS2有暑気分支应通过lifesteal回复HP")
+
+    def test_ps1_attack_limited_consumed_after_one_hit(self):
+        """PS1(130156) def_up buff attack_limited=1: 被攻击1次后消耗消失。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+        self._setup_enemy_attacker()
+
+        # 让caster HP较低，确保被120048(lowest_hp_priority)选中
+        self.caster.current_hp = int(self.caster.max_hp * 0.5)
+        self.ally_left.current_hp = self.ally_left.max_hp
+
+        # Step 1: 触发PS1(before_as_attacked) → def_up applied with attack_limited=1
+        trigger_actions = self.ts.trigger_before_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_back, skill_id=120048
+        )
+        ps1_actions = [a for a in trigger_actions if a.skill_id == 130156]
+        self.assertTrue(len(ps1_actions) > 0, "PS1应被收集")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="before_as_attacked"
+        )
+
+        # 验证def_up buff存在
+        def_up_buffs = [b for b in self.caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertTrue(len(def_up_buffs) > 0, "PS1应施加def_up buff")
+        self.assertEqual(def_up_buffs[0].attack_limited, 1,
+                         "def_up应attack_limited=1")
+
+        # Step 2: 执行敌方AS攻击 → def_up被消耗
+        caster_hp_before = self.caster.current_hp
+        dmg_result = self.ss.execute_skill(
+            caster=self.enemy_back, skill_id=120048, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(dmg_result["success"])
+
+        # 验证caster受到伤害（攻击确实命中）
+        self.assertLess(self.caster.current_hp, caster_hp_before,
+                        "caster应受到伤害")
+
+        # 验证def_up buff已被消耗（attack_limited 1→0 后移除）
+        def_up_after = [b for b in self.caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_up_after), 0,
+                         "def_up buff应在被攻击1次后消耗消失")
+
+    def test_ps1_only_triggers_on_as_not_ps(self):
+        """PS1(130156 before_as_attacked) 只响应AS技能攻击，不响应PS技能攻击。
+
+        before_as_attacked timing 仅由 battle_flow_controller 在AS技能攻击时调用，
+        PS技能攻击仅调用 before_any_attacked。
+        验证PS1只被trigger_before_as_attacked收集，不被trigger_before_any_attacked收集。
+        """
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        self.caster.skill_cooldowns = {}
+
+        # 场景1: AS攻击 → trigger_before_as_attacked → PS1应被收集
+        as_actions = self.ts.trigger_before_as_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_front, skill_id=120048
+        )
+        ps1_in_as = [a for a in as_actions if a.skill_id == 130156]
+        self.assertTrue(len(ps1_in_as) > 0,
+                        "AS攻击时应通过trigger_before_as_attacked收集PS1")
+
+        # 场景2: PS攻击 → trigger_before_any_attacked → PS1不应被收集
+        # (PS攻击仅触发before_any_attacked，不触发before_as_attacked)
+        ps_actions = self.ts.trigger_before_any_attacked(
+            targets=[self.caster], battlefield=self.bf,
+            attacker=self.enemy_front
+        )
+        ps1_in_any = [a for a in ps_actions if a.skill_id == 130156]
+        self.assertEqual(len(ps1_in_any), 0,
+                         "PS1(trigger_type=before_as_attacked)不应被trigger_before_any_attacked收集")
+
+    def test_as1_select_skill_skipped_when_global_condition_not_met(self):
+        """AS1(120158) global_condition不满足时select_skill跳过AS1选其他AS（项目规则11.20）。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)  # HP=100% >= 50%
+        self._reset_enemies()
+        # 确保无暑気mark（AS1 global_condition: HP<50% AND 无暑気）
+        # HP=100% → self_hp_below 50% 不满足 → global_condition not met
+        self.caster.current_ep = 0  # 避免选EX
+
+        # select_skill应跳过AS1(120158, global_condition不满足)，选AS2(120159, 无global_condition)
+        selected = self.ss.select_skill(self.caster)
+        self.assertIsNotNone(selected, "应选中某个AS技能")
+        self.assertNotEqual(selected, 120158,
+                            "HP>=50%时AS1 global_condition不满足，select_skill应跳过AS1")
+        self.assertEqual(selected, 120159,
+                         "应选中AS2(120159)作为替代")
+
+    def test_as2_shield_value_max_hp_based(self):
+        """AS2(120159) Block1 shield数值 = max_hp × shield%(Lv10=7.5%)。"""
+        self._reset_caster(hp=self.caster.max_hp, ap=5)
+        self._reset_enemies()
+        # 确保无暑気mark → AS2执行Block1(shield分支)
+        self.assertEqual(len([b for b in self.caster.buffs
+                              if b.effect_type == MARK]), 0)
+
+        original_max_hp = self.caster.max_hp  # 20000
+        expected_shield = int(original_max_hp * 0.075)  # 20000 × 7.5% = 1500
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120159, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证shield buff存在
+        shield_buffs = [b for b in self.caster.buffs if b.effect_type == SHIELD]
+        self.assertTrue(len(shield_buffs) > 0, "应施加shield buff")
+
+        # 验证shield数值基于max_hp
+        shield_amount = getattr(shield_buffs[0], 'shield_amount', 0)
+        self.assertGreater(shield_amount, 0, "shield_amount应>0")
+        self.assertLess(abs(shield_amount - expected_shield),
+                        max(50, expected_shield * 0.05),
+                        f"shield数值应约为{expected_shield}(max_hp×7.5%)，实际{shield_amount}")
+
+        # 验证caster.shield字段也增加了对应值
+        self.assertGreater(self.caster.shield, 0, "caster.shield应>0")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -1,0 +1,103 @@
+# -*- coding: utf-8 -*-
+"""回归测试：子单位「願い星」的属性克制因子必须基于「持有者」的属性，
+而非子单位的赋予来源单位(source_unit)。
+
+Bug: `_process_enchant_damage_for_target` 的子单位伤害路径用 `source_unit.element`
+     计算属性克制，导致願い星持有者(土4)攻击土4目标本应 factor=1.0，却按赋予来源
+     (隣歩む想い 风3, advantage_damage=5%) 算出 1.30 → 伤害偏高
+     （实测 6187，模拟器 8043；比值恰为 1.3）。
+
+Fix: 改用 `caster.element`（子单位持有者），与 ADD_DAMAGE / ENCHANT 追加伤害路径一致
+     （属性克制使用被附魔者/持有者的实时属性）。
+
+属性克制表: 火1 > 风3 > 土4 > 水2 > 火1；光暗互克。
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+from src.entities_v2.unit_state import BuffState
+
+
+def _setup(holder_elem, creator_elem, target_elem, creator_adv=0.05):
+    bb = BattleBuilder()
+    # 子单位持有者（攻击方）
+    bb.add_ally(unit_id="holder", position=Position.ALLY_LEFT_FRONT,
+                hp=99999, atk=10000, defense=1000, speed=500, element=holder_elem)
+    # 子单位赋予来源
+    bb.add_ally(unit_id="creator", position=Position.ALLY_CENTER_BACK,
+                hp=99999, atk=20000, defense=1000, speed=400, element=creator_elem)
+    # 目标
+    bb.add_enemy(unit_id="target", position=Position.ENEMY_CENTER_FRONT,
+                 hp=1000000, atk=100, defense=1000, speed=100, element=target_elem)
+    ctx = bb.build()
+    bf, ss = ctx['bf'], ctx['ss']
+    holder = next(u for u in bf.friend_team if u.unit_id == "holder")
+    creator = next(u for u in bf.friend_team if u.unit_id == "creator")
+    target = next(u for u in bf.enemy_team if u.unit_id == "target")
+    creator.advantage_damage = creator_adv
+    return bf, ss, holder, creator, target
+
+
+def _add_wishing_star(holder, creator, snapshot_atk=10000, atk_dmg=5.0):
+    holder.buffs.append(BuffState(
+        buff_id=f"wishing_star_{id(holder)}",
+        name="願い星",
+        effect_type="SubUnit",
+        value=atk_dmg,
+        duration=-1,
+        timing_type=2,
+        source_unit_id=creator.unit_id,
+        source_skill_id=110084,
+        caster_attack=snapshot_atk,
+        sub_unit_hp=75592,
+        sub_unit_max_hp=75592,
+    ))
+
+
+def _process_sub_unit_damage(ss, bf, holder, target):
+    """直接调用附魔/子单位处理路径，返回 (总追加伤害, 子单位条目列表)。"""
+    lists = ss._prepare_enchant_buffs_for_damage_effect(holder)
+    delta = ss._process_enchant_damage_for_target(
+        holder,
+        {"target_id": target.unit_id, "hp_before": target.current_hp,
+         "hit_crits": [False], "hit_evades": [False]},
+        bf, *lists)
+    entries = [t for t in ss._per_target_enchant_cache["enchant_targets"]
+               if t.get("sub_unit_name") == "願い星"]
+    return delta, entries
+
+
+class TestSubUnitAttributeUsesHolder:
+    def test_advantage_uses_holder_not_source_when_source_has_advantage(self):
+        """持有者土4 vs 目标土4 → 1.0；赋予来源风3 → 若误用则为 1.30。
+
+        期望伤害 = 10000(快照ATK) * 5% = 500（dealt/received 均为 1.0）。
+        """
+        bf, ss, holder, creator, target = _setup(holder_elem=4, creator_elem=3, target_elem=4)
+        _add_wishing_star(holder, creator)
+
+        delta, entries = _process_sub_unit_damage(ss, bf, holder, target)
+
+        assert entries, "应产生願い星子单位伤害"
+        assert entries[0]["calc_detail"]["advantage"] == 1.0, \
+            "属性克制必须基于持有者(土4)，而非赋予来源(风3)"
+        assert delta == 500, f"damage={delta}, expected=500（无克制）"
+
+    def test_advantage_reflects_holder_when_holder_has_advantage(self):
+        """持有者风3 vs 目标土4 → 1.25；赋予来源水2 vs 土4 → 1.0。
+
+        期望伤害 = 500 * 1.25 = 625（若误用来源属性会得到 500）。
+        """
+        bf, ss, holder, creator, target = _setup(holder_elem=3, creator_elem=2, target_elem=4)
+        _add_wishing_star(holder, creator)
+
+        delta, entries = _process_sub_unit_damage(ss, bf, holder, target)
+
+        assert entries, "应产生願い星子单位伤害"
+        assert entries[0]["calc_detail"]["advantage"] == 1.25, \
+            "持有者风3克制土4 → 1.25"
+        assert delta == 625, f"damage={delta}, expected=625（持有者克制 1.25）"

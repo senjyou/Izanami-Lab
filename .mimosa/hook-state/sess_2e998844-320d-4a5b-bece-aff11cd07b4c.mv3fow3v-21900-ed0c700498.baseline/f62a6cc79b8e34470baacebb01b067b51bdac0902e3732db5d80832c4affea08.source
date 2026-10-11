@@ -1,0 +1,8 @@
+# -*- coding: utf-8 -*-
+"""临时查询：130123完整技能数据"""
+import json
+
+d = json.load(open(r'f:\MGG\muv_luv_girlsgardenx_cl\MGGBattleSimulation\data\skills.json', encoding='utf-8'))
+s = d.get('130123')
+for k, v in s.items():
+    print(k, '=', v)

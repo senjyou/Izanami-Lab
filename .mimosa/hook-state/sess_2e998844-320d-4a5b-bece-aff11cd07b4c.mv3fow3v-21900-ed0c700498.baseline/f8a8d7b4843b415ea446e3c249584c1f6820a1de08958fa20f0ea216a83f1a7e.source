@@ -1,0 +1,375 @@
+"""Test helper: minimal battlefield builder for unit/integration tests."""
+import sys
+import os
+import random
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.data.data_loader import DataLoader
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+_DEFAULT_HP = 50000
+_DEFAULT_ATK = 10000
+_DEFAULT_DEF = 5000
+_DEFAULT_SPD = 500
+
+_POSITIONS_ALLY = [
+    Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT,
+    Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK,
+]
+_POSITIONS_ENEMY = [
+    Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT,
+    Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK,
+]
+
+
+class BattleBuilder:
+    """Chainable minimal battlefield builder."""
+
+    def __init__(self):
+        self._allies: list[UnitState] = []
+        self._enemies: list[UnitState] = []
+        self._ally_idx = 0
+        self._enemy_idx = 0
+        self._dl = None
+        self._force_crit_units: set[str] = set()  # 强制暴击的unit_id集合
+        self._force_nocrit_units: set[str] = set()  # 强制不暴击的unit_id集合
+
+    # ── builder API ──────────────────────────────────────────
+
+    def add_ally(self, *,
+                 unit_id: str = None,
+                 position: Position = None,
+                 hp: int = _DEFAULT_HP,
+                 atk: int = _DEFAULT_ATK,
+                 defense: int = _DEFAULT_DEF,
+                 speed: int = _DEFAULT_SPD,
+                 character_id: int = None,
+                 skills: list[int] = None,
+                 level: int = 10,
+                 element: int = 2,
+                 sub_element: int = 0,
+                 character_type: int = 1,
+                 pp: int = 10,
+                 ep: int = 10,
+                 ap: int = 10,
+                 crit_rate: float = 0.0,
+                 crit_damage: float = 0.5,
+                 ) -> 'BattleBuilder':
+        if unit_id is None:
+            unit_id = f"ally_{self._ally_idx}"
+        if position is None:
+            position = _POSITIONS_ALLY[self._ally_idx % len(_POSITIONS_ALLY)]
+        skill_levels = {}
+        if skills:
+            for sid in skills:
+                skill_levels[sid] = level
+        u = UnitState(
+            unit_id=unit_id, name=unit_id, side=Side.ALLY,
+            position=position, character_id=character_id or (999901 + self._ally_idx),
+            level=level, element=element, sub_element=sub_element,
+            character_type=character_type,
+            max_hp=hp, current_hp=hp,
+            attack=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+            current_ap=ap, current_pp=pp, current_ep=ep,
+            skills=skills or [], skill_levels=skill_levels, skill_cooldowns={},
+        )
+        self._allies.append(u)
+        self._ally_idx += 1
+        return self
+
+    def add_enemy(self, *,
+                  unit_id: str = None,
+                  position: Position = None,
+                  hp: int = _DEFAULT_HP,
+                  atk: int = _DEFAULT_ATK,
+                  defense: int = _DEFAULT_DEF,
+                  speed: int = _DEFAULT_SPD,
+                  character_id: int = None,
+                  skills: list[int] = None,
+                  level: int = 10,
+                  element: int = 2,
+                  sub_element: int = 0,
+                  character_type: int = 1,
+                  pp: int = 10,
+                  ep: int = 10,
+                  ap: int = 10,
+                  crit_rate: float = 0.0,
+                  crit_damage: float = 0.5,
+                  ) -> 'BattleBuilder':
+        if unit_id is None:
+            unit_id = f"enemy_{self._enemy_idx}"
+        if position is None:
+            position = _POSITIONS_ENEMY[self._enemy_idx % len(_POSITIONS_ENEMY)]
+        skill_levels = {}
+        if skills:
+            for sid in skills:
+                skill_levels[sid] = level
+        u = UnitState(
+            unit_id=unit_id, name=unit_id, side=Side.ENEMY,
+            position=position, character_id=character_id or (999001 + self._enemy_idx),
+            level=level, element=element, sub_element=sub_element,
+            character_type=character_type,
+            max_hp=hp, current_hp=hp,
+            attack=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+            current_ap=ap, current_pp=pp, current_ep=ep,
+            skills=skills or [], skill_levels=skill_levels, skill_cooldowns={},
+        )
+        self._enemies.append(u)
+        self._enemy_idx += 1
+        return self
+
+    # ── post-creation mutation API ───────────────────────────
+
+    def _find_unit(self, unit_id: str) -> UnitState:
+        """按unit_id查找友方或敌方单位。"""
+        for u in self._allies:
+            if u.unit_id == unit_id:
+                return u
+        for u in self._enemies:
+            if u.unit_id == unit_id:
+                return u
+        raise KeyError(f"unit_id '{unit_id}' not found in allies or enemies")
+
+    def with_buff(self, unit_id: str, *,
+                  name: str = "test_buff",
+                  effect_type: str = "atk_up",
+                  value: float = 10.0,
+                  duration: int = -1,
+                  timing_type: int = 2,
+                  value_tag: int = 0,
+                  caster_attack: int = 0,
+                  source_unit_id: str = "",
+                  source_skill_id: int = 0,
+                  hit_limited: int = 0,
+                  attack_limited: int = 0,
+                  is_stackable: bool = False,
+                  is_memory_buff: bool = False,
+                  unremovable: bool = False,
+                  **extra_fields) -> 'BattleBuilder':
+        """给指定单位添加一个buff（is_debuff=False）。
+
+        Args:
+            timing_type: 1=回合制, 2=行动制（默认）
+            value_tag: 0=百分比（默认）, 1=固定值
+            duration: -1=永続（默认），>0=持续N次
+            extra_fields: 透传到BuffState的其他字段（如shield_amount, sub_unit_hp等）
+        """
+        u = self._find_unit(unit_id)
+        buff = BuffState(
+            buff_id=f"{name}_{id(u)}_{len(u.buffs)}",
+            name=name,
+            effect_type=effect_type,
+            value=value,
+            duration=duration,
+            timing_type=timing_type,
+            value_tag=value_tag,
+            caster_attack=caster_attack,
+            source_unit_id=source_unit_id,
+            source_skill_id=source_skill_id,
+            hit_limited=hit_limited,
+            attack_limited=attack_limited,
+            is_stackable=is_stackable,
+            is_memory_buff=is_memory_buff,
+            unremovable=unremovable,
+            **extra_fields,
+        )
+        u.buffs.append(buff)
+        return self
+
+    def with_debuff(self, unit_id: str, *,
+                    name: str = "test_debuff",
+                    effect_type: str = "atk_down",
+                    value: float = 10.0,
+                    duration: int = -1,
+                    timing_type: int = 2,
+                    value_tag: int = 0,
+                    caster_attack: int = 0,
+                    source_unit_id: str = "",
+                    source_skill_id: int = 0,
+                    hit_limited: int = 0,
+                    attack_limited: int = 0,
+                    is_stackable: bool = False,
+                    is_memory_buff: bool = False,
+                    unremovable: bool = False,
+                    **extra_fields) -> 'BattleBuilder':
+        """给指定单位添加一个debuff（is_debuff=True）。参数同with_buff。"""
+        u = self._find_unit(unit_id)
+        buff = BuffState(
+            buff_id=f"{name}_{id(u)}_{len(u.debuffs)}",
+            name=name,
+            effect_type=effect_type,
+            value=value,
+            duration=duration,
+            timing_type=timing_type,
+            value_tag=value_tag,
+            caster_attack=caster_attack,
+            source_unit_id=source_unit_id,
+            source_skill_id=source_skill_id,
+            hit_limited=hit_limited,
+            attack_limited=attack_limited,
+            is_stackable=is_stackable,
+            is_memory_buff=is_memory_buff,
+            unremovable=unremovable,
+            is_debuff=True,
+            **extra_fields,
+        )
+        u.debuffs.append(buff)
+        return self
+
+    def with_mark(self, unit_id: str, *,
+                  mark_name: str = "test_mark",
+                  value: float = 1.0,
+                  duration: int = -1,
+                  source_unit_id: str = "",
+                  source_skill_id: int = 0,
+                  is_memory_buff: bool = False,
+                  unremovable: bool = False) -> 'BattleBuilder':
+        """给指定单位添加一个mark（effect_type='mark'的debuff）。
+
+        mark的value通常表示层数（如凶兆=1层）。
+        """
+        return self.with_debuff(
+            unit_id, name=mark_name, effect_type="mark",
+            value=value, duration=duration, timing_type=2,
+            source_unit_id=source_unit_id, source_skill_id=source_skill_id,
+            is_memory_buff=is_memory_buff, unremovable=unremovable,
+        )
+
+    def with_shield(self, unit_id: str, *,
+                    shield_amount: int = 10000,
+                    name: str = "test_shield",
+                    duration: int = -1,
+                    source_unit_id: str = "",
+                    source_skill_id: int = 0) -> 'BattleBuilder':
+        """给指定单位添加一个护盾buff。同时设置unit.shield字段。"""
+        u = self._find_unit(unit_id)
+        u.shield += shield_amount
+        return self.with_buff(
+            unit_id, name=name, effect_type="shield",
+            value=0.0, duration=duration, timing_type=2,
+            source_unit_id=source_unit_id, source_skill_id=source_skill_id,
+            shield_amount=shield_amount, initial_shield_value=shield_amount,
+        )
+
+    def with_cooldown(self, unit_id: str, skill_id: int, turns: int = 1) -> 'BattleBuilder':
+        """设置单位某技能的冷却。"""
+        u = self._find_unit(unit_id)
+        u.skill_cooldowns[skill_id] = turns
+        return self
+
+    def with_hp(self, unit_id: str, hp: int) -> 'BattleBuilder':
+        """设置单位当前HP（用于测试低血量/满血场景）。同时更新prev_hp_percent。"""
+        u = self._find_unit(unit_id)
+        u.current_hp = hp
+        u.prev_hp_percent = hp / u.max_hp * 100.0 if u.max_hp > 0 else 0.0
+        return self
+
+    def set_charging(self, unit_id: str, charge_skill_id: int) -> 'BattleBuilder':
+        """设置单位蓄力状态。"""
+        u = self._find_unit(unit_id)
+        u.is_charging = True
+        u.charge_skill_id = charge_skill_id
+        return self
+
+    def set_alive(self, unit_id: str, alive: bool) -> 'BattleBuilder':
+        """设置单位存活状态。"""
+        u = self._find_unit(unit_id)
+        u.is_alive = alive
+        if not alive:
+            u.current_hp = 0
+        return self
+
+    def set_cumulative_damage(self, unit_id: str, damage: int) -> 'BattleBuilder':
+        """设置单位累计HP伤害（用于测试on_cumulative_damage触发）。"""
+        u = self._find_unit(unit_id)
+        u.cumulative_hp_damage = damage
+        return self
+
+    def force_crit(self, unit_id: str) -> 'BattleBuilder':
+        """强制该单位所有攻击暴击（通过DamageService.crit_override实现）。"""
+        self._force_crit_units.add(unit_id)
+        return self
+
+    def force_nocrit(self, unit_id: str) -> 'BattleBuilder':
+        """强制该单位所有攻击不暴击。"""
+        self._force_nocrit_units.add(unit_id)
+        return self
+
+    # ── build ────────────────────────────────────────────────
+
+    def build(self, load_data: bool = True) -> dict:
+        """Return {'bf': BattlefieldState, 'allies': list, 'enemies': list, 'services': dict}."""
+        bf = BattlefieldState()
+        bf.friend_team = list(self._allies)
+        bf.enemy_team = list(self._enemies)
+
+        result = {
+            'bf': bf,
+            'allies': list(self._allies),
+            'enemies': list(self._enemies),
+        }
+
+        if load_data:
+            dl = DataLoader()
+            dl.load_all()
+            self._dl = dl
+            rs = ResourceService()
+            ts = TriggerService()
+            ts.set_data_loader(dl)
+            aus = AuraService()
+            dms = DamageService()
+            tgs = TargetService()
+            sts = StatusService()
+            ss = SkillService(dl, rs, target_service=tgs, damage_service=dms,
+                              aura_service=aus, trigger_service=ts, status_service=sts)
+            ts.set_skill_service(ss)
+            result['services'] = {
+                'dl': dl, 'rs': rs, 'ts': ts, 'aus': aus, 'dms': dms,
+                'tgs': tgs, 'sts': sts, 'ss': ss,
+            }
+            result['ss'] = ss
+            result['ts'] = ts
+            result['tgs'] = tgs
+            result['dms'] = dms
+            result['aus'] = aus
+
+            # 设置暴击覆盖（force_crit / force_nocrit）
+            if self._force_crit_units or self._force_nocrit_units:
+                crit_units = self._force_crit_units
+                nocrit_units = self._force_nocrit_units
+
+                def _crit_override(ctx: dict) -> bool:
+                    attacker_id = ctx.get('attacker_id', '')
+                    if attacker_id in crit_units:
+                        return True
+                    if attacker_id in nocrit_units:
+                        return False
+                    # 不覆盖，走正常随机判定
+                    rate = ctx.get('crit_rate', 0.0)
+                    return random.random() < rate
+
+                dms.set_crit_override(_crit_override)
+
+        return result
+
+    def quick_build(self) -> dict:
+        """Shortcut: single ally + single enemy."""
+        if len(self._allies) == 0:
+            self.add_ally()
+        if len(self._enemies) == 0:
+            self.add_enemy()
+        return self.build()

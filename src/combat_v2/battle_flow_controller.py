@@ -2140,11 +2140,17 @@ class BattleFlowController:
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
                     # 味方累計型（他の味方が累計…）：被弾単位のカウンターもリセットして再装填
-                    _tb_fail = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
-                    if _tb_fail is not None and _tb_fail is not owner:
-                        _tb_fail.cumulative_hp_damage = _reset_val
-                        _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative PS[%s] cannot execute)",
-                                  _tb_fail.name, _reset_val, skill_name)
+                    # （同一イベントで複数味方が越えた場合、mergedリスト全員分リセット。
+                    #   残留すると次回の全スキャンで再収集・再発動してしまう）
+                    _tb_list = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                    if _tb_list:
+                        _reset_names = [u.name for u in _tb_list if u is not owner]
+                        for _tb in _tb_list:
+                            if _tb is not owner:
+                                _tb.cumulative_hp_damage = _reset_val
+                        if _reset_names:
+                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative PS[%s] cannot execute)",
+                                      ", ".join(_reset_names), _reset_val, skill_name)
                 # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
                 # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
                 if _parsed_fail:
@@ -2229,12 +2235,17 @@ class BattleFlowController:
                                   owner.name, skill_name)
                         # 味方累計型（他の味方が累計…）：被弾単位のカウンターもリセット
                         # （「たびに」=25%チャunksごとの再装填。リセットしないと閾値超過中の
-                        #   全ての被弾で再発動してしまう）
-                        _tb = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
-                        if _tb is not None and _tb is not owner:
-                            _tb.cumulative_hp_damage = 0
-                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative PS[%s] executed)",
-                                      _tb.name, skill_name)
+                        #   全ての被弾で再発動してしまう。同一イベントで複数味方が越えた場合は
+                        #   mergedリスト全員分リセット）
+                        _tb_list = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                        if _tb_list:
+                            _reset_names = [u.name for u in _tb_list if u is not owner]
+                            for _tb in _tb_list:
+                                if _tb is not owner:
+                                    _tb.cumulative_hp_damage = 0
+                            if _reset_names:
+                                _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative PS[%s] executed)",
+                                          ", ".join(_reset_names), skill_name)
 
                     # once_per_battle: PS成功执行后标记，确保整个战斗中只触发一次（如130165 いっしょにがんばる）
                     if parsed.get('once_per_battle'):
@@ -2501,12 +2512,16 @@ class BattleFlowController:
                     owner.cumulative_hp_damage = _reset_val
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, global PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
-                    # 味方累計型：被弾単位のカウンターもリセットして再装填
-                    _tb_fail = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
-                    if _tb_fail is not None and _tb_fail is not owner:
-                        _tb_fail.cumulative_hp_damage = _reset_val
-                        _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative global PS[%s] cannot execute)",
-                                  _tb_fail.name, _reset_val, skill_name)
+                    # 味方累計型：被弾単位のカウンターもリセットして再装填（mergedリスト全員分）
+                    _tb_list = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                    if _tb_list:
+                        _reset_names = [u.name for u in _tb_list if u is not owner]
+                        for _tb in _tb_list:
+                            if _tb is not owner:
+                                _tb.cumulative_hp_damage = _reset_val
+                        if _reset_names:
+                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative global PS[%s] cannot execute)",
+                                      ", ".join(_reset_names), _reset_val, skill_name)
                 # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
                 # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
                 if _parsed_fail:
@@ -2581,12 +2596,16 @@ class BattleFlowController:
                         owner.cumulative_hp_damage = 0
                         _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 after global PS[%s] executed successfully",
                                   owner.name, skill_name)
-                        # 味方累計型：被弾単位のカウンターもリセット（L2218と同様）
-                        _tb = params.get('cumulative_triggered_by')
-                        if _tb is not None and _tb is not owner:
-                            _tb.cumulative_hp_damage = 0
-                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative global PS[%s] executed)",
-                                      _tb.name, skill_name)
+                        # 味方累計型：被弾単位のカウンターもリセット（mergedリスト全員分、L2218と同様）
+                        _tb_list = params.get('cumulative_triggered_by')
+                        if _tb_list:
+                            _reset_names = [u.name for u in _tb_list if u is not owner]
+                            for _tb in _tb_list:
+                                if _tb is not owner:
+                                    _tb.cumulative_hp_damage = 0
+                            if _reset_names:
+                                _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative global PS[%s] executed)",
+                                          ", ".join(_reset_names), skill_name)
 
                     # once_per_battle: 全局PS成功执行后同样标记（S7 230489 ダイブスリープ等），
                     # 与_execute_trigger_actions的once_per_battle标记保持一致

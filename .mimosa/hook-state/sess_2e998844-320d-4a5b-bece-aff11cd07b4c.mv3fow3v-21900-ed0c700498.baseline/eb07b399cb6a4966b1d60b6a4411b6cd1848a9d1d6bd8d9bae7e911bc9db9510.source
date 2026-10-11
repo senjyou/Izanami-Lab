@@ -1,0 +1,128 @@
+"""Debug script for PS Undead Revenge timing bug"""
+import sys
+import io
+import logging
+import os
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+# Setup debug logging
+logging.basicConfig(level=logging.WARNING, format='%(name)s %(levelname)s %(message)s')
+debug_log = logging.getLogger('MGGBattleSim')
+debug_log.setLevel(logging.DEBUG)
+
+# Must run as module from parent directory
+# python -m debug_undead_revenge
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+from combat_v2.tactical_exercise_controller import TacticalExerciseController
+from combat_v2.battle_narrative import BattleNarrativeWriter
+from combat_v2.battlefield_state import BattlefieldState
+from combat_v2.unit_state import UnitState
+from data.data_loader import DataLoader
+from services.stat_calculator import StatCalculator
+from services.panel_config import PanelConfig
+
+ALLY_CHAR_ID = 117302  # Kyonshi Hacker
+ENEMY_ID = 703405  # Nadya Volkova
+
+dl = DataLoader()
+dl.load_all()
+
+panel_config = PanelConfig(dl)
+player_config = panel_config.get_player_config()
+
+char = dl.get_character_by_id(ALLY_CHAR_ID)
+char_skills = dl.load_character_skills()
+skill_ids = char_skills.get(ALLY_CHAR_ID, [])
+
+print(f"Ally: char_id={ALLY_CHAR_ID}, skills={skill_ids}")
+
+# Create ally unit
+char_config = panel_config.get_character_config(ALLY_CHAR_ID, char.default_rarity)
+stats = StatCalculator.calculate_stats(char_config, player_config)
+
+ally_skills = {}
+for sid in skill_ids:
+    sk = dl.get_skill_by_id(sid)
+    if sk:
+        ally_skills[sid] = {
+            'level': 15,
+            'cooldown': 0,
+            'skill_type': sk.skill_type,
+        }
+
+ally = UnitState(
+    unit_id=f"ally_{ALLY_CHAR_ID}",
+    name=char.name,
+    side=0,
+    position=0,
+    max_hp=stats['hp'],
+    current_hp=stats['hp'],
+    attack=stats['attack'],
+    defense=stats['defense'],
+    speed=stats['speed'],
+    element=char.element if hasattr(char, 'element') else 0,
+    character_type=getattr(char, 'character_type', 0),
+    skills=ally_skills,
+    initial_active_point=4,
+    initial_passive_point=4,
+)
+
+# Create enemy unit
+enemy_data = dl.get_tactical_exercise_enemies().get(str(ENEMY_ID))
+if not enemy_data:
+    print(f"Enemy {ENEMY_ID} not found!")
+    sys.exit(1)
+
+enemy = UnitState(
+    unit_id=f"enemy_{ENEMY_ID}",
+    name=enemy_data['character_name'],
+    side=1,
+    position=0,
+    max_hp=enemy_data['hp'],
+    current_hp=enemy_data['hp'],
+    attack=enemy_data['attack'],
+    defense=enemy_data['defense'],
+    speed=enemy_data['speed'],
+    element=enemy_data.get('element', 0),
+    character_type=getattr(enemy_data, 'character_type', 0),
+    skills={},
+    initial_active_point=4,
+    initial_passive_point=4,
+)
+
+print(f"Enemy: {enemy.name} HP={enemy.max_hp}")
+
+# Create battlefield
+battlefield = BattlefieldState(friend_team=[ally], enemy_team=[enemy])
+
+# Create narrative
+narrative = BattleNarrativeWriter()
+
+# Crit override - always crit
+def always_crit(attacker, target, skill, hit, base_rate):
+    return True
+
+# Create controller
+controller = TacticalExerciseController(
+    battlefield=battlefield,
+    data_loader=dl,
+    narrative=narrative,
+    crit_override_func=always_crit,
+)
+
+print("\n=== Running battle ===\n")
+result = controller.execute_battle()
+
+print(f"\nResult: {result.get('result', '?')}")
+print(f"Stages cleared: {result.get('stages_cleared', '?')}")
+
+# Print narrative lines
+print("\n=== Narrative Log ===\n")
+for line in narrative._lines:
+    try:
+        print(line)
+    except:
+        print(line.encode('utf-8', errors='replace').decode('utf-8'))

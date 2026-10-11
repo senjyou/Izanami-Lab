@@ -1,0 +1,114 @@
+"""Regression: ADJACENT_ENEMIES target select must be side-aware (opposing side).
+
+Bug: Skill 220417 (にげちゃ、めっ……だよ？, enemy 451305 惨禍：リディア・エルドリッジ)
+     uses target_type="adjacent_enemies" for its splash damage. The
+     TargetService._get_candidates_by_type for DisplayTargetType.ADJACENT_ENEMIES
+     hardcoded `u.side == Side.ENEMY` to collect candidates.
+
+     When executed by an ENEMY caster, its opposing units are the ALLY team, but
+     the branch collected from Side.ENEMY (= caster's own team). Result: only the
+     caster itself is in the pool -> no adjacent allies -> splash deals 0 damage.
+
+Fix: use the caster's opposing side (`enemy_side`), matching the confusion branch
+     above which already uses `ally_side caster` correctly.
+
+Regression covers: enemy caster AS with adjacent_enemies effect must hit the
+     adjacent ALLY units of the primary target.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+
+ENEMY_AS = 220417  # にげちゃ、めっ……だよ？ (highest_max_hp + adjacent_enemies)
+
+
+def _mk_unit(unit_id, name, side, pos, *, hp=50000, atk=8000, defense=4000,
+             speed=500, element=3, skills=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=pos,
+        character_id=0, level=10, element=element, character_type=1,
+        max_hp=hp, current_hp=hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+        current_ap=10, current_pp=10, current_ep=10,
+        skills=skills or [], skill_levels={s: 10 for s in (skills or [])},
+        skill_cooldowns={},
+    )
+
+
+class TestRegAdjacentEnemiesSideAware(unittest.TestCase):
+    """Regression: adjacent_enemies hits the ALLY flank units of an enemy caster"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        # 敌方施法者（惨禍：リディア，中前）
+        self.caster = _mk_unit("ec", "惨禍：リディア", Side.ENEMY,
+                               Position.ENEMY_CENTER_FRONT,
+                               hp=30000, skills=[ENEMY_AS])
+        # 己方前排（中前为主目标max_hp最高，左右为邻接）
+        self.a_lf = _mk_unit("a_lf", "ア左前", Side.ALLY, Position.ALLY_LEFT_FRONT, hp=30000)
+        self.a_cf = _mk_unit("a_cf", "ア中前", Side.ALLY, Position.ALLY_CENTER_FRONT, hp=50000)
+        self.a_rf = _mk_unit("a_rf", "ア右前", Side.ALLY, Position.ALLY_RIGHT_FRONT, hp=30000)
+        # 己方后排
+        self.a_cb = _mk_unit("a_cb", "ア中後", Side.ALLY, Position.ALLY_CENTER_BACK, hp=40000)
+        self.a_lb = _mk_unit("a_lb", "ア左後", Side.ALLY, Position.ALLY_LEFT_BACK, hp=25000)
+        self.a_rb = _mk_unit("a_rb", "ア右後", Side.ALLY, Position.ALLY_RIGHT_BACK, hp=22000)
+
+        self.bf.friend_team = [self.a_cf, self.a_lf, self.a_rf,
+                               self.a_cb, self.a_lb, self.a_rb]
+        self.bf.enemy_team = [self.caster]
+
+        rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgs,
+                               damage_service=dms, aura_service=aus,
+                               status_service=sts, trigger_service=self.ts)
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def test_adjacent_allies_hit_by_enemy_caster(self):
+        """敌方施法者：主目标(a_cf)的左右邻接友方应受到溅射伤害。"""
+        hp_before = {u.unit_id: u.current_hp for u in self.bf.friend_team}
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=ENEMY_AS, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], f"AS执行失败: {result.get('error', '')}")
+        # 主目标 = 最大HP最高 = a_cf
+        self.assertLess(self.a_cf.current_hp, hp_before["a_cf"], "主目标a_cf应受伤")
+        # 邻接 = 左前/右前（旧bug：adjacent_enemies在敌方caster下返回空）
+        self.assertLess(self.a_lf.current_hp, hp_before["a_lf"],
+                        "邻接左前a_lf应受溅射伤害(旧bug为空)")
+        self.assertLess(self.a_rf.current_hp, hp_before["a_rf"],
+                        "邻接右前a_rf应受溅射伤害(旧bug为空)")
+        # 非邻接后排（中後）不应受主目标溅射（只有邻接位置）
+        # 中後是a_cf的纵列而非横排邻接，按adjacent语义（_get_adjacent_positions）不命中
+        self.assertEqual(self.a_lb.current_hp, hp_before["a_lb"], "左後不应受溅射")
+
+
+if __name__ == '__main__':
+    unittest.main()

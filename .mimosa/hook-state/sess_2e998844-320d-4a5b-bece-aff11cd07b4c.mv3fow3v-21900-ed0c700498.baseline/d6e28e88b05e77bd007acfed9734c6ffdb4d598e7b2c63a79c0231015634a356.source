@@ -1,0 +1,223 @@
+"""
+角色和队伍映射辅助模块
+
+提供角色名、队伍名到ID的反向查找功能，用于技能解析器。
+"""
+
+import json
+from pathlib import Path
+from typing import Optional, Dict, List
+
+class CharacterTeamMapper:
+    """角色和队伍映射器"""
+    
+    def __init__(self, mapping_file: str = 'data/character_team_mapping.json'):
+        """
+        初始化映射器
+        
+        Args:
+            mapping_file: 映射文件路径
+        """
+        self.mapping_file = Path(mapping_file)
+        self._load_mappings()
+    
+    def _load_mappings(self):
+        """加载映射数据"""
+        with open(self.mapping_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 队伍映射
+        self.team_id_to_name: Dict[int, str] = {
+            int(k): v for k, v in data['teams'].items()
+        }
+        self.team_name_to_id: Dict[str, int] = {
+            v: int(k) for k, v in data['teams'].items()
+        }
+        
+        # 角色基础信息映射
+        self.base_id_to_info: Dict[int, dict] = {
+            int(k): v for k, v in data['character_base'].items()
+        }
+        
+        # 角色名到base_id的映射
+        self.character_name_to_base_id: Dict[str, int] = {
+            info['name']: int(base_id) 
+            for base_id, info in data['character_base'].items()
+        }
+        
+        # 角色形态映射
+        self.character_variants: Dict[int, List[dict]] = {
+            int(k): v for k, v in data['character_variants'].items()
+        }
+    
+    def get_team_id(self, team_name: str) -> Optional[int]:
+        """
+        根据队伍名获取队伍ID
+        
+        Args:
+            team_name: 队伍名（日文）
+            
+        Returns:
+            队伍ID，未找到返回None
+        """
+        return self.team_name_to_id.get(team_name)
+    
+    def get_team_name(self, team_id: int) -> Optional[str]:
+        """
+        根据队伍ID获取队伍名
+        
+        Args:
+            team_id: 队伍ID
+            
+        Returns:
+            队伍名，未找到返回None
+        """
+        return self.team_id_to_name.get(team_id)
+    
+    def get_character_base_id(self, character_name: str) -> Optional[int]:
+        """
+        根据角色名获取角色基础ID
+        
+        Args:
+            character_name: 角色名（日文）
+            
+        Returns:
+            角色基础ID，未找到返回None
+        """
+        return self.character_name_to_base_id.get(character_name)
+    
+    def get_character_info(self, base_id: int) -> Optional[dict]:
+        """
+        根据基础ID获取角色完整信息
+        
+        Args:
+            base_id: 角色基础ID
+            
+        Returns:
+            角色信息字典，包含name、team_name等，未找到返回None
+        """
+        return self.base_id_to_info.get(base_id)
+    
+    def get_character_name(self, base_id: int) -> Optional[str]:
+        """
+        根据基础ID获取角色名
+        
+        Args:
+            base_id: 角色基础ID
+            
+        Returns:
+            角色名，未找到返回None
+        """
+        info = self.base_id_to_info.get(base_id)
+        return info['name'] if info else None
+    
+    def get_characters_in_team(self, team_id: int) -> List[dict]:
+        """
+        获取某队伍的所有角色
+        
+        Args:
+            team_id: 队伍ID
+            
+        Returns:
+            角色信息列表，每项包含base_id和name
+        """
+        result = []
+        for base_id, info in self.base_id_to_info.items():
+            if info.get('team_id') == team_id:
+                result.append({
+                    'base_id': base_id,
+                    'name': info['name']
+                })
+        return result
+    
+    def get_characters_in_team_by_name(self, team_name: str) -> List[dict]:
+        """
+        根据队伍名获取该队伍的所有角色
+        
+        Args:
+            team_name: 队伍名（日文）
+            
+        Returns:
+            角色信息列表
+        """
+        team_id = self.get_team_id(team_name)
+        if team_id is None:
+            return []
+        return self.get_characters_in_team(team_id)
+    
+    def is_character_in_team(self, character_name: str, team_name: str) -> bool:
+        """
+        检查角色是否属于某队伍
+        
+        Args:
+            character_name: 角色名
+            team_name: 队伍名
+            
+        Returns:
+            是否属于该队伍
+        """
+        base_id = self.get_character_base_id(character_name)
+        if base_id is None:
+            return False
+        
+        info = self.get_character_info(base_id)
+        if info is None:
+            return False
+        
+        return info.get('team_name') == team_name
+
+
+# 全局映射器实例（延迟加载）
+_mapper_instance: Optional[CharacterTeamMapper] = None
+
+def get_mapper() -> CharacterTeamMapper:
+    """
+    获取全局映射器实例
+    
+    Returns:
+        CharacterTeamMapper实例
+    """
+    global _mapper_instance
+    if _mapper_instance is None:
+        _mapper_instance = CharacterTeamMapper()
+    return _mapper_instance
+
+
+# 便捷函数
+def get_character_base_id(character_name: str) -> Optional[int]:
+    """根据角色名获取基础ID"""
+    return get_mapper().get_character_base_id(character_name)
+
+def get_team_id(team_name: str) -> Optional[int]:
+    """根据队伍名获取队伍ID"""
+    return get_mapper().get_team_id(team_name)
+
+def get_characters_in_team(team_name: str) -> List[dict]:
+    """根据队伍名获取该队伍的所有角色"""
+    return get_mapper().get_characters_in_team_by_name(team_name)
+
+
+if __name__ == '__main__':
+    # 测试
+    mapper = CharacterTeamMapper()
+    
+    print("=== 测试角色名查找 ===")
+    test_chars = ['生駒葵', 'ユリア・バーンズ', '月ヶ瀬ちゆる']
+    for char_name in test_chars:
+        base_id = mapper.get_character_base_id(char_name)
+        if base_id:
+            info = mapper.get_character_info(base_id)
+            print(f"{char_name}: Base ID = {base_id}, 队伍 = {info['team_name']}")
+        else:
+            print(f"{char_name}: 未找到")
+    
+    print("\n=== 测试队伍名查找 ===")
+    test_teams = ['カオスメイデン', 'シリウスシュガー', 'カラフルブーケ']
+    for team_name in test_teams:
+        team_id = mapper.get_team_id(team_name)
+        characters = mapper.get_characters_in_team_by_name(team_name)
+        print(f"\n{team_name} (ID: {team_id}):")
+        for char in characters[:3]:  # 只显示前3个
+            print(f"  - {char['name']} (Base ID: {char['base_id']})")
+        if len(characters) > 3:
+            print(f"  ... 共{len(characters)}个角色")

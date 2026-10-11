@@ -1,0 +1,186 @@
+"""Regression: リフシルト (220069) def_up duration and coexistence bug.
+
+Bug 1 (duration): The skill provides a 2-action def_up buff. The duration
+should NOT be decremented at the end of the cast action.
+
+Fix 1: add_aura sets just_applied=True on newly added buffs.
+process_maneuver_end skips just_applied buffs. The flag is cleared after
+process_maneuver_end.
+
+Bug 2 (coexistence): Different skills applying the same effect_type (e.g.
+リフシルト 15% def_up and 外殻強化 25% def_up) must COEXIST, not REPLACE
+each other. When the higher-value buff expires, the lower-value buff
+should remain active.
+
+Fix 2: buff_id includes source_skill_id so different skills have different
+buff_ids. The "different source, same effect_type" branch in add_aura now
+APPENDs (coexists) for non-control buffs instead of REPLACE/IGNORE.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import Position, SkillEffectType, AuraUpdateTiming
+
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+
+
+class TestRegRifshildDuration(unittest.TestCase):
+    """リフシルト (220069) def_up must last 2 full actions after cast.
+
+    The cast action's end should NOT decrement the duration — neither for
+    newly created buffs nor for refreshed/ignored pre-existing buffs.
+    """
+
+    def test_new_buff_not_decremented(self):
+        """New def_up buff: just_applied=True, process_maneuver_end skips it."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[220069], level=10)
+        bb.add_enemy(unit_id="enemy", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss, aus = ctx['bf'], ctx['ss'], ctx['aus']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        result = ss.execute_skill(caster=caster, skill_id=220069, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        buff = next(b for b in caster.buffs if b.effect_type == STATUS_DEFENSE)
+        self.assertEqual(buff.duration, 2, "duration should be 2 right after application")
+        self.assertTrue(buff.just_applied, "just_applied should be True")
+
+        aus.process_maneuver_end(caster)
+
+        self.assertEqual(buff.duration, 2, "duration should NOT decrement for new buff")
+
+    def test_coexisting_buff_pre_existing_decremented_new_protected(self):
+        """Pre-existing def_up (different skill, duration=1) coexists with
+        new リフシルト def_up (duration=2). Pre-existing is decremented
+        normally (not just_applied); new buff is protected (just_applied)."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[220069], level=10)
+        bb.add_enemy(unit_id="enemy", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss, aus = ctx['bf'], ctx['ss'], ctx['aus']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        pre_existing = BuffState(
+            buff_id="ps_230029_StatusDefense_caster",
+            name="StatusDefense",
+            effect_type=STATUS_DEFENSE,
+            value=15.0,
+            duration=1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=caster.unit_id,
+            source_skill_id=230029,
+        )
+        caster.buffs.append(pre_existing)
+
+        result = ss.execute_skill(caster=caster, skill_id=220069, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # Both buffs coexist (different skills → different buff_ids → coexist)
+        def_ups = [b for b in caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_ups), 2, "both def_up buffs should coexist")
+
+        old_buff = next(b for b in def_ups if b.source_skill_id == 230029)
+        new_buff = next(b for b in def_ups if b.source_skill_id == 220069)
+
+        self.assertEqual(old_buff.duration, 1, "pre-existing buff duration unchanged (not refreshed)")
+        self.assertFalse(getattr(old_buff, 'just_applied', False),
+                         "pre-existing buff should NOT be just_applied (APPEND doesn't touch it)")
+        self.assertEqual(new_buff.duration, 2, "new buff duration should be 2")
+        self.assertTrue(new_buff.just_applied, "new buff should be just_applied")
+
+        aus.process_maneuver_end(caster)
+
+        self.assertEqual(old_buff.duration, 0,
+                         "pre-existing buff decremented normally (1->0, expires)")
+        self.assertEqual(new_buff.duration, 2,
+                         "new buff protected by just_applied (stays at 2)")
+
+    def test_coexisting_buff_higher_duration_pre_existing(self):
+        """Pre-existing def_up (different skill, duration=3) coexists with
+        new リフシルト def_up (duration=2). Both coexist independently."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[220069], level=10)
+        bb.add_enemy(unit_id="enemy", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss, aus = ctx['bf'], ctx['ss'], ctx['aus']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        pre_existing = BuffState(
+            buff_id="ps_230029_StatusDefense_caster",
+            name="StatusDefense",
+            effect_type=STATUS_DEFENSE,
+            value=25.0,
+            duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=caster.unit_id,
+            source_skill_id=230029,
+        )
+        caster.buffs.append(pre_existing)
+
+        result = ss.execute_skill(caster=caster, skill_id=220069, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # Both buffs coexist (different skills, different values, different durations)
+        def_ups = [b for b in caster.buffs if b.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_ups), 2, "both def_up buffs should coexist")
+
+        old_buff = next(b for b in def_ups if b.source_skill_id == 230029)
+        new_buff = next(b for b in def_ups if b.source_skill_id == 220069)
+
+        self.assertEqual(old_buff.duration, 3, "pre-existing buff duration unchanged (coexist)")
+        self.assertFalse(getattr(old_buff, 'just_applied', False),
+                         "pre-existing buff should NOT be just_applied")
+        self.assertEqual(new_buff.duration, 2, "new buff duration should be 2")
+        self.assertTrue(new_buff.just_applied, "new buff should be just_applied")
+
+        aus.process_maneuver_end(caster)
+
+        self.assertEqual(old_buff.duration, 2,
+                         "pre-existing buff decremented normally (3->2)")
+        self.assertEqual(new_buff.duration, 2,
+                         "new buff protected by just_applied (stays at 2)")
+
+    def test_normal_existing_buff_still_decrements(self):
+        """A buff NOT touched by add_aura during this action should still
+        be decremented normally."""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=20000, atk=10000, skills=[220069], level=10)
+        bb.add_enemy(unit_id="enemy", position=Position.ENEMY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss, aus = ctx['bf'], ctx['ss'], ctx['aus']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+
+        # Pre-existing ATK buff (different type, NOT touched by AS def_up)
+        atk_buff = BuffState(
+            buff_id="other_atk_up",
+            name="StatusAttack",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0,
+            duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=caster.unit_id,
+            source_skill_id=99999,
+        )
+        caster.buffs.append(atk_buff)
+
+        result = ss.execute_skill(caster=caster, skill_id=220069, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        self.assertFalse(atk_buff.just_applied,
+                         "ATK buff should NOT have just_applied (not touched by AS)")
+
+        aus.process_maneuver_end(caster)
+
+        self.assertEqual(atk_buff.duration, 2,
+                         "normal existing buff should be decremented (3->2)")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

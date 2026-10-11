@@ -1,0 +1,247 @@
+"""Regression: consume_hp (自傷HP消費) must count toward cumulative_hp_damage.
+
+Bug: _apply_consume_hp did not update caster.cumulative_hp_damage, so
+     それはやりすぎ！+ (on_cumulative_damage) never triggered after
+     私に任せて！+ (which consumes 10% of current HP as self-damage).
+
+     Also, the non-damage AS path (damaged_targets empty) did not check
+     cumulative damage at all, so even if cumulative_hp_damage was updated,
+     trigger_cumulative_damage was never called.
+
+Fix:
+  1. _apply_consume_hp: Update caster.cumulative_hp_damage += actual_consume
+  2. execute_skill: Reset _hp_consumed = 0 at start
+  3. battle_flow_controller damage AS path: Include caster in cumulative
+     damage check when _hp_consumed > 0
+  4. battle_flow_controller non-damage AS path: Add cumulative damage check
+     when _hp_consumed > 0
+
+Game behavior:
+  私に任せて！+ consumes HP → cumulative_hp_damage increases →
+  それはやりすぎ！+ triggers when threshold (75%) reached
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+# Skill IDs
+WATASHI_NIMAKASETE_PLUS = 220378  # 私に任せて！+ (AS, consume_hp + heal + heal_link)
+SOREHAYARI_SUGI = 230400          # それはやりすぎ！+ (on_cumulative_damage, 75%)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=1000000, atk=10000,
+               defense=5000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10, crit_rate=0.0,
+               current_hp=None):
+    u = UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=0,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+    return u
+
+
+class TestRegConsumeHpCumulative(unittest.TestCase):
+    """consume_hp must update cumulative_hp_damage and trigger on_cumulative_damage PS."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def test_consume_hp_updates_cumulative_damage(self):
+        """_apply_consume_hp must update caster.cumulative_hp_damage."""
+        from src.combat_v2.services.skill_service import SkillService
+        from src.combat_v2.services.resource_service import ResourceService
+        from src.combat_v2.services.aura_service import AuraService
+        from src.combat_v2.services.damage_service import DamageService
+        from src.combat_v2.services.target_service import TargetService
+        from src.combat_v2.services.status_service import StatusService
+
+        bf = BattlefieldState()
+        unit = _make_unit(
+            "u1", "TestUnit", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=100000, current_hp=100000,
+        )
+        bf.add_unit(unit)
+
+        ss = SkillService(
+            self.dl, ResourceService(),
+            target_service=TargetService(), damage_service=DamageService(),
+            aura_service=AuraService(), trigger_service=TriggerService(),
+            status_service=StatusService(),
+        )
+        ss.set_battlefield(bf)
+
+        # Create a consume_hp effect
+        effect = type('obj', (object,), {
+            'effect_type': 'consume_hp',
+            'value': 10,
+            'flags': {'hp_base': 'current_hp'},
+            'target_type': 'self',
+            'target_identifier': None,
+            'hit_count': None,
+            'condition': None,
+        })()
+
+        cumulative_before = unit.cumulative_hp_damage
+        result = ss._apply_consume_hp(unit, effect, bf)
+
+        # 10% of 100000 = 10000
+        self.assertEqual(result['consumed'], 10000)
+        self.assertEqual(unit.current_hp, 90000)
+        # cumulative_hp_damage must be updated
+        self.assertEqual(unit.cumulative_hp_damage, cumulative_before + 10000)
+
+    def test_consume_hp_triggers_cumulative_damage_ps(self):
+        """私に任せて！+ (consume_hp) must trigger それはやりすぎ！+ when
+        cumulative_hp_damage crosses the 75% threshold.
+
+        Setup:
+        - Enemy unit with 私に任せて！+ (AS) + それはやりすぎ！+ (PS)
+        - HP set to 60% of max (within global_condition 40%-80% range)
+        - cumulative_hp_damage pre-set near 75% threshold
+        - When 私に任せて！+ consumes HP, cumulative_hp_damage crosses threshold
+        - それはやりすぎ！+ should trigger
+        """
+        bf = BattlefieldState()
+
+        # Enemy unit with 私に任せて！+ and それはやりすぎ！+
+        max_hp = 1000000
+        current_hp = 600000  # 60% - within global_condition range (40%-80%)
+        enemy = _make_unit(
+            "enemy", "Enemy(私に任せて+)", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            hp=max_hp, current_hp=current_hp,
+            atk=10000, speed=500, pp=10, ap=10,
+            skills=[WATASHI_NIMAKASETE_PLUS, SOREHAYARI_SUGI],
+            skill_levels={WATASHI_NIMAKASETE_PLUS: 15, SOREHAYARI_SUGI: 15},
+        )
+        # Pre-set cumulative_hp_damage near 75% threshold (750000)
+        # consume_hp will add 10% of current_hp = 60000
+        # So set cumulative to 750000 - 60000 = 690000
+        enemy.cumulative_hp_damage = 690000
+
+        # Need at least one ally for the skill to target
+        ally = _make_unit(
+            "ally", "Ally", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=1000000, atk=1000, speed=300,
+        )
+
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+
+        controller = BattleFlowController(bf, data_loader=self.dl)
+        controller._build_display_names()
+        controller.skill_service.set_battlefield(bf)
+        controller._deferred_crit_triggers = []
+
+        # Record PS execution order
+        execution_order = []
+        original_execute = controller.skill_service.execute_skill
+
+        def recording_execute(*args, **kwargs):
+            result = original_execute(*args, **kwargs)
+            skill_id = kwargs.get('skill_id')
+            caster = kwargs.get('caster')
+            if skill_id and caster:
+                execution_order.append((skill_id, caster.name))
+            return result
+
+        controller.skill_service.execute_skill = recording_execute
+
+        # Execute enemy's action (should use 私に任せて！+)
+        controller._execute_unit_action(enemy, turn=1)
+
+        # Check that 私に任せて！+ was used
+        ps_skill_ids = [sid for sid, _ in execution_order]
+        self.assertIn(WATASHI_NIMAKASETE_PLUS, ps_skill_ids,
+                      "私に任せて！+ should have been used as AS skill")
+
+        # Check that それはやりすぎ！+ triggered
+        self.assertIn(SOREHAYARI_SUGI, ps_skill_ids,
+                      "それはやりすぎ！+ should have triggered after consume_hp "
+                      "pushed cumulative_hp_damage past 75% threshold. "
+                      f"Actual: {ps_skill_ids}")
+
+        # Verify trigger order: 私に任せて！+ first, then それはやりすぎ！+
+        pos_makasete = ps_skill_ids.index(WATASHI_NIMAKASETE_PLUS)
+        pos_sorehayari = ps_skill_ids.index(SOREHAYARI_SUGI)
+        self.assertLess(pos_makasete, pos_sorehayari,
+                        "私に任せて！+ must execute before それはやりすぎ！+ "
+                        f"(AS first, then PS). Actual: {ps_skill_ids}")
+
+    def test_consume_hp_below_threshold_no_trigger(self):
+        """それはやりすぎ！+ must NOT trigger when cumulative_hp_damage
+        stays below 75% threshold after consume_hp."""
+        bf = BattlefieldState()
+
+        max_hp = 1000000
+        current_hp = 600000
+        enemy = _make_unit(
+            "enemy", "Enemy(私に任せて+)", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            hp=max_hp, current_hp=current_hp,
+            atk=10000, speed=500, pp=10, ap=10,
+            skills=[WATASHI_NIMAKASETE_PLUS, SOREHAYARI_SUGI],
+            skill_levels={WATASHI_NIMAKASETE_PLUS: 15, SOREHAYARI_SUGI: 15},
+        )
+        # Set cumulative well below threshold
+        # consume_hp adds 60000, total = 100000 + 60000 = 160000 < 750000
+        enemy.cumulative_hp_damage = 100000
+
+        ally = _make_unit(
+            "ally", "Ally", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=1000000, atk=1000, speed=300,
+        )
+
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+
+        controller = BattleFlowController(bf, data_loader=self.dl)
+        controller._build_display_names()
+        controller.skill_service.set_battlefield(bf)
+        controller._deferred_crit_triggers = []
+
+        execution_order = []
+        original_execute = controller.skill_service.execute_skill
+
+        def recording_execute(*args, **kwargs):
+            result = original_execute(*args, **kwargs)
+            skill_id = kwargs.get('skill_id')
+            caster = kwargs.get('caster')
+            if skill_id and caster:
+                execution_order.append((skill_id, caster.name))
+            return result
+
+        controller.skill_service.execute_skill = recording_execute
+
+        controller._execute_unit_action(enemy, turn=1)
+
+        ps_skill_ids = [sid for sid, _ in execution_order]
+        self.assertIn(WATASHI_NIMAKASETE_PLUS, ps_skill_ids)
+        # それはやりすぎ！+ should NOT trigger (below threshold)
+        self.assertNotIn(SOREHAYARI_SUGI, ps_skill_ids,
+                         "それはやりすぎ！+ should NOT trigger when cumulative "
+                         f"damage is below threshold. Actual: {ps_skill_ids}")
+
+
+if __name__ == '__main__':
+    unittest.main()

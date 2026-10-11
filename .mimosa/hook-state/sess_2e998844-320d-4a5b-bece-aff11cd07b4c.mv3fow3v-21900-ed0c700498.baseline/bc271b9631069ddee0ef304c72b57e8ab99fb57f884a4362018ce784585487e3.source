@@ -1,0 +1,218 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Regression: ヒートアップ・ラブ / ヒートアップ・ラブ+ (130158 / 230426) の
+after_as_attacked トリガーが正常に発動することを検証する。
+
+Bug: trigger_after_as_attacked が TriggerContext を構築する際 triggered_by を
+     設定していなかった。そのため global_condition の damage_taken_in_action_percent
+     条件が context.triggered_by is None で常に False を返し、PS が一切発動しなかった。
+
+Fix: trigger_after_as_attacked に triggered_by=primary_target (被AS攻撃主目標) を渡す。
+     これにより damage_taken_in_action_percent 条件が primary_target の
+     _damage_taken_in_action を参照できるようになる。
+
+対象PS:
+  - 130158 ヒートアップ・ラブ (味方版, 閾値15%)
+  - 230426 ヒートアップ・ラブ+ (敵版, 閾値0.75%)
+
+検証項目:
+  1. 被ダメージ >= 閾値 + EP>=1 → PS発動
+  2. 被ダメージ < 閾値 → PS不発
+  3. EP=0 → PS不発
+  4. 主目標以外 → PS不発
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.trigger_service import TriggerService
+
+PS_ALLY = 130158   # ヒートアップ・ラブ (味方版, 閾値15%)
+PS_ENEMY = 230426  # ヒートアップ・ラブ+ (敵版, 閾値0.75%)
+
+
+def _make_unit(unit_id, name, side, position, skills, *, hp=100000, ep=2,
+               character_id=999999, level=10):
+    """テスト用ユニット生成"""
+    skill_levels = {sid: level for sid in skills}
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=position, character_id=character_id, level=level,
+        element=3, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=10000, defense=5000, speed=500,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=8,
+        current_ap=4, current_pp=4, current_ep=ep,
+        skills=list(skills), skill_levels=skill_levels,
+        skill_cooldowns={},
+    )
+
+
+class TestRegHeatUpLoveTrigger(unittest.TestCase):
+    """ヒートアップ・ラブ+ (230426) のトリガー発動回帰テスト"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+
+    def _make_battlefield(self, defender, attacker):
+        bf = BattlefieldState()
+        bf.add_unit(defender)
+        bf.add_unit(attacker)
+        return bf
+
+    def test_enemy_ps_triggers_when_damage_above_threshold(self):
+        """230426: 被ダメージ >= 0.75%maxHP + EP>=1 → PS発動"""
+        defender = _make_unit("enemy_ps", "アニス", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [PS_ENEMY],
+                              hp=100000, ep=2)
+        attacker = _make_unit("ally_atk", "攻撃者", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+
+        # 0.75% of 100000 = 750; 1000 > 750 → 閾値超過
+        defender._damage_taken_in_action = 1000
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[defender], battlefield=bf,
+            actor=attacker, primary_target=defender,
+        )
+        ps_actions = [a for a in actions if a.skill_id == PS_ENEMY]
+        self.assertGreater(
+            len(ps_actions), 0,
+            "230426 should trigger when damage >= 0.75% max_hp and EP >= 1. "
+            f"Actions: {[(a.skill_id, a.instance.owner.name) for a in actions]}"
+        )
+
+    def test_enemy_ps_does_not_trigger_when_damage_below_threshold(self):
+        """230426: 被ダメージ < 0.75%maxHP → PS不発"""
+        defender = _make_unit("enemy_ps", "アニス", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [PS_ENEMY],
+                              hp=100000, ep=2)
+        attacker = _make_unit("ally_atk", "攻撃者", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+
+        # 100 < 750 → 閾値未満
+        defender._damage_taken_in_action = 100
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[defender], battlefield=bf,
+            actor=attacker, primary_target=defender,
+        )
+        ps_actions = [a for a in actions if a.skill_id == PS_ENEMY]
+        self.assertEqual(
+            len(ps_actions), 0,
+            "230426 should NOT trigger when damage < 0.75% max_hp"
+        )
+
+    def test_enemy_ps_does_not_trigger_when_ep_zero(self):
+        """230426: EP=0 → PS不発 (自己EP>=1 条件)"""
+        defender = _make_unit("enemy_ps", "アニス", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [PS_ENEMY],
+                              hp=100000, ep=0)
+        attacker = _make_unit("ally_atk", "攻撃者", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+
+        defender._damage_taken_in_action = 50000  # 閾値超過だがEP=0
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[defender], battlefield=bf,
+            actor=attacker, primary_target=defender,
+        )
+        ps_actions = [a for a in actions if a.skill_id == PS_ENEMY]
+        self.assertEqual(
+            len(ps_actions), 0,
+            "230426 should NOT trigger when EP = 0"
+        )
+
+    def test_ps_does_not_trigger_for_non_primary_target(self):
+        """230426: 主目標以外 → PS不発 (after_as_attackedは主目標のみ)"""
+        defender = _make_unit("enemy_ps", "アニス", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [PS_ENEMY],
+                              hp=100000, ep=2)
+        other = _make_unit("enemy_other", "他の敵", Side.ENEMY,
+                           Position.ENEMY_LEFT_FRONT, [], hp=100000, ep=2)
+        attacker = _make_unit("ally_atk", "攻撃者", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+        bf.add_unit(other)
+
+        # 主目標は other であり、defender は主目標ではない
+        defender._damage_taken_in_action = 50000
+        other._damage_taken_in_action = 50000
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[other, defender], battlefield=bf,
+            actor=attacker, primary_target=other,
+        )
+        defender_actions = [a for a in actions
+                            if a.instance.owner.unit_id == defender.unit_id]
+        self.assertEqual(
+            len(defender_actions), 0,
+            "230426 should NOT trigger for non-primary target (after_as_attacked = primary only)"
+        )
+
+    def test_ally_ps_triggers_when_damage_above_threshold(self):
+        """130158 (味方版): 被ダメージ >= 15%maxHP + EP>=1 → PS発動"""
+        defender = _make_unit("ally_ps", "味方PS", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [PS_ALLY],
+                              hp=100000, ep=2)
+        attacker = _make_unit("enemy_atk", "敵攻撃者", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+
+        # 15% of 100000 = 15000; 20000 > 15000 → 閾値超過
+        defender._damage_taken_in_action = 20000
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[defender], battlefield=bf,
+            actor=attacker, primary_target=defender,
+        )
+        ps_actions = [a for a in actions if a.skill_id == PS_ALLY]
+        self.assertGreater(
+            len(ps_actions), 0,
+            "130158 should trigger when damage >= 15% max_hp and EP >= 1. "
+            f"Actions: {[(a.skill_id, a.instance.owner.name) for a in actions]}"
+        )
+
+    def test_ally_ps_does_not_trigger_when_damage_below_threshold(self):
+        """130158 (味方版): 被ダメージ < 15%maxHP → PS不発"""
+        defender = _make_unit("ally_ps", "味方PS", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, [PS_ALLY],
+                              hp=100000, ep=2)
+        attacker = _make_unit("enemy_atk", "敵攻撃者", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, [])
+        bf = self._make_battlefield(defender, attacker)
+
+        # 10000 < 15000 → 閾値未満
+        defender._damage_taken_in_action = 10000
+
+        actions = self.ts.trigger_after_as_attacked(
+            targets=[defender], battlefield=bf,
+            actor=attacker, primary_target=defender,
+        )
+        ps_actions = [a for a in actions if a.skill_id == PS_ALLY]
+        self.assertEqual(
+            len(ps_actions), 0,
+            "130158 should NOT trigger when damage < 15% max_hp"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

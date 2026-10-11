@@ -1,0 +1,195 @@
+# -*- coding: utf-8 -*-
+"""消融A/B实测：把30042的两条技能（400258 ATK+1250前衛 / 400259 暴击率+2%後衛）拆开测真实边际
+
+configs:
+  A_both = 6卡含完整30042
+  A_258  = 30042替换为只含400258 highlight的卡
+  A_259  = 30042替换为只含400259 highlight的卡
+  A0     = 5卡基线
+真实边际: 边际258 = A_258 - A0; 边际259 = A_259 - A0; 交互 = A_both - A_258 - A_259 + A0
+归因: A_both配置下card 30042的ATK通道(detail.atk_buff)与暴击率通道(detail.crit)
+"""
+import sys, os, json, logging, random, statistics
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+os.chdir(os.path.join(os.path.dirname(__file__), '..'))
+
+logging.basicConfig(level=logging.WARNING)
+from src.utils.batch_simulator import _create_unit_worker, _create_tactical_enemy_worker, _silence_worker_battle_logging
+_silence_worker_battle_logging()
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig
+from src.config.player_config import SchoolLevels
+from src.config.character_config import ModuleConfig
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.tactical_exercise_controller import TacticalExerciseController
+from src.combat_v2.battle_flow_controller import BattleConfig
+
+ACCOUNT_DIR = r"C:\Users\ARIS\AppData\Roaming\Izanami Lab\accounts\主号"
+FRIEND_POSITIONS = [100303, None, 132301, 145301, 112302, 111301]
+GRID = [Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT,
+        Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK]
+
+dl = DataLoader()
+dl.load_all()
+sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
+
+with open(os.path.join(ACCOUNT_DIR, "global_config.json"), "r", encoding="utf-8") as f:
+    gv = json.load(f)
+with open(os.path.join(ACCOUNT_DIR, "char_config.json"), "r", encoding="utf-8") as f:
+    char_cfgs = json.load(f)
+
+panel = PanelConfig(
+    character_level=gv["character_level"],
+    school_levels=SchoolLevels(**gv["school_levels"]),
+    equipment_enabled=True,
+    equipment_bonuses=gv["equipment"],
+)
+
+def get_module_type_ids(char_type):
+    return [int(f"{char_type}1"), int(f"{char_type}2"), int(f"{char_type}3")]
+
+for cid in [c for c in FRIEND_POSITIONS if c]:
+    char = dl.get_character_by_id(cid)
+    tid = get_module_type_ids(char.character_type)
+    cfg = char_cfgs.get(str(cid), {"override": False})
+    skills = dl.load_character_skills().get(cid, [])
+    if cfg.get("override"):
+        panel.rarities[cid] = cfg.get("rarity", 14)
+        panel.affection_levels[cid] = cfg.get("affection", 40)
+        panel.character_levels[cid] = cfg.get("level", gv["character_level"])
+        tiers = [cfg.get("mod_tier_hp", cfg.get("mod_tier", 10)),
+                 cfg.get("mod_tier_atk", cfg.get("mod_tier", 10)),
+                 cfg.get("mod_tier_def", cfg.get("mod_tier", 10))]
+        levels = [cfg.get("mod_level_hp", cfg.get("mod_level", 55)),
+                  cfg.get("mod_level_atk", cfg.get("mod_level", 55)),
+                  cfg.get("mod_level_def", cfg.get("mod_level", 55))]
+        gear = cfg.get("gear", [])
+        panel.modules[cid] = [ModuleConfig(module_id=mid, tier=tiers[g], level=levels[g],
+                                           gear_effects=[x for x in gear if x.get("group", 0) == g])
+                              for g, mid in enumerate(tid)]
+        saved = cfg.get("skill_levels", {})
+        panel.skill_levels[cid] = {sid: saved.get(sid, saved.get(str(sid), cfg.get("skill_level", 15))) for sid in skills}
+    else:
+        panel.rarities[cid] = gv["default_rarity"]
+        panel.affection_levels[cid] = gv["default_affection"]
+        panel.modules[cid] = [ModuleConfig(module_id=mid, tier=gv["default_mod_tier_hp"], level=gv["default_mod_level_hp"],
+                                           gear_effects=[]) for g, mid in enumerate(tid)]
+        panel.skill_levels[cid] = {sid: gv["default_skill_level"] for sid in skills}
+
+player_config = panel.get_player_config()
+enemy_data = dl.load_tactical_exercise_enemies().get(381305)
+
+_md42 = dl.get_memory(30042)
+
+def build_card_subset(skill_ids, card_id=30042, name="30042-partial"):
+    """构造只含指定skill_master_id highlights的30042测试卡"""
+    hls = [MemoryHighlight(character_attribute=h.character_attribute,
+                           character_base_master_id=h.character_base_master_id,
+                           character_master_id=h.character_master_id,
+                           character_role=h.character_role,
+                           character_team_master_id=h.character_team_master_id,
+                           character_type=h.character_type,
+                           is_targeting_friendly_party=h.is_targeting_friendly_party,
+                           party_position=h.party_position,
+                           skill_master_id=h.skill_master_id)
+           for h in _md42.highlights if h.skill_master_id in skill_ids]
+    return MemoryCard(card_id=card_id, name=name, description=_md42.description,
+                      rarity=_md42.rarity, highlights=hls)
+
+def build_full_card(card_id):
+    md = dl.get_memory(card_id)
+    hls = [MemoryHighlight(character_attribute=h.character_attribute,
+                           character_base_master_id=h.character_base_master_id,
+                           character_master_id=h.character_master_id,
+                           character_role=h.character_role,
+                           character_team_master_id=h.character_team_master_id,
+                           character_type=h.character_type,
+                           is_targeting_friendly_party=h.is_targeting_friendly_party,
+                           party_position=h.party_position,
+                           skill_master_id=h.skill_master_id) for h in md.highlights]
+    return MemoryCard(card_id=md.memory_id, name=md.name, description=md.description,
+                      rarity=md.rarity, highlights=hls)
+
+BASE = [30031, 30025, 30013, 20041, 30007]
+
+def make_cards(card_ids):
+    return [build_full_card(c) for c in card_ids]
+
+CARD42_HL = [h.skill_master_id for h in _md42.highlights]
+print(f"[30042 highlights] {CARD42_HL}")
+
+def run_one(card_ids, partial42, seed):
+    random.seed(seed)
+    bf = BattlefieldState()
+    for i, cid in enumerate(FRIEND_POSITIONS):
+        if cid is None:
+            continue
+        bf.add_unit(_create_unit_worker(dl, panel, player_config, sc, cid, Side.ALLY, GRID[i]))
+    bf.add_unit(_create_tactical_enemy_worker(dl, enemy_data, Position.ENEMY_CENTER_FRONT))
+    cards = make_cards([c for c in card_ids if c != 30042])
+    if partial42 == "both":
+        cards.append(build_full_card(30042))
+    elif partial42 == "258":
+        cards.append(build_card_subset({400258}))
+    elif partial42 == "259":
+        cards.append(build_card_subset({400259}))
+    bf.memory_cards = cards
+    bc = BattleConfig()
+    bc.max_turns = 5
+    bc.enable_rdps = True
+    controller = TacticalExerciseController(bf, data_loader=dl, config=bc)
+    return controller.execute_battle()
+
+N = 500
+CONFIGS = {
+    "A_both": ([30031, 30025, 30013, 30042, 20041, 30007], "both"),
+    "A_258":  ([30031, 30025, 30013, 30042, 20041, 30007], "258"),
+    "A_259":  ([30031, 30025, 30013, 30042, 20041, 30007], "259"),
+    "A0":     (BASE, None),
+}
+results = {}
+for label, (cids, partial) in CONFIGS.items():
+    dmg, scores, card_rdps = [], [], {}
+    for s in range(N):
+        r = run_one(cids, partial, 30000 + s)
+        sd = r.get("score") or {}
+        scores.append(sd.get("total_score", 0))
+        rd = r.get("rdps") or {}
+        dmg.append(rd.get("total_damage_to_enemies", 0) if rd else 0)
+        if rd and partial == "both":
+            for cid, cs in rd.get("memory_card_stats", {}).items():
+                if int(cid) != 30042:
+                    continue
+                for k in ("buff_contribution", "debuff_contribution", "direct_damage", "total_rdps"):
+                    card_rdps[k] = card_rdps.get(k, 0.0) + cs[k]
+                d = cs.get("detail") or {}
+                for k in ("atk_buff", "crit"):
+                    card_rdps[k] = card_rdps.get(k, 0.0) + (d.get(k) or 0.0)
+    results[label] = {"dmg": dmg, "scores": scores, "card_rdps": card_rdps}
+    print(f"[{label}] N={N} avg_dmg={sum(dmg)/N:.0f} (sd={statistics.pstdev(dmg):.0f})")
+
+d_both = sum(results["A_both"]["dmg"])/N - sum(results["A0"]["dmg"])/N
+d_258 = sum(results["A_258"]["dmg"])/N - sum(results["A0"]["dmg"])/N
+d_259 = sum(results["A_259"]["dmg"])/N - sum(results["A0"]["dmg"])/N
+inter = d_both - d_258 - d_259
+print(f"\n===== 真实边际分解（vs 基线） =====")
+print(f"400258 ATK+1250前衛: {d_258:.0f}")
+print(f"400259 暴击+2%後衛:  {d_259:.0f}")
+print(f"交互项: {inter:.0f}  (Shapley各半: {(d_258+inter/2):.0f} / {(d_259+inter/2):.0f})")
+print(f"总边际(A_both-A0): {d_both:.0f}")
+
+cr = results["A_both"]["card_rdps"]
+print(f"\n===== card 30042 归因（A_both配置平均） =====")
+for k in ("buff_contribution", "debuff_contribution", "direct_damage", "total_rdps", "atk_buff", "crit"):
+    print(f"  {k}: {cr.get(k, 0)/N:.0f}")
+atk_attr = cr.get("atk_buff", 0)/N
+crit_attr = cr.get("crit", 0)/N
+sh258 = d_258 + inter/2
+sh259 = d_259 + inter/2
+print(f"\n===== 捕获率 =====")
+print(f"ATK通道: 归因={atk_attr:.0f} vs 400258 Shapley边际={sh258:.0f} -> {atk_attr/max(1,sh258)*100:.1f}%")
+print(f"暴击率通道: 归因={crit_attr:.0f} vs 400259 Shapley边际={sh259:.0f} -> {crit_attr/max(1,sh259)*100:.1f}%")

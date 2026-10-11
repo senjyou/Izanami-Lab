@@ -1,0 +1,65 @@
+"""查找 failed 技能在原始 split_data 中的数据。"""
+import json
+import sys
+import os
+
+# 加载原始数据
+with open('split_data/MemorySkillMaster.json', encoding='utf-8') as f:
+    memory_skills = json.load(f)
+
+with open('split_data/EnemySkillMaster.json', encoding='utf-8') as f:
+    enemy_skills = json.load(f)
+
+with open('split_data/SkillMaster.json', encoding='utf-8') as f:
+    skills = json.load(f)
+
+# failed 技能列表
+failed_ids = [
+    '210032', '230045', '230053', '230054', '230055', '230064', '230113', '230129',
+    '230139', '230146', '230148', '230172', '230173', '230174', '230177', '230179',
+    '210051', '220329', '220341', '230191', '230194', '230199', '230200', '230208',
+    '230214', '230232', '230236', '230242', '230244', '230245', '230246', '230248',
+    '230255', '230261', '230263', '230264', '230265', '230266', '230270', '230272',
+    '230276', '230280', '230283', '230293', '230301', '230304', '230319', '230324',
+    '230328', '230341', '230350', '230351', '230352', '230359', '230366'
+]
+
+# 在 MemorySkillMaster 中查找 230xxx
+print('=== MemorySkillMaster 中查找 230xxx ===')
+for skill in memory_skills:
+    sid = str(skill.get('memorySkillId') or skill.get('skillId') or skill.get('id', ''))
+    if sid in failed_ids:
+        print(f'  {sid}: {skill.get("name", "")}')
+        # 显示关键字段
+        desc = skill.get('description') or skill.get('skillDescription') or ''
+        print(f'    description: {desc[:300]}')
+        effect = skill.get('effect') or skill.get('skillEffect') or ''
+        print(f'    effect: {str(effect)[:500]}')
+        print(f'    keys: {list(skill.keys())[:15]}')
+        print()
+
+# 在 EnemySkillMaster 中查找 220xxx
+print('=== EnemySkillMaster 中查找 220xxx ===')
+for skill in enemy_skills:
+    sid = str(skill.get('enemySkillId') or skill.get('skillId') or skill.get('id', ''))
+    if sid in failed_ids:
+        print(f'  {sid}: {skill.get("name", "")}')
+        desc = skill.get('description') or skill.get('skillDescription') or ''
+        print(f'    description: {desc[:300]}')
+        effect = skill.get('effect') or skill.get('skillEffect') or ''
+        print(f'    effect: {str(effect)[:500]}')
+        print(f'    keys: {list(skill.keys())[:15]}')
+        print()
+
+# 在 SkillMaster 中查找 210xxx (EX)
+print('=== SkillMaster 中查找 210xxx ===')
+for skill in skills:
+    sid = str(skill.get('skillId') or skill.get('id', ''))
+    if sid in ['210032', '210051']:
+        print(f'  {sid}: {skill.get("name", "")}')
+        desc = skill.get('description') or skill.get('skillDescription') or ''
+        print(f'    description: {desc[:300]}')
+        effect = skill.get('effect') or skill.get('skillEffect') or ''
+        print(f'    effect: {str(effect)[:500]}')
+        print(f'    keys: {list(skill.keys())[:15]}')
+        print()

@@ -1,0 +1,1360 @@
+# -*- coding: utf-8 -*-
+"""角色138301 気高きランウェイモデル 专项E2E测试（ターゲットmark全链 + on_crit/once_per_skill +
+on_ally_killed + conditional_power_bonus tiers + mark_count block条件）
+
+技能列表：
+- EX: 110033 プラウド・ランウェイ（敵全体威力ダメージ + ターゲットmark(stackable)付与
+  ; Lv11+: 敵全体に dmg_taken_up(value_tag=dmg, percent, attack_limited=1, hit, stackable)）
+- AS1: 120076 トップライトショット（敵単体威力ダメージ
+  + conditional_power_bonus(target_mark_count ターゲット tiers 3=30%/2=20%/1=10%, bonus_type=dealt_damage)
+  ; Block2: mark_count ターゲット>=3 attacked → burn付与(burn_damage_pct=30, 1action)）
+- AS2: 120077 アバンギャルドカット（敵単体威力ダメージ
+  + Block2 (Lv11+ AND on_crit AND once_per_skill AND mark_count ターゲット>=3 attacked):
+       knockout(1action) to crit_target
+  + Block3 (on_crit AND once_per_skill): ターゲットmark(stackable) to crit_target）
+- PS1: 130086 キャッチライト（on_ally_killed: 他の味方が敵に倒された際に発動
+  ; Block1: 倒した敵(trigger_attacker)に威力ダメージ + ターゲットmark付与
+  ; Block2 Lv11+: 倒した敵に dmg_taken_up(percent, attack_limited=1, hit, stackable)）
+- PS2: 130087 キャットウォーク（on_turn_end: ターゲットmarkを持つ敵全員に
+  ; Block1 mark_count ターゲット>=1 enemy → remove_ep(value=1, target_count=99) + def_down(2action, percent)）
+
+覆盖维度：
+1. EX 敵全体威力 + ターゲットmark付与(全敵) + Lv11+ dmg_taken_up(attack_limited)
+2. AS1 conditional_power_bonus tiers模式(1/2/3层增伤 10/20/30%) + Block2 mark_count>=3 burn付与
+3. AS2 on_crit ターゲットmark追加 + once_per_skill + Lv11+ on_crit+mark_count>=3 knockout
+4. PS1 on_ally_killed trigger_attacker定位 + ターゲットmark付与 + Lv11+ dmg_taken_up
+5. PS2 on_turn_end mark_count>=1条件 + remove_ep + def_down
+6. ターゲットmark 全链专项（EX付与→AS1 tiers增伤→AS2 on_crit追加→PS1 on_ally_killed付与→PS2 mark_count消费）
+7. on_crit + once_per_skill 专项（暴击触发1次/多hit暴击仅触发1次/非暴击不触发）
+8. on_ally_killed 专项（友方被击杀触发/敌方阵亡不触发/自身阵亡不触发）
+9. tiers 模式专项（mark_count=1→10%, =2→20%, =3→30%, =5→30%封顶）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction, TriggerTiming
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+# mark 用 MARK 枚举（ターゲット mark is_buff_mark=false → debuffs 列表, is_debuff=True）
+# knockout 用 KNOCKOUT 枚举（気絶，进 debuffs 列表）
+# burn 用 CONFLAGRATION 枚举（炎上，进 debuffs 列表）
+# dmg_taken_up 用 RECEIVED_DAMAGE 枚举
+# def_down 用 STATUS_DEFENSE 枚举
+# dmg_dealt_up 用 DEALT_DAMAGE 枚举
+MARK = SkillEffectType.MARK.value
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+CONFLAGRATION = SkillEffectType.CONFLAGRATION.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+STATUS_DEFENSE = SkillEffectType.STATUS_DEFENSE.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+
+# AuraUpdateTiming 数值
+# DURABLE_TARGET_MANEUVER_END=4: duration_type="action" 映射
+# DURABLE_WHEN_USED=6: duration_type="hit"/"attack" + attack_limited/hit_limited 映射
+DURABLE_TARGET_MANEUVER_END = AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value   # 4
+DURABLE_WHEN_USED = AuraUpdateTiming.DURABLE_WHEN_USED.value                       # 6
+
+
+class TestActor138301(unittest.TestCase):
+    """角色138301 気高きランウェイモデル 专项E2E测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        # 施法者: 138301 気高きランウェイモデル (水属性attr=2, 敏捷型character_type=3, 灵活position_type=3, 控制role_type=5)
+        # max_ap=2, max_pp=2
+        # caster 放后排中央
+        self.caster = UnitState(
+            unit_id="caster", name="気高きランウェイモデル", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=138301, level=10,
+            element=2, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110033, 120076, 120077, 130086, 130087],
+            skill_levels={110033: 10, 120076: 10, 120077: 10,
+                          130086: 10, 130087: 10},
+            skill_cooldowns={},
+        )
+
+        # 敌方前排中央（最近敌方，便于索敌）
+        self.enemy_cf = UnitState(
+            unit_id="enemy_cf", name="敵中前", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前（atk最高）
+        # 注: max_hp=30000 确保 enemy_lf 能在 全链测试 中承受 EX(8580)+PS1(8423)=17003 伤害后存活
+        self.enemy_lf = UnitState(
+            unit_id="enemy_lf", name="敵左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=3, character_type=1,
+            max_hp=30000, current_hp=30000,
+            attack=12000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前（spd最高）
+        self.enemy_rf = UnitState(
+            unit_id="enemy_rf", name="敵右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=4, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6500, defense=4500, speed=600,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 友方前排中央（用于PS1 on_ally_killed测试）
+        self.ally_cf = UnitState(
+            unit_id="ally_cf", name="味方中前", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999101, level=10,
+            element=5, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=9000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_cf]
+        self.bf.enemy_team = [self.enemy_cf, self.enemy_lf, self.enemy_rf]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ────────────────────────────────────────────────────────────────
+    # 辅助方法
+    # ────────────────────────────────────────────────────────────────
+
+    def _reset_caster(self, hp=None, ap=10, pp=10, ep=0):
+        self.caster.current_hp = hp if hp is not None else self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.is_stunned = False
+        self.caster.is_frozen = False
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = ap
+        self.caster.current_pp = pp
+        self.caster.current_ep = ep
+        self.caster.skill_use_count = {}
+        self.caster.level = 10
+        for sid in self.caster.skill_levels:
+            self.caster.skill_levels[sid] = 10
+        # 清理暴击override
+        self.dms.set_crit_override(None)
+
+    def _reset_enemies(self):
+        for e in self.bf.enemy_team:
+            e.current_hp = e.max_hp
+            e.buffs = []
+            e.debuffs = []
+            e.is_alive = True
+            e.is_stunned = False
+            e.is_frozen = False
+            e.current_ap = 4
+            e.current_ep = 2 if e.unit_id != "enemy_cf" else 3
+
+    def _reset_allies(self):
+        for a in self.bf.friend_team:
+            if a.unit_id == "caster":
+                continue
+            a.current_hp = a.max_hp
+            a.buffs = []
+            a.debuffs = []
+            a.is_alive = True
+            a.is_stunned = False
+            a.is_frozen = False
+            a.current_ap = 4
+            a.current_ep = 2 if a.unit_id != "ally_cf" else 2
+
+    def _apply_target_mark(self, target, count=1):
+        """为指定目标附加「ターゲット」mark debuff（is_buff_mark=false → debuffs 列表, is_debuff=True）。
+
+        138301 的核心 debuff mark：ターゲット 驱动 AS1 tiers增伤 + AS2 Block2 knockout + PS2 mark_count条件。
+        通常由 EX/AS2 on_crit/PS1 on_ally_killed 付与敌方。
+        """
+        for i in range(count):
+            target.debuffs.append(BuffState(
+                buff_id=f"test_target_mark_{id(target)}_{i}",
+                name="ターゲット", effect_type=MARK, value=1,
+                duration=-1, timing_type=2, is_debuff=True,
+                is_stackable=True, unremovable=False,
+            ))
+
+    def _force_crit(self):
+        """强制caster攻击必定暴击（用于on_crit block测试）。"""
+        self.dms.set_crit_override(lambda ctx: True)
+
+    def _force_no_crit(self):
+        """强制caster攻击必定不暴击。"""
+        self.dms.set_crit_override(lambda ctx: False)
+
+    # ════════════════════════════════════════════════════════════════
+    # EX: 110033 プラウド・ランウェイ
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ex_damage_to_all_enemies(self):
+        """EX(110033) Block1: 敵全体に威力ダメージ（全敵HP减少）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        hp_before = {e.unit_id: e.current_hp for e in self.bf.enemy_team}
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 全敵都应受到伤害
+        for e in self.bf.enemy_team:
+            self.assertLess(e.current_hp, hp_before[e.unit_id],
+                            f"{e.name}应受到EX全体伤害")
+
+    def test_ex_applies_target_mark_to_all_enemies(self):
+        """EX(110033) Block1: 敵全体にターゲットmark(debuff, stackable)付与。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 全敵应被付与1个ターゲットmark（debuffs列表）
+        for e in self.bf.enemy_team:
+            marks = [d for d in e.debuffs
+                     if d.effect_type == MARK and d.name == "ターゲット"]
+            self.assertEqual(len(marks), 1, f"{e.name}应有1个ターゲットmark")
+            self.assertTrue(marks[0].is_debuff, "ターゲットmark应为debuff")
+            self.assertTrue(marks[0].is_stackable, "ターゲットmark应可叠加")
+            self.assertEqual(marks[0].duration, -1, "ターゲットmark duration应为-1(永続)")
+
+    def test_ex_mark_stackable_across_multiple_casts(self):
+        """EX(110033) ターゲットmark stackable=true → 多次EX累积mark数。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # 第1次EX
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        # 第2次EX
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+
+        # enemy_cf 应有2个ターゲットmark（stackable累积）
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 2,
+                         "2次EX后enemy_cf应有2个ターゲットmark(stackable累积)")
+
+    def test_ex_lv10_no_dmg_taken_up(self):
+        """EX(110033) Block2: Lv10时跳过（active_level_min=11 未满足）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[110033] = 10
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block2 dmg_taken_up 不应被施加
+        for e in self.bf.enemy_team:
+            vulns = [d for d in e.debuffs if d.effect_type == RECEIVED_DAMAGE]
+            self.assertEqual(len(vulns), 0,
+                             f"Lv10时{e.name}不应有dmg_taken_up debuff")
+
+    def test_ex_lv11_applies_dmg_taken_up(self):
+        """EX(110033) Block2 Lv11+: 敵全体に dmg_taken_up(percent, attack_limited=1, hit, stackable)。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 11
+        self.caster.skill_levels[110033] = 11
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 全敵应被付与 dmg_taken_up debuff
+        for e in self.bf.enemy_team:
+            vulns = [d for d in e.debuffs if d.effect_type == RECEIVED_DAMAGE]
+            self.assertGreater(len(vulns), 0,
+                               f"Lv11+时{e.name}应有dmg_taken_up debuff")
+            v = vulns[0]
+            self.assertEqual(v.attack_limited, 1, "dmg_taken_up attack_limited应为1")
+            self.assertTrue(v.is_stackable, "dmg_taken_up应可叠加(stackable=true)")
+            # value_tag="dmg" Lv11=10.0 → value应为正数
+            self.assertGreater(v.value, 0, "dmg_taken_up value应为正数(Lv11 dmg=10%)")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS1: 120076 トップライトショット
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as1_damage_to_single_enemy(self):
+        """AS1(120076) Block1: 敵単体に威力ダメージ（最近敌方enemy_cf受到伤害，其他敌人不受影响）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        hp_cf_before = self.enemy_cf.current_hp
+        hp_lf_before = self.enemy_lf.current_hp
+        hp_rf_before = self.enemy_rf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf (最近) 应受到伤害
+        self.assertLess(self.enemy_cf.current_hp, hp_cf_before,
+                        "enemy_cf(最近敌方)应受到AS1伤害")
+        # 其他敌人不应受到伤害
+        self.assertEqual(self.enemy_lf.current_hp, hp_lf_before,
+                         "enemy_lf不应受到AS1伤害")
+        self.assertEqual(self.enemy_rf.current_hp, hp_rf_before,
+                         "enemy_rf不应受到AS1伤害")
+
+    def test_as1_no_bonus_without_target_mark(self):
+        """AS1(120076) Block1: 无ターゲットmark时无conditional_power_bonus增伤（base damage）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 不施加ターゲットmark
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 无conditional_power_bonus → 不应创建临时dmg_dealt_up buff
+        dmg_ups = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_ups), 0, "无ターゲットmark时不应有dmg_dealt_up buff")
+
+    def test_as1_tier1_bonus_with_1_mark(self):
+        """AS1(120076) Block1: ターゲットmark=1 → tier1(value=10%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=1)
+
+        # 场景1: 1层mark
+        result_with_1 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result_with_1["success"])
+        dmg_with_1 = result_with_1.get("total_damage", 0)
+
+        # 场景2: 0层mark（base damage）
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result_base["success"])
+        dmg_base = result_base.get("total_damage", 0)
+
+        # 验证: 1层mark → 10%增伤 → 伤害应约为base × 1.10
+        self.assertGreater(dmg_with_1, 0, "AS1应造成伤害")
+        self.assertGreater(dmg_base, 0, "base damage应>0")
+        ratio = dmg_with_1 / dmg_base
+        self.assertAlmostEqual(ratio, 1.10, delta=0.05,
+                               msg=f"1层ターゲット→10%增伤，实际: {dmg_with_1}/{dmg_base}={ratio:.3f}")
+
+    def test_as1_tier2_bonus_with_2_marks(self):
+        """AS1(120076) Block1: ターゲットmark=2 → tier2(value=20%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=2)
+
+        result_with_2 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result_with_2["success"])
+        dmg_with_2 = result_with_2.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        # 验证: 2层mark → 20%增伤 → 伤害应约为base × 1.20
+        ratio = dmg_with_2 / dmg_base
+        self.assertAlmostEqual(ratio, 1.20, delta=0.05,
+                               msg=f"2层ターゲット→20%增伤，实际: {dmg_with_2}/{dmg_base}={ratio:.3f}")
+
+    def test_as1_tier3_bonus_with_3_marks(self):
+        """AS1(120076) Block1: ターゲットmark=3 → tier3(value=30%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=3)
+
+        result_with_3 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result_with_3["success"])
+        dmg_with_3 = result_with_3.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        # 验证: 3层mark → 30%增伤 → 伤害应约为base × 1.30
+        ratio = dmg_with_3 / dmg_base
+        self.assertAlmostEqual(ratio, 1.30, delta=0.05,
+                               msg=f"3层ターゲット→30%增伤，实际: {dmg_with_3}/{dmg_base}={ratio:.3f}")
+
+    def test_as1_tier3_caps_at_3_marks_with_5_marks(self):
+        """AS1(120076) Block1: ターゲットmark=5(>3) → 仍取tier3(30%)增伤（封顶）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=5)
+
+        result_with_5 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result_with_5["success"])
+        dmg_with_5 = result_with_5.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        # 验证: 5层mark → 仍30%增伤（tier3封顶）
+        ratio = dmg_with_5 / dmg_base
+        self.assertAlmostEqual(ratio, 1.30, delta=0.05,
+                               msg=f"5层ターゲット应封顶在tier3(30%)，实际: {ratio:.3f}")
+
+    def test_as1_block2_burn_with_3_marks(self):
+        """AS1(120076) Block2: ターゲットmark>=3 → burn(1action, burn_damage_pct=30)付与。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=3)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf 应被付与 burn debuff
+        burns = [d for d in self.enemy_cf.debuffs if d.effect_type == CONFLAGRATION]
+        self.assertGreater(len(burns), 0, "3层ターゲット→Block2应施加burn")
+        b = burns[0]
+        self.assertEqual(b.duration, 1, "burn duration应为1(1action)")
+        # burn value = snapshot_atk × burn_damage_pct / 100 = 10000 × 30 / 100 = 3000
+        self.assertAlmostEqual(b.value, 3000.0, delta=1.0,
+                               msg=f"burn value应为10000×30%=3000，实际: {b.value}")
+
+    def test_as1_block2_no_burn_below_3_marks(self):
+        """AS1(120076) Block2: ターゲットmark<3 → 跳过（无burn付与）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=2)  # <3
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf 不应被付与 burn
+        burns = [d for d in self.enemy_cf.debuffs if d.effect_type == CONFLAGRATION]
+        self.assertEqual(len(burns), 0, "2层ターゲット(<3)→Block2应跳过，无burn")
+
+    # ════════════════════════════════════════════════════════════════
+    # AS2: 120077 アバンギャルドカット
+    # ════════════════════════════════════════════════════════════════
+
+    def test_as2_damage_to_single_enemy(self):
+        """AS2(120077) Block1: 敵単体に威力ダメージ。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_no_crit()
+
+        hp_cf_before = self.enemy_cf.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf (最近) 应受到伤害
+        self.assertLess(self.enemy_cf.current_hp, hp_cf_before,
+                        "enemy_cf应受到AS2伤害")
+
+    def test_as2_mark_applied_on_crit(self):
+        """AS2(120077) Block3: 暴击時 → ターゲットmark付与crit_target(stackable)。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf (crit_target) 应被付与 ターゲットmark
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 1, "暴击时应付与1个ターゲットmark")
+        self.assertTrue(marks[0].is_debuff, "ターゲットmark应为debuff")
+        self.assertTrue(marks[0].is_stackable, "ターゲットmark应可叠加")
+        self.assertEqual(marks[0].duration, -1, "ターゲットmark duration应为-1(永続)")
+
+    def test_as2_no_mark_without_crit(self):
+        """AS2(120077) Block3: 非暴击時 → 不付与ターゲットmark（on_crit条件不满足）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_no_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # enemy_cf 不应被付与 ターゲットmark
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 0, "非暴击时不应付与ターゲットmark")
+
+    def test_as2_once_per_skill_single_mark(self):
+        """AS2(120077) Block3: once_per_skill=true → 单次技能仅付与1个mark。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_crit()
+
+        # 执行AS2一次（即使是暴击，也只应付与1个mark）
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 仅1个ターゲットmark（once_per_skill限制）
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 1,
+                         "once_per_skill=true → 单次技能仅付与1个mark")
+
+    def test_as2_lv10_no_knockout(self):
+        """AS2(120077) Block2: Lv10时跳过（active_level_min=11 未满足），即使暴击+mark>=3也无knockout。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 10
+        self.caster.skill_levels[120077] = 10
+        # 预设3个ターゲットmark
+        self._apply_target_mark(self.enemy_cf, count=3)
+        self._force_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Lv10 → Block2 跳过 → 不应施加 knockout
+        knockouts = [d for d in self.enemy_cf.debuffs if d.effect_type == KNOCKOUT]
+        self.assertEqual(len(knockouts), 0, "Lv10时即使条件满足也不应施加knockout")
+
+    def test_as2_lv11_knockout_on_crit_with_3_marks(self):
+        """AS2(120077) Block2 Lv11+: 暴击 + ターゲットmark>=3 → knockout(1action)付与crit_target。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 11
+        self.caster.skill_levels[120077] = 11
+        # 预设3个ターゲットmark（在技能执行前已存在）
+        self._apply_target_mark(self.enemy_cf, count=3)
+        self._force_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block2 应执行: 暴击+3mark → knockout
+        knockouts = [d for d in self.enemy_cf.debuffs if d.effect_type == KNOCKOUT]
+        self.assertGreater(len(knockouts), 0,
+                           "Lv11+暴击+3层ターゲット→应施加knockout")
+        self.assertEqual(knockouts[0].duration, 1, "knockout duration应为1(1action)")
+
+    def test_as2_lv11_no_knockout_below_3_marks(self):
+        """AS2(120077) Block2 Lv11+: 暴击 + ターゲットmark<3 → 跳过knockout。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self.caster.level = 11
+        self.caster.skill_levels[120077] = 11
+        # 预设2个ターゲットmark（<3）
+        self._apply_target_mark(self.enemy_cf, count=2)
+        self._force_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block2 应跳过: mark<3 → 不应施加 knockout
+        knockouts = [d for d in self.enemy_cf.debuffs if d.effect_type == KNOCKOUT]
+        self.assertEqual(len(knockouts), 0,
+                         "ターゲットmark<3时即使暴击+Lv11+也不应施加knockout")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS1: 130086 キャッチライト (on_ally_killed)
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps1_triggers_on_ally_killed(self):
+        """PS1(130086) on_ally_killed: 他の味方が敵に倒された際に発動。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+
+        # ally_cf 被enemy_cf击杀
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertGreater(len(ps1_actions), 0, "友方(ally_cf)被击杀时PS1应触发")
+
+    def test_ps1_not_triggers_on_self_killed(self):
+        """PS1(130086) on_ally_killed: 自身阵亡不触发（owner is the dead one）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # caster自身被击杀
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.caster],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertEqual(len(ps1_actions), 0, "自身阵亡时PS1不应触发")
+
+    def test_ps1_not_triggers_on_enemy_killed(self):
+        """PS1(130086) on_ally_killed: 敌方阵亡不触发（仅友方阵亡时）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        # enemy_cf 被击杀（敌方阵亡）
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.enemy_cf],
+            battlefield=self.bf,
+            killer=self.caster,
+        )
+
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertEqual(len(ps1_actions), 0, "敌方阵亡时PS1不应触发(仅友方阵亡)")
+
+    def test_ps1_damage_to_trigger_attacker(self):
+        """PS1(130086) Block1: 倒した敵(trigger_attacker)に威力ダメージ。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+
+        # ally_cf 被enemy_cf击杀
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertGreater(len(ps1_actions), 0, "PS1应触发")
+
+        # 执行PS1
+        hp_cf_before = self.enemy_cf.current_hp
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # enemy_cf (trigger_attacker) 应受到PS1伤害
+        self.assertLess(self.enemy_cf.current_hp, hp_cf_before,
+                        "PS1应对trigger_attacker(enemy_cf)造成伤害")
+
+    def test_ps1_mark_to_trigger_attacker(self):
+        """PS1(130086) Block1: 倒した敵(trigger_attacker)にターゲットmark付与。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # enemy_cf (trigger_attacker) 应被付与 ターゲットmark
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 1, "PS1应付与trigger_attacker 1个ターゲットmark")
+        self.assertTrue(marks[0].is_debuff, "ターゲットmark应为debuff")
+        self.assertTrue(marks[0].is_stackable, "ターゲットmark应可叠加")
+
+    def test_ps1_lv11_dmg_taken_up_to_trigger_attacker(self):
+        """PS1(130086) Block2 Lv11+: 倒した敵に dmg_taken_up(percent, attack_limited=1)付与。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+        self.caster.level = 11
+        self.caster.skill_levels[130086] = 11
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # enemy_cf (trigger_attacker) 应被付与 dmg_taken_up
+        vulns = [d for d in self.enemy_cf.debuffs if d.effect_type == RECEIVED_DAMAGE]
+        self.assertGreater(len(vulns), 0, "Lv11+时PS1应施加dmg_taken_up到trigger_attacker")
+        self.assertEqual(vulns[0].attack_limited, 1, "dmg_taken_up attack_limited应为1")
+        self.assertTrue(vulns[0].is_stackable, "dmg_taken_up应可叠加")
+        # value_tag="dmg" Lv11=15.0
+        self.assertGreater(vulns[0].value, 0, "dmg_taken_up value应为正数(Lv11 dmg=15%)")
+
+    def test_ps1_lv10_no_dmg_taken_up(self):
+        """PS1(130086) Block2 Lv10: 跳过（active_level_min=11 未满足）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+        self.caster.level = 10
+        self.caster.skill_levels[130086] = 10
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # Lv10 → Block2 跳过 → 无 dmg_taken_up
+        vulns = [d for d in self.enemy_cf.debuffs if d.effect_type == RECEIVED_DAMAGE]
+        self.assertEqual(len(vulns), 0, "Lv10时PS1 Block2应跳过，无dmg_taken_up")
+
+    # ════════════════════════════════════════════════════════════════
+    # PS2: 130087 キャットウォーク (on_turn_end + mark_count>=1 enemy)
+    # ════════════════════════════════════════════════════════════════
+
+    def test_ps2_triggers_on_turn_end_with_mark(self):
+        """PS2(130087) on_turn_end: 敵陣営にターゲットmark>=1の单位存在時 → Block1执行。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # enemy_cf に ターゲットmark付与
+        self._apply_target_mark(self.enemy_cf, count=1)
+
+        actions = self.ts.trigger_turn_end(self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+        self.assertGreater(len(ps2_actions), 0, "敵にターゲットmark有り→PS2应触发")
+
+    def test_ps2_not_triggers_without_mark(self):
+        """PS2(130087) on_turn_end: 敵陣営にターゲットmark無し → Block1条件不满足（mark_count>=1未达）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 不付与ターゲットmark
+
+        # PS2 trigger_turn_end 会触发，但execute_skill中Block1条件不满足→跳过
+        # 这里通过执行PS2并验证无EP变化/无def_down来确认
+        actions = self.ts.trigger_turn_end(self.bf)
+
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+        # PS2 may trigger (turn_end match) but Block1 should be skipped inside execute_skill
+        # 关键验证: 即使PS2被触发，无mark的enemy不应有EP变化或def_down
+        ep_cf_before = self.enemy_cf.current_ep
+
+        self.ss._pending_crit_triggers = []
+        if ps2_actions:
+            self.ss._execute_trigger_actions_inline(
+                ps2_actions, self.bf, trigger_timing="on_turn_end"
+            )
+
+        # 无mark → 不应消耗EP
+        self.assertEqual(self.enemy_cf.current_ep, ep_cf_before,
+                         "無ターゲットmark時PS2 Block1应跳过，EP不变")
+        # 无mark → 不应施加 def_down
+        def_downs = [d for d in self.enemy_cf.debuffs if d.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_downs), 0, "無ターゲットmark時PS2 Block1应跳过，无def_down")
+
+    def test_ps2_removes_ep_from_marked_enemies(self):
+        """PS2(130087) Block1: ターゲットmarkを持つ敵全員にEXゲージ-1。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # enemy_cf と enemy_lf にmark付与（enemy_rf無し）
+        self._apply_target_mark(self.enemy_cf, count=1)
+        self._apply_target_mark(self.enemy_lf, count=2)
+
+        ep_cf_before = self.enemy_cf.current_ep  # 3
+        ep_lf_before = self.enemy_lf.current_ep   # 2
+        ep_rf_before = self.enemy_rf.current_ep   # 2
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+        self.assertGreater(len(ps2_actions), 0, "PS2应触发")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # markを持つ敵のみEP-1
+        self.assertEqual(self.enemy_cf.current_ep, ep_cf_before - 1,
+                         "enemy_cf(ターゲットmark有り)のEP应-1")
+        self.assertEqual(self.enemy_lf.current_ep, ep_lf_before - 1,
+                         "enemy_lf(ターゲットmark有り)のEP应-1")
+        # mark無しの敵はEP不变
+        self.assertEqual(self.enemy_rf.current_ep, ep_rf_before,
+                         "enemy_rf(ターゲットmark無し)のEP应不变")
+
+    def test_ps2_applies_def_down_to_marked_enemies(self):
+        """PS2(130087) Block1: ターゲットmarkを持つ敵全員にdef_down(2action, percent)付与。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # enemy_cf にmark付与
+        self._apply_target_mark(self.enemy_cf, count=1)
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # enemy_cf (mark有り) 应被付与 def_down
+        def_downs_cf = [d for d in self.enemy_cf.debuffs if d.effect_type == STATUS_DEFENSE]
+        self.assertGreater(len(def_downs_cf), 0,
+                           "enemy_cf(ターゲットmark有り)应有def_down debuff")
+        self.assertEqual(def_downs_cf[0].duration, 2, "def_down duration应为2(2action)")
+        # value_tag="def" Lv10=20.0 → value应为正数
+        self.assertGreater(def_downs_cf[0].value, 0, "def_down value应为正数(Lv10 def=20%)")
+
+        # enemy_rf (mark無し) 不应被付与 def_down
+        def_downs_rf = [d for d in self.enemy_rf.debuffs if d.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_downs_rf), 0,
+                         "enemy_rf(ターゲットmark無し)不应有def_down")
+
+    # ════════════════════════════════════════════════════════════════
+    # ターゲットmark 全链专项
+    # ════════════════════════════════════════════════════════════════
+
+    def test_target_mark_is_debuff(self):
+        """ターゲットmark is_buff_mark=false → 进 debuffs 列表(is_debuff=True)。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+
+        # ターゲットmark 应在 debuffs 列表
+        marks_in_buffs = [b for b in self.enemy_cf.buffs
+                          if b.effect_type == MARK and b.name == "ターゲット"]
+        marks_in_debuffs = [d for d in self.enemy_cf.debuffs
+                            if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks_in_buffs), 0, "ターゲットmark不应在buffs列表")
+        self.assertEqual(len(marks_in_debuffs), 1, "ターゲットmark应在debuffs列表")
+        self.assertTrue(marks_in_debuffs[0].is_debuff, "ターゲットmark is_debuff应为True")
+
+    def test_target_mark_stackable_across_skills(self):
+        """ターゲットmark stackable=true → 跨技能(EX + AS2 on_crit)累积共存。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_crit()
+
+        # 1. EX付与全体mark（enemy_cf に1個）
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        marks_after_ex = [d for d in self.enemy_cf.debuffs
+                          if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks_after_ex), 1, "EX后enemy_cf应有1个ターゲットmark")
+
+        # 2. AS2暴击 → 追加1個mark
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        marks_after_as2 = [d for d in self.enemy_cf.debuffs
+                           if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks_after_as2), 2,
+                         "EX+AS2暴击后应有2个ターゲットmark(stackable累积)")
+
+    def test_mark_full_chain_ex_as1_as2_ps1_ps2(self):
+        """ターゲットmark 全链：EX付与→AS1 tiers增伤→AS2 on_crit追加→PS1 on_ally_killed付与→PS2 mark_count消费。
+
+        本测试串联验证5技能联动的mark全链。
+        """
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+        self._force_crit()
+
+        # 1. EX付与全体ターゲットmark（enemy_cf/lb/rf 各1個）
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110033, battlefield=self.bf, skip_cost=True
+        )
+        marks_cf = [d for d in self.enemy_cf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks_cf), 1, "EX后enemy_cf应有1個ターゲットmark")
+
+        # 2. AS2暴击 → enemy_cf に追加1個mark（合計2個）
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        marks_cf = [d for d in self.enemy_cf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks_cf), 2, "EX+AS2暴击后enemy_cf应有2個ターゲットmark")
+
+        # 3. AS1 with 2 mark → tier2(20%)增伤 → 伤害应×1.20
+        dmg_as1 = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        ).get("total_damage", 0)
+        self.assertGreater(dmg_as1, 0, "AS1应造成伤害")
+
+        # 4. PS1 on_ally_killed付与trigger_attacker(ally_cf被enemy_lf击杀)
+        # 让ally_cf被enemy_lf击杀
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_lf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertGreater(len(ps1_actions), 0, "PS1应触发(ally_cf被击杀)")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+        # enemy_lf (trigger_attacker) 应有 ターゲットmark
+        marks_lf = [d for d in self.enemy_lf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+        # EX付与1個 + PS1追加1個 = 2個
+        self.assertEqual(len(marks_lf), 2,
+                         "PS1应在trigger_attacker(enemy_lf)追加ターゲットmark")
+
+        # 5. PS2 on_turn_end → markを持つ敵全員にEP-1 + def_down
+        # 確認: enemy_cf (2個mark), enemy_lf (2個mark), enemy_rf (1個mark) 全員mark有り
+        ep_cf_before = self.enemy_cf.current_ep
+        ep_lf_before = self.enemy_lf.current_ep
+        ep_rf_before = self.enemy_rf.current_ep
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+        self.assertGreater(len(ps2_actions), 0, "PS2应触发")
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # 全敵都有mark → 全員EP-1 + def_down
+        self.assertEqual(self.enemy_cf.current_ep, ep_cf_before - 1, "enemy_cf EP应-1")
+        self.assertEqual(self.enemy_lf.current_ep, ep_lf_before - 1, "enemy_lf EP应-1")
+        self.assertEqual(self.enemy_rf.current_ep, ep_rf_before - 1, "enemy_rf EP应-1")
+
+        for e in self.bf.enemy_team:
+            def_downs = [d for d in e.debuffs if d.effect_type == STATUS_DEFENSE]
+            self.assertGreater(len(def_downs), 0,
+                               f"{e.name}应有def_down debuff")
+
+    def test_mark_count_per_target_independent_ps2(self):
+        """PS2 mark_count>=1条件 per-target 独立判断（target_scope=enemy）。
+
+        场景: enemy_cf 有2个mark, enemy_lf 有0个mark, enemy_rf 有1个mark
+        → PS2 应作用于 enemy_cf と enemy_rf（mark>=1的敵），跳过 enemy_lf（mark=0）。
+        """
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # enemy_cf: 2個mark, enemy_lf: 0個mark, enemy_rf: 1個mark
+        self._apply_target_mark(self.enemy_cf, count=2)
+        self._apply_target_mark(self.enemy_rf, count=1)
+        # enemy_lf 无mark
+
+        ep_cf_before = self.enemy_cf.current_ep
+        ep_lf_before = self.enemy_lf.current_ep
+        ep_rf_before = self.enemy_rf.current_ep
+
+        actions = self.ts.trigger_turn_end(self.bf)
+        ps2_actions = [a for a in actions if a.skill_id == 130087]
+
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_turn_end"
+        )
+
+        # mark有りの敵: EP-1 + def_down
+        self.assertEqual(self.enemy_cf.current_ep, ep_cf_before - 1,
+                         "enemy_cf(2個mark)EP应-1")
+        self.assertEqual(self.enemy_rf.current_ep, ep_rf_before - 1,
+                         "enemy_rf(1個mark)EP应-1")
+        # mark無しの敵: EP不变 + 无def_down
+        self.assertEqual(self.enemy_lf.current_ep, ep_lf_before,
+                         "enemy_lf(0個mark)EP应不变")
+        def_downs_lf = [d for d in self.enemy_lf.debuffs if d.effect_type == STATUS_DEFENSE]
+        self.assertEqual(len(def_downs_lf), 0,
+                         "enemy_lf(0個mark)不应有def_down")
+
+    # ════════════════════════════════════════════════════════════════
+    # on_crit + once_per_skill 专项
+    # ════════════════════════════════════════════════════════════════
+
+    def test_on_crit_block_executed_only_once(self):
+        """AS2 Block3 on_crit once_per_skill=true → 单次技能仅执行1次（即使多hit暴击）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证: 即使暴击，仅1个ターゲットmark（once_per_skill限制）
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 1,
+                         "once_per_skill=true → 即使暴击多次，仅付与1个mark")
+
+    def test_on_crit_no_trigger_when_force_no_crit(self):
+        """AS2 Block3 on_crit → 非暴击时不触发（force_no_crit验证）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_no_crit()
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 非暴击 → Block3 不应执行
+        marks = [d for d in self.enemy_cf.debuffs
+                 if d.effect_type == MARK and d.name == "ターゲット"]
+        self.assertEqual(len(marks), 0, "非暴击时不应触发on_crit block")
+
+    def test_on_crit_mark_targets_crit_target_only(self):
+        """AS2 Block3: ターゲットmark付与对象为crit_target（暴击対象）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._force_crit()
+
+        # AS2 single target = enemy_cf (最近敌方) → crit_target = enemy_cf
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120077, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 仅 crit_target (enemy_cf) 应被付与 ターゲットmark
+        marks_cf = [d for d in self.enemy_cf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+        marks_lf = [d for d in self.enemy_lf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+        marks_rf = [d for d in self.enemy_rf.debuffs
+                    if d.effect_type == MARK and d.name == "ターゲット"]
+
+        self.assertEqual(len(marks_cf), 1, "crit_target(enemy_cf)应被付与mark")
+        self.assertEqual(len(marks_lf), 0, "enemy_lf(非crit_target)不应被付与mark")
+        self.assertEqual(len(marks_rf), 0, "enemy_rf(非crit_target)不应被付与mark")
+
+    # ════════════════════════════════════════════════════════════════
+    # on_ally_killed 专项
+    # ════════════════════════════════════════════════════════════════
+
+    def test_on_ally_killed_triggers_when_ally_dies(self):
+        """PS1 on_ally_killed → 友方(ally_cf)阵亡时PS1触发。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertGreater(len(ps1_actions), 0, "ally_cf阵亡时PS1应触发")
+
+    def test_on_ally_killed_no_trigger_when_enemy_dies(self):
+        """PS1 on_ally_killed → 敌方阵亡时不触发（仅友方阵亡）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.enemy_cf],
+            battlefield=self.bf,
+            killer=self.caster,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertEqual(len(ps1_actions), 0, "敌方阵亡时PS1不应触发")
+
+    def test_on_ally_killed_no_trigger_when_self_dies(self):
+        """PS1 on_ally_killed → 自身阵亡时不触发（owner is the dead one）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.caster],
+            battlefield=self.bf,
+            killer=self.enemy_cf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertEqual(len(ps1_actions), 0, "自身阵亡时PS1不应触发")
+
+    def test_on_ally_killed_trigger_attacker_is_killer(self):
+        """PS1 on_ally_killed → trigger_attacker = killer（击杀者），用于damage/mark定位。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._reset_allies()
+
+        # 让 enemy_lf 击杀 ally_cf
+        actions = self.ts.trigger_pawn_died(
+            dead_units=[self.ally_cf],
+            battlefield=self.bf,
+            killer=self.enemy_lf,
+        )
+        ps1_actions = [a for a in actions if a.skill_id == 130086]
+        self.assertGreater(len(ps1_actions), 0, "PS1应触发")
+
+        # 执行PS1
+        hp_lf_before = self.enemy_lf.current_hp
+        hp_cf_before = self.enemy_cf.current_hp
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_ally_killed"
+        )
+
+        # trigger_attacker = enemy_lf (killer) → enemy_lf 应受到伤害
+        self.assertLess(self.enemy_lf.current_hp, hp_lf_before,
+                       "trigger_attacker(enemy_lf)应受到PS1伤害")
+        # 其他敌人不应受到伤害
+        self.assertEqual(self.enemy_cf.current_hp, hp_cf_before,
+                         "enemy_cf(非killer)不应受到PS1伤害")
+
+    # ════════════════════════════════════════════════════════════════
+    # tiers 模式专项（conditional_power_bonus target_mark_count tiers）
+    # ════════════════════════════════════════════════════════════════
+
+    def test_tiers_mode_1_mark_gives_10pct(self):
+        """AS1 tiers模式: mark_count=1 → tier(min_count=1, value=10%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=1)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_with_mark = result.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        ratio = dmg_with_mark / dmg_base
+        self.assertAlmostEqual(ratio, 1.10, delta=0.05,
+                               msg=f"1层mark → tier1 10%增伤，实际: {ratio:.3f}")
+
+    def test_tiers_mode_2_marks_gives_20pct(self):
+        """AS1 tiers模式: mark_count=2 → tier(min_count=2, value=20%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=2)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_with_mark = result.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        ratio = dmg_with_mark / dmg_base
+        self.assertAlmostEqual(ratio, 1.20, delta=0.05,
+                               msg=f"2层mark → tier2 20%增伤，实际: {ratio:.3f}")
+
+    def test_tiers_mode_3_marks_gives_30pct(self):
+        """AS1 tiers模式: mark_count=3 → tier(min_count=3, value=30%)增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=3)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_with_mark = result.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        ratio = dmg_with_mark / dmg_base
+        self.assertAlmostEqual(ratio, 1.30, delta=0.05,
+                               msg=f"3层mark → tier3 30%增伤，实际: {ratio:.3f}")
+
+    def test_tiers_mode_5_marks_caps_at_30pct(self):
+        """AS1 tiers模式: mark_count=5(>3) → 仍取tier3(30%)增伤（封顶）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=5)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_with_mark = result.get("total_damage", 0)
+
+        # base damage
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        result_base = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        dmg_base = result_base.get("total_damage", 0)
+
+        ratio = dmg_with_mark / dmg_base
+        # 5层mark → 仍30%增伤（tier3封顶，无更高tier）
+        self.assertAlmostEqual(ratio, 1.30, delta=0.05,
+                               msg=f"5层mark应封顶在tier3(30%)，实际: {ratio:.3f}")
+
+    def test_tiers_mode_skipped_when_no_mark(self):
+        """AS1 tiers模式: mark_count=0 → 无tier匹配 → 无增伤。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 无ターゲットmark
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 无conditional_power_bonus → 无临时dmg_dealt_up buff
+        dmg_ups = [b for b in self.caster.buffs if b.effect_type == DEALT_DAMAGE]
+        self.assertEqual(len(dmg_ups), 0, "无ターゲットmark时不应有dmg_dealt_up buff")
+
+    def test_tiers_mode_no_burn_below_3_marks(self):
+        """AS1 Block2: mark_count<3 → burn付与block跳过（mark_count>=3未满足）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        # 2个mark（<3）
+        self._apply_target_mark(self.enemy_cf, count=2)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # Block2 应跳过 → 无burn
+        burns = [d for d in self.enemy_cf.debuffs if d.effect_type == CONFLAGRATION]
+        self.assertEqual(len(burns), 0, "2层mark(<3)时Block2应跳过，无burn付与")
+
+    def test_tiers_mode_burn_with_exact_3_marks(self):
+        """AS1 Block2: mark_count=3(>=3) → burn付与（边界值验证）。"""
+        self._reset_caster(hp=self.caster.max_hp)
+        self._reset_enemies()
+        self._apply_target_mark(self.enemy_cf, count=3)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120076, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        burns = [d for d in self.enemy_cf.debuffs if d.effect_type == CONFLAGRATION]
+        self.assertGreater(len(burns), 0, "3层mark(>=3)时Block2应执行burn付与")
+        self.assertEqual(burns[0].duration, 1, "burn duration应为1(1action)")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

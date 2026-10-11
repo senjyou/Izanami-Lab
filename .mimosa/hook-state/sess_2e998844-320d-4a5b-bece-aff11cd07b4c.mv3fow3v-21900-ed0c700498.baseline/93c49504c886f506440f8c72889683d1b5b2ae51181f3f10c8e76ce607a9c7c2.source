@@ -1,0 +1,271 @@
+"""回忆卡10029/20083技能效果回归测试
+
+回忆卡10029「かつて子どもだった私から」(SR):
+- 400230 HP上昇【右列前衛】: battle_start, 右列前衛(ALLY_RIGHT_FRONT, bit=4)のHP+1050
+
+回忆卡20083「コーヒーと、思い出と……」(SSR):
+- 400231 攻撃上昇【ロージー】: battle_start, character_base_master_id=120
+  （ロージー・ヒューズ全变体: 120301/120302）攻撃+1000
+- 400232 アイデア毎T開始【ロージー(指定)】: turn_start, character_master_id=120302
+  （仅【蠱惑のキャンペーンガール】）に1行動の「アイデア」を付与（解除可）
+
+代码变更:
+- battle_flow_controller._apply_structured_effect_to_unit: AcquireMark分支
+  从hardcoded duration=-1改为读取effect的duration/timing_type字段，
+  支持「1行動のmark」（timing_type=3 + source=self → 自身行动结束时递减过期），
+  向后兼容永続mark（如400205三ツ星，无duration字段默认-1）
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.entities.memory_card import MemoryCard
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+import unittest
+
+
+def _make_ally(cid, name, position, element=1):
+    """创建友方单位（使用角色库数据或默认值）"""
+    char = dl.get_character_by_id(cid)
+    if char:
+        stats = char.max_level_stats
+        base_atk, base_hp = stats.attack, stats.hp
+        base_def, base_spd = stats.defense, stats.speed
+    else:
+        base_atk, base_hp, base_def, base_spd = 500, 10000, 300, 200
+    return UnitState(
+        unit_id=f"ally_{cid}", name=name, side=Side.ALLY,
+        position=position, character_id=cid, level=60,
+        element=element, character_type=3,
+        max_hp=base_hp, current_hp=base_hp,
+        attack=base_atk, defense=base_def, speed=base_spd,
+        crit_rate=0.0, crit_damage=50.0, advantage_damage=0.0,
+        initial_active_point=3, initial_passive_point=3, max_extra_point=5,
+        current_ap=3, current_pp=3, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_enemy():
+    return UnitState(
+        unit_id="enemy_front", name="敌方木桩", side=Side.ENEMY,
+        position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=1,
+        element=1, character_type=1,
+        max_hp=999999, current_hp=999999,
+        attack=10, defense=0, speed=50,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=0, initial_passive_point=0, max_extra_point=0,
+        current_ap=0, current_pp=0, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_card(card_id):
+    mem_info = dl.load_memories().get(card_id)
+    return MemoryCard(
+        card_id=card_id, name=mem_info.name,
+        description=mem_info.description, rarity=mem_info.rarity,
+        highlights=mem_info.highlights,
+    )
+
+
+dl = DataLoader()
+dl.load_all()
+dms = DamageService()
+
+
+def _make_controller(bf):
+    aus = AuraService()
+    controller = BattleFlowController(bf, dl)
+    controller.damage_service = dms
+    controller.aura_service = aus
+    return controller, aus
+
+
+class TestMemory10029Skill400230(unittest.TestCase):
+    """400230 HP上昇【右列前衛】: 右列前衛HP+1050"""
+
+    def test_right_front_ally_max_hp_up(self):
+        right_front = _make_ally(120302, "右列前衛", Position.ALLY_RIGHT_FRONT)
+        left_front = _make_ally(120301, "左列前衛", Position.ALLY_LEFT_FRONT)
+        center_back = _make_ally(100302, "中列後衛", Position.ALLY_CENTER_BACK)
+        bf = BattlefieldState()
+        bf.friend_team = [right_front, left_front, center_back]
+        bf.enemy_team = [_make_enemy()]
+        bf.memory_cards = [_make_card(10029)]
+
+        hp_before_rf = dms._calculate_final_stat(right_front, "max_hp")
+        hp_before_lf = dms._calculate_final_stat(left_front, "max_hp")
+        hp_before_cb = dms._calculate_final_stat(center_back, "max_hp")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(right_front, "max_hp"),
+            hp_before_rf + 1050,
+            "右列前衛应获得HP+1050")
+        self.assertEqual(
+            dms._calculate_final_stat(left_front, "max_hp"),
+            hp_before_lf, "左列前衛不应被buff")
+        self.assertEqual(
+            dms._calculate_final_stat(center_back, "max_hp"),
+            hp_before_cb, "中列後衛不应被buff")
+
+        # buff属性验证
+        mem_buffs = [b for b in right_front.buffs
+                     if getattr(b, 'is_memory_buff', False)
+                     and b.effect_type == "StatusMaxHp"]
+        self.assertEqual(len(mem_buffs), 1)
+        self.assertEqual(mem_buffs[0].value, 1050)
+        self.assertEqual(mem_buffs[0].duration, -1)
+
+
+class TestMemory20083Skill400231(unittest.TestCase):
+    """400231 攻撃上昇【ロージー】: ロージー・ヒューズ全变体攻撃+1000"""
+
+    def test_all_rosie_variants_atk_up(self):
+        rosie_a = _make_ally(120301, "ロージーA", Position.ALLY_LEFT_FRONT)
+        rosie_b = _make_ally(120302, "ロージーB", Position.ALLY_CENTER_FRONT)
+        other = _make_ally(100302, "非ロージー", Position.ALLY_RIGHT_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [rosie_a, rosie_b, other]
+        bf.enemy_team = [_make_enemy()]
+        # 20083包含400231/400232两个highlight，battle_start只处理400231
+        bf.memory_cards = [_make_card(20083)]
+
+        atk_before_a = dms._calculate_final_stat(rosie_a, "attack")
+        atk_before_b = dms._calculate_final_stat(rosie_b, "attack")
+        atk_before_o = dms._calculate_final_stat(other, "attack")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(rosie_a, "attack"),
+            atk_before_a + 1000, "ロージー(120301)应获得攻撃+1000")
+        self.assertEqual(
+            dms._calculate_final_stat(rosie_b, "attack"),
+            atk_before_b + 1000, "ロージー(120302)应获得攻撃+1000")
+        self.assertEqual(
+            dms._calculate_final_stat(other, "attack"),
+            atk_before_o, "非ロージー不应被buff")
+
+
+class TestMemory20083Skill400232(unittest.TestCase):
+    """400232 アイデア毎T開始【ロージー(指定)】: 仅120302每回合获得1行動アイデア"""
+
+    def setUp(self):
+        self.rosie_a = _make_ally(120301, "ロージーA", Position.ALLY_LEFT_FRONT)
+        self.rosie_b = _make_ally(120302, "ロージーB(蠱惑)", Position.ALLY_CENTER_FRONT)
+        self.other = _make_ally(100302, "非ロージー", Position.ALLY_RIGHT_FRONT)
+        self.bf = BattlefieldState()
+        self.bf.friend_team = [self.rosie_a, self.rosie_b, self.other]
+        self.bf.enemy_team = [_make_enemy()]
+        self.bf.memory_cards = [_make_card(20083)]
+        self.controller, self.aus = _make_controller(self.bf)
+
+    def _get_idea_marks(self, unit):
+        return [b for b in unit.buffs
+                if b.effect_type == SkillEffectType.MARK.value
+                and getattr(b, 'name', '') == 'アイデア']
+
+    def test_turn_start_grants_idea_only_to_120302(self):
+        self.bf.turn_number = 1
+        self.controller._apply_memory_card_effects_by_trigger("turn_start")
+
+        marks_b = self._get_idea_marks(self.rosie_b)
+        self.assertEqual(len(marks_b), 1, "120302应获得アイデア mark")
+        self.assertEqual(marks_b[0].duration, 1, "アイデア持续1行動")
+        self.assertEqual(marks_b[0].timing_type, 3)
+        self.assertTrue(marks_b[0].is_memory_buff)
+        self.assertFalse(marks_b[0].unremovable, "解除可（非unremovable）")
+        self.assertEqual(marks_b[0].source_skill_id, 400232)
+
+        self.assertEqual(len(self._get_idea_marks(self.rosie_a)), 0,
+                         "120301（非指定变体）不应获得アイデア")
+        self.assertEqual(len(self._get_idea_marks(self.other)), 0,
+                         "非ロージー不应获得アイデア")
+
+    def test_idea_expires_after_own_action(self):
+        """1行動mark在目标自身行动结束时过期"""
+        self.bf.turn_number = 1
+        self.controller._apply_memory_card_effects_by_trigger("turn_start")
+        marks = self._get_idea_marks(self.rosie_b)
+        self.assertEqual(len(marks), 1)
+
+        # just_applied清除（回合开始全局触发后统一清除）
+        for b in self.rosie_b.buffs:
+            b.just_applied = False
+
+        # ロージー自身行动结束 → duration 1→0 → 过期清理
+        self.aus.process_maneuver_end(self.rosie_b)
+        self.aus.check_expiration(self.rosie_b, self.bf.get_all_units())
+        self.assertEqual(len(self._get_idea_marks(self.rosie_b)), 0,
+                         "自身行动结束后アイデア应过期")
+
+    def test_idea_reapplied_every_turn(self):
+        """每回合开始重新付与アイデア"""
+        for turn in (1, 2, 3):
+            self.bf.turn_number = turn
+            self.controller._apply_memory_card_effects_by_trigger("turn_start")
+            marks = self._get_idea_marks(self.rosie_b)
+            self.assertEqual(len(marks), turn,
+                             f"第{turn}回合后应有{turn}个アイデア实例（memory buff无条件叠加）")
+            self.assertEqual(marks[-1].duration, 1)
+
+    def test_battle_start_does_not_trigger_400232(self):
+        """battle_start阶段不触发turn_start类型技能（trigger过滤）"""
+        self.controller._apply_memory_card_effects()
+        self.assertEqual(len(self._get_idea_marks(self.rosie_b)), 0,
+                         "battle_start不应触发400232")
+
+
+class TestAcquireMarkDurationBackwardCompat(unittest.TestCase):
+    """AcquireMark duration改动向后兼容: 永続mark（无duration字段）保持-1"""
+
+    def test_permanent_mark_default_duration(self):
+        """400205三ツ星（无duration字段）仍为永続mark"""
+        center_back = _make_ally(100302, "中列後衛", Position.ALLY_CENTER_BACK)
+        bf = BattlefieldState()
+        bf.friend_team = [center_back]
+        bf.enemy_team = [_make_enemy()]
+
+        # 直接构造400205效果数据调用（不依赖回忆卡10029/20083）
+        controller, aus = _make_controller(bf)
+        effect = {
+            "effect_type": "AcquireMark",
+            "mark_name": "三ツ星",
+            "is_memory_buff": True,
+        }
+        controller._apply_structured_effect_to_unit(
+            "测试卡", center_back, 400205, "三ツ星【中央列後衛】", effect)
+
+        marks = [b for b in center_back.buffs
+                 if b.effect_type == SkillEffectType.MARK.value
+                 and getattr(b, 'name', '') == '三ツ星']
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(marks[0].duration, -1, "无duration字段默认永続")
+
+        # 行动结束不消失
+        for b in center_back.buffs:
+            b.just_applied = False
+        aus.process_maneuver_end(center_back)
+        aus.check_expiration(center_back, bf.get_all_units())
+        self.assertEqual(len([b for b in center_back.buffs
+                              if b.effect_type == SkillEffectType.MARK.value
+                              and getattr(b, 'name', '') == '三ツ星']), 1,
+                         "永続mark行动结束后不应消失")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,238 @@
+"""BattleBuilder扩展API的单元测试。
+
+验证with_buff/with_debuff/with_mark/with_shield/with_cooldown/with_hp/
+set_charging/set_alive/set_cumulative_damage/force_crit/force_nocrit等新API。
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from tests.helpers.battle_builder import BattleBuilder
+
+
+class TestBattleBuilderExtensions:
+    """BattleBuilder扩展API测试。"""
+
+    def test_with_buff(self):
+        """with_buff正确添加buff到单位。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .with_buff("a1", name="atk_up_test", effect_type="atk_up",
+                             value=20.0, duration=3)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert len(ally.buffs) == 1
+        assert ally.buffs[0].name == "atk_up_test"
+        assert ally.buffs[0].effect_type == "atk_up"
+        assert ally.buffs[0].value == 20.0
+        assert ally.buffs[0].duration == 3
+        assert ally.buffs[0].is_debuff is False
+
+    def test_with_debuff(self):
+        """with_debuff正确添加debuff到单位。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .with_debuff("a1", name="def_down_test", effect_type="def_down",
+                               value=15.0, duration=2)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert len(ally.debuffs) == 1
+        assert ally.debuffs[0].name == "def_down_test"
+        assert ally.debuffs[0].effect_type == "def_down"
+        assert ally.debuffs[0].value == 15.0
+        assert ally.debuffs[0].is_debuff is True
+
+    def test_with_mark(self):
+        """with_mark正确添加mark debuff。"""
+        result = (BattleBuilder()
+                  .add_enemy(unit_id="e1")
+                  .with_mark("e1", mark_name="kyou_chou", value=1.0)
+                  .build(load_data=False))
+        enemy = result['enemies'][0]
+        assert len(enemy.debuffs) == 1
+        assert enemy.debuffs[0].name == "kyou_chou"
+        assert enemy.debuffs[0].effect_type == "mark"
+        assert enemy.debuffs[0].value == 1.0
+        assert enemy.debuffs[0].is_debuff is True
+
+    def test_with_shield(self):
+        """with_shield同时设置shield字段和buff。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .with_shield("a1", shield_amount=5000)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.shield == 5000
+        assert len(ally.buffs) == 1
+        assert ally.buffs[0].effect_type == "shield"
+        assert ally.buffs[0].shield_amount == 5000
+
+    def test_with_multiple_shields_accumulate(self):
+        """多次with_shield叠加shield值。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .with_shield("a1", shield_amount=3000, name="shield1")
+                  .with_shield("a1", shield_amount=2000, name="shield2")
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.shield == 5000
+        assert len(ally.buffs) == 2
+
+    def test_with_cooldown(self):
+        """with_cooldown设置技能冷却。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", skills=[100301, 100302])
+                  .with_cooldown("a1", 100301, turns=2)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.skill_cooldowns[100301] == 2
+        assert 100302 not in ally.skill_cooldowns
+
+    def test_with_hp(self):
+        """with_hp设置当前HP和prev_hp_percent。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", hp=50000)
+                  .with_hp("a1", 10000)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.current_hp == 10000
+        assert abs(ally.prev_hp_percent - 20.0) < 0.01
+
+    def test_with_hp_zero(self):
+        """with_hp设置为0时不报错。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", hp=50000)
+                  .with_hp("a1", 0)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.current_hp == 0
+        assert ally.prev_hp_percent == 0.0
+
+    def test_set_charging(self):
+        """set_charging设置蓄力状态。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .set_charging("a1", charge_skill_id=100305)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.is_charging is True
+        assert ally.charge_skill_id == 100305
+
+    def test_set_alive_false(self):
+        """set_alive(False)设置死亡且HP归零。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .set_alive("a1", False)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.is_alive is False
+        assert ally.current_hp == 0
+
+    def test_set_alive_true(self):
+        """set_alive(True)恢复存活。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1")
+                  .set_alive("a1", False)
+                  .set_alive("a1", True)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.is_alive is True
+
+    def test_set_cumulative_damage(self):
+        """set_cumulative_damage设置累计HP伤害。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", hp=50000)
+                  .set_cumulative_damage("a1", 40000)
+                  .build(load_data=False))
+        ally = result['allies'][0]
+        assert ally.cumulative_hp_damage == 40000
+
+    def test_force_crit_with_real_damage(self):
+        """force_crit通过crit_override实现强制暴击。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", atk=10000, crit_rate=0.0)  # 0%暴击率
+                  .add_enemy(unit_id="e1", hp=100000, defense=0)
+                  .force_crit("a1")
+                  .build(load_data=True))
+        dms = result['dms']
+
+        # crit_rate=0但force_crit应强制暴击
+        dms._crit_context = {
+            'attacker_id': 'a1',
+            'attacker_name': 'a1',
+            'target_id': 'e1',
+            'target_name': 'e1',
+        }
+        is_crit = dms._check_crit(0.0)
+        assert is_crit is True
+
+    def test_force_nocrit_with_real_damage(self):
+        """force_nocrit通过crit_override实现强制不暴击。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", atk=10000, crit_rate=1.0)  # 100%暴击率
+                  .add_enemy(unit_id="e1", hp=100000, defense=0)
+                  .force_nocrit("a1")
+                  .build(load_data=True))
+        dms = result['dms']
+
+        dms._crit_context = {
+            'attacker_id': 'a1',
+            'attacker_name': 'a1',
+            'target_id': 'e1',
+            'target_name': 'e1',
+        }
+        is_crit = dms._check_crit(1.0)
+        assert is_crit is False
+
+    def test_force_crit_other_unit_not_affected(self):
+        """force_crit只影响指定单位，其他单位走正常判定。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="a1", crit_rate=0.0)
+                  .add_ally(unit_id="a2", crit_rate=0.0)
+                  .add_enemy(unit_id="e1")
+                  .force_crit("a1")
+                  .build(load_data=True))
+        dms = result['dms']
+
+        # a1强制暴击
+        dms._crit_context = {'attacker_id': 'a1'}
+        assert dms._check_crit(0.0) is True
+
+        # a2不受影响，crit_rate=0时random.random() < 0.0恒为False
+        dms._crit_context = {'attacker_id': 'a2'}
+        assert dms._check_crit(0.0) is False
+
+    def test_unit_not_found_raises(self):
+        """查找不存在的unit_id抛出KeyError。"""
+        import pytest
+        builder = BattleBuilder().add_ally(unit_id="a1")
+        with pytest.raises(KeyError):
+            builder.with_buff("nonexistent")
+
+    def test_chained_build(self):
+        """链式调用组合多个API。"""
+        result = (BattleBuilder()
+                  .add_ally(unit_id="tank", hp=80000, defense=8000)
+                  .add_ally(unit_id="dps", atk=15000, crit_rate=0.5)
+                  .add_enemy(unit_id="boss", hp=200000, atk=12000)
+                  .with_buff("tank", name="def_up", effect_type="def_up", value=30.0)
+                  .with_debuff("boss", name="def_down", effect_type="def_down", value=20.0)
+                  .with_mark("boss", mark_name="kyou_chou", value=2.0)
+                  .with_shield("tank", shield_amount=10000)
+                  .with_hp("tank", 40000)
+                  .force_crit("dps")
+                  .build(load_data=False))
+
+        tank = result['allies'][0]
+        dps = result['allies'][1]
+        boss = result['enemies'][0]
+
+        assert tank.current_hp == 40000
+        assert tank.shield == 10000
+        assert len(tank.buffs) == 2  # def_up + shield
+        assert tank.buffs[0].name == "def_up"
+        assert tank.buffs[1].name == "test_shield"
+
+        assert len(boss.debuffs) == 2  # def_down + mark
+        assert boss.debuffs[0].name == "def_down"
+        assert boss.debuffs[1].name == "kyou_chou"

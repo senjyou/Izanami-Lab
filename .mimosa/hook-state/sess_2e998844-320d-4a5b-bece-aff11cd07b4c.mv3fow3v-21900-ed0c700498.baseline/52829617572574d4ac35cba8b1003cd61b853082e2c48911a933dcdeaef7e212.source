@@ -1,0 +1,61 @@
+"""
+角色缓存初始化脚本
+
+功能:
+- 为所有48个角色创建默认配置
+- 批量计算面板属性
+- 生成 character_stats_cache.json
+
+使用方法:
+    python scripts/initialize_cache.py
+"""
+
+import sys
+import os
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 导入编码工具（必须在其他导入之前）
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+# 配置控制台编码（必须在任何输出之前调用）
+setup_console_encoding()
+
+from src.data.stats_cache import CharacterStatsCache
+
+
+def main():
+    safe_print("=" * 60)
+    safe_print("角色属性缓存初始化")
+    safe_print("=" * 60)
+    safe_print()
+    
+    # 创建缓存管理器
+    cache = CharacterStatsCache()
+    
+    safe_print("默认配置:")
+    safe_print("  - 等级: 200")
+    safe_print("  - 稀有度: LR+5 (14)")
+    safe_print("  - 好感度: 40")
+    safe_print("  - 学园等级: 全40级")
+    safe_print("  - 模块: T10 55级 (无词条)")
+    safe_print("  - 装备: 启用")
+    safe_print()
+    
+    # 初始化所有角色
+    cache.initialize_all_characters()
+    
+    # 保存到文件
+    safe_print()
+    cache.save()
+    
+    safe_print()
+    safe_print("=" * 60)
+    safe_print("初始化完成！")
+    safe_print(f"缓存文件: {cache.CACHE_FILE}")
+    safe_print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

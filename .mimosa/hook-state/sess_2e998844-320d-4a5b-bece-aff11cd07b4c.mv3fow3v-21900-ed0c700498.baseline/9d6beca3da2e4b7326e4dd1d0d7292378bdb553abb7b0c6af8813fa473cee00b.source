@@ -1,0 +1,603 @@
+"""
+角色137301 無邪気なジャックナイフ（彩峰慧）专项测试
+- EX: 110048 突撃前衛（敌全体5hit攻击 + 1行动SPD-50(可叠加)）
+- AS1: 120106 ウルフズショット（敌2/3体攻击 + 自身最近敌邻接敌2体攻击 + 自身狼心1行动）
+- AS2: 120107 ウルフズスラッシュ（无狼心:敌单体攻击 / 有狼心:敌3体高威力攻击）
+- PS1: 130116 応急防御（回合开始触发 + 永久条件性减伤30%(HP≥阈值时生效) + Lv11+最大HP上升(不可解除)）
+- PS2: 130117 勝機の直感（敌方被赋予Debuff时触发 + 对该敌单体攻击 + 排除战斗开始/回合开始/回合结束）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+SPD_DOWN = SkillEffectType.STATUS_SPEED.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+MAX_HP_UP = SkillEffectType.STATUS_MAX_HP.value
+
+
+class TestActor137301(unittest.TestCase):
+    """角色137301 無邪気なジャックナイフ 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 137301 彩峰慧 (水属性, 灵活型, 后排)
+        self.caster = UnitState(
+            unit_id="ally_back", name="彩峰慧", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=137301, level=10,
+            element=2, character_type=3,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110048, 120106, 120107, 130116, 130117],
+            skill_levels={110048: 10, 120106: 10, 120107: 10, 130116: 10, 130117: 10},
+            skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方后排中央
+        self.enemy_back = UnitState(
+            unit_id="enemy_back", name="敌方后排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_BACK, character_id=999002, level=10,
+            element=3, character_type=1,
+            max_hp=12000, current_hp=12000,
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=4,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前
+        self.enemy_right_front = UnitState(
+            unit_id="enemy_right_front", name="敌方右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=5, character_type=2,
+            max_hp=8000, current_hp=8000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=1,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_back,
+                              self.enemy_left_front, self.enemy_right_front]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: 突撃前衛 ───
+
+    def test_ex_5hit_damage(self):
+        """
+        EX(110048) 5hit全体攻击
+        验证: 对敌方全体造成5hit伤害
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110048, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "EX应造成伤害")
+
+        # 验证5hit
+        for e in dmg_effects:
+            hits = e.get("hits", [])
+            if hits:
+                self.assertEqual(len(hits), 5, f"EX应为5hit, 实际: {len(hits)}")
+
+    def test_ex_spd_down(self):
+        """
+        EX(110048) SPD下降
+        验证: 敌方全体1行动SPD-50(可叠加)
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=110048, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查敌方是否有spd_down debuff
+        for enemy in [self.enemy_front, self.enemy_back, self.enemy_left_front, self.enemy_right_front]:
+            spd_debuffs = [d for d in enemy.debuffs if d.effect_type == SPD_DOWN]
+            self.assertTrue(len(spd_debuffs) > 0, f"{enemy.name}应有spd_down")
+            self.assertEqual(spd_debuffs[0].duration, 1, "spd_down应持续1行动")
+            self.assertEqual(spd_debuffs[0].value, 50, "spd_down值应为50(计算时作为减量)")
+
+    def test_ex_spd_down_stackable(self):
+        """
+        EX(110048) SPD下降可叠加
+        验证: 多次使用EX后spd_down叠加
+        """
+        # 第一次EX
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110048, battlefield=self.bf, skip_cost=True
+        )
+        # 第二次EX
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110048, battlefield=self.bf, skip_cost=True
+        )
+
+        spd_debuffs = [d for d in self.enemy_front.debuffs if d.effect_type == SPD_DOWN]
+        self.assertGreaterEqual(len(spd_debuffs), 2, "多次EX后spd_down应叠加")
+
+    # ─── AS1: ウルフズショット ───
+
+    def test_as1_damage_and_wolf_heart(self):
+        """
+        AS1(120106) 攻击+狼心
+        验证: 对敌2体攻击 + 邻接最近敌2体攻击 + 自身狼心1行动
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120106, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查狼心buff
+        wolf_heart_buffs = [b for b in self.caster.buffs if b.effect_type == "狼心"]
+        self.assertTrue(len(wolf_heart_buffs) > 0, "AS1应施加狼心")
+        self.assertEqual(wolf_heart_buffs[0].duration, 1, "狼心应持续1行动")
+
+    def test_as1_adjacent_to_nearest_enemy(self):
+        """
+        AS1(120106) 邻接最近敌人选择
+        验证: adjacent_to_nearest_enemy目标选择基于"自身最近敌人"的邻接
+        caster在中后(col=1), 最近敌为敌方前排中(0,1)距离=1
+        前排中的邻接位置: 左前(0,0)和右前(0,2)
+        """
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120106, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) >= 2, "AS1应有至少2组伤害效果(enemies + adjacent_to_nearest_enemy)")
+
+    def test_as1_lv15_3_targets(self):
+        """
+        AS1(120106) Lv15攻击3体
+        验证: Lv15时enemies目标数变为3
+        """
+        self.caster.skill_levels[120106] = 15
+        self.caster.level = 15
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120106, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 应有狼心
+        wolf_heart_buffs = [b for b in self.caster.buffs if b.effect_type == "狼心"]
+        self.assertTrue(len(wolf_heart_buffs) > 0, "Lv15 AS1应施加狼心")
+
+    # ─── AS2: ウルフズスラッシュ ───
+
+    def test_as2_no_wolf_heart_single_target(self):
+        """
+        AS2(120107) 无狼心时单体攻击
+        验证: 无狼心时对敌单体攻击
+        """
+        # 确保没有狼心
+        self.caster.buffs = [b for b in self.caster.buffs if b.effect_type != "狼心"]
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120107, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "AS2应造成伤害")
+
+        # 无狼心时应该是单体攻击(enemy_single)
+        total_targets = set()
+        for e in dmg_effects:
+            for t in e.get("targets", []):
+                total_targets.add(t.get("target_id"))
+        self.assertEqual(len(total_targets), 1, "无狼心时AS2应为单体攻击")
+
+    def test_as2_with_wolf_heart_3_targets(self):
+        """
+        AS2(120107) 有狼心时3体攻击
+        验证: 有狼心时对敌3体高威力攻击
+        """
+        # 添加狼心buff
+        wolf_heart = BuffState(
+            buff_id="test_wolf_heart", name="狼心", effect_type="狼心",
+            value=0, duration=1, timing_type=AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+        )
+        self.caster.buffs.append(wolf_heart)
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=120107, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_effects = [e for e in result["effects_applied"] if e.get("effect_type") == "damage"]
+        self.assertTrue(len(dmg_effects) > 0, "AS2应造成伤害")
+
+        # 有狼心时应该是3体攻击(enemies, target_count=3)
+        total_targets = set()
+        for e in dmg_effects:
+            for t in e.get("targets", []):
+                total_targets.add(t.get("target_id"))
+        self.assertGreaterEqual(len(total_targets), 2, "有狼心时AS2应为多体攻击")
+
+    # ─── PS1: 応急防御 ───
+
+    def test_ps1_conditional_damage_reduction(self):
+        """
+        PS1(130116) 条件性减伤
+        验证: HP≥阈值时减伤30%生效，HP<阈值时不生效
+        """
+        # 手动触发PS1
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 检查dmg_taken_down buff
+        dmg_down_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertTrue(len(dmg_down_buffs) > 0, "PS1应施加dmg_taken_down buff")
+        self.assertEqual(dmg_down_buffs[0].duration, -1, "dmg_taken_down应为永久(duration=-1)")
+        self.assertGreater(dmg_down_buffs[0].hp_threshold, 0, "dmg_taken_down应有hp_threshold")
+
+    def test_ps1_damage_reduction_effective_at_high_hp(self):
+        """
+        PS1(130116) 高HP时减伤生效
+        验证: HP≥阈值时，受到伤害减少30%
+        """
+        # 先施加PS1 buff
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 获取hp_threshold
+        dmg_down_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertTrue(len(dmg_down_buffs) > 0)
+        threshold = dmg_down_buffs[0].hp_threshold
+
+        # 确保HP高于阈值
+        self.caster.current_hp = self.caster.max_hp  # 100% HP
+        hp_pct = self.caster.current_hp / self.caster.max_hp * 100
+        self.assertGreaterEqual(hp_pct, threshold, "HP应高于阈值")
+
+        # 验证减伤生效: 使用damage_service计算
+        mult = self.dms._get_damage_received_multiplier(self.caster)
+        self.assertLess(mult, 1.0, "高HP时减伤应生效，受伤倍率应<1.0")
+
+    def test_ps1_damage_reduction_ineffective_at_low_hp(self):
+        """
+        PS1(130116) 低HP时减伤不生效
+        验证: HP<阈值时，减伤buff不生效
+        """
+        # 先施加PS1 buff
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 获取hp_threshold
+        dmg_down_buffs = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+        self.assertTrue(len(dmg_down_buffs) > 0)
+        threshold = dmg_down_buffs[0].hp_threshold
+
+        # 设置HP低于阈值
+        self.caster.current_hp = int(self.caster.max_hp * (threshold - 10) / 100)
+        hp_pct = self.caster.current_hp / self.caster.max_hp * 100
+        self.assertLess(hp_pct, threshold, "HP应低于阈值")
+
+        # 验证减伤不生效
+        mult = self.dms._get_damage_received_multiplier(self.caster)
+        self.assertEqual(mult, 1.0, "低HP时减伤不应生效，受伤倍率应为1.0")
+
+    def test_ps1_unremovable_max_hp_up(self):
+        """
+        PS1(130116) Lv11+ 不可解除最大HP上升
+        验证: Lv11+时增加max_hp并同步提升current_hp（保持HP比例不被稀释）
+        """
+        self.caster.skill_levels[130116] = 15
+        self.caster.level = 15
+        original_max_hp = self.caster.max_hp
+        original_current_hp = self.caster.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # max_hp_up直接修改max_hp，不创建buff，并同步提升current_hp（按增量）
+        self.assertGreater(self.caster.max_hp, original_max_hp, "Lv11+ PS1应增加max_hp")
+        hp_increase = self.caster.max_hp - original_max_hp
+        expected_current_hp = min(original_current_hp + hp_increase, self.caster.max_hp)
+        self.assertEqual(self.caster.current_hp, expected_current_hp,
+                         f"max_hp_up应同步提升current_hp（+{hp_increase}）")
+
+    def test_ps1_max_hp_up_not_removable(self):
+        """
+        PS1(130116) max_hp_up直接修改属性，不可被驱散
+        验证: max_hp增加后，尝试remove_aura不会影响max_hp
+        """
+        self.caster.skill_levels[130116] = 15
+        self.caster.level = 15
+        original_max_hp = self.caster.max_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        max_hp_after = self.caster.max_hp
+        self.assertGreater(max_hp_after, original_max_hp, "max_hp应已增加")
+
+        # 尝试移除所有buff（max_hp_up不创建buff，所以不受影响）
+        for buff in list(self.caster.buffs):
+            self.aus.remove_aura(self.caster, buff.buff_id)
+
+        # max_hp应保持不变
+        self.assertEqual(self.caster.max_hp, max_hp_after, "max_hp_up直接修改属性，不受驱散影响")
+
+    def test_ps1_max_hp_up_not_expired(self):
+        """
+        PS1(130116) max_hp_up直接修改属性，不会过期
+        验证: check_expiration不会影响max_hp
+        """
+        self.caster.skill_levels[130116] = 15
+        self.caster.level = 15
+        original_max_hp = self.caster.max_hp
+
+        result = self.ss.execute_skill(
+            caster=self.caster, skill_id=130116, battlefield=self.bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        max_hp_after = self.caster.max_hp
+        self.assertGreater(max_hp_after, original_max_hp, "max_hp应已增加")
+
+        # 模拟回合结束检查
+        self.aus.check_expiration(self.caster)
+
+        # max_hp应保持不变
+        self.assertEqual(self.caster.max_hp, max_hp_after, "max_hp_up直接修改属性，不会过期")
+
+    # ─── PS2: 勝機の直感 ───
+
+    def test_ps2_triggers_on_debuff_applied(self):
+        """
+        PS2(130117) 敌方被赋予Debuff时触发
+        验证: 当敌方被施加debuff时，PS2触发并对该敌攻击
+        """
+        # 先对敌方施加一个debuff（通过EX的spd_down）
+        self.ss.execute_skill(
+            caster=self.caster, skill_id=110048, battlefield=self.bf, skip_cost=True
+        )
+
+        # 检查是否有PS2触发动作
+        # PS2的trigger_type是on_debuff_applied，映射到PAWN_RECEIVED_AURA
+        # 在battle_flow_controller中，AS技能执行后会调用trigger_pawn_received_aura
+        # 这里直接测试trigger_service
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertTrue(len(ps2_actions) > 0, "敌方被赋予debuff时PS2应触发")
+
+    def test_ps2_damage_to_debuff_target(self):
+        """
+        PS2(130117) 攻击被赋予debuff的敌方
+        验证: PS2对被施加debuff的敌方单体攻击
+        """
+        # 设置PS2触发上下文
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertTrue(len(ps2_actions) > 0, "PS2应触发")
+
+        # 执行PS2
+        hp_before = self.enemy_front.current_hp
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps2_actions, self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        self.assertLess(self.enemy_front.current_hp, hp_before,
+                        "PS2应对被赋予debuff的敌方造成伤害")
+
+    def test_ps2_exclude_battle_start(self):
+        """
+        PS2(130117) 战斗开始时不触发
+        验证: exclude_timing排除before_battle
+        """
+        from src.combat_v2.services.trigger_service import TriggerTiming
+        self.bf.current_trigger_phase = TriggerTiming.BATTLE_START
+
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertEqual(len(ps2_actions), 0, "战斗开始时PS2不应触发")
+
+        # 清理
+        self.bf.current_trigger_phase = None
+
+    def test_ps2_exclude_turn_start(self):
+        """
+        PS2(130117) 回合开始时不触发
+        验证: exclude_timing排除on_turn_start
+        """
+        from src.combat_v2.services.trigger_service import TriggerTiming
+        self.bf.current_trigger_phase = TriggerTiming.TURN_START
+
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertEqual(len(ps2_actions), 0, "回合开始时PS2不应触发")
+
+        # 清理
+        self.bf.current_trigger_phase = None
+
+    def test_ps2_exclude_turn_end(self):
+        """
+        PS2(130117) 回合结束时不触发
+        验证: exclude_timing排除on_turn_end
+        """
+        from src.combat_v2.services.trigger_service import TriggerTiming
+        self.bf.current_trigger_phase = TriggerTiming.TURN_END
+
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertEqual(len(ps2_actions), 0, "回合结束时PS2不应触发")
+
+        # 清理
+        self.bf.current_trigger_phase = None
+
+    def test_ps2_triggers_during_skill_execution(self):
+        """
+        PS2(130117) 技能执行期间触发
+        验证: 非排除时机时PS2正常触发
+        """
+        # 确保current_trigger_phase为None（非排除时机）
+        self.bf.current_trigger_phase = None
+
+        aura_target_ids = [self.enemy_front.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=aura_target_ids,
+            actor=self.caster,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertTrue(len(ps2_actions) > 0, "非排除时机时PS2应触发")
+
+    def test_ps2_no_trigger_for_ally_debuff(self):
+        """
+        PS2(130117) 己方被赋予debuff不触发
+        验证: 只有敌方被赋予debuff时才触发
+        """
+        # 己方被施加debuff
+        ally_target_ids = [self.caster.unit_id]
+        applied_debuff_types = {"spd_down"}
+
+        actions = self.ts.trigger_pawn_received_aura(
+            self.bf,
+            affected_unit_ids=ally_target_ids,
+            actor=self.enemy_front,
+            applied_debuff_types=applied_debuff_types,
+        )
+
+        ps2_actions = [a for a in actions if a.skill_id == 130117]
+        self.assertEqual(len(ps2_actions), 0, "己方被赋予debuff时PS2不应触发")
+
+
+if __name__ == "__main__":
+    unittest.main()

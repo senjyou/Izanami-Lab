@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+"""element_synergy 同属性组队加成测试（含双属性角色主/副属性均计入）"""
+import pytest
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.services.element_synergy import apply_element_synergy
+
+
+def _u(uid, element, sub_element=0, side=Side.ALLY):
+    pos = Position.ALLY_CENTER_FRONT if side == Side.ALLY else Position.ENEMY_CENTER_FRONT
+    return UnitState(
+        unit_id=uid, name=uid, side=side, position=pos, character_id=1, level=1,
+        element=element, sub_element=sub_element, character_type=1,
+        max_hp=10000, current_hp=10000, attack=1000, defense=1000, speed=100,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=3, initial_passive_point=3, max_extra_point=0,
+        current_ap=3, current_pp=3, current_ep=0, position_type=3,
+    )
+
+
+class TestElementSynergyDualAttribute:
+    def test_single_attribute_unchanged(self):
+        """单属性行为不变: 3体土 → primary=3 → ATK+10% HP+10%"""
+        units = [_u("a", 4), _u("b", 4), _u("c", 4)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.10)
+        assert units[0].max_hp == int(10000 * 1.10)
+
+    def test_dual_sub_counts_toward_same_element(self):
+        """副属性计入同属性: 3体土 + 1双属性(主火1副土4) → 土=4 → ATK+15% HP+20%"""
+        units = [_u("a", 4), _u("b", 4), _u("c", 4), _u("d", 1, sub_element=4)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.15)
+        assert units[0].max_hp == int(10000 * 1.20)
+
+    def test_dual_main_and_sub_both_counted(self):
+        """主副属性均计入: 2体土 + 2双属性(主土4副火1) → 土=4 → ATK+15% HP+20%"""
+        units = [_u("a", 4), _u("b", 4), _u("c", 4, sub_element=1), _u("d", 4, sub_element=1)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.15)
+        assert units[0].max_hp == int(10000 * 1.20)
+
+    def test_dual_reaches_5_same_element(self):
+        """副属性使同属性数达5: 3体土 + 2双属性(主土4副火1) → 土=5 → ATK+25% HP+25%"""
+        units = [_u("a", 4), _u("b", 4), _u("c", 4),
+                 _u("d", 4, sub_element=1), _u("e", 4, sub_element=1)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.25)
+        assert units[0].max_hp == int(10000 * 1.25)
+
+    def test_secondary_threshold_via_dual(self):
+        """副属性使 secondary>=2: 3体土 + 2双属性(主火1副风3) → 土=3,火=2,风=2 → (15,15)"""
+        units = [_u("a", 4), _u("b", 4), _u("c", 4),
+                 _u("d", 1, sub_element=3), _u("e", 1, sub_element=3)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.15)
+        assert units[0].max_hp == int(10000 * 1.15)
+
+    def test_dark_sub_attribute_counts(self):
+        """副属性暗计入: 2体暗 + 1双属性(主火1副暗6) → dark=3 → DEF+30% CRIT+15% ATK+10% HP+10%"""
+        units = [_u("a", 6), _u("b", 6), _u("c", 1, sub_element=6)]
+        apply_element_synergy(units)
+        u = units[0]
+        assert u.attack == int(1000 * 1.10)
+        assert u.max_hp == int(10000 * 1.10)
+        assert u.defense == int(1000 * 1.30)
+        assert u.crit_rate == pytest.approx(0.15)
+
+    def test_main_equals_sub_not_double_counted(self):
+        """防御性: 主副相同属性只计1次 → 5体土(sub也设4) → ATK+25%"""
+        units = [_u(f"u{i}", 4, sub_element=4) for i in range(5)]
+        apply_element_synergy(units)
+        assert units[0].attack == int(1000 * 1.25)
+
+    def test_no_sub_attribute_default(self):
+        """未设置副属性(默认0)不影响: 2体土 → ATK+0%"""
+        units = [_u("a", 4), _u("b", 4)]
+        apply_element_synergy(units)
+        assert units[0].attack == 1000

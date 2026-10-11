@@ -1,0 +1,343 @@
+"""Regression: 腕白メイド娘 AS技能吸血 (120012/120033).
+
+Bug: Original config used `flags.lifesteal_tag: "cure"` on the damage effect,
+     but no code processes this flag - it's completely non-functional.
+     Lifesteal was silently not applied.
+
+Fix: Changed to independent `lifesteal` effect_type (effect_type="lifesteal",
+     target_type="self", value_tag="cure"), matching 禅刃再生 (120020) pattern.
+     The `_apply_lifesteal` method reads `effect.value` (resolved from value_tag)
+     as cure_pct and uses `self._most_recent_damage` accumulator.
+
+Verification:
+1. Config: 120012/120033 have independent `lifesteal` effect (not lifesteal_tag flag)
+2. 120033 (1 target): caster HP increases after AS execution
+3. 120012 (2 targets): caster HP increases after AS execution
+4. Heal amount equals total_damage * cure_pct / 100
+5. Lifesteal does NOT fire when no damage dealt (e.g. all evaded)
+6. Lifesteal respects max_hp cap (does not overheal)
+7. Enemy version (220335/220336) also has correct lifesteal config
+8. Lifesteal respects heal_efficacy (ReceivedHealing) buff/debuff on caster
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.unit_state import BuffState
+from src.entities_v2.enums import Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+
+DRAIN_SHOT = 120033      # ドレインショット: 敵単体
+W_DRAIN_SHOT = 120012    # Ｗドレインショット: 敵2体
+ZENRIN_SAISEI = 120020   # 禅刃再生: reference implementation
+
+
+class TestRegMaidLifesteal(unittest.TestCase):
+    """腕白メイド娘 AS吸血 (120012/120033) - 参考禅刃再生(120020)实现."""
+
+    @classmethod
+    def setUpClass(cls):
+        bb = BattleBuilder()
+        # Ally caster: 腕白メイド娘 (with both AS skills)
+        bb.add_ally(unit_id="maid", position=Position.ALLY_CENTER_BACK,
+                    hp=99999, atk=10000, speed=500,
+                    skills=[DRAIN_SHOT, W_DRAIN_SHOT], level=10, pp=10)
+        # Enemies: high HP to survive hits and produce measurable damage
+        bb.add_enemy(unit_id="enemy1", position=Position.ENEMY_CENTER_FRONT,
+                     hp=999999, atk=1000, defense=0, speed=400, skills=[], level=10)
+        bb.add_enemy(unit_id="enemy2", position=Position.ENEMY_LEFT_FRONT,
+                     hp=999999, atk=1000, defense=0, speed=400, skills=[], level=10)
+        bb.add_enemy(unit_id="enemy3", position=Position.ENEMY_RIGHT_FRONT,
+                     hp=999999, atk=1000, defense=0, speed=400, skills=[], level=10)
+        ctx = bb.build()
+        cls.bf = ctx['bf']
+        cls.ss = ctx['ss']
+        cls.dl = ctx['services']['dl']
+        cls.maid = next(u for u in cls.bf.friend_team if u.unit_id == "maid")
+        cls.enemy1 = next(u for u in cls.bf.enemy_team if u.unit_id == "enemy1")
+        cls.enemy2 = next(u for u in cls.bf.enemy_team if u.unit_id == "enemy2")
+        cls.enemy3 = next(u for u in cls.bf.enemy_team if u.unit_id == "enemy3")
+
+    def _get_skill_config(self, skill_id):
+        """Load skill effect config from data loader (returns dict)."""
+        return self.dl.get_parsed_skill_data(skill_id)
+
+    # ── Config checks ────────────────────────────────────────
+
+    def test_config_120033_has_independent_lifesteal_effect(self):
+        """120033 must have independent `lifesteal` effect (not lifesteal_tag flag)."""
+        cfg = self._get_skill_config(DRAIN_SHOT)
+        self.assertIsNotNone(cfg, "120033 config must exist")
+        effects = cfg['effect_blocks'][0]['effects']
+        # Must have damage + lifesteal
+        types = [e['effect_type'] for e in effects]
+        self.assertIn("damage", types)
+        self.assertIn("lifesteal", types)
+        # Damage effect must NOT have lifesteal_tag flag
+        dmg_effect = next(e for e in effects if e['effect_type'] == "damage")
+        flags = dmg_effect.get('flags', {}) or {}
+        self.assertNotIn("lifesteal_tag", flags,
+                         "lifesteal_tag flag is non-functional, must use independent effect")
+
+    def test_config_120012_has_independent_lifesteal_effect(self):
+        """120012 must have independent `lifesteal` effect (not lifesteal_tag flag)."""
+        cfg = self._get_skill_config(W_DRAIN_SHOT)
+        self.assertIsNotNone(cfg, "120012 config must exist")
+        effects = cfg['effect_blocks'][0]['effects']
+        types = [e['effect_type'] for e in effects]
+        self.assertIn("damage", types)
+        self.assertIn("lifesteal", types)
+        # Damage effect must NOT have lifesteal_tag flag
+        dmg_effect = next(e for e in effects if e['effect_type'] == "damage")
+        flags = dmg_effect.get('flags', {}) or {}
+        self.assertNotIn("lifesteal_tag", flags,
+                         "lifesteal_tag flag is non-functional, must use independent effect")
+
+    def test_config_120012_has_target_count_2(self):
+        """120012 damage effect should retain target_count=2."""
+        cfg = self._get_skill_config(W_DRAIN_SHOT)
+        dmg_effect = next(e for e in cfg['effect_blocks'][0]['effects']
+                          if e['effect_type'] == "damage")
+        flags = dmg_effect.get('flags', {}) or {}
+        self.assertEqual(flags.get("target_count"), 2)
+
+    def test_config_lifesteal_uses_cure_value_tag(self):
+        """Both skills' lifesteal effect should use value_tag='cure'."""
+        for skill_id in (DRAIN_SHOT, W_DRAIN_SHOT):
+            cfg = self._get_skill_config(skill_id)
+            ls_effect = next(e for e in cfg['effect_blocks'][0]['effects']
+                             if e['effect_type'] == "lifesteal")
+            self.assertEqual(ls_effect['value_tag'], "cure",
+                             f"skill {skill_id}: lifesteal value_tag must be 'cure'")
+            self.assertEqual(ls_effect['target_type'], "self")
+
+    # ── Functional tests ─────────────────────────────────────
+
+    def test_120033_lifesteal_heals_caster(self):
+        """120033: Single target damage -> caster HP increases by cure% of damage."""
+        # Make caster not full HP so heal is observable
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        # Reset enemies to full HP for clean measurement
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        # Compute total damage dealt to enemies
+        total_damage = sum(e.max_hp - e.current_hp for e in (self.enemy1, self.enemy2, self.enemy3)
+                           if e.current_hp < e.max_hp)
+        self.assertGreater(total_damage, 0, "skill must deal damage")
+
+        # cure_pct at Lv10 = 60.0
+        cure_pct = 60.0
+        expected_heal = int(total_damage * cure_pct / 100)
+        actual_heal = self.maid.current_hp - hp_before
+
+        self.assertGreater(actual_heal, 0, "caster must be healed by lifesteal")
+        self.assertEqual(actual_heal, expected_heal,
+                         f"heal {actual_heal} should equal damage {total_damage} * cure% {cure_pct} / 100 = {expected_heal}")
+
+    def test_120012_lifesteal_heals_caster_two_targets(self):
+        """120012: Two target damage -> caster HP increases by cure% of total damage."""
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, W_DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        # 120012 hits 2 targets
+        damaged = [e for e in (self.enemy1, self.enemy2, self.enemy3) if e.current_hp < e.max_hp]
+        self.assertEqual(len(damaged), 2, "120012 must hit exactly 2 targets")
+
+        total_damage = sum(e.max_hp - e.current_hp for e in damaged)
+        self.assertGreater(total_damage, 0)
+
+        cure_pct = 60.0  # Lv10 cure
+        expected_heal = int(total_damage * cure_pct / 100)
+        actual_heal = self.maid.current_hp - hp_before
+
+        self.assertGreater(actual_heal, 0, "caster must be healed by lifesteal")
+        self.assertEqual(actual_heal, expected_heal,
+                         f"heal {actual_heal} should equal total damage {total_damage} * cure% {cure_pct} / 100 = {expected_heal}")
+
+    def test_lifesteal_respects_max_hp_cap(self):
+        """Lifesteal should not overheal beyond max_hp."""
+        # Set caster HP close to max
+        self.maid.current_hp = self.maid.max_hp - 100
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        # Caster should be clamped at max_hp
+        self.assertEqual(self.maid.current_hp, self.maid.max_hp,
+                         "lifesteal must respect max_hp cap")
+
+    def test_lifesteal_does_not_fire_when_no_damage(self):
+        """Lifesteal should not heal when no damage is dealt (all evaded)."""
+        # Make enemies invulnerable by setting extreme defense
+        original_def = self.enemy1.defense
+        self.enemy1.defense = 99999999
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        self.enemy1.current_hp = self.enemy1.max_hp
+
+        try:
+            # 120033 hits single target, with extreme defense damage should be minimal/0
+            result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+            self.assertTrue(result.get("success"))
+            # Damage may still be 1 (min damage rule), so heal could be 0 (int(1 * 60/100) = 0)
+            # Verify lifesteal does not overheal beyond what was dealt
+            damage_dealt = self.enemy1.max_hp - self.enemy1.current_hp
+            expected_heal = int(damage_dealt * 60.0 / 100)
+            actual_heal = self.maid.current_hp - hp_before
+            self.assertEqual(actual_heal, expected_heal,
+                             f"heal {actual_heal} must match damage {damage_dealt} * 60% / 100 = {expected_heal}")
+        finally:
+            self.enemy1.defense = original_def
+
+    def test_lifesteal_result_contains_heal_info(self):
+        """execute_skill result should include lifesteal heal info in effects_applied."""
+        self.maid.current_hp = 10000
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        effects = result.get("effects_applied", [])
+        lifesteal_effects = [e for e in effects if e.get("effect_type") == "lifesteal"]
+        self.assertGreater(len(lifesteal_effects), 0,
+                           "result.effects_applied must contain lifesteal entry")
+        ls = lifesteal_effects[0]
+        self.assertGreater(ls.get("heal_amount", 0), 0)
+        self.assertGreater(ls.get("cure_pct", 0), 0)
+        self.assertEqual(ls.get("cure_pct"), 60.0)  # Lv10 cure
+
+    # ── heal_efficacy (ReceivedHealing) tests ───────────────
+
+    def _make_received_healing_buff(self, value=50.0, is_debuff=False):
+        """Create a ReceivedHealing buff/debuff on caster.
+
+        Note: value convention follows skill config - both heal_efficacy_up and
+        heal_efficacy_down use POSITIVE values (e.g., 50.0). The is_debuff flag
+        determines which list the buff goes into, and the net formula
+        (buff_val - debuff_val) handles the sign automatically.
+        """
+        return BuffState(
+            buff_id=f"recv_heal_test_{value}_{'d' if is_debuff else 'b'}",
+            name="被回復力ダウン" if is_debuff else "被回復力アップ",
+            effect_type=SkillEffectType.RECEIVED_HEALING.value,
+            value=value,
+            duration=3,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            is_debuff=is_debuff,
+        )
+
+    def test_lifesteal_applies_heal_efficacy_up_buff(self):
+        """Lifesteal heal must be multiplied by ReceivedHealing buff (+50%)."""
+        # Apply +50% ReceivedHealing buff to caster, clear debuffs to isolate
+        self.maid.buffs = [self._make_received_healing_buff(50.0, is_debuff=False)]
+        self.maid.debuffs = []
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        total_damage = sum(e.max_hp - e.current_hp for e in (self.enemy1, self.enemy2, self.enemy3)
+                           if e.current_hp < e.max_hp)
+        self.assertGreater(total_damage, 0)
+
+        # Base heal = int(damage * 60 / 100), with +50% buff: int(base * 1.5)
+        base_heal = int(total_damage * 60.0 / 100)
+        expected_heal = int(base_heal * 1.5)
+        actual_heal = self.maid.current_hp - hp_before
+
+        self.assertEqual(actual_heal, expected_heal,
+                         f"with +50% heal_efficacy: heal {actual_heal} should equal "
+                         f"base {base_heal} * 1.5 = {expected_heal}")
+
+    def test_lifesteal_applies_heal_efficacy_down_debuff(self):
+        """Lifesteal heal must be reduced by ReceivedHealing debuff (-50%)."""
+        # Apply -50% ReceivedHealing debuff to caster (value=+50, is_debuff=True)
+        # Convention: debuff uses POSITIVE value, net formula (buff_val - debuff_val) handles sign
+        self.maid.buffs = []
+        self.maid.debuffs = [self._make_received_healing_buff(50.0, is_debuff=True)]
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        total_damage = sum(e.max_hp - e.current_hp for e in (self.enemy1, self.enemy2, self.enemy3)
+                           if e.current_hp < e.max_hp)
+        self.assertGreater(total_damage, 0)
+
+        # Base heal = int(damage * 60 / 100), with -50% debuff: int(base * 0.5)
+        base_heal = int(total_damage * 60.0 / 100)
+        expected_heal = int(base_heal * 0.5)
+        actual_heal = self.maid.current_hp - hp_before
+
+        self.assertEqual(actual_heal, expected_heal,
+                         f"with -50% heal_efficacy: heal {actual_heal} should equal "
+                         f"base {base_heal} * 0.5 = {expected_heal}")
+
+    def test_lifesteal_no_buff_no_efficacy_change(self):
+        """Without ReceivedHealing buff/debuff, lifesteal heal equals base amount."""
+        self.maid.buffs = []
+        self.maid.debuffs = []
+        self.maid.current_hp = 10000
+        hp_before = self.maid.current_hp
+        for e in (self.enemy1, self.enemy2, self.enemy3):
+            e.current_hp = e.max_hp
+
+        result = self.ss.execute_skill(self.maid, DRAIN_SHOT, self.bf, skip_cost=True)
+        self.assertTrue(result.get("success"))
+
+        total_damage = sum(e.max_hp - e.current_hp for e in (self.enemy1, self.enemy2, self.enemy3)
+                           if e.current_hp < e.max_hp)
+        self.assertGreater(total_damage, 0)
+
+        # No buff: heal = int(damage * 60 / 100) exactly
+        expected_heal = int(total_damage * 60.0 / 100)
+        actual_heal = self.maid.current_hp - hp_before
+
+        self.assertEqual(actual_heal, expected_heal,
+                         f"no buff: heal {actual_heal} should equal base {expected_heal}")
+
+    # ── Enemy version config check ──────────────────────────
+
+    def test_config_enemy_versions_have_lifesteal(self):
+        """Enemy versions 220335/220336 should also have proper lifesteal config."""
+        for enemy_skill_id in (220335, 220336):
+            cfg = self._get_skill_config(enemy_skill_id)
+            self.assertIsNotNone(cfg, f"enemy skill {enemy_skill_id} config must exist")
+            effects = cfg['effect_blocks'][0]['effects']
+            types = [e['effect_type'] for e in effects]
+            self.assertIn("damage", types)
+            self.assertIn("lifesteal", types,
+                          f"enemy skill {enemy_skill_id} must have lifesteal effect")
+            # Must NOT have lifesteal_tag flag (non-functional)
+            dmg_effect = next(e for e in effects if e['effect_type'] == "damage")
+            flags = dmg_effect.get('flags', {}) or {}
+            self.assertNotIn("lifesteal_tag", flags,
+                             f"enemy skill {enemy_skill_id}: lifesteal_tag flag is non-functional")
+            # Must NOT have misconfigured heal effect with target_type=enemy_single
+            self.assertNotIn("heal", types,
+                             f"enemy skill {enemy_skill_id}: must not have misconfigured heal effect")
+
+
+if __name__ == "__main__":
+    unittest.main()

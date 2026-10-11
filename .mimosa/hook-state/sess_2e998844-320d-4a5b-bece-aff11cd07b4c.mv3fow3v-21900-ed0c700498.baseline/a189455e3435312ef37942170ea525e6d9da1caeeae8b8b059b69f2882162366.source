@@ -1,0 +1,197 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+迁移队伍和角色基础信息到数据库
+
+功能:
+1. 导入队伍定义
+2. 导入角色基础信息
+3. 导入角色变体关系
+"""
+
+import sys
+import json
+import sqlite3
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
+DB_FILE = PROJECT_ROOT / "db" / "character_stats.db"
+DATA_FILE = PROJECT_ROOT / "data" / "character_team_mapping.json"
+
+
+def safe_print(text):
+    """安全打印"""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode('utf-8', errors='replace').decode('utf-8'))
+
+
+def migrate_teams(conn, teams_data):
+    """迁移队伍数据"""
+    cursor = conn.cursor()
+    count = 0
+    
+    safe_print("\n[1/3] Migrating teams...")
+    
+    for team_id_str, team_name in teams_data.items():
+        team_id = int(team_id_str)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO teams (team_id, team_name)
+            VALUES (?, ?)
+        """, (team_id, team_name))
+        
+        count += 1
+        safe_print(f"  {team_id}: {team_name}")
+    
+    conn.commit()
+    safe_print(f"  Total: {count} teams")
+    return count
+
+
+def migrate_character_base(conn, character_base_data):
+    """迁移角色基础信息"""
+    cursor = conn.cursor()
+    count = 0
+    
+    safe_print("\n[2/3] Migrating character_base...")
+    
+    for base_id_str, base_info in character_base_data.items():
+        base_id = int(base_id_str)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO character_base 
+            (base_id, name, name_ruby, team_id)
+            VALUES (?, ?, ?, ?)
+        """, (
+            base_id,
+            base_info['name'],
+            base_info['name_ruby'],
+            base_info['team_id']
+        ))
+        
+        count += 1
+        if count % 10 == 0:
+            safe_print(f"  Processed {count} base characters...")
+    
+    conn.commit()
+    safe_print(f"  Total: {count} base characters")
+    return count
+
+
+def migrate_character_variants(conn, character_variants_data):
+    """迁移角色变体关系"""
+    cursor = conn.cursor()
+    count = 0
+    
+    safe_print("\n[3/3] Migrating character_variants...")
+    
+    for base_id_str, variants in character_variants_data.items():
+        base_id = int(base_id_str)
+        
+        for variant in variants:
+            char_id = variant['character_id']
+            
+            # 检查character_id是否存在于characters表
+            cursor.execute("SELECT character_id FROM characters WHERE character_id = ?", (char_id,))
+            if not cursor.fetchone():
+                safe_print(f"  Warning: Character {char_id} not found in characters table, skipping")
+                continue
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO character_variants 
+                (base_id, character_id)
+                VALUES (?, ?)
+            """, (base_id, char_id))
+            
+            count += 1
+    
+    conn.commit()
+    safe_print(f"  Total: {count} character variants")
+    return count
+
+
+def main():
+    """主函数"""
+    safe_print("="*80)
+    safe_print("Migrating Team and Character Base Data")
+    safe_print("="*80)
+    
+    # 加载JSON数据
+    safe_print(f"\nLoading data from: {DATA_FILE}")
+    with open(DATA_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    # 连接数据库
+    safe_print(f"Connecting to database: {DB_FILE}")
+    conn = sqlite3.connect(DB_FILE)
+    
+    # 执行迁移
+    teams_count = migrate_teams(conn, data['teams'])
+    base_count = migrate_character_base(conn, data['character_base'])
+    variants_count = migrate_character_variants(conn, data['character_variants'])
+    
+    # 验证
+    safe_print("\n" + "="*80)
+    safe_print("Migration Summary")
+    safe_print("="*80)
+    
+    cursor = conn.cursor()
+    
+    # 统计
+    cursor.execute("SELECT COUNT(*) FROM teams")
+    db_teams = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM character_base")
+    db_base = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM character_variants")
+    db_variants = cursor.fetchone()[0]
+    
+    safe_print(f"Teams:              {db_teams}")
+    safe_print(f"Character Base:     {db_base}")
+    safe_print(f"Character Variants: {db_variants}")
+    
+    # 示例查询
+    safe_print("\n" + "-"*80)
+    safe_print("Sample: Character 132301")
+    safe_print("-"*80)
+    
+    cursor.execute("""
+        SELECT 
+            cv.character_id,
+            cb.name AS base_name,
+            cb.name_ruby,
+            t.team_name,
+            c.name AS character_name
+        FROM character_variants cv
+        JOIN character_base cb ON cv.base_id = cb.base_id
+        JOIN teams t ON cb.team_id = t.team_id
+        LEFT JOIN characters c ON cv.character_id = c.character_id
+        WHERE cv.character_id = 132301
+    """)
+    
+    row = cursor.fetchone()
+    if row:
+        safe_print(f"Character ID:    {row[0]}")
+        safe_print(f"Base Name:       {row[1]}")
+        safe_print(f"Name Ruby:       {row[2]}")
+        safe_print(f"Team:            {row[3]}")
+        safe_print(f"Character Name:  {row[4]}")
+    
+    conn.close()
+    
+    safe_print("\n" + "="*80)
+    safe_print("Migration complete!")
+    safe_print("="*80)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        safe_print(f"\nERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

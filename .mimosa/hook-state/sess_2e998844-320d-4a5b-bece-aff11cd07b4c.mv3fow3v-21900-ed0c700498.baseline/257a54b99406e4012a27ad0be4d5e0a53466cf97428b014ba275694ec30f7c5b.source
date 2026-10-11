@@ -1,0 +1,246 @@
+"""Regression: 起死回生の一手 (130151) 累计伤害条件满足但PP为0时清空伤害计数器。
+
+仕様: on_cumulative_damage触发器が条件を満たしてもPP不足でPS実行不可の場合、
+      cumulative_hp_damageをリセットする。
+      ゲーム内挙動はper-hit判定（各hit後に閾値チェック）：
+      - 単hit技能: PP不足時→reset=0
+      - 多hit技能の中間hitで閾値超過: PP不足時→reset=excess (cumulative - threshold)
+      - 多hit技能の最終hitで閾値超過: PP不足時→reset=0
+
+Bug: シミュレータはper-skill判定（全hit適用後にチェック）のため、多hit技能で
+     中間hitが閾値超過しても最終hitまで待たないとリセット値が正確に計算されない。
+     起死回生の一手(230398)が第4ターンでフォーカススラスト後に発動すべきが
+     発動しないbugの原因。
+
+Fix: skill_service._per_hit_hp_lossesでper-hit HP損失を追跡し、
+     battle_flow_controller._compute_per_hit_reset_valuesでper-hit replayにより
+     正確なリセット値を計算。trigger_cumulative_damage経由でaction.parametersに
+     cumulative_pp_zero_resetとして付与し、_execute_trigger_actions/
+     _execute_global_trigger_actionsのPP不足ブランチで使用。
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, SkillEffectType
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+MARK = SkillEffectType.MARK.value
+
+
+class TestRegKishikaiseiPpZeroReset(unittest.TestCase):
+    """起死回生の一手 (130151) PP不足時の累計伤害計数器リセット回帰テスト。"""
+
+    def _build_controller(self, pp: int = 0, cumulative_dmg_pct: float = 0.25):
+        """
+        構建: caster(146301, PP=pp, cumulative_hp_damage=pct*max_hp) + 1敌
+        casterは130151(起死回生の一手)を持ち、深慮markなし。
+        """
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", hp=100000, atk=10000, skills=[130151], level=10,
+                    speed=999, defense=5000, pp=pp, character_id=146301)
+        bb.add_enemy(unit_id="e1", position=Position.ENEMY_CENTER_FRONT,
+                     hp=200000, atk=5000, defense=5000, speed=500)
+        ctx = bb.build()
+        bf = ctx['bf']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        # 累計伤害設定
+        caster.cumulative_hp_damage = int(caster.max_hp * cumulative_dmg_pct)
+        # 深慮markがないことを確認（condition_list: self_lacks_mark 条件を満たすため）
+        caster.buffs = [b for b in caster.buffs
+                        if not (b.effect_type == MARK and getattr(b, 'name', '') == "深慮")]
+        # Build controller
+        controller = BattleFlowController(
+            bf, BattleConfig(max_turns=1), data_loader=ctx['services']['dl'])
+        controller._build_display_names()
+        return bf, controller, caster, ctx
+
+    def test_pp_zero_resets_cumulative_damage(self):
+        """PP=0時、累計伤害>=20%条件満たすがPS実行不可→計數器リセット"""
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.25)
+        ts = ctx['ts']
+
+        # 累計伤害 >= 20% → trigger_cumulative_damage がactionを返す
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        self.assertGreater(len(actions), 0, "累計伤害25%(>=20%)应触发起死回生の一手")
+
+        # PP=0 → _execute_global_trigger_actionsでcheck_skill_cost失敗
+        # → cumulative_hp_damage がリセットされる
+        self.assertEqual(caster.current_pp, 0, "PP应为0")
+        controller._execute_global_trigger_actions(actions)
+
+        self.assertEqual(caster.cumulative_hp_damage, 0,
+                         "PP=0時PS実行不可の場合、累計伤害計數器应リセット為0")
+
+    def test_pp_sufficient_executes_and_resets(self):
+        """PP>0時、PS正常実行→計數器リセット（既存仕様の回帰確認）"""
+        bf, controller, caster, ctx = self._build_controller(pp=10, cumulative_dmg_pct=0.25)
+        ts = ctx['ts']
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        self.assertGreater(len(actions), 0, "累計伤害25%(>=20%)应触发起死回生の一手")
+
+        self.assertGreater(caster.current_pp, 0, "PP应>0")
+        controller._execute_global_trigger_actions(actions)
+
+        # PS成功実行後、計數器リセット（既存仕様）
+        self.assertEqual(caster.cumulative_hp_damage, 0,
+                         "PS成功実行後、累計伤害計數器应リセット為0")
+
+    def test_pp_zero_below_threshold_no_trigger(self):
+        """PP=0且累計伤害<20%→トリガー不発動、計數器不変"""
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.15)
+        ts = ctx['ts']
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        self.assertEqual(len(actions), 0, "累計伤害15%(<20%)不应触发")
+
+        # トリガー不発動の場合、計數器はそのまま
+        self.assertEqual(caster.cumulative_hp_damage, int(caster.max_hp * 0.15),
+                         "トリガー不発動の場合、計數器应保持不変")
+
+    def test_multi_hit_intermediate_hit_resets_to_excess(self):
+        """多hit技能中间hit超额→PP不足→reset为excess(cumulative-threshold)。
+
+        场景: 4hit技能，每hit造成8000 HP损失，初始累计=0，max_hp=100000, threshold=20%(20000)
+        - hit1: cumulative=8000 (<20000)
+        - hit2: cumulative=16000 (<20000)
+        - hit3: cumulative=24000 (>=20000, 中间hit) → excess=24000-20000=4000
+        - hit4: cumulative=4000+8000=12000 (<20000)
+        最终reset_value=12000（后续hit继续累计，下次攻击可继续累积）
+        """
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.0)
+        ts = ctx['ts']
+
+        hit_losses = [8000, 8000, 8000, 8000]
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: hit_losses}
+        caster.cumulative_hp_damage = sum(hit_losses)  # 32000
+
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 12000,
+                         "中间hit超额→excess, 后续hit累计, 最终=12000")
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster],
+                                                per_hit_reset_values=reset_values)
+        self.assertGreater(len(actions), 0)
+        self.assertEqual(actions[0].parameters['cumulative_pp_zero_reset'], 12000)
+
+        controller._execute_global_trigger_actions(actions)
+        self.assertEqual(caster.cumulative_hp_damage, 12000,
+                         "PP不足时reset为excess=12000")
+
+    def test_multi_hit_last_hit_resets_to_zero(self):
+        """多hit技能最后hit超额→PP不足→reset为0。
+
+        场景: 4hit技能，每hit造成6000 HP损失，初始累计=0，threshold=20000
+        - hit1: cumulative=6000 (<20000)
+        - hit2: cumulative=12000 (<20000)
+        - hit3: cumulative=18000 (<20000)
+        - hit4: cumulative=24000 (>=20000, 最后hit) → reset=0
+        """
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.0)
+        ts = ctx['ts']
+
+        hit_losses = [6000, 6000, 6000, 6000]
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: hit_losses}
+        caster.cumulative_hp_damage = sum(hit_losses)  # 24000
+
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 0,
+                         "最后hit超额→reset=0")
+
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster],
+                                                per_hit_reset_values=reset_values)
+        self.assertGreater(len(actions), 0)
+        self.assertEqual(actions[0].parameters['cumulative_pp_zero_reset'], 0)
+
+        controller._execute_global_trigger_actions(actions)
+        self.assertEqual(caster.cumulative_hp_damage, 0,
+                         "PP不足时reset为0")
+
+    def test_compute_per_hit_reset_values_various(self):
+        """直接测试_compute_per_hit_reset_values方法的各种场景。"""
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.0)
+
+        # 场景a: 单hit超额 → reset=0
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [25000]}
+        caster.cumulative_hp_damage = 25000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 0, "单hit超额→reset=0")
+
+        # 场景b: 多hit中间超额 → reset=excess累计
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [8000, 8000, 8000, 8000]}
+        caster.cumulative_hp_damage = 32000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 12000, "中间hit超额→excess累计")
+
+        # 场景c: 多hit最后hit超额 → reset=0
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [6000, 6000, 6000, 6000]}
+        caster.cumulative_hp_damage = 24000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 0, "最后hit超额→0")
+
+        # 场景d: 多hit无超额 → 保持原值
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [3000, 3000, 3000, 3000]}
+        caster.cumulative_hp_damage = 12000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 12000, "未超阈值→保持原值")
+
+        # 场景e: 初始累计非0 + 多hit，最后hit超额
+        # 初始=15000, hit_losses=[8000]*4, total=47000
+        # replay: cumulative=15000
+        #   hit1: 15000+8000=23000 (>=20000, 中间) → 3000
+        #   hit2: 3000+8000=11000 (<20000)
+        #   hit3: 11000+8000=19000 (<20000)
+        #   hit4: 19000+8000=27000 (>=20000, 最后) → 0
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [8000, 8000, 8000, 8000]}
+        caster.cumulative_hp_damage = 15000 + 32000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 0, "初始+多hit, 最后hit超额→0")
+
+        # 场景f: 多个中间hit超额
+        # hit_losses=[15000, 15000, 15000, 15000], total=60000, 初始=0
+        # replay: cumulative=0
+        #   hit1: 0+15000=15000 (<20000)
+        #   hit2: 15000+15000=30000 (>=20000, 中间) → 10000
+        #   hit3: 10000+15000=25000 (>=20000, 中间) → 5000
+        #   hit4: 5000+15000=20000 (>=20000, 最后) → 0
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [15000, 15000, 15000, 15000]}
+        caster.cumulative_hp_damage = 60000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 0, "多个中间hit超额, 最后hit超额→0")
+
+        # 场景g: 多个中间hit超额但最后hit未超
+        # hit_losses=[15000, 15000, 3000, 3000], total=36000, 初始=0
+        # replay: cumulative=0
+        #   hit1: 0+15000=15000 (<20000)
+        #   hit2: 15000+15000=30000 (>=20000, 中间) → 10000
+        #   hit3: 10000+3000=13000 (<20000)
+        #   hit4: 13000+3000=16000 (<20000)
+        #   最终=16000
+        controller.skill_service._per_hit_hp_losses = {caster.unit_id: [15000, 15000, 3000, 3000]}
+        caster.cumulative_hp_damage = 36000
+        reset_values = controller._compute_per_hit_reset_values([caster])
+        self.assertEqual(reset_values.get(caster.unit_id), 16000, "中间hit超额, 最后hit未超→保持累计")
+
+    def test_per_hit_reset_values_none_defaults_to_zero(self):
+        """per_hit_reset_values=None时默认reset=0（向后兼容，单hit技能行为不变）。"""
+        bf, controller, caster, ctx = self._build_controller(pp=0, cumulative_dmg_pct=0.25)
+        ts = ctx['ts']
+
+        # 不传per_hit_reset_values（向后兼容场景）
+        actions = ts.trigger_cumulative_damage(bf, damaged_units=[caster])
+        self.assertGreater(len(actions), 0)
+        self.assertEqual(actions[0].parameters['cumulative_pp_zero_reset'], 0,
+                         "per_hit_reset_values=None时默认reset=0")
+
+        controller._execute_global_trigger_actions(actions)
+        self.assertEqual(caster.cumulative_hp_damage, 0,
+                         "PP不足时reset为默认0（向后兼容）")
+
+
+if __name__ == '__main__':
+    unittest.main()

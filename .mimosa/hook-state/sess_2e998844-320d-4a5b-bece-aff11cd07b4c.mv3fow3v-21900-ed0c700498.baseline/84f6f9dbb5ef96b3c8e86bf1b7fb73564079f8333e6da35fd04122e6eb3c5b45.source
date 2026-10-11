@@ -1,0 +1,1092 @@
+"""TriggerService._check_condition各类型单元测试。
+
+覆盖_check_condition方法中的30种cond_type及其分支逻辑：
+- 组合类型：and / condition_list (all/any)
+- HP百分比类：self_hp_percent / cumulative_damage_percent / enemy_hp_percent / ally_hp_below / front_ally_hp_below / target_hp_not_cross_below
+- 数量计数类：enemy_alive_count / ally_alive_count / round_number / round_number_modulo / skill_use_count_modulo / crit_count_mod / self_skill_use_count
+- 标记类：self_has_mark / self_lacks_mark / target_has_mark
+- 目标阵营类：target_is_ally / target_is_self / target_is_other_ally / target_is_alive / target_is_back_row / target_is_front_ally
+- 攻击者类：actor_element / actor_character_type / attacker_is_back_row
+- 状态类：is_debuff / is_status_ailment / debuff_type / exclude_timing
+- 链接类：self_damage_link_active
+
+测试通过直接调用_check_condition方法验证，使用最小化的TriggerContext。
+"""
+import sys
+import os
+import pytest
+from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Optional, List, Set
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from src.entities_v2.unit_state import UnitState, BuffState, DamageLinkEntry
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, TriggerTiming
+from src.combat_v2.services.trigger_service import (
+    TriggerService, TriggerContext, _eval_condition, _get_front_position,
+)
+
+
+# ─── 工厂函数 ──────────────────────────────────────────────
+
+def make_unit(unit_id="u1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT,
+              hp=50000, max_hp=50000, atk=10000, defense=5000, speed=500,
+              element=2, character_type=1, crit_rate=0.0, crit_damage=0.5,
+              is_alive=True):
+    """创建测试用单位。"""
+    u = UnitState(
+        unit_id=unit_id, name=unit_id, side=side, position=position,
+        character_id=999901, level=10, element=element, character_type=character_type,
+        max_hp=max_hp, attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_hp=hp, current_ap=10, current_pp=10, current_ep=10,
+    )
+    u.is_alive = is_alive
+    return u
+
+
+def make_buff(name="b", effect_type="atk_up", value=10.0, duration=-1,
+              value_tag=0, is_stackable=False, is_memory_buff=False,
+              hit_limited=0, attack_limited=0, is_debuff=False, **extra):
+    """创建测试用buff/debuff。"""
+    kwargs = dict(
+        buff_id=f"{name}_{id(object())}", name=name, effect_type=effect_type,
+        value=value, duration=duration, timing_type=2, value_tag=value_tag,
+        is_stackable=is_stackable, is_memory_buff=is_memory_buff,
+        hit_limited=hit_limited, attack_limited=attack_limited,
+        is_debuff=is_debuff,
+    )
+    kwargs.update(extra)
+    return BuffState(**kwargs)
+
+
+def make_mark_buff(name="kyou_chou", value=1.0):
+    """创建一个mark debuff（effect_type=SkillEffectType.MARK.value='Mark'）。"""
+    return make_buff(name=name, effect_type="Mark", value=value, is_debuff=True)
+
+
+def make_context(timing=TriggerTiming.AFTER_AS_ATTACKED, battlefield=None,
+                 actor=None, targets=None, triggered_by=None, primary_target=None,
+                 applied_debuff_types=None):
+    """创建测试用TriggerContext。"""
+    if battlefield is None:
+        battlefield = BattlefieldState()
+    return TriggerContext(
+        timing=timing,
+        battlefield=battlefield,
+        actor=actor,
+        targets=targets or [],
+        triggered_by=triggered_by,
+        primary_target=primary_target,
+        applied_debuff_types=applied_debuff_types or set(),
+    )
+
+
+def make_trigger_service():
+    """创建TriggerService实例（无data_loader依赖）。"""
+    ts = TriggerService()
+    # 不设置data_loader，skill_use_count相关测试需手动设置
+    return ts
+
+
+def call_condition(ts, condition, owner, context):
+    """便捷调用_check_condition的wrapper。"""
+    parsed = {'global_condition': condition}
+    return ts._check_condition(parsed, owner, context.timing, context)
+
+
+# ─── 1. 无条件/默认 ────────────────────────────────────────
+
+class TestNoCondition:
+
+    def test_none_condition_returns_true(self):
+        """condition=None时返回True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        assert call_condition(ts, None, owner, ctx) is True
+
+    def test_no_type_returns_true(self):
+        """condition无type字段时返回True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        # condition没有type字段
+        assert call_condition(ts, {'value': 50}, owner, ctx) is True
+
+
+# ─── 2. 组合条件 ───────────────────────────────────────────
+
+class TestCompositeConditions:
+
+    def test_and_all_pass(self):
+        """and组合：所有子条件都满足。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=30000)  # 60% HP
+        ctx = make_context()
+        condition = {
+            'type': 'and',
+            'conditions': [
+                {'type': 'self_hp_percent', 'operator': '<=', 'value': 80},
+                {'type': 'self_hp_percent', 'operator': '>=', 'value': 50},
+            ]
+        }
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_and_one_fails(self):
+        """and组合：任一子条件不满足则整体不满足。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=30000)  # 60% HP
+        ctx = make_context()
+        condition = {
+            'type': 'and',
+            'conditions': [
+                {'type': 'self_hp_percent', 'operator': '<=', 'value': 50},  # 60>50, 失败
+                {'type': 'self_hp_percent', 'operator': '>=', 'value': 50},  # 60>=50, 通过
+            ]
+        }
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_and_empty_returns_true(self):
+        """and组合：空条件列表返回True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'and', 'conditions': []}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_condition_list_all_mode(self):
+        """condition_list mode=all：等价AND。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=30000)
+        ctx = make_context()
+        condition = {
+            'type': 'condition_list',
+            'mode': 'all',
+            'conditions': [
+                {'type': 'self_hp_percent', 'operator': '<=', 'value': 80},
+                {'type': 'self_hp_percent', 'operator': '>=', 'value': 50},
+            ]
+        }
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_condition_list_any_mode(self):
+        """condition_list mode=any：等价OR。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=30000)  # 60% HP
+        ctx = make_context()
+        condition = {
+            'type': 'condition_list',
+            'mode': 'any',
+            'conditions': [
+                {'type': 'self_hp_percent', 'operator': '<=', 'value': 50},  # 失败
+                {'type': 'self_hp_percent', 'operator': '>=', 'value': 50},  # 通过
+            ]
+        }
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_condition_list_any_all_fail(self):
+        """condition_list mode=any：全部失败则失败。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=30000)
+        ctx = make_context()
+        condition = {
+            'type': 'condition_list',
+            'mode': 'any',
+            'conditions': [
+                {'type': 'self_hp_percent', 'operator': '<=', 'value': 50},  # 失败
+                {'type': 'self_hp_percent', 'operator': '>=', 'value': 80},  # 失败
+            ]
+        }
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 3. HP百分比类条件 ────────────────────────────────────
+
+class TestHpPercentConditions:
+
+    def test_self_hp_percent_le(self):
+        """self_hp_percent: HP<=80% ✓。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=40000, max_hp=50000)  # 80%
+        ctx = make_context(timing=TriggerTiming.AFTER_AS_ATTACKED)
+        condition = {'type': 'self_hp_percent', 'operator': '<=', 'value': 80}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_hp_percent_gt(self):
+        """self_hp_percent: HP>80% ✗（80%不>80%）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=40000, max_hp=50000)  # 80%
+        ctx = make_context(timing=TriggerTiming.AFTER_AS_ATTACKED)
+        condition = {'type': 'self_hp_percent', 'operator': '>', 'value': 80}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_self_hp_percent_hp_below_crossing_check(self):
+        """self_hp_percent: HP_BELOW timing + <=/< 时需要跨越阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=8000, max_hp=50000)  # 16%
+        owner.prev_hp_percent = 30.0  # 之前30%，现在16%
+        ctx = make_context(timing=TriggerTiming.HP_BELOW)
+        condition = {'type': 'self_hp_percent', 'operator': '<=', 'value': 20}
+        # prev=30 > 20, current=16 <= 20, 跨越成功
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_hp_percent_hp_below_no_crossing(self):
+        """self_hp_percent: HP_BELOW timing 但未跨越阈值则失败。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", hp=8000, max_hp=50000)  # 16%
+        owner.prev_hp_percent = 18.0  # 之前18%, 未跨越20
+        ctx = make_context(timing=TriggerTiming.HP_BELOW)
+        condition = {'type': 'self_hp_percent', 'operator': '<=', 'value': 20}
+        # prev=18 <= 20, 未跨越
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_cumulative_damage_percent(self):
+        """cumulative_damage_percent: 累计伤害达阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", max_hp=50000)
+        owner.cumulative_hp_damage = 15000  # 30%
+        ctx = make_context()
+        condition = {'type': 'cumulative_damage_percent', 'operator': '>=', 'value': 25}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_cumulative_damage_percent_below_threshold(self):
+        """cumulative_damage_percent: 未达阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", max_hp=50000)
+        owner.cumulative_hp_damage = 10000  # 20%
+        ctx = make_context()
+        condition = {'type': 'cumulative_damage_percent', 'operator': '>=', 'value': 25}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_enemy_hp_percent_triggered_by(self):
+        """enemy_hp_percent: 使用triggered_by单位的HP。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        enemy = make_unit("e1", side=Side.ENEMY, hp=10000, max_hp=50000)  # 20%
+        ctx = make_context(triggered_by=enemy)
+        condition = {'type': 'enemy_hp_percent', 'operator': '<=', 'value': 30}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_enemy_hp_percent_no_triggered_by_uses_max(self):
+        """enemy_hp_percent: 无triggered_by时取敌方最大HP百分比。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        bf = BattlefieldState()
+        bf.enemy_team = [
+            make_unit("e1", side=Side.ENEMY, hp=40000, max_hp=50000),  # 80%
+            make_unit("e2", side=Side.ENEMY, hp=10000, max_hp=50000),  # 20%
+        ]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'enemy_hp_percent', 'operator': '>=', 'value': 70}
+        # max=80% >= 70%
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_enemy_hp_percent_with_mark_name(self):
+        """enemy_hp_percent: 仅检查持指定mark的敌方。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        e1 = make_unit("e1", side=Side.ENEMY, hp=40000, max_hp=50000)  # 80%, 无mark
+        e2 = make_unit("e2", side=Side.ENEMY, hp=5000, max_hp=50000)  # 10%, 有mark
+        e2.debuffs.append(make_mark_buff(name="hoteri"))
+        bf = BattlefieldState()
+        bf.enemy_team = [e1, e2]
+        ctx = make_context(battlefield=bf)
+        condition = {
+            'type': 'enemy_hp_percent', 'operator': '<=', 'value': 30,
+            'mark_name': 'hoteri'
+        }
+        # 只有e2有mark, 10% <= 30%
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_ally_hp_below_player_ally_triggers(self):
+        """ally_hp_below: 玩家友方HP低于阈值时触发。"""
+        ts = make_trigger_service()
+        # PS持有者也在友方
+        owner = make_unit("owner", side=Side.ALLY)
+        ally = make_unit("ally1", side=Side.ALLY, hp=8000, max_hp=50000)  # 16%
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=ally)
+        condition = {'type': 'ally_hp_below', 'operator': '<=', 'value': 20}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_ally_hp_below_enemy_hp_blocked(self):
+        """ally_hp_below: 敌方HP下降不触发（即使PS持有者在敌方）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ENEMY)  # PS持有者在敌方
+        enemy = make_unit("e1", side=Side.ENEMY, hp=8000, max_hp=50000)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=enemy)
+        condition = {'type': 'ally_hp_below', 'operator': '<=', 'value': 20}
+        # triggered_by.side != Side.ALLY, 应被阻止
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_front_ally_hp_below_correct_position(self):
+        """front_ally_hp_below: 正前方友方HP低于阈值。"""
+        ts = make_trigger_service()
+        # owner在后排中央，正前方为前排中央
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_CENTER_BACK)
+        front_ally = make_unit("a1", side=Side.ALLY, position=Position.ALLY_CENTER_FRONT,
+                               hp=8000, max_hp=50000)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=front_ally)
+        condition = {'type': 'front_ally_hp_below', 'operator': '<=', 'value': 20}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_front_ally_hp_below_wrong_position(self):
+        """front_ally_hp_below: 非正前方位置不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_CENTER_BACK)
+        # 触发者在左侧前排（非正前方）
+        wrong_ally = make_unit("a1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT,
+                               hp=8000, max_hp=50000)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=wrong_ally)
+        condition = {'type': 'front_ally_hp_below', 'operator': '<=', 'value': 20}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_hp_not_cross_below_no_cross(self):
+        """target_hp_not_cross_below: 未跨越阈值则通过（not crossed=True）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY, hp=25000, max_hp=50000)  # 50%
+        target.prev_hp_percent = 60.0
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_hp_not_cross_below', 'value': 30}
+        # prev=60 > 30, current=50, 未跨越30
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_hp_not_cross_below_crossed(self):
+        """target_hp_not_cross_below: 跨越阈值则失败。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY, hp=10000, max_hp=50000)  # 20%
+        target.prev_hp_percent = 50.0
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_hp_not_cross_below', 'value': 30}
+        # prev=50 > 30, current=20 <= 30, 跨越了30
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 4. 数量/计数类条件 ───────────────────────────────────
+
+class TestCountConditions:
+
+    def test_enemy_alive_count_ge(self):
+        """enemy_alive_count: 敌方存活数>=阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        bf = BattlefieldState()
+        bf.enemy_team = [
+            make_unit("e1", side=Side.ENEMY),
+            make_unit("e2", side=Side.ENEMY),
+            make_unit("e3", side=Side.ENEMY, is_alive=False),
+        ]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'enemy_alive_count', 'operator': '>=', 'value': 2}
+        # 2存活 >= 2
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_enemy_alive_count_lt(self):
+        """enemy_alive_count: 敌方存活数<阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        bf = BattlefieldState()
+        bf.enemy_team = [
+            make_unit("e1", side=Side.ENEMY),
+            make_unit("e2", side=Side.ENEMY, is_alive=False),
+        ]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'enemy_alive_count', 'operator': '>=', 'value': 2}
+        # 1存活 < 2
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_ally_alive_count(self):
+        """ally_alive_count: 友方存活数检查。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        bf = BattlefieldState()
+        bf.friend_team = [
+            owner,
+            make_unit("a1", side=Side.ALLY),
+            make_unit("a2", side=Side.ALLY, is_alive=False),
+        ]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'ally_alive_count', 'operator': '>=', 'value': 2}
+        # owner+a1存活=2
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_round_number_eq(self):
+        """round_number: 当前回合数检查。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.turn_number = 3
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'round_number', 'operator': '==', 'value': 3}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_round_number_modulo(self):
+        """round_number_modulo: 回合数取模。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.turn_number = 6
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'round_number_modulo', 'value': 3}
+        # 6 % 3 == 0
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_round_number_modulo_not_zero(self):
+        """round_number_modulo: 回合数取模不为0。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.turn_number = 5
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'round_number_modulo', 'value': 3}
+        # 5 % 3 != 0
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_round_number_modulo_turn_zero(self):
+        """round_number_modulo: turn=0时返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.turn_number = 0
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'round_number_modulo', 'value': 3}
+        # cur > 0 and ... → False
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_skill_use_count_modulo_threshold_met(self):
+        """skill_use_count_modulo: count >= val时触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.skill_use_count = {1001: 3, 1002: 1}
+        # 模拟skill_data返回skill_type=1
+        ts.data_loader = MagicMock()
+        ts.data_loader.get_skill_by_id = lambda sid: SimpleNamespace(skill_type=1)
+        ctx = make_context()
+        condition = {'type': 'skill_use_count_modulo', 'value': 3}
+        # 总count=4 >= 3
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_skill_use_count_modulo_threshold_not_met(self):
+        """skill_use_count_modulo: count < val时不触发。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.skill_use_count = {1001: 1, 1002: 1}
+        ts.data_loader = MagicMock()
+        ts.data_loader.get_skill_by_id = lambda sid: SimpleNamespace(skill_type=1)
+        ctx = make_context()
+        condition = {'type': 'skill_use_count_modulo', 'value': 3}
+        # 总count=2 < 3
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_skill_use_count_modulo_exclude_skill_ids(self):
+        """skill_use_count_modulo: 排除指定技能ID。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.skill_use_count = {1001: 3, 1002: 1}
+        ts.data_loader = MagicMock()
+        ts.data_loader.get_skill_by_id = lambda sid: SimpleNamespace(skill_type=1)
+        ctx = make_context()
+        condition = {
+            'type': 'skill_use_count_modulo', 'value': 3,
+            'exclude_skill_ids': [1001]
+        }
+        # 排除1001后 count=1 < 3
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_skill_use_count_modulo_filter_skill_type(self):
+        """skill_use_count_modulo: 按count_skill_types过滤。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.skill_use_count = {1001: 3, 1002: 2}  # 1001=AS, 1002=PS
+        ts.data_loader = MagicMock()
+        # 1001是AS(skill_type=1), 1002是PS(skill_type=2)
+        def get_skill(sid):
+            return SimpleNamespace(skill_type=1 if sid == 1001 else 2)
+        ts.data_loader.get_skill_by_id = get_skill
+        ctx = make_context()
+        # 只统计AS（默认count_skill_types=[1]）
+        condition = {'type': 'skill_use_count_modulo', 'value': 3}
+        # AS count=3 >= 3
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_crit_count_mod(self):
+        """crit_count_mod: 暴击次数>=阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.crit_counter = 3
+        ctx = make_context()
+        condition = {'type': 'crit_count_mod', 'value': 3}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_crit_count_mod_below(self):
+        """crit_count_mod: 暴击次数<阈值。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.crit_counter = 2
+        ctx = make_context()
+        condition = {'type': 'crit_count_mod', 'value': 3}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_self_skill_use_count(self):
+        """self_skill_use_count: 自身技能使用次数。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.skill_use_count = {1001: 2, 1002: 1}
+        ts.data_loader = MagicMock()
+        ts.data_loader.get_skill_by_id = lambda sid: SimpleNamespace(skill_type=1)
+        ctx = make_context()
+        condition = {'type': 'self_skill_use_count', 'operator': '>=', 'value': 3}
+        # 总=3 >= 3
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_skill_use_count_fallback_action_count(self):
+        """self_skill_use_count: skill_use_count为空时回退到action_count_total。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.action_count_total = 5
+        ts.data_loader = MagicMock()
+        ts.data_loader.get_skill_by_id = lambda sid: SimpleNamespace(skill_type=1)
+        ctx = make_context()
+        condition = {'type': 'self_skill_use_count', 'operator': '>=', 'value': 5}
+        # count=0回退到action_count_total=5
+        assert call_condition(ts, condition, owner, ctx) is True
+
+
+# ─── 5. 标记类条件 ────────────────────────────────────────
+
+class TestMarkConditions:
+
+    def test_self_has_mark_in_buffs(self):
+        """self_has_mark: owner的buffs中有指定mark。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.buffs.append(make_mark_buff(name="kyou_chou"))
+        ctx = make_context()
+        condition = {'type': 'self_has_mark', 'mark_name': 'kyou_chou'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_has_mark_in_debuffs(self):
+        """self_has_mark: owner的debuffs中有指定mark。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.debuffs.append(make_mark_buff(name="hoteri"))
+        ctx = make_context()
+        condition = {'type': 'self_has_mark', 'mark_name': 'hoteri'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_has_mark_not_found(self):
+        """self_has_mark: 无指定mark时返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'self_has_mark', 'mark_name': 'kyou_chou'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_self_lacks_mark_no_mark(self):
+        """self_lacks_mark: 无mark时返回True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'self_lacks_mark', 'mark_name': 'kyou_chou'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_lacks_mark_has_mark(self):
+        """self_lacks_mark: 有mark时返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        owner.debuffs.append(make_mark_buff(name="kyou_chou"))
+        ctx = make_context()
+        condition = {'type': 'self_lacks_mark', 'mark_name': 'kyou_chou'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_has_mark_in_primary_target(self):
+        """target_has_mark: primary_target有mark。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        target.debuffs.append(make_mark_buff(name="hoteri"))
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_has_mark', 'mark_name': 'hoteri'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_has_mark_no_target(self):
+        """target_has_mark: 无target时返回False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'target_has_mark', 'mark_name': 'hoteri'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 6. 目标阵营/位置类条件 ──────────────────────────────
+
+class TestTargetSideConditions:
+
+    def test_target_is_ally_same_side(self):
+        """target_is_ally: 目标同阵营。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY)
+        ctx = make_context(targets=[target])
+        condition = {'type': 'target_is_ally'}
+        # 默认value=1=True
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_ally_different_side(self):
+        """target_is_ally: 目标敌方阵营。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ENEMY)
+        ctx = make_context(targets=[target])
+        condition = {'type': 'target_is_ally'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_ally_exclude_self(self):
+        """target_is_ally: exclude_self=True时排除owner自身。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        # targets只有owner自己
+        ctx = make_context(targets=[owner])
+        condition = {'type': 'target_is_ally', 'exclude_self': 1}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_ally_no_targets(self):
+        """target_is_ally: 无targets时返回True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(targets=[])
+        condition = {'type': 'target_is_ally'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_self_in_targets(self):
+        """target_is_self: owner在targets中。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(targets=[owner])
+        condition = {'type': 'target_is_self'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_self_not_in_targets(self):
+        """target_is_self: owner不在targets中。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        other = make_unit("other")
+        ctx = make_context(targets=[other])
+        condition = {'type': 'target_is_self'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_other_ally_present(self):
+        """target_is_other_ally: targets中有其他友方。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        other_ally = make_unit("other", side=Side.ALLY)
+        ctx = make_context(targets=[other_ally])
+        condition = {'type': 'target_is_other_ally'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_other_ally_only_self(self):
+        """target_is_other_ally: targets只有owner自身则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        ctx = make_context(targets=[owner])
+        condition = {'type': 'target_is_other_ally'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_other_ally_no_targets(self):
+        """target_is_other_ally: 无targets时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context(targets=[])
+        condition = {'type': 'target_is_other_ally'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_alive_alive(self):
+        """target_is_alive: 目标存活。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1", is_alive=True)
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_is_alive'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_alive_dead(self):
+        """target_is_alive: 目标阵亡。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1", is_alive=False)
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_is_alive'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_alive_no_target(self):
+        """target_is_alive: 无目标时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'target_is_alive'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_back_row_back(self):
+        """target_is_back_row: 目标在后排。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_is_back_row'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_back_row_front(self):
+        """target_is_back_row: 目标在前排则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        target = make_unit("t1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        ctx = make_context(targets=[target], primary_target=target)
+        condition = {'type': 'target_is_back_row'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_front_ally_correct_position(self):
+        """target_is_front_ally: 目标在owner正前方（HP_BELOW+triggered_by）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        front_ally = make_unit("t1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=front_ally)
+        condition = {'type': 'target_is_front_ally'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_target_is_front_ally_wrong_position(self):
+        """target_is_front_ally: 目标不在正前方则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        wrong_ally = make_unit("t1", side=Side.ALLY, position=Position.ALLY_CENTER_FRONT)
+        ctx = make_context(timing=TriggerTiming.HP_BELOW, triggered_by=wrong_ally)
+        condition = {'type': 'target_is_front_ally'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_front_ally_owner_at_front(self):
+        """target_is_front_ally: owner在前排（无正前方）则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        target = make_unit("t1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        ctx = make_context(targets=[target])
+        condition = {'type': 'target_is_front_ally'}
+        # _get_front_position(owner.position)=None for front position
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_target_is_front_ally_uses_actor_when_no_targets(self):
+        """target_is_front_ally: 无targets时使用actor。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        actor = make_unit("a1", side=Side.ALLY, position=Position.ALLY_LEFT_FRONT)
+        ctx = make_context(actor=actor, targets=[])
+        condition = {'type': 'target_is_front_ally'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+
+# ─── 7. 攻击者类条件 ─────────────────────────────────────
+
+class TestAttackerConditions:
+
+    def test_actor_element_match(self):
+        """actor_element: 属性匹配。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        actor = make_unit("a1", element=1)  # 火
+        ctx = make_context(actor=actor)
+        condition = {'type': 'actor_element', 'value': 1}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_actor_element_mismatch(self):
+        """actor_element: 属性不匹配。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        actor = make_unit("a1", element=2)  # 水
+        ctx = make_context(actor=actor)
+        condition = {'type': 'actor_element', 'value': 1}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_actor_element_no_actor(self):
+        """actor_element: 无actor时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'actor_element', 'value': 1}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_actor_character_type_single(self):
+        """actor_character_type: 单一类型匹配。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        actor = make_unit("a1", character_type=1)  # 物理
+        ctx = make_context(actor=actor)
+        condition = {'type': 'actor_character_type', 'value': 1}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_actor_character_type_list(self):
+        """actor_character_type: 列表类型匹配（任一）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        actor = make_unit("a1", character_type=3)  # 敏捷
+        ctx = make_context(actor=actor)
+        condition = {'type': 'actor_character_type', 'value': [1, 3]}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_actor_character_type_no_actor(self):
+        """actor_character_type: 无actor时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'actor_character_type', 'value': 1}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_attacker_is_back_row_back(self):
+        """attacker_is_back_row: 攻击者在后排。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        actor = make_unit("e1", side=Side.ENEMY, position=Position.ENEMY_LEFT_BACK)
+        ctx = make_context(actor=actor)
+        condition = {'type': 'attacker_is_back_row'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_attacker_is_back_row_front(self):
+        """attacker_is_back_row: 攻击者在前排则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        actor = make_unit("e1", side=Side.ENEMY, position=Position.ENEMY_LEFT_FRONT)
+        ctx = make_context(actor=actor)
+        condition = {'type': 'attacker_is_back_row'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_attacker_is_back_row_same_side(self):
+        """attacker_is_back_row: 攻击者同阵营则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner", side=Side.ALLY)
+        actor = make_unit("a1", side=Side.ALLY, position=Position.ALLY_LEFT_BACK)
+        ctx = make_context(actor=actor)
+        condition = {'type': 'attacker_is_back_row'}
+        # actor.side == owner.side → False
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_attacker_is_back_row_no_actor(self):
+        """attacker_is_back_row: 无actor时False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'attacker_is_back_row'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 8. 状态/Debuff类条件 ───────────────────────────────
+
+class TestStatusConditions:
+
+    def test_is_debuff_true(self):
+        """is_debuff: value=True。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'is_debuff', 'value': True}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_is_debuff_false(self):
+        """is_debuff: value=False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'is_debuff', 'value': False}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_debuff_type_found_in_applied(self):
+        """debuff_type: 在applied_debuff_types中找到。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        ctx = make_context(targets=[target], applied_debuff_types={'knockout', 'atk_down'})
+        condition = {'type': 'debuff_type', 'value': 'knockout'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_debuff_type_not_found_in_applied(self):
+        """debuff_type: 在applied_debuff_types中未找到。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        ctx = make_context(targets=[target], applied_debuff_types={'atk_down'})
+        condition = {'type': 'debuff_type', 'value': 'knockout'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_debuff_type_fallback_to_target_debuffs(self):
+        """debuff_type: 无applied_debuff_types时检查目标当前debuffs。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        target.debuffs.append(make_buff(name="knockout", effect_type="knockout", is_debuff=True))
+        ctx = make_context(targets=[target], applied_debuff_types=set())
+        condition = {'type': 'debuff_type', 'value': 'knockout'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_is_status_ailment_in_applied(self):
+        """is_status_ailment: applied中含状态异常。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        ctx = make_context(targets=[target], applied_debuff_types={'conflagration', 'atk_down'})
+        condition = {'type': 'is_status_ailment'}
+        # conflagration(炎上)是状态异常
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_is_status_ailment_not_in_applied(self):
+        """is_status_ailment: applied中无状态异常。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        ctx = make_context(targets=[target], applied_debuff_types={'atk_down', 'def_down'})
+        condition = {'type': 'is_status_ailment'}
+        # atk_down/def_down不是状态异常
+        assert call_condition(ts, condition, owner, ctx) is False
+
+    def test_is_status_ailment_fallback_to_target(self):
+        """is_status_ailment: 无applied时检查目标当前debuffs。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        target = make_unit("t1")
+        target.debuffs.append(make_buff(name="poison", effect_type="poison", is_debuff=True))
+        ctx = make_context(targets=[target], applied_debuff_types=set())
+        condition = {'type': 'is_status_ailment'}
+        # poison(毒)是状态异常
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_exclude_timing_not_excluded(self):
+        """exclude_timing: 当前时机不在排除列表。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.current_trigger_phase = None  # 无当前阶段标志
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'exclude_timing', 'value': ['on_turn_start']}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_exclude_timing_excluded(self):
+        """exclude_timing: 当前时机在排除列表则False。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        bf = BattlefieldState()
+        bf.current_trigger_phase = TriggerTiming.TURN_START
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'exclude_timing', 'value': ['on_turn_start']}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 9. 链接类条件 ───────────────────────────────────────
+
+class TestLinkConditions:
+
+    def test_self_damage_link_active_has_link(self):
+        """self_damage_link_active: 战场上有damage_link。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        u1 = make_unit("u1")
+        u1.damage_links = [DamageLinkEntry(
+            link_id="link1", partner_unit_id="u2", value=50.0,
+            source_skill_id=99999, source_unit_id="u1",
+            direction="bidirectional"
+        )]
+        bf = BattlefieldState()
+        bf.friend_team = [u1]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'self_damage_link_active'}
+        assert call_condition(ts, condition, owner, ctx) is True
+
+    def test_self_damage_link_active_no_link(self):
+        """self_damage_link_active: 战场上无damage_link。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        u1 = make_unit("u1")
+        u1.damage_links = []
+        bf = BattlefieldState()
+        bf.friend_team = [u1]
+        ctx = make_context(battlefield=bf)
+        condition = {'type': 'self_damage_link_active'}
+        assert call_condition(ts, condition, owner, ctx) is False
+
+
+# ─── 10. 辅助函数测试 ────────────────────────────────────
+
+class TestHelpers:
+
+    def test_eval_condition_ge(self):
+        """_eval_condition: >= 操作符。"""
+        assert _eval_condition(50, '>=', 50) is True
+        assert _eval_condition(50, '>=', 51) is False
+
+    def test_eval_condition_gt(self):
+        """_eval_condition: > 操作符。"""
+        assert _eval_condition(50, '>', 49) is True
+        assert _eval_condition(50, '>', 50) is False
+
+    def test_eval_condition_le(self):
+        """_eval_condition: <= 操作符。"""
+        assert _eval_condition(50, '<=', 50) is True
+        assert _eval_condition(50, '<=', 49) is False
+
+    def test_eval_condition_lt(self):
+        """_eval_condition: < 操作符。"""
+        assert _eval_condition(50, '<', 51) is True
+        assert _eval_condition(50, '<', 50) is False
+
+    def test_eval_condition_eq(self):
+        """_eval_condition: == 操作符。"""
+        assert _eval_condition(50, '==', 50) is True
+        assert _eval_condition(50, '==', 51) is False
+
+    def test_eval_condition_ne(self):
+        """_eval_condition: != 操作符。"""
+        assert _eval_condition(50, '!=', 51) is True
+        assert _eval_condition(50, '!=', 50) is False
+
+    def test_eval_condition_unknown_op(self):
+        """_eval_condition: 未知操作符返回False。"""
+        assert _eval_condition(50, '?', 50) is False
+
+    def test_get_front_position_back_to_front(self):
+        """_get_front_position: 后排映射到前排。"""
+        assert _get_front_position(Position.ALLY_LEFT_BACK) == Position.ALLY_LEFT_FRONT
+        assert _get_front_position(Position.ALLY_CENTER_BACK) == Position.ALLY_CENTER_FRONT
+        assert _get_front_position(Position.ALLY_RIGHT_BACK) == Position.ALLY_RIGHT_FRONT
+        assert _get_front_position(Position.ENEMY_LEFT_BACK) == Position.ENEMY_LEFT_FRONT
+        assert _get_front_position(Position.ENEMY_CENTER_BACK) == Position.ENEMY_CENTER_FRONT
+        assert _get_front_position(Position.ENEMY_RIGHT_BACK) == Position.ENEMY_RIGHT_FRONT
+
+    def test_get_front_position_front_returns_none(self):
+        """_get_front_position: 前排位置返回None（无映射）。"""
+        assert _get_front_position(Position.ALLY_LEFT_FRONT) is None
+        assert _get_front_position(Position.ALLY_CENTER_FRONT) is None
+        assert _get_front_position(Position.ENEMY_RIGHT_FRONT) is None
+
+    def test_is_back_row_back(self):
+        """_is_back_row: 后排单位返回True。"""
+        u = make_unit("u", position=Position.ALLY_LEFT_BACK)
+        assert TriggerService._is_back_row(u) is True
+
+    def test_is_back_row_front(self):
+        """_is_back_row: 前排单位返回False。"""
+        u = make_unit("u", position=Position.ALLY_LEFT_FRONT)
+        assert TriggerService._is_back_row(u) is False
+
+
+# ─── 11. 未知条件类型 ────────────────────────────────────
+
+class TestUnknownCondition:
+
+    def test_unknown_type_returns_true(self):
+        """未知cond_type返回True（PASS allow）。"""
+        ts = make_trigger_service()
+        owner = make_unit("owner")
+        ctx = make_context()
+        condition = {'type': 'totally_unknown_type', 'value': 100}
+        # 未知类型默认PASS
+        assert call_condition(ts, condition, owner, ctx) is True

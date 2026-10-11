@@ -1,0 +1,405 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+测试明鏡止水 (skill_id: 130082) PS触发
+
+场景：
+  - 天命を受けし剣術乙女 (character_id: 133301) 在友方队伍
+  - 敌方使用 skill 110017 (幕間の微睡み) 施加 Conflagration (burn)
+  - 明鏡止水应在debuff施加时触发，移除debuff并赋予debuff_immune
+
+预期行为：
+  1. 敌方技能110017对天命を受けし剣術乙女施加burn (conflagration)
+  2. 明鏡止水 (on_debuff_applied + target_is_self) 触发
+  3. 明鏡止水效果：remove_debuff + debuff_immune + shield
+  4. 最终：burn被移除，角色获得debuff_immune buff
+"""
+
+import sys
+import logging
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillType
+from src.entities_v2.custom_dummy import CustomDummyConfig, build_synthetic_character_data
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.data.data_loader import DataLoader
+
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+
+def create_character_unit(data_loader, char_id, side, pos, level=200):
+    """创建一个角色单位（使用真实角色数据）"""
+    char = data_loader.get_character_by_id(char_id)
+    if not char:
+        raise ValueError(f"Character {char_id} not found")
+
+    skills = data_loader.load_character_skills().get(char_id, [])
+    lerp = data_loader.load_level_lerp_data().get(level, 1.0)
+    ms, xs = char.min_level_stats, char.max_level_stats
+
+    max_ep = 8
+    for sid in skills:
+        sk = data_loader.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = sk.resource_cost
+            break
+
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=char.name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=int(ms.hp + (xs.hp - ms.hp) * lerp),
+        current_hp=int(ms.hp + (xs.hp - ms.hp) * lerp),
+        attack=int(ms.attack + (xs.attack - ms.attack) * lerp),
+        defense=int(ms.defense + (xs.defense - ms.defense) * lerp),
+        speed=int(ms.speed + (xs.speed - ms.speed) * lerp),
+        crit_rate=ms.crit_rate + (xs.crit_rate - ms.crit_rate) * lerp,
+        crit_damage=0.0,
+        advantage_damage=0.0,
+        initial_active_point=char.action_point,
+        initial_passive_point=char.passive_point,
+        max_extra_point=max_ep,
+        current_ap=char.action_point,
+        current_pp=char.passive_point,
+        current_ep=0,
+        skills=skills,
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+    )
+
+
+def register_enemy_dummy_with_skill(data_loader, dummy_index, name, hp, atk, defense, speed,
+                                     ap, pp, skill_ids):
+    """注册一个自定义木桩敌人，使用指定的技能ID列表"""
+    cfg = CustomDummyConfig(
+        name=name,
+        element=2,  # 水属性
+        character_type=2,  # EN类型
+        position_type=3,
+        role_type=1,
+        hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        ap=ap,
+        pp=pp,
+    )
+    char_data = build_synthetic_character_data(dummy_index, cfg)
+    char_id = char_data.character_id  # 负ID
+
+    data_loader._custom_characters[char_id] = char_data
+    data_loader._custom_dummy_configs[char_id] = cfg
+    data_loader._custom_character_skills[char_id] = skill_ids
+
+    return char_id
+
+
+def create_dummy_unit(data_loader, char_id, name, side, pos, hp, atk, defense, speed, ap, pp, ep_max):
+    """创建一个自定义木桩单位"""
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=200,
+        element=2,
+        character_type=2,
+        max_hp=hp,
+        current_hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        crit_rate=0.15,
+        crit_damage=0.0,
+        advantage_damage=0.0,
+        initial_active_point=ap,
+        initial_passive_point=pp,
+        max_extra_point=ep_max,
+        current_ap=ap,
+        current_pp=pp,
+        current_ep=0,
+        skills=[],
+        skill_cooldowns={},
+        role_type=1,
+        position_type=3,
+    )
+
+
+def setup_test_units(data_loader):
+    """设置测试用的友方和敌方单位"""
+    # 注册敌方木桩：使用110017（幕間の微睡み）技能
+    enemy_char_id = register_enemy_dummy_with_skill(
+        data_loader,
+        dummy_index=0,
+        name="敌方测试单位",
+        hp=999999,
+        atk=5000,
+        defense=5000,
+        speed=1000,
+        ap=5,
+        pp=5,
+        skill_ids=[110017],
+    )
+
+    # 创建友方：天命を受けし剣術乙女 (133301)
+    ally = create_character_unit(data_loader, 133301, Side.ALLY, Position.ALLY_CENTER_FRONT)
+
+    # 创建敌方木桩
+    enemy = create_dummy_unit(
+        data_loader, enemy_char_id, "敌方测试单位",
+        Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+        hp=999999, atk=5000, defense=5000, speed=1000,
+        ap=5, pp=5, ep_max=7,
+    )
+    enemy.current_ep = enemy.max_extra_point
+    enemy.skills = [110017]
+
+    return ally, enemy, enemy_char_id
+
+
+def test_meikyo_trigger_matching():
+    """测试1：明鏡止水在add_status施加Conflagration时正确匹配触发条件"""
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    ally, enemy, _ = setup_test_units(data_loader)
+
+    bf = BattlefieldState()
+    bf.add_unit(ally)
+    bf.add_unit(enemy)
+
+    # 初始化服务
+    resource_svc = ResourceService()
+    damage_svc = DamageService()
+    target_svc = TargetService()
+    aura_svc = AuraService()
+    status_svc = StatusService()
+    trigger_svc = TriggerService()
+    trigger_svc.set_data_loader(data_loader)
+    trigger_svc.set_damage_service(damage_svc)
+
+    skill_svc = SkillService(
+        data_loader=data_loader,
+        resource_service=resource_svc,
+        target_service=target_svc,
+        damage_service=damage_svc,
+        aura_service=aura_svc,
+        status_service=status_svc,
+        trigger_service=trigger_svc,
+    )
+    trigger_svc.set_skill_service(skill_svc)
+    skill_svc.set_battlefield(bf)
+
+    # 执行敌方技能110017
+    skill_svc.deduct_skill_cost(enemy, 110017)
+    skill_result = skill_svc.execute_skill(
+        caster=enemy,
+        skill_id=110017,
+        battlefield=bf,
+        skip_cost=True,
+    )
+
+    # 验证add_status效果执行
+    add_status_result = None
+    for eff in skill_result.get("effects_applied", []):
+        if eff.get("effect_type") == "add_status":
+            add_status_result = eff
+            break
+    assert add_status_result is not None, "110017的add_status效果未执行"
+    assert add_status_result.get("is_debuff") is True, "burn应为debuff"
+
+    # 验证Conflagration已施加到友方
+    has_conflagration = any(
+        d.effect_type in ("conflagration", "Conflagration")
+        for d in ally.debuffs
+    )
+    assert has_conflagration, "Conflagration应已施加到天命を受けし剣術乙女"
+
+    # 收集debuff触发数据并触发
+    aura_target_ids = []
+    applied_debuff_types = set()
+    for applied in skill_result.get("effects_applied", []):
+        if not applied.get("is_debuff"):
+            continue
+        if applied.get("effect_type") == "add_status":
+            for s in applied.get("statuses", []):
+                aura_target_ids.append(s["target_id"])
+                if s.get("effect"):
+                    applied_debuff_types.add(s["effect"])
+
+    aura_actions = trigger_svc.trigger_pawn_received_aura(
+        bf, aura_target_ids, actor=enemy,
+        applied_debuff_types=applied_debuff_types,
+    )
+
+    # 核心断言：明鏡止水应被匹配
+    meikyo_actions = [a for a in aura_actions if a.skill_id == 130082]
+    assert len(meikyo_actions) > 0, \
+        "明鏡止水未被匹配！on_debuff_applied + target_is_self 条件应匹配"
+
+    print("✅ 测试1通过：明鏡止水在add_status施加Conflagration时正确匹配触发条件")
+
+
+def test_meikyo_effects_execute():
+    """测试2：明鏡止水触发后效果正确执行（remove_debuff + debuff_immune + shield）"""
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    ally, enemy, _ = setup_test_units(data_loader)
+
+    bf = BattlefieldState()
+    bf.add_unit(ally)
+    bf.add_unit(enemy)
+
+    # 初始化服务
+    resource_svc = ResourceService()
+    damage_svc = DamageService()
+    target_svc = TargetService()
+    aura_svc = AuraService()
+    status_svc = StatusService()
+    trigger_svc = TriggerService()
+    trigger_svc.set_data_loader(data_loader)
+    trigger_svc.set_damage_service(damage_svc)
+
+    skill_svc = SkillService(
+        data_loader=data_loader,
+        resource_service=resource_svc,
+        target_service=target_svc,
+        damage_service=damage_svc,
+        aura_service=aura_svc,
+        status_service=status_svc,
+        trigger_service=trigger_svc,
+    )
+    trigger_svc.set_skill_service(skill_svc)
+    skill_svc.set_battlefield(bf)
+
+    # 执行敌方技能110017
+    skill_svc.deduct_skill_cost(enemy, 110017)
+    skill_result = skill_svc.execute_skill(
+        caster=enemy, skill_id=110017, battlefield=bf, skip_cost=True,
+    )
+
+    # 收集debuff触发数据并触发
+    aura_target_ids = []
+    applied_debuff_types = set()
+    for applied in skill_result.get("effects_applied", []):
+        if not applied.get("is_debuff"):
+            continue
+        if applied.get("effect_type") == "add_status":
+            for s in applied.get("statuses", []):
+                aura_target_ids.append(s["target_id"])
+                if s.get("effect"):
+                    applied_debuff_types.add(s["effect"])
+
+    aura_actions = trigger_svc.trigger_pawn_received_aura(
+        bf, aura_target_ids, actor=enemy,
+        applied_debuff_types=applied_debuff_types,
+    )
+
+    # 执行明鏡止水
+    meikyo_actions = [a for a in aura_actions if a.skill_id == 130082]
+    assert len(meikyo_actions) > 0, "明鏡止水未被匹配"
+
+    action = meikyo_actions[0]
+    owner = action.instance.owner
+    skill_svc.deduct_skill_cost(owner, 130082)
+    ps_result = skill_svc.execute_skill(
+        caster=owner, skill_id=130082, battlefield=bf, skip_cost=True,
+    )
+
+    assert ps_result.get("success"), "明鏡止水执行应成功"
+
+    # 验证效果
+    effect_types = [e.get("effect_type") for e in ps_result.get("effects_applied", [])]
+    assert "remove_debuff" in effect_types, "明鏡止水应包含remove_debuff效果"
+    assert "aura" in effect_types, "明鏡止水应包含aura效果（debuff_immune/shield）"
+
+    # 验证即时状态
+    has_debuff_immune = any(b.effect_type == "debuff_immune" for b in ally.buffs)
+    has_shield = any(b.effect_type in ("shield", "Shield") for b in ally.buffs)
+    has_conflagration = any(
+        d.effect_type in ("conflagration", "Conflagration")
+        for d in ally.debuffs
+    )
+
+    assert has_debuff_immune, "明鏡止水触发后应获得debuff_immune buff"
+    assert has_shield, "明鏡止水触发后应获得shield buff"
+    assert not has_conflagration, "明鏡止水的remove_debuff应移除Conflagration"
+
+    print("✅ 测试2通过：明鏡止水触发后效果正确执行")
+
+
+def test_meikyo_full_battle_flow():
+    """测试3：完整战斗流程中明鏡止水的触发验证
+
+    在完整战斗流程中，由于debuff_immune的duration=1（行动制），
+    buff可能在后续行动中过期。此测试验证明鏡止水在第一回合确实触发。
+    """
+    from src.combat_v2.battle_flow_controller import BattleFlowController
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    ally, enemy, _ = setup_test_units(data_loader)
+
+    bf = BattlefieldState()
+    bf.add_unit(ally)
+    bf.add_unit(enemy)
+
+    # 使用BattleFlowController执行战斗
+    controller = BattleFlowController(bf, data_loader=data_loader)
+
+    # 在战斗前记录初始状态
+    initial_debuff_count = len(ally.debuffs)
+
+    # 执行战斗
+    result = controller.execute_battle()
+
+    # 验证战斗完成
+    assert result["result"] in ("FINISHED", "TIMEOUT"), f"战斗应正常结束，实际: {result['result']}"
+
+    # 在完整战斗流程中，明鏡止水至少触发过一次
+    # 由于BattleFlowController内部执行了触发器，我们通过skill_use_count来验证
+    ally_after = next((u for u in bf.get_all_units() if u.unit_id == ally.unit_id), None)
+    assert ally_after is not None, "友方单位应存在"
+
+    # 检查130082的skill_use_count
+    meikyo_use_count = ally_after.skill_use_count.get(130082, 0)
+    assert meikyo_use_count > 0, \
+        f"明鏡止水(130082)应在战斗中至少触发一次，实际skill_use_count={dict(ally_after.skill_use_count)}"
+
+    print(f"✅ 测试3通过：完整战斗流程中明鏡止水触发了 {meikyo_use_count} 次")
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("  明鏡止水 (130082) PS触发测试")
+    print("=" * 60)
+
+    test_meikyo_trigger_matching()
+    test_meikyo_effects_execute()
+    test_meikyo_full_battle_flow()
+
+    print("\n" + "=" * 60)
+    print("  所有测试通过！")
+    print("=" * 60)

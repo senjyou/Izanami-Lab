@@ -1,0 +1,443 @@
+"""Regression tests for character 140301 (純真無垢なるジーニアス リディア・エルドリッジ) skill mechanics.
+
+Covers 5 new mechanics:
+1. enemy_side_columns target_type: selects left+right columns (4 units, excludes center column)
+2. scale_by_alive_allies mechanism: scales buff value by (alive_allies / initial_allies)
+3. force_crit mechanism: forces all hits to be critical regardless of crit_rate
+4. fallback_when_no_targets block condition: fallback block executes when previous damage
+   blocks have no targets
+5. targets_exist global_condition: skill not selected when damage target_type has no candidates
+
+Related skills:
+- 110039 リディアたいちょうのめいれい (EX): enemy_side_columns + enemy_back_row + fallback
+- 120088 ジャマしちゃ、めっ……だよ？ (AS): enemy_side_columns + targets_exist global_condition
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.data.data_loader import DataLoader
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, atk=10000,
+               defense=5000, speed=500, current_hp=None, is_alive=True,
+               skills=None, skill_levels=None, level=15, ap=10, pp=10, ep=0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=2, character_type=1,
+        max_hp=hp, current_hp=current_hp if current_hp is not None else hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=is_alive,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegEnemySideColumns(unittest.TestCase):
+    """enemy_side_columns target_type: selects left+right columns (4 units, excludes center).
+
+    The enemy_side_columns target_type resolves to ALL_PAWNS range but must filter
+    candidates to only left column (index 0) and right column (index 2), excluding
+    center column (index 1). This filter must be applied BEFORE the ALL_PAWNS
+    early return in _select_targets.
+    """
+
+    def test_selects_4_units_excluding_center(self):
+        """enemy_side_columns should select exactly 4 units (left front, left back,
+        right front, right back), excluding center front and center back."""
+        ts = TargetService()
+
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+
+        # 6 enemies in all positions
+        e_lf = _make_unit("e_lf", "LeftFront", Side.ENEMY,
+                          Position.ENEMY_LEFT_FRONT)
+        e_cf = _make_unit("e_cf", "CenterFront", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT)
+        e_rf = _make_unit("e_rf", "RightFront", Side.ENEMY,
+                          Position.ENEMY_RIGHT_FRONT)
+        e_lb = _make_unit("e_lb", "LeftBack", Side.ENEMY,
+                          Position.ENEMY_LEFT_BACK)
+        e_cb = _make_unit("e_cb", "CenterBack", Side.ENEMY,
+                          Position.ENEMY_CENTER_BACK)
+        e_rb = _make_unit("e_rb", "RightBack", Side.ENEMY,
+                          Position.ENEMY_RIGHT_BACK)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e_lf, e_cf, e_rf, e_lb, e_cb, e_rb]
+
+        skill_data = type('obj', (object,), {
+            'display_target_type': 3,  # ENEMIES
+            'display_target_range': 5,  # ALL_PAWNS
+            'display_target_priority': 1,  # NEAREST
+            'target_type_name': 'enemy_side_columns',
+        })()
+
+        targets = ts.select_targets(skill_data, caster, bf)
+
+        target_ids = {t.unit_id for t in targets}
+        self.assertEqual(len(targets), 4,
+                         "enemy_side_columns should select 4 units "
+                         "(left+right columns, excluding center)")
+        self.assertIn("e_lf", target_ids, "Left front should be selected")
+        self.assertIn("e_lb", target_ids, "Left back should be selected")
+        self.assertIn("e_rf", target_ids, "Right front should be selected")
+        self.assertIn("e_rb", target_ids, "Right back should be selected")
+        self.assertNotIn("e_cf", target_ids,
+                         "Center front should NOT be selected")
+        self.assertNotIn("e_cb", target_ids,
+                         "Center back should NOT be selected")
+
+    def test_returns_empty_when_only_center_column(self):
+        """enemy_side_columns should return empty list when all enemies are in
+        the center column (no side column candidates)."""
+        ts = TargetService()
+
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+
+        e_cf = _make_unit("e_cf", "CenterFront", Side.ENEMY,
+                          Position.ENEMY_CENTER_FRONT)
+        e_cb = _make_unit("e_cb", "CenterBack", Side.ENEMY,
+                          Position.ENEMY_CENTER_BACK)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [e_cf, e_cb]
+
+        skill_data = type('obj', (object,), {
+            'display_target_type': 3,  # ENEMIES
+            'display_target_range': 5,  # ALL_PAWNS
+            'display_target_priority': 1,  # NEAREST
+            'target_type_name': 'enemy_side_columns',
+        })()
+
+        targets = ts.select_targets(skill_data, caster, bf)
+        self.assertEqual(len(targets), 0,
+                         "enemy_side_columns should return 0 units when "
+                         "only center column has enemies")
+
+
+class TestRegScaleByAliveAllies(unittest.TestCase):
+    """scale_by_alive_allies: scales buff value by (alive_allies / initial_allies).
+
+    In _apply_aura, when flags.scale_by_alive_allies=true, the buff value is
+    scaled by (alive_allies / initial_allies). With 6 allies where 3 are dead,
+    the value should be 50% of max_value.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts,
+                          status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_value_scaled_by_alive_allies_ratio(self):
+        """With 6 allies where 3 are dead, buff value should be 50% of max_value.
+
+        Formula: actual = max_value * (alive_allies / initial_allies)
+        3 alive / 6 initial = 0.5, so value = 100 * 0.5 = 50
+        """
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT)
+        a1 = _make_unit("a1", "Ally1", Side.ALLY,
+                        Position.ALLY_LEFT_FRONT)
+        a2 = _make_unit("a2", "Ally2", Side.ALLY,
+                        Position.ALLY_RIGHT_FRONT)
+        # 3 dead allies (still in team list, but is_alive=False)
+        d1 = _make_unit("d1", "Dead1", Side.ALLY,
+                        Position.ALLY_LEFT_BACK, is_alive=False, current_hp=0)
+        d2 = _make_unit("d2", "Dead2", Side.ALLY,
+                        Position.ALLY_RIGHT_BACK, is_alive=False, current_hp=0)
+        d3 = _make_unit("d3", "Dead3", Side.ALLY,
+                        Position.ALLY_CENTER_BACK, is_alive=False, current_hp=0)
+
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT)
+
+        bf = BattlefieldState()
+        # 6 allies total: 3 alive + 3 dead
+        bf.friend_team = [caster, a1, a2, d1, d2, d3]
+        bf.enemy_team = [enemy]
+
+        ss = self._make_services(bf)
+        ss._current_skill_id = 999999
+        ss._current_skill_priority = 1
+
+        # Mock effect with scale_by_alive_allies flag
+        effect = type('obj', (object,), {
+            'effect_type': 'atk_up',
+            'target_type': 'self',
+            'target_identifier': None,
+            'value': 100.0,
+            'value_tag': None,
+            'duration': 3,
+            'duration_type': 'action',
+            'flags': {'scale_by_alive_allies': True, 'value_type': 'percent'},
+        })()
+
+        result = ss._apply_aura(caster, effect, bf, is_debuff=False)
+        self.assertIsNotNone(result, "_apply_aura should return a result")
+
+        # Find the ATK buff on caster
+        atk_buffs = [b for b in caster.buffs
+                     if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        self.assertEqual(len(atk_buffs), 1,
+                         "Should apply exactly 1 ATK buff to caster")
+        # 3 alive / 6 initial = 0.5, value = 100 * 0.5 = 50
+        self.assertAlmostEqual(atk_buffs[0].value, 50.0, places=4,
+                               msg="With 3/6 alive allies, value should be "
+                                   "50% of max_value (100 * 0.5 = 50)")
+
+
+class TestRegForceCrit(unittest.TestCase):
+    """force_crit: all hits are critical regardless of crit_rate.
+
+    In damage_service.calculate_damage, when skill_data.force_crit=True, all hits
+    should be critical (is_crit=True) even if the attacker's crit_rate is 0.
+    force_crit also overrides cannot_crit debuffs.
+    """
+
+    def test_force_crit_overrides_zero_crit_rate(self):
+        """With crit_rate=0 and force_crit=True, all hits should be critical."""
+        dms = DamageService()
+
+        attacker = _make_unit("attacker", "Attacker", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, atk=10000)
+        defender = _make_unit("defender", "Defender", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, hp=1000000)
+
+        # Verify attacker has 0 crit_rate
+        self.assertEqual(attacker.crit_rate, 0.0,
+                         "Attacker should have 0 crit_rate for this test")
+
+        skill_data = type('obj', (object,), {
+            'power': 100.0, 'hit_count': 1, 'element': 2,
+            'ignore_defense': 0, 'ignore_shield': 0,
+            'hp_scaling_bonus': 0, 'cannot_crit': False, 'force_crit': True,
+            'bonus_crit_rate': 0.0, 'skill_id': 0, 'name': 'test',
+            'base_value_source': None,
+        })()
+
+        result = dms.calculate_damage(attacker, defender, skill_data)
+
+        self.assertTrue(result.is_critical,
+                        "force_crit=True should force critical hit "
+                        "even with crit_rate=0")
+        self.assertEqual(len(result.hit_crits), 1,
+                         "Should have exactly 1 hit")
+        self.assertTrue(result.hit_crits[0],
+                        "The hit should be critical (force_crit=True)")
+
+    def test_force_crit_with_multiple_hits(self):
+        """With force_crit=True and hit_count=3, all 3 hits should be critical."""
+        dms = DamageService()
+
+        attacker = _make_unit("attacker", "Attacker", Side.ALLY,
+                              Position.ALLY_CENTER_FRONT, atk=10000)
+        defender = _make_unit("defender", "Defender", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT, hp=1000000)
+
+        skill_data = type('obj', (object,), {
+            'power': 100.0, 'hit_count': 3, 'element': 2,
+            'ignore_defense': 0, 'ignore_shield': 0,
+            'hp_scaling_bonus': 0, 'cannot_crit': False, 'force_crit': True,
+            'bonus_crit_rate': 0.0, 'skill_id': 0, 'name': 'test_multi',
+            'base_value_source': None,
+        })()
+
+        result = dms.calculate_damage(attacker, defender, skill_data)
+
+        self.assertTrue(result.is_critical,
+                        "force_crit=True should result in critical hits")
+        self.assertEqual(len(result.hit_crits), 3,
+                         "Should have 3 hits")
+        for i, is_crit in enumerate(result.hit_crits):
+            self.assertTrue(is_crit,
+                            f"Hit {i+1} should be critical (force_crit=True)")
+
+
+class TestRegFallbackWhenNoTargets(unittest.TestCase):
+    """fallback_when_no_targets: fallback block executes when previous damage
+    blocks have no targets.
+
+    Skill 110039 (リディアたいちょうのめいれい) has 4 blocks:
+    - Block 1: enemy_side_columns damage (no condition)
+    - Block 2: enemy_back_row damage (active_level_max=10)
+    - Block 3: enemy_back_row damage with force_crit (active_level_min=11)
+    - Block 4: enemy_single damage power=100 (fallback_when_no_targets)
+
+    When all enemies are in center column (no side columns or back row targets),
+    blocks 1 and 2 have no targets, so block 4 (fallback) should execute and
+    damage the nearest enemy.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts,
+                          status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_fallback_executes_when_no_side_column_or_back_row_targets(self):
+        """When all enemies are in center front (no side columns or back row),
+        the fallback block should execute and damage the nearest enemy.
+
+        At level 10:
+        - Block 1 (enemy_side_columns): no targets (enemy at center, no side columns)
+        - Block 2 (enemy_back_row): no targets (enemy at center front, not back row)
+        - Block 3 (enemy_back_row force_crit): skipped (active_level_min=11)
+        - Block 4 (fallback enemy_single): executes, damages nearest enemy
+        """
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT,
+                            skills=[110039], skill_levels={110039: 10},
+                            level=10)
+        # Single enemy at center front - no side column or back row targets
+        enemy = _make_unit("enemy", "Enemy", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=100000)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy]
+        ss = self._make_services(bf)
+
+        enemy_hp_before = enemy.current_hp
+        result = ss.execute_skill(caster, 110039, bf, skip_cost=True)
+
+        self.assertTrue(result.get('success'),
+                        "Skill 110039 execution should succeed")
+        self.assertLess(enemy.current_hp, enemy_hp_before,
+                        "Fallback block should have damaged the enemy "
+                        "(no side column or back row targets in previous blocks)")
+        self.assertGreater(result.get('total_damage', 0), 0,
+                           "Total damage should be > 0 (fallback dealt damage)")
+
+
+class TestRegTargetsExistGlobalCondition(unittest.TestCase):
+    """targets_exist global_condition: skill not selected when damage target_type
+    has no candidates.
+
+    Skill 120088 (ジャマしちゃ、めっ……だよ？) has global_condition targets_exist
+    and its first damage effect uses enemy_side_columns. When all enemies are in
+    the center column (no side column candidates), targets_exist fails and the
+    skill should NOT be selected by select_skill.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts,
+                          status_service=sts)
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss
+
+    def test_skill_not_selected_when_no_side_column_targets(self):
+        """When all enemies are in center column (no side column candidates),
+        skill 120088 should NOT be selected by select_skill."""
+        # Caster with only 120088 as AS skill; EP=0 to avoid EX selection
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT,
+                            skills=[120088], skill_levels={120088: 10},
+                            level=10, ep=0)
+        # Enemies only in center column - no side column targets
+        enemy_cf = _make_unit("e_cf", "CenterFront", Side.ENEMY,
+                              Position.ENEMY_CENTER_FRONT)
+        enemy_cb = _make_unit("e_cb", "CenterBack", Side.ENEMY,
+                              Position.ENEMY_CENTER_BACK)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy_cf, enemy_cb]
+        ss = self._make_services(bf)
+
+        selected = ss.select_skill(caster)
+
+        self.assertNotEqual(selected, 120088,
+                            "Skill 120088 should NOT be selected when "
+                            "enemy_side_columns has no candidates "
+                            "(all enemies in center column)")
+
+    def test_skill_selected_when_side_column_targets_exist(self):
+        """When side column enemies exist, skill 120088 should be selected."""
+        caster = _make_unit("caster", "Caster", Side.ALLY,
+                            Position.ALLY_CENTER_FRONT,
+                            skills=[120088], skill_levels={120088: 10},
+                            level=10, ep=0)
+        # Enemy in left column - side column target exists
+        enemy_lf = _make_unit("e_lf", "LeftFront", Side.ENEMY,
+                              Position.ENEMY_LEFT_FRONT)
+
+        bf = BattlefieldState()
+        bf.friend_team = [caster]
+        bf.enemy_team = [enemy_lf]
+        ss = self._make_services(bf)
+
+        selected = ss.select_skill(caster)
+
+        self.assertEqual(selected, 120088,
+                         "Skill 120088 should be selected when "
+                         "enemy_side_columns has candidates")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

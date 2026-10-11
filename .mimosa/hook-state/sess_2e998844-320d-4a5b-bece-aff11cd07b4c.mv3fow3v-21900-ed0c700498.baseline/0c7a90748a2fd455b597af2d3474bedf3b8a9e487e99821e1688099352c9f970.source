@@ -1,0 +1,81 @@
+"""搜索 failed 技能中包含特定机制关键词的技能。
+
+关键词：凍結 / 凍る / EXゲージ / バフシャット / シャット / 封印 / 無効化 / ステルス / 隠密
+帮助评估是否需要新机制实现。
+"""
+import json
+import sys
+import os
+from collections import Counter
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.utils.encoding_utils import setup_console_encoding, safe_print
+
+setup_console_encoding()
+
+KEYWORDS = [
+    '凍結', '凍る', '凍て',
+    'EXゲージ', 'EPゲージ', 'EX削除', 'EP削除', 'ゲージ削除',
+    'バフシャット', 'シャット', '封印', 'バフ無効', 'デバフ無効',
+    'ステルス', '隠密', '透明',
+    '招福', '凶兆', 'メトカ', 'コスモル', 'ネヴュリム', 'ターゲット', '修復パッチ', 'お餅', 'クロウ',
+    'リンク', '回復リンク',
+    '削除', '減少', '無効',
+]
+
+
+def main():
+    with open('data/skill_effects_hybrid.json', 'r', encoding='utf-8') as f:
+        hybrid = json.load(f)
+    with open('data/skills.json', 'r', encoding='utf-8') as f:
+        raw = json.load(f)
+    if isinstance(raw, dict):
+        skills = raw
+    else:
+        skills = {str(s.get('Id')): s for s in raw}
+
+    failed_ids = [sid for sid, v in hybrid.items() if v.get('parse_status') == 'failed']
+
+    safe_print(f"=== Failed 技能中包含特定机制关键词的技能 ===")
+    safe_print(f"总 failed 技能数: {len(failed_ids)}")
+    safe_print("")
+
+    # 按关键词分组
+    by_keyword = {kw: [] for kw in KEYWORDS}
+    unmatched = []
+
+    for sid in failed_ids:
+        name = hybrid[sid].get('name', '?')
+        skill_type = hybrid[sid].get('skill_type', '?')
+        skill_meta = skills.get(sid, {})
+        desc = ''
+        descriptions = skill_meta.get('descriptions', [])
+        if descriptions:
+            desc = descriptions[0].get('template', '')
+
+        matched_kws = []
+        for kw in KEYWORDS:
+            if kw in desc or kw in name:
+                matched_kws.append(kw)
+                by_keyword[kw].append((sid, name, skill_type, desc))
+
+        if not matched_kws:
+            unmatched.append((sid, name, skill_type, desc))
+
+    safe_print("=== 按关键词分组统计 ===")
+    for kw in KEYWORDS:
+        if by_keyword[kw]:
+            safe_print(f"\n[{kw}] 共 {len(by_keyword[kw])} 个:")
+            for sid, name, skill_type, desc in by_keyword[kw]:
+                safe_print(f"  [{sid}] type={skill_type} {name}")
+                safe_print(f"    desc: {desc[:250]}")
+
+    safe_print(f"\n=== 未匹配任何关键词的 failed 技能 ({len(unmatched)}) ===")
+    for sid, name, skill_type, desc in unmatched:
+        safe_print(f"  [{sid}] type={skill_type} {name}")
+        safe_print(f"    desc: {desc[:250]}")
+
+
+if __name__ == '__main__':
+    main()

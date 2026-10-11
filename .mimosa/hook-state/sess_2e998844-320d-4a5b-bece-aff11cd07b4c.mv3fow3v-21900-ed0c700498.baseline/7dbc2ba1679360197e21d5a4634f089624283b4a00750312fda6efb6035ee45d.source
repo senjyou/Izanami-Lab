@@ -1,0 +1,806 @@
+"""
+角色111302 恥じらうカジノラビット 劉翠蘭 专项测试
+- EX:  110056 スローイング・カード（敌全体伤害 + 自身card_buff 3action）
+- AS1: 120123 ショーダウン（maxHP10%盾 + 最大HP最高敌单体伤害[card_buff扩展2-3体] +
+        造成伤害>0时shield_from_damage + damage_link[unremovable, 2action]）
+- AS2: 120124 レイズ（消耗10%maxHP + HP比例伤害 + HP>=70%时AP-1）
+- AS3: 120125 スチール（3hit伤害 + cure%吸血 + 击杀时card_buff 1action）
+- PS:  130131 ブラフ（自身被攻击后对攻击者施加dmg_taken_up[L1-14:1hit, L15+:2hit] +
+        L11+ HP<30%时全体盾[attack_limited=1]）
+
+角色信息:
+- 角色: 恥じらうカジノラビット
+- 属性: 3 (风), 类型: 1 (物理), 站位: 灵活, 定位: 坦克
+- 技能: 110056, 120123, 120124, 120125, 130131
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType, AuraUpdateTiming
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+# 简写
+CARD_BUFF = "card_buff"
+SHIELD = SkillEffectType.SHIELD.value
+DMG_TAKEN_UP = SkillEffectType.RECEIVED_DAMAGE.value  # dmg_taken_up → ReceivedDamage
+DAMAGE_LINK = "damage_link"
+
+
+def _make_unit(unit_id, name, side, position, *, hp=50000, atk=10000, defense=5000,
+               speed=500, character_id=999001, level=10, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ap=10, ep=0, crit_rate=0.0):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side,
+        position=position, character_id=character_id, level=level,
+        element=element, character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        skills=skills or [], skill_levels=skill_levels or {}, skill_cooldowns={},
+    )
+
+
+class _BaseTest(unittest.TestCase):
+    """公共setup：构建劉翠蘭 + 多个不同max_hp敌方 + 友方"""
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_services(self):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(self.dl, rs, target_service=tgs, damage_service=dms,
+                          aura_service=aus, trigger_service=ts, status_service=sts)
+        ts.set_skill_service(ss)
+        return {'rs': rs, 'ts': ts, 'aus': aus, 'dms': dms, 'tgs': tgs, 'sts': sts, 'ss': ss}
+
+    def _build_bf(self, allies, enemies):
+        bf = BattlefieldState()
+        bf.friend_team = list(allies)
+        bf.enemy_team = list(enemies)
+        return bf
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# EX 110056 スローイング・カード
+# ════════════════════════════════════════════════════════════════════════════
+class TestEX_110056(_BaseTest):
+    """EX 110056 スローイング・カード 测试"""
+
+    def _setup(self, level=10, num_enemies=3):
+        services = self._build_services()
+        ss = services['ss']
+        caster = _make_unit("caster", "劉翠蘭", Side.ALLY, Position.ALLY_CENTER_BACK,
+                            character_id=111302, level=level,
+                            skills=[110056], skill_levels={110056: level}, ap=10, ep=10)
+        enemies = []
+        for i in range(num_enemies):
+            e = _make_unit(f"e{i}", f"敌{i}", Side.ENEMY,
+                           [Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT][i],
+                           hp=50000, atk=5000)
+            enemies.append(e)
+        bf = self._build_bf([caster], enemies)
+        return ss, caster, enemies, bf
+
+    def test_01_对全体敌方造成伤害(self):
+        ss, caster, enemies, bf = self._setup(level=10, num_enemies=3)
+        for e in enemies:
+            self.assertEqual(e.current_hp, e.max_hp)
+        result = ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        self.assertTrue(result['success'])
+        for e in enemies:
+            self.assertLess(e.current_hp, e.max_hp, f"{e.name} 应受到伤害")
+
+    def test_02_L1_10施加ワンペア_card_buff(self):
+        ss, caster, enemies, bf = self._setup(level=5)
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 1)
+        self.assertEqual(card_buffs[0].value, 1, "L1-10 应为 ワンペア (value=1)")
+
+    def test_03_L11_施加スリーカード_card_buff(self):
+        ss, caster, enemies, bf = self._setup(level=11)
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 1)
+        self.assertEqual(card_buffs[0].value, 2, "L11+ 应为 スリーカード (value=2)")
+
+    def test_04_card_buff持续3行动(self):
+        ss, caster, enemies, bf = self._setup(level=10)
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(card_buffs[0].duration, 3, "card_buff 应持续3行动")
+
+    def test_05_L1威力60_L10威力93_6(self):
+        ss1, c1, e1, b1 = self._setup(level=1)
+        ss1.execute_skill(c1, 110056, b1, skip_cost=True)
+        # L1威力60, 简单验证造成伤害
+        self.assertLess(e1[0].current_hp, e1[0].max_hp)
+        # L10 威力93.6, 应造成更多伤害
+        ss10, c10, e10, b10 = self._setup(level=10)
+        ss10.execute_skill(c10, 110056, b10, skip_cost=True)
+        self.assertLess(e10[0].current_hp, e1[0].current_hp, "L10 威力更高，应造成更多伤害")
+
+    def test_06_L15威力120_48_插值正确(self):
+        ss, caster, enemies, bf = self._setup(level=15)
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        # L15威力120.48, ATK=10000 DEF=5000 base_diff=5000, 期望伤害≈5000*1.2048=6024
+        damage = enemies[0].max_hp - enemies[0].current_hp
+        self.assertGreater(damage, 5000, "L15 高威力应造成显著伤害")
+        # L15 也应施加 スリーカード
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(card_buffs[0].value, 2)
+
+    def test_07_EP消耗满EP(self):
+        ss, caster, enemies, bf = self._setup(level=10)
+        self.assertEqual(caster.current_ep, caster.max_extra_point, "EX施放前EP应满")
+        ss.execute_skill(caster, 110056, bf)
+        self.assertEqual(caster.current_ep, 0, "EX应消耗全部EP")
+
+    def test_08_单一敌方目标(self):
+        ss, caster, enemies, bf = self._setup(level=10, num_enemies=1)
+        result = ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        self.assertTrue(result['success'])
+        self.assertLess(enemies[0].current_hp, enemies[0].max_hp)
+
+    def test_09_无敌方目标时(self):
+        ss, caster, _, _ = self._setup(level=10, num_enemies=0)
+        bf = self._build_bf([caster], [])
+        result = ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        # 无敌方也应成功执行（仅施加card_buff）
+        self.assertTrue(result['success'])
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 1)
+
+    def test_10_card_buff多次施加刷新持续时间(self):
+        ss, caster, enemies, bf = self._setup(level=10)
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        first_buff = [b for b in caster.buffs if b.effect_type == CARD_BUFF][0]
+        first_id = first_buff.buff_id
+        # 再次施加
+        ss.execute_skill(caster, 110056, bf, skip_cost=True)
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 1, "card_buff 应刷新而非叠加")
+        self.assertEqual(card_buffs[0].duration, 3, "刷新后 duration 应重置为3")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# AS 120123 ショーダウン
+# ════════════════════════════════════════════════════════════════════════════
+class TestAS_120123(_BaseTest):
+    """AS 120123 ショーダウン 测试"""
+
+    def _setup(self, level=10, with_card_buff=None, num_enemies=3, ally_count=2):
+        services = self._build_services()
+        ss = services['ss']
+        caster = _make_unit("caster", "劉翠蘭", Side.ALLY, Position.ALLY_CENTER_BACK,
+                            character_id=111302, level=level, hp=20000,
+                            skills=[120123], skill_levels={120123: level}, pp=10)
+        if with_card_buff is not None:
+            from src.entities_v2.unit_state import BuffState
+            caster.buffs.append(BuffState(
+                buff_id=f"c_card_{with_card_buff}", name="card_buff",
+                effect_type=CARD_BUFF, value=with_card_buff,
+                duration=3, timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id=caster.unit_id, caster_attack=caster.attack,
+                is_debuff=False,
+            ))
+        allies = [caster]
+        for i in range(ally_count):
+            allies.append(_make_unit(f"a{i}", f"友{i}", Side.ALLY,
+                                      [Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK][i],
+                                      hp=15000))
+        # 不同 max_hp 敌方
+        enemies = []
+        max_hps = [80000, 50000, 30000]  # 敌0 max_hp最高
+        for i in range(min(num_enemies, 3)):
+            e = _make_unit(f"e{i}", f"敌{i}", Side.ENEMY,
+                           [Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT][i],
+                           hp=max_hps[i], atk=5000)
+            enemies.append(e)
+        bf = self._build_bf(allies, enemies)
+        return ss, caster, allies, enemies, bf
+
+    def test_01_首目标选最大HP最高(self):
+        ss, caster, _, enemies, bf = self._setup(level=10, num_enemies=3)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 敌0 max_hp=80000 最高，应受到伤害
+        self.assertLess(enemies[0].current_hp, enemies[0].max_hp, "应攻击最大HP最高的敌0")
+        # 敌1/敌2 不应被攻击（无card_buff，1体）
+        self.assertEqual(enemies[1].current_hp, enemies[1].max_hp, "无card_buff时仅1体，敌1不应受伤")
+        self.assertEqual(enemies[2].current_hp, enemies[2].max_hp, "无card_buff时仅1体，敌2不应受伤")
+
+    def test_02_自身套maxHP_10_盾(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        initial_shield = caster.shield
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        expected_shield = int(caster.max_hp * 0.10)
+        # shield_from_damage 也会加到 caster.shield，所以总盾量 >= maxHP×10%
+        self.assertGreaterEqual(caster.shield - initial_shield, expected_shield,
+                                "应至少套maxHP×10%的盾")
+
+    def test_03_造成伤害时套第二枚盾_shield_from_damage(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 应有2个 shield buff：Shield + shield_from_damage
+        shield_buffs = [b for b in caster.buffs
+                        if b.effect_type in (SHIELD, "shield", "shield_from_damage")]
+        self.assertEqual(len(shield_buffs), 2, "应有2枚盾：maxHP×10% + shield_from_damage")
+
+    def test_04_0伤害时不套第二枚盾(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        # 让敌0完全闪避（设置极高速度/防御让伤害为0不可行，改为直接测试_most_recent_damage=0）
+        # 通过让敌人防御极高使伤害接近0
+        enemies[0].defense = 999999
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 检查 shield buff 数量（仅1枚maxHP×10%盾，无shield_from_damage）
+        shield_buffs = [b for b in caster.buffs
+                        if b.effect_type in (SHIELD, "shield", "shield_from_damage")]
+        # 注意：最低1点伤害兜底，所以仍可能造成1点伤害触发shield_from_damage
+        # 此测试主要验证逻辑路径，不强制要求精确数量
+        self.assertGreaterEqual(len(shield_buffs), 1, "至少应有1枚maxHP×10%盾")
+
+    def test_05_造成伤害时触发damage_link(self):
+        ss, caster, allies, enemies, bf = self._setup(level=10, ally_count=2)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # damage_link 现存储在 unit.damage_links 列表
+        self.assertGreaterEqual(len(caster.damage_links), 1, "应触发 damage_link")
+
+    def test_06_damage_link_含自身和友方(self):
+        ss, caster, allies, enemies, bf = self._setup(level=10, ally_count=2)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 自身应有 damage_link（incoming配对记录）
+        self.assertGreaterEqual(len(caster.damage_links), 1, "自身应有 damage_link")
+        # 友方也应有 damage_link（outgoing转送entry）
+        for ally in allies[1:]:
+            self.assertGreaterEqual(len(ally.damage_links), 1, f"{ally.name} 应有 damage_link")
+
+    def test_07_damage_link_unremovable不可驱散(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        link_entry = caster.damage_links[0]
+        self.assertTrue(getattr(link_entry, 'is_unremovable', False), "damage_link 应为 unremovable")
+        # 主动调用 remove_aura_by_type 不应移除（damage_link已独立于buff/debuff系统）
+        aus = ss.aura_service
+        aus.remove_aura_by_type(caster, DAMAGE_LINK)
+        self.assertGreaterEqual(len(caster.damage_links), 1, "unremovable damage_link 不应被主动驱散")
+
+    def test_08_damage_link持续2行动后自然消失(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # caster身上有多个incoming配对记录（每个链接friend一条），所有entry的duration应相同
+        self.assertGreaterEqual(len(caster.damage_links), 1, "应触发 damage_link")
+        for entry in caster.damage_links:
+            self.assertEqual(entry.duration, 2, "damage_link 应持续2行动")
+        # 模拟2次行动结束（递减 duration）
+        for entry in caster.damage_links:
+            entry.duration = 0
+        # 主动清理已过期的 damage_link entries
+        caster.damage_links = [e for e in caster.damage_links if e.duration != 0]
+        self.assertEqual(len(caster.damage_links), 0, "duration=0 时 damage_link 应自然消失")
+
+    def test_09_ワンペア扩展目标2体(self):
+        ss, caster, _, enemies, bf = self._setup(level=10, with_card_buff=1, num_enemies=3)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 应攻击敌0(max_hp=80000)和敌1(max_hp=50000)
+        self.assertLess(enemies[0].current_hp, enemies[0].max_hp, "敌0应受伤")
+        self.assertLess(enemies[1].current_hp, enemies[1].max_hp, "敌1应受伤（ワンペア扩展2体）")
+        self.assertEqual(enemies[2].current_hp, enemies[2].max_hp, "敌2不应受伤")
+
+    def test_10_スリーカード扩展目标3体(self):
+        ss, caster, _, enemies, bf = self._setup(level=10, with_card_buff=2, num_enemies=3)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 应攻击3个敌方
+        for i, e in enumerate(enemies):
+            self.assertLess(e.current_hp, e.max_hp, f"敌{i}应受伤（スリーカード扩展3体）")
+
+    def test_11_AP消耗1点(self):
+        ss, caster, _, enemies, bf = self._setup(level=10)
+        initial_ap = caster.current_ap
+        ss.execute_skill(caster, 120123, bf)
+        self.assertEqual(caster.current_ap, initial_ap - 1, "AS应消耗1 AP")
+
+    def test_12_扩展目标按max_hp高低排序(self):
+        ss, caster, _, enemies, bf = self._setup(level=10, with_card_buff=2, num_enemies=3)
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 敌0 max_hp=80000 应受到最多伤害（首目标）
+        dmg0 = enemies[0].max_hp - enemies[0].current_hp
+        dmg1 = enemies[1].max_hp - enemies[1].current_hp
+        dmg2 = enemies[2].max_hp - enemies[2].current_hp
+        # 首目标应受到完整伤害，副目标也是相同威力（不分散）
+        self.assertGreater(dmg0, 0)
+        self.assertGreater(dmg1, 0)
+        self.assertGreater(dmg2, 0)
+
+    def test_13_damage_link伤害转移_源目标回退HP(self):
+        """damage_link应为伤害转移（outgoing方向），源目标回退HP，非伤害复制。
+        验证damage_link配置：direction=outgoing, value=50, 伤害转移模式"""
+        ss, caster, allies, enemies, bf = self._setup(level=10, ally_count=1)
+        # 施放120123建立damage_link（50%转移）
+        ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        # 验证damage_link已建立
+        ally = allies[1]  # 友0
+        self.assertGreaterEqual(len(ally.damage_links), 1, "友方应有outgoing damage_link")
+        link_entry = ally.damage_links[0]
+        self.assertEqual(link_entry.direction, "outgoing")
+        self.assertEqual(link_entry.value, 50.0)
+        # 验证link指向caster
+        self.assertEqual(link_entry.partner_unit_id, caster.unit_id)
+
+        # 验证caster有incoming配对记录
+        caster_incoming = [dl for dl in caster.damage_links if dl.direction == "incoming"]
+        self.assertGreaterEqual(len(caster_incoming), 1, "caster应有incoming配对记录")
+
+        # 验证伤害转移逻辑：通过_apply_damage的damage_link_transfers字段验证
+        # 创建一个简单的damage effect，让敌方攻击友方
+        enemy = enemies[0]
+        dmg_effect = type('Effect', (object,), {
+            'effect_type': 'damage',
+            'target_type': 'enemies',  # 从敌方视角看，友方是"敌人"
+            'value': 1000,
+            'value_tag': None,
+            'flags': {},
+            'hit_count': 1,
+            'duration': None,
+            'duration_type': None,
+            'condition': None,
+            'target_identifier': None,
+            'ignore_defense': 0,
+            'ignore_shield': 0,
+        })()
+
+        # 设置必要上下文
+        ss._current_skill_id = 999999
+        ss._current_block_id = 1
+        ss._block_damage_targets = None
+        ss._most_recent_damage = 0
+        ss._original_primary_target = ally
+        ss._target_char_type_filter = None
+        ss._target_element_filter = None
+        ss._trigger_attacker = None
+        ss._per_target_enchant_cache = None
+        ss._recursion_guard = False
+        ss._pending_crit_triggers = []
+        ss._cover_replaced_indices = set()
+        ss._block_evaded_targets = set()
+        ss._skill_evaded_targets = set()
+        ss._per_hit_hp_losses = {}
+        ss._hp_consumed = 0
+        ss._block_damage_total = {}
+        ss._caster_buffs_active_during_damage = False
+        ss._last_damage_hp_before = {}
+        ss._on_crit_block_executed = set()
+
+        ally_hp_before = ally.current_hp
+        caster_hp_before = caster.current_hp
+        # 清除caster的盾，确保链接伤害直接扣减HP
+        caster.shield = 0
+        caster.physical_shield = 0
+        caster.en_shield = 0
+        caster.buffs = [b for b in caster.buffs if b.effect_type not in (SHIELD, "shield", "shield_from_damage")]
+
+        result = ss._apply_damage(enemy, dmg_effect, bf)
+
+        # 验证damage_link_transfers字段结构（即使damage未命中友方，字段也应存在）
+        if result and result.get("damage_link_transfers"):
+            transfer = result["damage_link_transfers"][0]
+            self.assertEqual(transfer["direction"], "outgoing")
+            # 伤害转移模式下应有source_hp_restored字段
+            self.assertIn("source_hp_restored", transfer)
+            self.assertIn("source_hp_before", transfer)
+            self.assertIn("source_hp_after", transfer)
+            self.assertIn("source_max_hp", transfer)
+            # 如果友方受到了伤害，应该有HP回退
+            ally_hp_loss = ally_hp_before - ally.current_hp
+            if ally_hp_loss > 0:
+                self.assertGreater(transfer["source_hp_restored"], 0, "伤害转移应有HP回退")
+                caster_hp_loss = caster_hp_before - caster.current_hp
+                self.assertGreater(caster_hp_loss, 0, "caster应受到链接伤害")
+
+    def test_14_damage_link叙事日志_施放时输出(self):
+        """施放damage_link时应输出叙事日志"""
+        ss, caster, allies, enemies, bf = self._setup(level=10, ally_count=1)
+        result = ss.execute_skill(caster, 120123, bf, skip_cost=True)
+        self.assertTrue(result['success'])
+        # 验证damage_link效果已执行
+        effects_applied = result.get("effects_applied", [])
+        damage_link_applied = any(
+            ea.get("effect_type") == "damage_link" for ea in effects_applied
+        )
+        self.assertTrue(damage_link_applied, "应有damage_link效果")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# AS 120124 レイズ
+# ════════════════════════════════════════════════════════════════════════════
+class TestAS_120124(_BaseTest):
+    """AS 120124 レイズ 测试"""
+
+    def _setup(self, level=10, hp_ratio=1.0):
+        services = self._build_services()
+        ss = services['ss']
+        caster = _make_unit("caster", "劉翠蘭", Side.ALLY, Position.ALLY_CENTER_BACK,
+                            character_id=111302, level=level, hp=20000,
+                            skills=[120124], skill_levels={120124: level}, pp=10)
+        caster.current_hp = int(caster.max_hp * hp_ratio)
+        enemy = _make_unit("e0", "敌0", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=50000, atk=5000, ap=5)
+        bf = self._build_bf([caster], [enemy])
+        return ss, caster, enemy, bf
+
+    def test_01_HP消耗10_maxHP(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=1.0)
+        initial_hp = caster.current_hp
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        consumed = initial_hp - caster.current_hp
+        expected = int(caster.max_hp * 0.10)
+        self.assertEqual(consumed, expected, f"应消耗maxHP的10%={expected}，实际消耗{consumed}")
+
+    def test_02_HP比例伤害_消耗HP_x_dmg_pct(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=1.0)
+        initial_enemy_hp = enemy.current_hp
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        # L10 dmg=312%, 消耗HP=2000, 期望伤害=2000*3.12=6240
+        consumed_hp = int(caster.max_hp * 0.10)
+        expected_dmg = int(consumed_hp * 3.12)
+        actual_dmg = initial_enemy_hp - enemy.current_hp
+        # 允许 ±5 误差（int取整）
+        self.assertAlmostEqual(actual_dmg, expected_dmg, delta=10,
+                               msg=f"L10 应造成约{expected_dmg}伤害，实际{actual_dmg}")
+
+    def test_03_HP_70_以上时_AP减1(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=0.80)
+        initial_ap = enemy.current_ap
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        self.assertEqual(enemy.current_ap, initial_ap - 1, "HP>=70%时应减1 AP")
+
+    def test_04_HP_70_以下时_不减AP(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=0.65)
+        initial_ap = enemy.current_ap
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        self.assertEqual(enemy.current_ap, initial_ap, "HP<70%时不应减AP")
+
+    def test_05_HP正好70_时_消耗后低于70_不减AP(self):
+        # HP=70%时消耗10% maxHP后降至60%，低于70%阈值，不应减AP
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=0.70)
+        initial_ap = enemy.current_ap
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        self.assertEqual(enemy.current_ap, initial_ap, "HP=70%消耗后降至60%，不应减AP")
+
+    def test_06_L1_dmg_200_L10_dmg_312_插值(self):
+        ss1, c1, e1, b1 = self._setup(level=1, hp_ratio=1.0)
+        ss1.execute_skill(c1, 120124, b1, skip_cost=True)
+        dmg_l1 = e1.max_hp - e1.current_hp
+        ss10, c10, e10, b10 = self._setup(level=10, hp_ratio=1.0)
+        ss10.execute_skill(c10, 120124, b10, skip_cost=True)
+        dmg_l10 = e10.max_hp - e10.current_hp
+        self.assertGreater(dmg_l10, dmg_l1, "L10 dmg% 高于 L1，应造成更多伤害")
+
+    def test_07_HP不足以消耗时(self):
+        # HP 低于 10% max_hp 时仍应尝试消耗
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=0.05)
+        initial_hp = caster.current_hp
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        # HP 应被消耗（最低1点兜底）
+        self.assertLess(caster.current_hp, initial_hp, "HP不足以消耗10%时仍应消耗（兜底1点）")
+
+    def test_08_AP消耗1点(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=1.0)
+        initial_ap = caster.current_ap
+        ss.execute_skill(caster, 120124, bf)
+        self.assertEqual(caster.current_ap, initial_ap - 1, "AS应消耗1 AP")
+
+    def test_09_冷却2回合(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=1.0)
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        # execute_skill 不自动设置冷却，需手动调用 update_cooldown_after_skill_use
+        ss.update_cooldown_after_skill_use(caster, 120124)
+        cd = caster.skill_cooldowns.get(120124, 0)
+        self.assertEqual(cd, 2, "冷却应为2回合")
+
+    def test_10_满血时_HP_100_触发AP减1(self):
+        ss, caster, enemy, bf = self._setup(level=10, hp_ratio=1.0)
+        initial_ap = enemy.current_ap
+        ss.execute_skill(caster, 120124, bf, skip_cost=True)
+        self.assertEqual(enemy.current_ap, initial_ap - 1, "满血(100%>=70%)时应减1 AP")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# AS 120125 スチール
+# ════════════════════════════════════════════════════════════════════════════
+class TestAS_120125(_BaseTest):
+    """AS 120125 スチール 测试"""
+
+    def _setup(self, level=10, enemy_hp=None):
+        services = self._build_services()
+        ss = services['ss']
+        caster = _make_unit("caster", "劉翠蘭", Side.ALLY, Position.ALLY_CENTER_BACK,
+                            character_id=111302, level=level, hp=20000,
+                            skills=[120125], skill_levels={120125: level}, pp=10)
+        enemy = _make_unit("e0", "敌0", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                           hp=50000, atk=5000)
+        if enemy_hp is not None:
+            enemy.current_hp = enemy_hp
+        bf = self._build_bf([caster], [enemy])
+        return ss, caster, enemy, bf
+
+    def test_01_3hit伤害(self):
+        ss, caster, enemy, bf = self._setup(level=10)
+        initial_hp = enemy.current_hp
+        result = ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        self.assertTrue(result['success'])
+        self.assertLess(enemy.current_hp, initial_hp, "应造成伤害")
+
+    def test_02_吸血回复(self):
+        ss, caster, enemy, bf = self._setup(level=10)
+        # 让 caster 先掉血
+        caster.current_hp = caster.max_hp - 5000
+        hp_before_heal = caster.current_hp
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        # 应有吸血回复
+        self.assertGreater(caster.current_hp, hp_before_heal, "应吸血回复HP")
+
+    def test_03_击杀时施加card_buff(self):
+        ss, caster, enemy, bf = self._setup(level=10, enemy_hp=1000)
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        self.assertLessEqual(enemy.current_hp, 0, "应击杀敌人")
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 1, "击杀时应施加card_buff")
+        self.assertEqual(card_buffs[0].value, 2, "应为スリーカード (value=2)")
+
+    def test_04_非击杀不施加card_buff(self):
+        ss, caster, enemy, bf = self._setup(level=10, enemy_hp=50000)
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        self.assertGreater(enemy.current_hp, 0, "不应击杀敌人")
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(len(card_buffs), 0, "非击杀时不应施加card_buff")
+
+    def test_05_card_buff持续1行动(self):
+        ss, caster, enemy, bf = self._setup(level=10, enemy_hp=1000)
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        card_buffs = [b for b in caster.buffs if b.effect_type == CARD_BUFF]
+        self.assertEqual(card_buffs[0].duration, 1, "card_buff 应持续1行动")
+
+    def test_06_L1_cure_50_L10_cure_100(self):
+        # L1 cure=50%, L10 cure=100%
+        ss1, c1, e1, b1 = self._setup(level=1)
+        c1.current_hp = c1.max_hp - 5000
+        hp1_before = c1.current_hp
+        ss1.execute_skill(c1, 120125, b1, skip_cost=True)
+        heal_l1 = c1.current_hp - hp1_before
+
+        ss10, c10, e10, b10 = self._setup(level=10)
+        c10.current_hp = c10.max_hp - 5000
+        hp10_before = c10.current_hp
+        ss10.execute_skill(c10, 120125, b10, skip_cost=True)
+        heal_l10 = c10.current_hp - hp10_before
+        # L10 cure% 高于 L1，应回更多血（前提是伤害相近）
+        self.assertGreater(heal_l10, 0, "L10 应有吸血")
+        self.assertGreater(heal_l1, 0, "L1 应有吸血")
+
+    def test_07_满血时吸血不溢出(self):
+        ss, caster, enemy, bf = self._setup(level=10)
+        # caster 满血
+        self.assertEqual(caster.current_hp, caster.max_hp)
+        hp_before = caster.current_hp
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        self.assertEqual(caster.current_hp, caster.max_hp, "满血时吸血不应溢出")
+
+    def test_08_AP消耗1点(self):
+        ss, caster, enemy, bf = self._setup(level=10)
+        initial_ap = caster.current_ap
+        ss.execute_skill(caster, 120125, bf)
+        self.assertEqual(caster.current_ap, initial_ap - 1, "AS应消耗1 AP")
+
+    def test_09_无冷却(self):
+        ss, caster, enemy, bf = self._setup(level=10)
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        cd = caster.skill_cooldowns.get(120125, 0)
+        self.assertEqual(cd, 0, "スチール 应无冷却")
+
+    def test_10_L15_cure_150_高吸血(self):
+        ss, caster, enemy, bf = self._setup(level=15, enemy_hp=50000)
+        caster.current_hp = caster.max_hp - 10000
+        hp_before = caster.current_hp
+        ss.execute_skill(caster, 120125, bf, skip_cost=True)
+        heal = caster.current_hp - hp_before
+        self.assertGreater(heal, 0, "L15 cure=150% 应有显著吸血")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PS 130131 ブラフ
+# ════════════════════════════════════════════════════════════════════════════
+class TestPS_130131(_BaseTest):
+    """PS 130131 ブラフ 测试"""
+
+    def _setup(self, level=10, hp_ratio=1.0, num_allies=2):
+        services = self._build_services()
+        ss = services['ss']
+        ts = services['ts']
+        caster = _make_unit("caster", "劉翠蘭", Side.ALLY, Position.ALLY_CENTER_BACK,
+                            character_id=111302, level=level, hp=20000,
+                            skills=[130131], skill_levels={130131: level}, pp=10)
+        caster.current_hp = int(caster.max_hp * hp_ratio)
+        allies = [caster]
+        for i in range(num_allies):
+            allies.append(_make_unit(f"a{i}", f"友{i}", Side.ALLY,
+                                      [Position.ALLY_LEFT_BACK, Position.ALLY_RIGHT_BACK][i],
+                                      hp=15000))
+        attacker = _make_unit("attacker", "敌方攻击者", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+                              hp=50000, atk=10000, ap=5)
+        bf = self._build_bf(allies, [attacker])
+        return ss, ts, caster, allies, attacker, bf
+
+    def _trigger_ps(self, ss, ts, caster, attacker, bf):
+        """模拟 caster 被攻击后触发 PS 130131"""
+        actions = ts.trigger_after_self_attacked(
+            targets=[caster], battlefield=bf, actor=attacker, primary_target=caster
+        )
+        return actions
+
+    def _exec_ps(self, ss, action, bf, skip_cost=False):
+        """执行 PS action，设置触发上下文（模拟 battle_flow_controller._execute_trigger_actions）"""
+        params = action.parameters or {}
+        trigger_attacker = params.get('trigger_attacker')
+        primary_target = params.get('primary_target')
+        damaged_targets = params.get('targets')
+        total_dmg = params.get('total_damage')
+        if trigger_attacker:
+            ss._trigger_attacker = trigger_attacker
+        if primary_target:
+            ss._primary_target = primary_target
+        if damaged_targets:
+            ss._damaged_targets = damaged_targets
+        ss._trigger_total_damage = total_dmg if total_dmg is not None else 0
+        result = ss.execute_skill(
+            caster=action.instance.owner,
+            skill_id=action.skill_id,
+            battlefield=bf,
+            skip_cost=skip_cost,
+        )
+        if trigger_attacker:
+            ss._trigger_attacker = None
+        if primary_target:
+            ss._primary_target = None
+        if damaged_targets:
+            ss._damaged_targets = None
+        return result
+
+    def test_01_被攻击后触发PS(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=10)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        self.assertGreater(len(actions), 0, "被攻击后应触发 PS 130131")
+
+    def test_02_L1_14_施加hit_limited_1_dmg_taken_up(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=10)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        # 执行 PS
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        debuffs = [d for d in attacker.debuffs if d.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(debuffs), 1, "应对攻击者施加1个dmg_taken_up")
+        self.assertEqual(debuffs[0].hit_limited, 1, "L1-14 应为 hit_limited=1")
+
+    def test_03_L15_施加hit_limited_2_dmg_taken_up(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=15)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        debuffs = [d for d in attacker.debuffs if d.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(debuffs), 1, "应对攻击者施加1个dmg_taken_up")
+        self.assertEqual(debuffs[0].hit_limited, 2, "L15+ 应为 hit_limited=2")
+
+    def test_04_L15_不会同时施加两个debuff(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=15)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        debuffs = [d for d in attacker.debuffs if d.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(debuffs), 1, "L15+ 时 Block1 应被跳过，仅 Block3 执行，不应有2个debuff")
+
+    def test_05_target_identifier追踪攻击者(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=10)
+        # 添加另一个敌方（更近 caster 的位置）以验证 target_identifier 选择攻击者而非最近敌方
+        other_enemy = _make_unit("other", "另一敌", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+                                 hp=40000, atk=5000)
+        bf.enemy_team.append(other_enemy)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        # attacker 应有 dmg_taken_up，other_enemy 不应有
+        attacker_debuffs = [d for d in attacker.debuffs if d.effect_type == DMG_TAKEN_UP]
+        other_debuffs = [d for d in other_enemy.debuffs if d.effect_type == DMG_TAKEN_UP]
+        self.assertEqual(len(attacker_debuffs), 1, "debuff 应施加给攻击者")
+        self.assertEqual(len(other_debuffs), 0, "debuff 不应施加给其他敌方")
+
+    def test_06_L11_HP_30_以下_套全体盾(self):
+        ss, ts, caster, allies, attacker, bf = self._setup(level=11, hp_ratio=0.25)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        # 所有友方应有 shield
+        for ally in allies:
+            shield_buffs = [b for b in ally.buffs if b.effect_type in (SHIELD, "shield")]
+            self.assertGreaterEqual(len(shield_buffs), 1, f"{ally.name} 应有 shield")
+
+    def test_07_L11_HP_30_以上_不套盾(self):
+        ss, ts, caster, allies, attacker, bf = self._setup(level=11, hp_ratio=0.50)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        # 友方不应有 shield（dmg_taken_up 仍应有）
+        for ally in allies:
+            shield_buffs = [b for b in ally.buffs if b.effect_type in (SHIELD, "shield")]
+            self.assertEqual(len(shield_buffs), 0, f"HP>=30% 时 {ally.name} 不应有 shield")
+
+    def test_08_L1_10_HP_30_以下_不套盾(self):
+        ss, ts, caster, allies, attacker, bf = self._setup(level=10, hp_ratio=0.20)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        for ally in allies:
+            shield_buffs = [b for b in ally.buffs if b.effect_type in (SHIELD, "shield")]
+            self.assertEqual(len(shield_buffs), 0, f"L1-10 即使 HP<30% 也不应套盾")
+
+    def test_09_shield_attack_limited_1次攻击消耗(self):
+        ss, ts, caster, allies, attacker, bf = self._setup(level=11, hp_ratio=0.25)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        # 检查 caster 的 shield buff 的 attack_limited
+        shield_buffs = [b for b in caster.buffs if b.effect_type in (SHIELD, "shield")]
+        self.assertGreaterEqual(len(shield_buffs), 1)
+        self.assertEqual(shield_buffs[0].attack_limited, 1, "shield 应为 attack_limited=1")
+
+    def test_10_PP消耗1点(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=10)
+        initial_pp = caster.current_pp
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        self.assertEqual(caster.current_pp, initial_pp - 1, "PS应消耗1 PP")
+
+    def test_11_HP正好30_时不套盾(self):
+        ss, ts, caster, allies, attacker, bf = self._setup(level=11, hp_ratio=0.30)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        for ally in allies:
+            shield_buffs = [b for b in ally.buffs if b.effect_type in (SHIELD, "shield")]
+            self.assertEqual(len(shield_buffs), 0, "HP=30% 时不套盾（条件为 self_hp_below 严格小于）")
+
+    def test_12_dmg_taken_up_duration_type为hit(self):
+        ss, ts, caster, _, attacker, bf = self._setup(level=10)
+        actions = self._trigger_ps(ss, ts, caster, attacker, bf)
+        for action in actions:
+            self._exec_ps(ss, action, bf)
+        debuffs = [d for d in attacker.debuffs if d.effect_type == DMG_TAKEN_UP]
+        # duration_type 应映射为 hit_limited 控制（timing_type 应为 DURABLE_WHEN_USED）
+        self.assertEqual(debuffs[0].hit_limited, 1)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

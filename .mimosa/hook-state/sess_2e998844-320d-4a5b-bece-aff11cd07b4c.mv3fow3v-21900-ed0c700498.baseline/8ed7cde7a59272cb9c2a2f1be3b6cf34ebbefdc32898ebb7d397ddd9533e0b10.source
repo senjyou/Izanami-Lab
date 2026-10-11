@@ -1,0 +1,38 @@
+"""检查 failed 技能的 hybrid 数据结构详情。"""
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+with open('data/skill_effects_hybrid.json', encoding='utf-8') as f:
+    data = json.load(f)
+
+# 检查几个典型 failed 技能
+sample_ids = ['230045', '230053', '230113', '230139', '230146', '230148', '230172',
+              '230177', '230191', '230194', '230200', '230208', '230214', '230232',
+              '230236', '230242', '230244', '230245', '230246', '230248',
+              '230270', '230272', '230276', '230280', '230283', '230293', '230304',
+              '230319', '230324', '230341', '230350', '230351', '230352', '230359', '230366',
+              '210032', '210051', '220329', '220341']
+
+for sid in sample_ids:
+    if sid not in data:
+        continue
+    skill = data[sid]
+    print(f'=== {sid}: {skill.get("name", "")} ===')
+    # 输出关键字段
+    print(f'  parse_status: {skill.get("parse_status")}')
+    print(f'  parse_error: {skill.get("parse_error", "")[:200]}')
+    print(f'  description: {skill.get("description", "")[:200]}')
+    # 检查 effect_blocks
+    eb = skill.get('effect_blocks')
+    if eb:
+        print(f'  effect_blocks: {len(eb)} blocks')
+    else:
+        print(f'  effect_blocks: None')
+    # 检查 raw_data
+    raw = skill.get('raw_data') or skill.get('original_data') or {}
+    if raw:
+        print(f'  raw_data keys: {list(raw.keys())[:10]}')
+    print()

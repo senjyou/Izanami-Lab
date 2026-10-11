@@ -1,0 +1,356 @@
+"""回忆卡30036/30037/20084/20090技能效果回归测试
+
+回忆卡30036「世界は今、新たな道を描いて」(UR):
+- 400235 速度減少【敵最高速度】: battle_start, 行動速度が最も高い敵単体の速度-150
+- 400236 速度上昇【最低速度】: battle_start, 行動速度が最も低い味方単体の速度+150
+
+回忆卡30037「未来を勝ち取るために」(UR):
+- 400245 物理ダメージ上昇【ALL】: battle_start, 味方全体の物理ダメージ+1.75%
+- 400117 ENダメージ上昇【ALL】: battle_start, 味方全体のENダメージ+1.75%
+
+回忆卡20084「私の望むビジネスの輪」(SSR):
+- 400233 HP上昇【レイラ】: battle_start, レイラ(CharacterBaseMasterId=119)のHP+1500
+- 400234 速度変動【中央列前・後衛】: battle_start, 中央列後衛(bit=16)速度-25, 中央列前衛(bit=2)速度+25
+
+回忆卡20090「お守り」(SSR):
+- 400248 HP上昇【ラミ】: battle_start, 朽葉ラミ(CharacterBaseMasterId=103)のHP+1500
+- 400249 速度減少【敵後衛】: battle_start, 敵後衛の速度-7
+
+代码变更:
+- battle_flow_controller._select_memory_card_targets: 新增
+  ally_single_lowest_spd target_type（400236 行动速度最低的友方单体）
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.entities.memory_card import MemoryCard
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+import unittest
+
+
+def _make_ally(cid, name, position, speed=200, element=1):
+    """创建友方单位（使用角色库数据或默认值）"""
+    char = dl.get_character_by_id(cid)
+    if char:
+        stats = char.max_level_stats
+        base_atk, base_hp = stats.attack, stats.hp
+        base_def, base_spd = stats.defense, stats.speed
+    else:
+        base_atk, base_hp, base_def, base_spd = 500, 10000, 300, 200
+    return UnitState(
+        unit_id=f"ally_{cid}_{name}", name=name, side=Side.ALLY,
+        position=position, character_id=cid, level=60,
+        element=element, character_type=3,
+        max_hp=base_hp, current_hp=base_hp,
+        attack=base_atk, defense=base_def, speed=speed,
+        crit_rate=0.0, crit_damage=50.0, advantage_damage=0.0,
+        initial_active_point=3, initial_passive_point=3, max_extra_point=5,
+        current_ap=3, current_pp=3, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_enemy(speed=50, position=Position.ENEMY_CENTER_FRONT):
+    return UnitState(
+        unit_id=f"enemy_{position.value}", name="敌方木桩", side=Side.ENEMY,
+        position=position, character_id=999001, level=1,
+        element=1, character_type=1,
+        max_hp=999999, current_hp=999999,
+        attack=10, defense=0, speed=speed,
+        crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+        initial_active_point=0, initial_passive_point=0, max_extra_point=0,
+        current_ap=0, current_pp=0, current_ep=0,
+        skills=[], skill_levels={}, skill_cooldowns={},
+    )
+
+
+def _make_card(card_id):
+    mem_info = dl.load_memories().get(card_id)
+    return MemoryCard(
+        card_id=card_id, name=mem_info.name,
+        description=mem_info.description, rarity=mem_info.rarity,
+        highlights=mem_info.highlights,
+    )
+
+
+dl = DataLoader()
+dl.load_all()
+dms = DamageService()
+
+
+def _make_controller(bf):
+    aus = AuraService()
+    controller = BattleFlowController(bf, dl)
+    controller.damage_service = dms
+    controller.aura_service = aus
+    return controller, aus
+
+
+def _speed_buffs(unit):
+    return [b for b in unit.buffs
+            if b.effect_type == SkillEffectType.STATUS_SPEED.value
+            and getattr(b, 'is_memory_buff', False)]
+
+
+def _speed_debuffs(unit):
+    return [b for b in unit.debuffs
+            if b.effect_type == SkillEffectType.STATUS_SPEED.value
+            and getattr(b, 'is_memory_buff', False)]
+
+
+def _hp_buffs(unit):
+    return [b for b in unit.buffs
+            if b.effect_type == SkillEffectType.STATUS_MAX_HP.value
+            and getattr(b, 'is_memory_buff', False)]
+
+
+class TestMemory30036Skill400235(unittest.TestCase):
+    """400235 速度減少【敵最高速度】: 行動速度最高的敵單体速度-150"""
+
+    def test_highest_speed_enemy_debuffed(self):
+        fast_enemy = _make_enemy(speed=300, position=Position.ENEMY_CENTER_FRONT)
+        slow_enemy = _make_enemy(speed=60, position=Position.ENEMY_LEFT_FRONT)
+        ally = _make_ally(100101, "友方", Position.ALLY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [fast_enemy, slow_enemy]
+        # 30036的highlight无过滤（400235/400236均无条件）
+        bf.memory_cards = [_make_card(30036)]
+
+        spd_before_fast = dms._calculate_final_stat(fast_enemy, "speed")
+        spd_before_slow = dms._calculate_final_stat(slow_enemy, "speed")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(fast_enemy, "speed"),
+            spd_before_fast - 150, "最高速度敌应速度-150")
+        self.assertEqual(
+            dms._calculate_final_stat(slow_enemy, "speed"),
+            spd_before_slow, "非最高速度敌不应被buff")
+        # debuff方向验证
+        spd_debuffs = _speed_debuffs(fast_enemy)
+        self.assertEqual(len(spd_debuffs), 1)
+        self.assertEqual(spd_debuffs[0].value, 150)
+
+
+class TestMemory30036Skill400236(unittest.TestCase):
+    """400236 速度上昇【最低速度】: 行動速度最低的友方單体速度+150"""
+
+    def test_lowest_speed_ally_buffed(self):
+        fast_ally = _make_ally(100101, "高速友方", Position.ALLY_LEFT_FRONT, speed=400)
+        slow_ally = _make_ally(100102, "低速友方", Position.ALLY_CENTER_FRONT, speed=80)
+        enemy = _make_enemy()
+        bf = BattlefieldState()
+        bf.friend_team = [fast_ally, slow_ally]
+        bf.enemy_team = [enemy]
+        bf.memory_cards = [_make_card(30036)]
+
+        spd_before_fast = dms._calculate_final_stat(fast_ally, "speed")
+        spd_before_slow = dms._calculate_final_stat(slow_ally, "speed")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(slow_ally, "speed"),
+            spd_before_slow + 150, "最低速度友方应速度+150")
+        self.assertEqual(
+            dms._calculate_final_stat(fast_ally, "speed"),
+            spd_before_fast, "非最低速度友方不应被buff")
+        # buff方向验证
+        spd_buffs = _speed_buffs(slow_ally)
+        self.assertEqual(len(spd_buffs), 1)
+        self.assertEqual(spd_buffs[0].value, 150)
+
+
+class TestMemory30037Skill400245(unittest.TestCase):
+    """400245 物理ダメージ上昇【ALL】: 味方全体物理伤害+1.75%"""
+
+    def test_all_ally_phys_damage_up(self):
+        ally1 = _make_ally(100101, "友方1", Position.ALLY_LEFT_FRONT)
+        ally2 = _make_ally(100102, "友方2", Position.ALLY_CENTER_FRONT)
+        enemy = _make_enemy()
+        bf = BattlefieldState()
+        bf.friend_team = [ally1, ally2]
+        bf.enemy_team = [enemy]
+        bf.memory_cards = [_make_card(30037)]
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        for ally in (ally1, ally2):
+            dealt = [b for b in ally.buffs
+                     if b.effect_type == SkillEffectType.DEALT_DAMAGE.value
+                     and getattr(b, 'is_memory_buff', False)
+                     and b.damage_element == 1]
+            self.assertEqual(len(dealt), 1, f"{ally.name}应获得物理伤害buff")
+            self.assertAlmostEqual(dealt[0].value, 1.75, places=4)
+            self.assertEqual(dealt[0].value_tag, 0)
+
+
+class TestMemory20084Skill400233(unittest.TestCase):
+    """400233 HP上昇【レイラ】: レイラ(CharacterBaseMasterId=119)HP+1500"""
+
+    def test_layla_hp_up(self):
+        layla = _make_ally(119302, "レイラ", Position.ALLY_LEFT_FRONT)
+        other = _make_ally(100101, "其他", Position.ALLY_CENTER_FRONT)
+        enemy = _make_enemy()
+        bf = BattlefieldState()
+        bf.friend_team = [layla, other]
+        bf.enemy_team = [enemy]
+        bf.memory_cards = [_make_card(20084)]
+
+        hp_before = dms._calculate_final_stat(layla, "max_hp")
+        hp_before_other = dms._calculate_final_stat(other, "max_hp")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(layla, "max_hp"),
+            hp_before + 1500, "レイラ应HP+1500")
+        self.assertEqual(
+            dms._calculate_final_stat(other, "max_hp"),
+            hp_before_other, "其他角色不应被buff")
+
+        hp_buffs = _hp_buffs(layla)
+        self.assertEqual(len(hp_buffs), 1)
+        self.assertEqual(hp_buffs[0].value, 1500)
+
+
+class TestMemory20084Skill400234(unittest.TestCase):
+    """400234 速度変動【中央列前・後衛】: 中央列後衛速度-25, 中央列前衛速度+25"""
+
+    def _make_center_units(self):
+        front = _make_ally(100101, "中央前衛", Position.ALLY_CENTER_FRONT, speed=250)
+        back = _make_ally(100102, "中央後衛", Position.ALLY_CENTER_BACK, speed=250)
+        left = _make_ally(100103, "左前衛", Position.ALLY_LEFT_FRONT, speed=250)
+        enemy = _make_enemy()
+        bf = BattlefieldState()
+        bf.friend_team = [front, back, left]
+        bf.enemy_team = [enemy]
+        bf.memory_cards = [_make_card(20084)]
+        return front, back, left, bf
+
+    def test_center_position_speed_variation(self):
+        front, back, left, bf = self._make_center_units()
+        spd_front_before = dms._calculate_final_stat(front, "speed")
+        spd_back_before = dms._calculate_final_stat(back, "speed")
+        spd_left_before = dms._calculate_final_stat(left, "speed")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(front, "speed"),
+            spd_front_before + 25, "中央列前衛应速度+25")
+        self.assertEqual(
+            dms._calculate_final_stat(back, "speed"),
+            spd_back_before - 25, "中央列後衛应速度-25")
+        self.assertEqual(
+            dms._calculate_final_stat(left, "speed"),
+            spd_left_before, "侧列不应被影响")
+
+        # 方向验证：buff/debuff分离
+        front_spd_buffs = _speed_buffs(front)
+        back_spd_debuffs = _speed_debuffs(back)
+        self.assertEqual(len(front_spd_buffs), 1)
+        self.assertEqual(front_spd_buffs[0].value, 25)
+        self.assertEqual(len(back_spd_debuffs), 1)
+        self.assertEqual(back_spd_debuffs[0].value, 25)
+
+
+class TestMemory20090Skill400248(unittest.TestCase):
+    """400248 HP上昇【ラミ】: 朽葉ラミ(CharacterBaseMasterId=103)HP+1500"""
+
+    def test_rami_hp_up(self):
+        rami = _make_ally(103303, "朽葉ラミ", Position.ALLY_RIGHT_FRONT)
+        other = _make_ally(100101, "其他", Position.ALLY_CENTER_FRONT)
+        enemy = _make_enemy()
+        bf = BattlefieldState()
+        bf.friend_team = [rami, other]
+        bf.enemy_team = [enemy]
+        bf.memory_cards = [_make_card(20090)]
+
+        hp_before = dms._calculate_final_stat(rami, "max_hp")
+        hp_before_other = dms._calculate_final_stat(other, "max_hp")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(rami, "max_hp"),
+            hp_before + 1500, "朽葉ラミ应HP+1500")
+        self.assertEqual(
+            dms._calculate_final_stat(other, "max_hp"),
+            hp_before_other, "其他角色不应被buff")
+
+
+class TestMemory20090Skill400249(unittest.TestCase):
+    """400249 速度減少【敵後衛】: 敵後衛速度-7"""
+
+    def test_enemy_back_row_speed_down(self):
+        back_enemy = _make_enemy(speed=200, position=Position.ENEMY_CENTER_BACK)
+        front_enemy = _make_enemy(speed=200, position=Position.ENEMY_CENTER_FRONT)
+        ally = _make_ally(100101, "友方", Position.ALLY_CENTER_FRONT)
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [back_enemy, front_enemy]
+        bf.memory_cards = [_make_card(20090)]
+
+        spd_back_before = dms._calculate_final_stat(back_enemy, "speed")
+        spd_front_before = dms._calculate_final_stat(front_enemy, "speed")
+
+        controller, _ = _make_controller(bf)
+        controller._apply_memory_card_effects()
+
+        self.assertEqual(
+            dms._calculate_final_stat(back_enemy, "speed"),
+            spd_back_before - 7, "敵後衛应速度-7")
+        self.assertEqual(
+            dms._calculate_final_stat(front_enemy, "speed"),
+            spd_front_before, "敵前衛不应被buff")
+
+        spd_debuffs = _speed_debuffs(back_enemy)
+        self.assertEqual(len(spd_debuffs), 1)
+        self.assertEqual(spd_debuffs[0].value, 7)
+
+
+class TestMemoryNewStructuredEntries(unittest.TestCase):
+    """新增结构化条目可通过DataLoader加载且字段完整"""
+
+    def test_new_memory_effects_loaded(self):
+        for skill_id in (400233, 400234, 400235, 400236, 400248, 400249):
+            effect = dl.get_memory_effect(skill_id)
+            self.assertIsNotNone(effect, f"skill {skill_id} 应有结构化效果数据")
+            self.assertEqual(effect.get("skill_id"), skill_id)
+            self.assertEqual(effect["trigger"]["type"], "battle_start")
+            self.assertTrue(effect.get("blocks"), f"skill {skill_id} blocks 非空")
+
+    def test_400236_uses_ally_single_lowest_spd(self):
+        effect = dl.get_memory_effect(400236)
+        self.assertEqual(effect["blocks"][0]["target_type"], "ally_single_lowest_spd")
+
+    def test_400234_has_two_blocks(self):
+        effect = dl.get_memory_effect(400234)
+        self.assertEqual(len(effect["blocks"]), 2)
+        block_targets = [b["target_type"] for b in effect["blocks"]]
+        self.assertEqual(block_targets, ["ally_position", "ally_position"])
+        positions = [b.get("party_position") for b in effect["blocks"]]
+        self.assertEqual(positions, [16, 2], "400234: 中央列後衛(16)减速 + 中央列前衛(2)加速")
+
+
+if __name__ == "__main__":
+    unittest.main()

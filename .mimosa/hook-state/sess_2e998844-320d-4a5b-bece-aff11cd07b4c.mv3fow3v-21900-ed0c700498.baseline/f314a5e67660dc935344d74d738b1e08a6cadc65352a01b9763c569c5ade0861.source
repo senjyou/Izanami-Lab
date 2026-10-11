@@ -1,0 +1,321 @@
+"""敌方381305 惨禍：鳴滝七彩 专项E2E测试（同名己方101302的敌方版）
+
+技能列表（5个，全部Lv10）:
+- EX: 210129 新しき一歩を（攻勢状态机：无攻勢→解debuff+攻勢mark+debuff无效+减伤；有攻勢→atk+25%+敌全体攻击+解除）
+- AS: 220470 パーフェクトオーダー（无攻勢→横列盾；有攻勢→敌2体攻击）
+- PS1: 230500 ランパートシャッター+（自身被攻击前→guard 50%；敌方版无嘲讽；HP>=50%限定）
+- PS2: 230501 セントリフレイン（PS使用后→EX2消费+回复+PP+2）
+- PS3: 230502 リベンジスタンス+（自身累计受伤>=1%maxHP→自回复威力40；HP<50%限定）
+
+覆盖维度:
+1. EX 攻勢双分支（解除debuff/上mark → atk+25%全体攻击+解除）
+2. AS 攻勢双分支（横列盾 → 敌2体攻击）
+3. PS1 仅自身被攻击时格挡（无嘲讽）、HP门槛
+4. PS3 自身1%累计受伤触发+HP<50%门槛
+5. 配置校验（gc target_is_self / cumulative 1% / 无类型分支）
+"""
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+MARK = SkillEffectType.MARK.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+
+KOUSEI = "攻勢"
+EX_ID, AS_ID, PS1_ID, PS2_ID, PS3_ID = 210129, 220470, 230500, 230501, 230502
+ALL_SKILLS = [EX_ID, AS_ID, PS1_ID, PS2_ID, PS3_ID]
+
+
+class TestActor381305(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        cls.dms = DamageService()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+        self.bf.turn_number = 1
+
+        self.caster = UnitState(
+            unit_id="caster", name="惨禍七彩", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=381305, level=10,
+            element=3, character_type=1,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=10, initial_passive_point=10, max_extra_point=5,
+            current_ap=10, current_pp=10, current_ep=5,
+            skills=ALL_SKILLS,
+            skill_levels={sid: 10 for sid in ALL_SKILLS},
+            skill_cooldowns={},
+        )
+        self.enemy_lf = self._mk_minion("enemy_lf", "敵左前", Position.ENEMY_LEFT_FRONT)
+        self.ally_cf = self._mk_ally("ally_cf", "味方中前", Position.ALLY_CENTER_FRONT)
+        self.ally_lf = self._mk_ally("ally_lf", "味方左前", Position.ALLY_LEFT_FRONT)
+        self.ally_cb = self._mk_ally("ally_cb", "味方中後", Position.ALLY_CENTER_BACK)
+
+        self.bf.enemy_team = [self.caster, self.enemy_lf]
+        self.bf.friend_team = [self.ally_cf, self.ally_lf, self.ally_cb]
+
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs, damage_service=self.dms,
+            aura_service=self.aus, status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    def _mk_minion(self, unit_id, name, position):
+        return UnitState(
+            unit_id=unit_id, name=name, side=Side.ENEMY,
+            position=position, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=99999, current_hp=99999,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+    def _mk_ally(self, unit_id, name, position):
+        return UnitState(
+            unit_id=unit_id, name=name, side=Side.ALLY,
+            position=position, character_id=999001, level=10,
+            element=1, character_type=1,
+            max_hp=99999, current_hp=99999,
+            attack=8000, defense=4000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+    def _reset(self):
+        self.caster.current_hp = self.caster.max_hp
+        self.caster.buffs = []
+        self.caster.debuffs = []
+        self.caster.is_alive = True
+        self.caster.skill_cooldowns = {}
+        self.caster.current_ap = 10
+        self.caster.current_pp = 10
+        self.caster.current_ep = 5
+        self.caster.crit_counter = 0
+        self.caster.cumulative_hp_damage = 0
+        self.caster.shield = 0
+        for u in [self.enemy_lf, self.ally_cf, self.ally_lf, self.ally_cb]:
+            u.current_hp = u.max_hp
+            u.buffs = []
+            u.debuffs = []
+            u.is_alive = True
+
+    def _kousei_count(self, unit):
+        return sum(getattr(b, 'stack_count', 1) or 1 for b in unit.buffs + unit.debuffs
+                   if b.effect_type == MARK and b.name == KOUSEI)
+
+    def _put_debuffs_on_caster(self, n=2):
+        for i in range(n):
+            self.caster.debuffs.append(BuffState(
+                buff_id=f"db_{i}", name=f"debuff{i}", effect_type=RECEIVED_DAMAGE,
+                value=10.0, duration=3,
+                timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                source_unit_id="ally_cf", source_skill_id=0, is_debuff=True,
+            ))
+
+    # ─────────────── EX 210129 ───────────────
+
+    def test_ex_210129_no_kousei_gain_mark_and_cleanse(self):
+        """EX: 无攻勢→解除自身debuff+攻勢mark+debuff无效+减伤；不攻击。"""
+        self._reset()
+        self._put_debuffs_on_caster(2)
+        hp_before = {u.unit_id: u.current_hp for u in [self.ally_cf, self.ally_lf, self.ally_cb]}
+        result = self.ss.execute_skill(caster=self.caster, skill_id=EX_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(len(self.caster.debuffs), 0, "应解除自身全部debuff")
+        self.assertEqual(self._kousei_count(self.caster), 1, "应获得攻勢mark")
+        for uid, before in hp_before.items():
+            unit = next(u for u in self.bf.friend_team if u.unit_id == uid)
+            self.assertEqual(unit.current_hp, before, "无攻勢分支不应攻击")
+
+    def test_ex_210129_with_kousei_all_attack_and_release(self):
+        """EX: 有攻勢→atk+25%全体攻击+解除攻勢。"""
+        self._reset()
+        self.caster.buffs.append(BuffState(
+            buff_id="pre_kousei", name=KOUSEI, effect_type=MARK, value=0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="pre", source_skill_id=0, is_debuff=False,
+            is_memory_buff=True,
+        ))
+        self._put_debuffs_on_caster(1)
+        result = self.ss.execute_skill(caster=self.caster, skill_id=EX_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(self._kousei_count(self.caster), 0, "攻击后应解除攻勢")
+        for u in [self.ally_cf, self.ally_lf, self.ally_cb]:
+            self.assertLess(u.current_hp, u.max_hp, "有攻勢应敌全体攻击")
+        self.assertEqual(len(self.caster.debuffs), 1, "有攻勢分支不解debuff")
+
+    # ─────────────── AS 220470 ───────────────
+
+    def test_as_220470_no_kousei_row_shield(self):
+        """AS: 无攻勢→敌方横列（自身+同排）获得盾=atk×30%。"""
+        self._reset()
+        result = self.ss.execute_skill(caster=self.caster, skill_id=AS_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        expected = int(self.caster.attack * 0.30)  # shield tag Lv10=30
+        self.assertGreater(self.caster.shield, 0, "自身应获得盾")
+        self.assertEqual(self.caster.shield, expected, "盾值应为atk×30%")
+        self.assertGreater(self.enemy_lf.shield, 0, "同排友方应获得盾")
+
+    def test_as_220470_with_kousei_two_targets(self):
+        """AS: 有攻勢→敌2体攻击（friend_team最近2体）。"""
+        self._reset()
+        self.caster.buffs.append(BuffState(
+            buff_id="pre_kousei", name=KOUSEI, effect_type=MARK, value=0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id="pre", source_skill_id=0, is_debuff=False,
+            is_memory_buff=True,
+        ))
+        result = self.ss.execute_skill(caster=self.caster, skill_id=AS_ID,
+                                       battlefield=self.bf, skip_cost=True)
+        self.assertTrue(result["success"])
+        damaged = [u for u in [self.ally_cf, self.ally_lf, self.ally_cb]
+                   if u.current_hp < u.max_hp]
+        self.assertEqual(len(damaged), 2, "应恰好攻击2体")
+        self.assertEqual(self.caster.shield, 0, "有攻勢分支不给盾")
+
+    # ─────────────── PS1 230500 ───────────────
+
+    def _trigger_ps1(self, target):
+        return [a for a in self.ts.trigger_before_any_attacked(
+            targets=[target], battlefield=self.bf, attacker=self.ally_cf)
+            if a.skill_id == PS1_ID]
+
+    def test_ps1_230500_guard_when_self_attacked(self):
+        """PS1: 自身被攻击前→guard 50%（Lv10 tag，新机制guard_rate字段）。"""
+        self._reset()
+        ps1 = self._trigger_ps1(self.caster)
+        self.assertGreater(len(ps1), 0, "自身被攻击应触发")
+        self.ss._execute_trigger_actions_inline(ps1, self.bf)
+        self.assertTrue(self.caster.guard_active, "guard应激活")
+        self.assertEqual(self.caster.guard_rate, 50.0, "guard值应为tag Lv10=50%")
+
+    def test_ps1_230500_no_trigger_when_ally_attacked(self):
+        """PS1: 其他单位被攻击时不触发（敌方版无嘲讽）。"""
+        self._reset()
+        ps1 = self._trigger_ps1(self.enemy_lf)
+        self.assertEqual(len(ps1), 0, "无嘲讽：他者被攻击不应触发")
+
+    def test_ps1_230500_no_trigger_below_50pct(self):
+        """PS1: HP<50%时不触发。"""
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.4)
+        ps1 = self._trigger_ps1(self.caster)
+        self.assertEqual(len(ps1), 0, "HP<50%不应触发")
+
+    # ─────────────── PS3 230502 ───────────────
+
+    def _trigger_ps3(self):
+        return [a for a in self.ts.trigger_cumulative_damage(self.bf, [self.caster])
+                if a.skill_id == PS3_ID]
+
+    def test_ps3_230502_self_heal_at_1pct_cumulative(self):
+        """PS3: 自身累计受伤>=1%maxHP→自回复威力40×atk（HP<50%时）。
+
+        以HP隔离PS2セントリフレイン：PS使用会+1EP使EP条件恒满足（实测EP>=1即可，
+        见 test_reg_sentri_refrain_ep_condition），故不能用EP=0隔离；
+        此处设HP=20%，回复后40%仍<50%，由PS2的hp>=50%条件拦截链式发动。
+        """
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.2)  # 20%，回复后40%仍<50%
+        self.caster.cumulative_hp_damage = int(self.caster.max_hp * 0.01)  # 1%
+        ps3 = self._trigger_ps3()
+        self.assertGreater(len(ps3), 0, "累计受伤1%应触发")
+        hp_before = self.caster.current_hp
+        self.ss._execute_trigger_actions_inline(ps3, self.bf)
+        expected_heal = int(self.caster.attack * 0.40)  # 威力 tag Lv10=40
+        self.assertEqual(self.caster.current_hp - hp_before, expected_heal,
+                         "回复量应为威力40%×攻击力（链式PS2已被HP门槛拦截）")
+
+    def test_ps3_230502_no_trigger_above_50pct(self):
+        """PS3: HP>=50%时不触发。"""
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.8)
+        self.caster.cumulative_hp_damage = int(self.caster.max_hp * 0.05)
+        ps3 = self._trigger_ps3()
+        self.assertEqual(len(ps3), 0, "HP>=50%不应触发")
+
+    def test_ps3_230502_no_trigger_below_1pct(self):
+        """PS3: 累计受伤<1%不触发。"""
+        self._reset()
+        self.caster.current_hp = int(self.caster.max_hp * 0.4)
+        self.caster.cumulative_hp_damage = int(self.caster.max_hp * 0.005)  # 0.5%
+        ps3 = self._trigger_ps3()
+        self.assertEqual(len(ps3), 0, "累计受伤<1%不应触发")
+
+    # ─────────────── 配置校验 ───────────────
+
+    def test_config_validation(self):
+        """配置校验: 敌方版差异点。"""
+        p500 = self.dl.get_parsed_skill_data(PS1_ID)
+        self.assertEqual(p500.get('trigger_type'), 'before_any_attacked')
+        gc = p500.get('global_condition') or {}
+        conds = {c['type'] for c in gc.get('conditions', [])} if gc.get('type') == 'condition_list' else {gc.get('type')}
+        self.assertIn('target_is_self', conds, "敌方PS1应含target_is_self（无嘲讽）")
+        self.assertIn('self_hp_percent', conds)
+        self.assertTrue(p500.get('simultaneous_limit'))
+        effs = [e for b in p500['effect_blocks'] for e in b['effects']]
+        self.assertNotIn('cover', [e['effect_type'] for e in effs], "敌方PS1不应有嘲讽cover")
+        self.assertIn('guard', [e['effect_type'] for e in effs])
+
+        p502 = self.dl.get_parsed_skill_data(PS3_ID)
+        self.assertEqual(p502.get('trigger_type'), 'on_cumulative_damage')
+        gc502 = p502.get('global_condition') or {}
+        cond_map = {c['type']: c.get('value') for c in gc502.get('conditions', [])}
+        self.assertEqual(cond_map.get('cumulative_damage_percent'), 1, "敌方PS3阈值应为1%")
+        self.assertIn('self_hp_percent', cond_map, "应含HP<50%条件")
+        block_types = [e['effect_type'] for b in p502['effect_blocks'] for e in b['effects']]
+        self.assertEqual(block_types, ['heal'], "敌方PS3应只有单一自回复（无类型分支）")
+
+        p129 = self.dl.get_parsed_skill_data(EX_ID)
+        block_conds = [b['condition']['type'] if b.get('condition') else None
+                       for b in p129['effect_blocks']]
+        self.assertIn('lacks_mark_at_start', block_conds)
+        self.assertIn('has_mark_at_start', block_conds)
+
+        p470 = self.dl.get_parsed_skill_data(AS_ID)
+        dmg_blocks = [b for b in p470['effect_blocks']
+                      if any(e['effect_type'] == 'damage' for e in b['effects'])]
+        dmg = [e for e in dmg_blocks[0]['effects'] if e['effect_type'] == 'damage'][0]
+        self.assertEqual(dmg['flags'].get('target_count'), 2, "有攻勢应攻击2体")
+
+
+if __name__ == '__main__':
+    unittest.main()

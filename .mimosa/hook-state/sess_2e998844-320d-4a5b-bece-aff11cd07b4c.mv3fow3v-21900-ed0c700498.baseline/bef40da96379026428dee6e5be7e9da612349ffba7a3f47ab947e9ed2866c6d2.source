@@ -1,0 +1,163 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""回归测试: サマータイム・ロマンス+ (230428) dmg_taken_down_threshold
+hit_limited 消耗异常修复
+
+Bug: _apply_damage_consume_caster_hit_limited_buffs (skill_service.py:4557)
+     在caster攻击时遍历所有 hit_limited>0 的buff并消耗, 包括防御性buff
+     dmg_taken_down_threshold. 导致caster自身攻击时减伤buff被错误消耗,
+     后续被攻击时减伤次数不足 (如 レバッ! 第2hit 未吃到减伤).
+
+Fix: 在该方法中跳过 dmg_taken_down_threshold (防御性buff, 由 damage_service
+     在防御者被击中时消耗, damage_service.py:535-549).
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, Side
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.combat_v2.services.damage_service import DamageService
+
+DMG_TAKEN_DOWN_THRESHOLD = "dmg_taken_down_threshold"
+
+
+def _make_skill_data(power=100.0, hit_count=1, element=1):
+    """创建mock skill_data用于calculate_damage直接调用"""
+    return type('obj', (object,), {
+        'power': power, 'hit_count': hit_count, 'element': element,
+        'ignore_defense': 0, 'ignore_shield': 0, 'hp_scaling_bonus': 0,
+        'cannot_crit': True, 'bonus_crit_rate': 0.0,
+        'skill_id': 999999, 'name': "test",
+    })()
+
+
+def _make_dtd_buff(hit_limited=3, value=50, threshold_pct=2):
+    """创建 dmg_taken_down_threshold buff
+
+    Args:
+        hit_limited: 可生效的受击次数
+        value: 减伤百分比 (50 = 50%)
+        threshold_pct: HP阈值百分比 (2 = current_hp的2%)
+    """
+    return BuffState(
+        buff_id="test_dtd", name="dmg_taken_down_threshold",
+        effect_type=DMG_TAKEN_DOWN_THRESHOLD,
+        value=value, duration=-1, timing_type=2,
+        is_debuff=False, is_stackable=False, value_tag=0,
+        hit_limited=hit_limited,
+        threshold_pct=threshold_pct,
+        threshold_base="current_hp",
+    )
+
+
+def _make_unit(unit_id, side, hp=100000, atk=5000, defense=100):
+    pos = Position.ALLY_CENTER_FRONT if side == Side.ALLY else Position.ENEMY_CENTER_FRONT
+    return UnitState(
+        unit_id=unit_id, name=unit_id, side=side,
+        position=pos, character_id=999001 if side == Side.ENEMY else 999901,
+        level=10, element=1, character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=100,
+        crit_rate=0.0, crit_damage=50.0, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=5, current_pp=5, current_ep=0,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# 核心回归: caster攻击不应消耗防御性buff
+# ═══════════════════════════════════════════════════════════════
+
+class TestDtdNotConsumedOnCasterAttack:
+    """dmg_taken_down_threshold 不应在caster攻击时被消耗
+
+    Bug场景: アニス(230428) 先施加减伤buff(hit_count=3), 然后使用
+    サマー・スプラッシュ(220411, 4hit) 攻击. 修复前buff被错误消耗,
+    修复后buff应保持3次不变.
+    """
+
+    def test_buff_survives_caster_attack(self):
+        """caster攻击后, dmg_taken_down_threshold 的 hit_limited 应保持不变"""
+        bb = BattleBuilder()
+        bb.add_enemy(unit_id="c", hp=100000, atk=5000, defense=3000, speed=529,
+                     skills=[230428, 220411], level=10, ep=10)
+        bb.add_ally(unit_id="a1", position=Position.ALLY_CENTER_FRONT, hp=50000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.enemy_team if u.unit_id == "c")
+
+        # Step 1: 执行230428, 施加减伤buff (Lv10 → hit_count=3)
+        result = ss.execute_skill(caster=caster, skill_id=230428,
+                                  battlefield=bf, skip_cost=True)
+        assert result["success"]
+
+        dtd_buffs = [b for b in caster.buffs if b.effect_type == DMG_TAKEN_DOWN_THRESHOLD]
+        assert len(dtd_buffs) > 0, "should have dmg_taken_down_threshold buff"
+        hit_limited_before = dtd_buffs[0].hit_limited
+        assert hit_limited_before == 3, \
+            f"hit_limited should be 3 at Lv10, got {hit_limited_before}"
+
+        # Step 2: caster攻击 (220411 サマー・スプラッシュ, 4hit)
+        result = ss.execute_skill(caster=caster, skill_id=220411,
+                                  battlefield=bf, skip_cost=True)
+        assert result["success"]
+
+        # Step 3: 减伤buff的hit_limited应保持不变 (攻击不消耗防御性buff)
+        dtd_buffs_after = [b for b in caster.buffs
+                           if b.effect_type == DMG_TAKEN_DOWN_THRESHOLD]
+        assert len(dtd_buffs_after) > 0, \
+            "dmg_taken_down_threshold buff should still exist after caster attack"
+        assert dtd_buffs_after[0].hit_limited == hit_limited_before, \
+            f"hit_limited should remain {hit_limited_before} after caster attack, " \
+            f"got {dtd_buffs_after[0].hit_limited}"
+
+
+# ═══════════════════════════════════════════════════════════════
+# 防御时正确消耗: 被攻击时按hit消耗, 3次后移除
+# ═══════════════════════════════════════════════════════════════
+
+class TestDtdConsumedOnDefense:
+    """dmg_taken_down_threshold 应在被攻击时按hit消耗"""
+
+    def test_buff_removed_after_3_hits(self):
+        """hit_limited=3 的buff在被4hit攻击后应被移除 (前3hit消耗)"""
+        ds = DamageService()
+        defender = _make_unit("def", Side.ENEMY, hp=100000, atk=100, defense=100)
+        attacker = _make_unit("atk", Side.ALLY, hp=100000, atk=5000, defense=100)
+        defender.buffs.append(_make_dtd_buff(hit_limited=3, value=50, threshold_pct=2))
+
+        skill_data = _make_skill_data(power=100.0, hit_count=4, element=1)
+        ds.calculate_damage(attacker, defender, skill_data)
+
+        dtd_buffs = [b for b in defender.buffs if b.effect_type == DMG_TAKEN_DOWN_THRESHOLD]
+        assert len(dtd_buffs) == 0, \
+            "buff should be removed after 3 hits consumed (4hit attack)"
+
+    def test_first_3_hits_reduced_4th_not(self):
+        """4hit攻击: 前3hit有减伤(50%), 第4hit无减伤 → 第4hit伤害更高
+
+        base_diff = 5000 - 100 = 4900
+        threshold = 100000 * 2% = 2000
+        4900 > 2000 → 减伤生效: 4900 * (1 - 0.5) = 2450
+        hit 1-3: ~2450 (reduced)
+        hit 4: ~4900 (buff expired, no reduction)
+        """
+        ds = DamageService()
+        defender = _make_unit("def", Side.ENEMY, hp=100000, atk=100, defense=100)
+        attacker = _make_unit("atk", Side.ALLY, hp=100000, atk=5000, defense=100)
+        defender.buffs.append(_make_dtd_buff(hit_limited=3, value=50, threshold_pct=2))
+
+        skill_data = _make_skill_data(power=100.0, hit_count=4, element=1)
+        result = ds.calculate_damage(attacker, defender, skill_data)
+
+        assert len(result.hit_details) == 4
+        # 前3hit应有减伤 (较低), 第4hit无减伤 (较高)
+        reduced_avg = sum(result.hit_details[:3]) / 3
+        unreduced = result.hit_details[3]
+        assert unreduced > reduced_avg, \
+            f"4th hit ({unreduced}) should be > avg of first 3 ({reduced_avg:.0f}), " \
+            f"because buff expired after 3 hits. hits={result.hit_details}"

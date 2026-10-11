@@ -1,0 +1,157 @@
+"""回归测试：130118 超集中
+
+技能描述（Lv1-10）：：
+  自身がアクティブスキルで攻撃する前に発動。このスキルに続く自身の攻撃での攻撃力を{atk}%上昇させる
+
+技能描述（Lv11+）：
+  自身がアクティブスキルで攻撃する前に発動。このスキルに続く自身の攻撃での攻撃力を{atk}%上昇させる。
+  さらに、このスキルに続く自身の攻撃での与ダメージを{dmg}%増加させるバフ（重複可）を付与する。
+  加えて、自身に向けられるデバフを1つまで無効にするバフを付与する
+
+历史 bug：
+  原 manual 配置将3个 effects 都放在 Block1 但未通过 level_min flag 区分等级范围，
+  导致 Lv1-10 也获得了 dmg_dealt_up + debuff_immune 效果（Lv11+ 特权泄露）。
+
+修复：
+  在 dmg_dealt_up 和 debuff_immune 的 flags 中添加 "level_min": 11（effect级 level_min），
+  使 skill_service.py L2528-2534 在执行 effect 前检查 skill_level < level_min 跳过。
+
+验证点：
+1. 配置校验：dmg_dealt_up/debuff_immune 含 level_min=11，atk_up 不含
+2. Lv10 时只施加 atk_up，不施加 dmg_dealt_up/debuff_immune
+3. Lv15 时施加全部3个效果（atk_up + dmg_dealt_up + debuff_immune）
+4. debuff_immune 在 Lv15 时含 hit_limited=1（只免疫1次）
+"""
+import sys
+import os
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.enums import SkillEffectType
+from tests.helpers.battle_builder import BattleBuilder
+
+# effect_type 字符串映射到 SkillEffectType 枚举值
+_ATK_UP = SkillEffectType.STATUS_ATTACK.value          # "StatusAttack"
+_DMG_DEALT_UP = SkillEffectType.DEALT_DAMAGE.value     # "DealtDamage"
+_DEBUFF_IMMUNE = "debuff_immune"  # debuff_immune 在 buff 上保持字符串
+
+
+class TestRegSuperConcentration(unittest.TestCase):
+    """130118 超集中 回归测试。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+        parsed = cls.dl.get_parsed_skill_data(130118)
+        assert parsed is not None, "130118 parsed data should exist"
+        assert parsed['parse_status'] == 'manual', f"130118 should be manual"
+        assert len(parsed['effect_blocks']) > 0, "130118 should have effect_blocks"
+        # 验证 effect-level level_min flag 配置
+        effects = parsed['effect_blocks'][0]['effects']
+        cls._eff_by_type = {e['effect_type']: e for e in effects}
+        assert 'atk_up' in cls._eff_by_type, "missing atk_up effect"
+        assert 'dmg_dealt_up' in cls._eff_by_type, "missing dmg_dealt_up effect"
+        assert 'debuff_immune' in cls._eff_by_type, "missing debuff_immune effect"
+        # atk_up 不应有 level_min（Lv1+ 就有）
+        assert 'level_min' not in (cls._eff_by_type['atk_up'].get('flags') or {}), \
+            "atk_up should NOT have level_min (Lv1+ applies)"
+        # dmg_dealt_up 应有 level_min=11
+        assert cls._eff_by_type['dmg_dealt_up']['flags'].get('level_min') == 11, \
+            "dmg_dealt_up should have level_min=11"
+        # debuff_immune 应有 level_min=11
+        assert cls._eff_by_type['debuff_immune']['flags'].get('level_min') == 11, \
+            "debuff_immune should have level_min=11"
+
+    def _build_battle(self, skill_level=10):
+        """构建战场：己方100302(持130118) + 敌方1单位。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="c", character_id=100302, hp=50000, atk=10000, level=skill_level)
+        bb.add_enemy(unit_id="e", hp=50000, atk=5000)
+        ctx = bb.build()
+        bf = ctx['bf']
+        caster = bf.friend_team[0]
+        caster.buffs = []  # 清空初始 buff
+        caster.skill_levels = {130118: skill_level}
+        # 设置 PP 足够
+        caster.current_pp = 10
+        return ctx
+
+    def _execute_ps(self, ctx, skill_level=10):
+        """直接 execute_skill 执行 130118 PS。"""
+        bf = ctx['bf']
+        ss = ctx['ss']
+        caster = bf.friend_team[0]
+        # PS 触发：直接执行 PS 技能（skip_cost=True 跳过 PP 消耗，方便测试）
+        result = ss.execute_skill(
+            caster=caster,
+            skill_id=130118,
+            battlefield=bf,
+            skip_cost=True,
+        )
+        return result, caster
+
+    def test_parses_correctly(self):
+        """配置校验：130118 解析为 manual，3个 effect 含正确的 level_min flag。"""
+        parsed = self.dl.get_parsed_skill_data(130118)
+        self.assertEqual(parsed['trigger_type'], 'before_skill_use')
+        # 再次校验（setUpClass 已断言，这里冗余但便于排查）
+        effects = parsed['effect_blocks'][0]['effects']
+        eff_by_type = {e['effect_type']: e for e in effects}
+        # atk_up: Lv1+ 无 level_min
+        self.assertNotIn('level_min', eff_by_type['atk_up'].get('flags') or {})
+        # dmg_dealt_up: Lv11+
+        self.assertEqual(eff_by_type['dmg_dealt_up']['flags'].get('level_min'), 11)
+        self.assertTrue(eff_by_type['dmg_dealt_up']['flags'].get('stackable'))
+        # debuff_immune: Lv11+
+        self.assertEqual(eff_by_type['debuff_immune']['flags'].get('level_min'), 11)
+        self.assertEqual(eff_by_type['debuff_immune']['flags'].get('hit_limited'), 1)
+
+    def test_lv10_only_atk_up(self):
+        """Lv10 时只施加 atk_up，不施加 dmg_dealt_up/debuff_immune。"""
+        ctx = self._build_battle(skill_level=10)
+        result, caster = self._execute_ps(ctx, skill_level=10)
+        # 应成功执行
+        self.assertTrue(result.get('success', False),
+                        f"PS should execute successfully, got: {result}")
+        # 收集施加的 buff 类型
+        buff_types = [b.effect_type for b in caster.buffs]
+        # 应有 atk_up
+        self.assertIn(_ATK_UP, buff_types,
+                      f"Lv10 should have atk_up, got: {buff_types}")
+        # 不应有 dmg_dealt_up
+        self.assertNotIn(_DMG_DEALT_UP, buff_types,
+                         f"Lv10 should NOT have dmg_dealt_up, got: {buff_types}")
+        # 不应有 debuff_immune
+        self.assertNotIn(_DEBUFF_IMMUNE, buff_types,
+                         f"Lv10 should NOT have debuff_immune, got: {buff_types}")
+
+    def test_lv15_all_three_effects(self):
+        """Lv15 时施加全部3个效果（atk_up + dmg_dealt_up + debuff_immune）。"""
+        ctx = self._build_battle(skill_level=15)
+        result, caster = self._execute_ps(ctx, skill_level=15)
+        self.assertTrue(result.get('success', False),
+                        f"PS should execute successfully, got: {result}")
+        buff_types = [b.effect_type for b in caster.buffs]
+        self.assertIn(_ATK_UP, buff_types,
+                      f"Lv15 should have atk_up, got: {buff_types}")
+        self.assertIn(_DMG_DEALT_UP, buff_types,
+                      f"Lv15 should have dmg_dealt_up, got: {buff_types}")
+        self.assertIn(_DEBUFF_IMMUNE, buff_types,
+                      f"Lv15 should have debuff_immune, got: {buff_types}")
+
+    def test_lv15_debuff_immune_has_hit_limited_1(self):
+        """Lv15 时 debuff_immune buff 含 hit_limited=1（只免疫1次）。"""
+        ctx = self._build_battle(skill_level=15)
+        result, caster = self._execute_ps(ctx, skill_level=15)
+        di_buffs = [b for b in caster.buffs if b.effect_type == _DEBUFF_IMMUNE]
+        self.assertEqual(len(di_buffs), 1, f"should have exactly 1 debuff_immune, got {len(di_buffs)}")
+        # 验证 hit_limited=1（只免疫1次）
+        self.assertEqual(di_buffs[0].hit_limited, 1,
+                         f"debuff_immune should have hit_limited=1, got {di_buffs[0].hit_limited}")
+
+
+if __name__ == '__main__':
+    unittest.main()

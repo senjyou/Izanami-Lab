@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""验证121301的3个bug修复 - 使用dummy创建"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+from test_character_121301 import create_dummy_unit
+
+
+def main():
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data, data_loader)
+
+    char_id = 121301
+    skill_ids = [110001, 120013, 130009, 130022, 130038]
+
+    panel_config = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+    panel_config.rarities[char_id] = 14
+    panel_config.affection_levels[char_id] = 40
+    panel_config.skill_levels[char_id] = {sid: 10 for sid in skill_ids}
+    char = data_loader.get_character_by_id(char_id)
+    module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"),
+                  int(f"{char.character_type}3")]
+    panel_config.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+    player_config = panel_config.get_player_config()
+
+    bf = BattlefieldState()
+
+    char_config = panel_config.get_character_config(char_id, char.default_rarity)
+    stats = stat_calculator.calculate_stats(char_config, player_config)
+    char_skills = data_loader.load_character_skills()
+    skills = char_skills.get(char_id, [])
+
+    friend_unit = UnitState(
+        unit_id="F_121301",
+        name=char.name,
+        side=Side.ALLY,
+        position=Position.ALLY_CENTER_BACK,
+        character_id=char_id,
+        level=char_config.level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=stats.hp,
+        current_hp=stats.hp,
+        attack=stats.attack,
+        defense=stats.defense,
+        speed=stats.speed,
+        crit_rate=stats.critical_rate,
+        crit_damage=stats.critical_damage - 1.5,
+        advantage_damage=stats.advantage_damage - 1.25,
+        initial_active_point=4,
+        initial_passive_point=4,
+        max_extra_point=7,
+        current_ap=4,
+        current_pp=4,
+        current_ep=0,
+        skills=skills,
+        skill_levels=panel_config.skill_levels.get(char_id, {}),
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+    )
+    bf.add_unit(friend_unit)
+
+    enemy = create_dummy_unit(
+        data_loader, "木桩", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+        char_id=-208, hp=10000000, atk=70000, defense=0, speed=500,
+        ap=4, pp=4, ep_max=8, role_type=1, position_type=3, element=1, char_type=1,
+        as_config={"power": 100, "hit_count": 1, "cooldown": 0},
+    )
+    bf.add_unit(enemy)
+
+    config = BattleConfig()
+    config.max_turns = 2
+    narrative = BattleNarrativeWriter(data_loader=data_loader)
+    controller = BattleFlowController(bf, data_loader=data_loader, config=config, narrative=narrative)
+    result = controller.execute_battle()
+
+    print("\n===== 验证结果 =====")
+
+    lines = narrative._lines
+
+    print(f"\n===== Bug 2: 阵容显示验证 =====")
+    for l in lines:
+        if any(kw in l for kw in ["已方阵容", "敌方阵容", "登场"]):
+            print(f"  {l.strip()}")
+
+    has_element = any("光" in l and "中后位" in l for l in lines)
+    has_def = any("DEF:" in l for l in lines)
+    has_ap = any("AP:" in l and "已方" in l for l in lines)
+    has_pp = any("PP:" in l and "已方" in l for l in lines)
+    pos_format = any("中后位" in l for l in lines)
+    print(f"  ✅ 属性显示: {'PASS' if has_element else 'FAIL'}")
+    print(f"  ✅ DEF显示: {'PASS' if has_def else 'FAIL'}")
+    print(f"  ✅ AP显示: {'PASS' if has_ap else 'FAIL'}")
+    print(f"  ✅ PP显示: {'PASS' if has_pp else 'FAIL'}")
+    print(f"  ✅ 位置格式(中后位): {'PASS' if pos_format else 'FAIL'}")
+
+    print(f"\n===== Bug 3: アイギスランパード PS触发验证 =====")
+    ps_found = False
+    for l in lines:
+        if "PS触发" in l or "アイギスランパード" in l:
+            ps_found = True
+            print(f"  ✅ {l.strip()}")
+    if not ps_found:
+        print("  ⚠ 未找到アイギスランパード PS触发日志!")
+        print("  检查full log中是否有guard相关...")
+        for l in lines:
+            if "guard" in l.lower() or "Guard" in l or "获得增益" in l:
+                print(f"    {l.strip()}")
+
+    print(f"\n===== Bug 1: ルミナグレイス AP恢复条件验证 =====")
+    ap_recovery_found = False
+    for l in lines:
+        if "AP恢复" in l and "ルミナグレイス" not in l:
+            ap_recovery_found = True
+            print(f"  ✅ {l.strip()}")
+    if not ap_recovery_found:
+        print("  (无击杀场景，AP恢复未触发 - 符合预期)")
+
+    print(f"\n===== 完整叙事输出 =====")
+    for l in lines:
+        print(l)
+
+
+if __name__ == "__main__":
+    main()

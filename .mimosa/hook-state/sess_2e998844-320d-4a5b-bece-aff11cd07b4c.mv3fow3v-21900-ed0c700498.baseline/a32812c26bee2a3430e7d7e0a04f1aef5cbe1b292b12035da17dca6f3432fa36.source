@@ -1,0 +1,512 @@
+"""
+角色124301 人見知りの聖騎士 专项测试
+- EX: 110062 聖剣『ディバインキャリバー』（3选1随机抽选：5hit伤害/全体凍結/全体回復+追加回復）
+- AS1: 120137 祝福の斬撃（4选1随机抽选：EXゲージ-1/与ダメージ15%減少/吸血100%/无，Lv11+第二段）
+- AS2: 120138 聖剣の峰打ち（75/25概率分支：攻撃+気絶/自身减伤+回避+気絶）
+- AS3: 120139 聖騎士の威光（最近敌人+邻接2体EN攻击）
+- PS1: 130141 聖なる剣筋（on_debuff_applied+freeze触发追击）
+"""
+import unittest
+import sys
+import os
+import random
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService, TriggerAction
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+FREEZE = SkillEffectType.FREEZE.value
+KNOCKOUT = SkillEffectType.KNOCKOUT.value
+DEALT_DAMAGE = SkillEffectType.DEALT_DAMAGE.value
+RECEIVED_DAMAGE = SkillEffectType.RECEIVED_DAMAGE.value
+EVADE = SkillEffectType.EVADE.value
+
+
+class TestActor124301(unittest.TestCase):
+    """角色124301 人見知りの聖騎士 专项测试"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def setUp(self):
+        self.bf = BattlefieldState()
+
+        # 施法者: 124301 人見知りの聖騎士 (土属性, EN型, 后排)
+        self.caster = UnitState(
+            unit_id="ally_back", name="人見知りの聖騎士", side=Side.ALLY,
+            position=Position.ALLY_CENTER_BACK, character_id=124301, level=10,
+            element=4, character_type=2,
+            max_hp=20000, current_hp=20000,
+            attack=10000, defense=5000, speed=500,
+            crit_rate=0.15, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=8,
+            current_ap=10, current_pp=10, current_ep=0,
+            skills=[110062, 120137, 120138, 120139, 130141],
+            skill_levels={110062: 10, 120137: 10, 120138: 10, 120139: 10, 130141: 10},
+            skill_cooldowns={},
+        )
+
+        # 友方前排
+        self.ally_front = UnitState(
+            unit_id="ally_front", name="友方前排", side=Side.ALLY,
+            position=Position.ALLY_CENTER_FRONT, character_id=999100, level=10,
+            element=2, character_type=1,
+            max_hp=12000, current_hp=6000,  # HP 50% (用于测试lowest_hp_priority)
+            attack=6000, defense=4000, speed=350,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方前排中央
+        self.enemy_front = UnitState(
+            unit_id="enemy_front", name="敌方前排", side=Side.ENEMY,
+            position=Position.ENEMY_CENTER_FRONT, character_id=999001, level=10,
+            element=2, character_type=1,
+            max_hp=15000, current_hp=15000,
+            attack=8000, defense=6000, speed=400,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=3,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方左前
+        self.enemy_left_front = UnitState(
+            unit_id="enemy_left_front", name="敌方左前", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999003, level=10,
+            element=4, character_type=1,
+            max_hp=10000, current_hp=10000,
+            attack=7000, defense=5000, speed=380,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=2,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        # 敌方右前
+        self.enemy_right_front = UnitState(
+            unit_id="enemy_right_front", name="敌方右前", side=Side.ENEMY,
+            position=Position.ENEMY_RIGHT_FRONT, character_id=999004, level=10,
+            element=5, character_type=2,
+            max_hp=8000, current_hp=8000,
+            attack=5000, defense=3000, speed=300,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=5,
+            current_ap=4, current_pp=4, current_ep=1,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+
+        self.bf.friend_team = [self.caster, self.ally_front]
+        self.bf.enemy_team = [self.enemy_front, self.enemy_left_front, self.enemy_right_front]
+
+        # 服务链
+        self.rs = ResourceService()
+        self.ts = TriggerService()
+        self.ts.set_data_loader(self.dl)
+        self.aus = AuraService()
+        self.dms = DamageService()
+        self.tgs = TargetService()
+        self.sts = StatusService()
+        self.ss = SkillService(
+            self.dl, self.rs,
+            target_service=self.tgs,
+            damage_service=self.dms,
+            aura_service=self.aus,
+            status_service=self.sts,
+            trigger_service=self.ts,
+        )
+        self.ts.set_skill_service(self.ss)
+        self.ts.set_damage_service(self.dms)
+        self.ss.set_battlefield(self.bf)
+
+    # ─── EX: 聖剣『ディバインキャリバー』 ───
+
+    def test_ex_random_branch_selects_one_of_three(self):
+        """
+        EX(110062) 3选1随机抽选
+        验证: 多次执行后，3个分支都被选中过
+        """
+        random.seed(42)
+        branch_counts = {1: 0, 2: 0, 3: 0}
+        for i in range(30):
+            # 重置状态
+            self.caster.current_ep = 10
+            self.enemy_front.current_hp = 15000
+            self.enemy_front.debuffs = []
+            self.ally_front.current_hp = 6000
+
+            result = self.ss.execute_skill(self.caster, 110062, self.bf)
+            self.assertTrue(result.get("success"), f"iter {i}: EX should succeed")
+
+            # 检查哪个分支被执行
+            # Block1: 伤害 -> 敌方HP减少
+            # Block2: 凍結 -> 敌方有freeze debuff
+            # Block3: 回復 -> 友方HP增加
+            if self.enemy_front.current_hp < 15000:
+                branch_counts[1] += 1
+            elif any(d.effect_type == FREEZE for d in self.enemy_front.debuffs):
+                branch_counts[2] += 1
+            elif self.ally_front.current_hp > 6000:
+                branch_counts[3] += 1
+
+        # 至少有一个分支被选中
+        self.assertGreater(sum(branch_counts.values()), 0,
+                           f"EX should execute at least one branch: {branch_counts}")
+
+    def test_ex_branch2_freeze_applied_to_all_enemies(self):
+        """
+        EX(110062) Block2: 全体凍結
+        验证: 强制选中Block2时，所有敌方都被赋予凍結
+        """
+        # 通过mock强制选中Block2
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [2]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ep = 10
+            result = self.ss.execute_skill(self.caster, 110062, self.bf)
+            self.assertTrue(result.get("success"))
+
+            # 所有敌方都应有凍結
+            for enemy in self.bf.enemy_team:
+                self.assertTrue(any(d.effect_type == FREEZE for d in enemy.debuffs),
+                                f"{enemy.name} should have freeze debuff")
+        finally:
+            ss_mod.random = original_random
+
+    def test_ex_branch3_heal_ally_all(self):
+        """
+        EX(110062) Block3: 全体回復+追加回復
+        验证: 强制选中Block3时，友方HP增加
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [3]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ep = 10
+            self.caster.current_hp = 10000  # caster不满血
+            self.ally_front.current_hp = 3000  # HP 25% (最低)
+
+            hp_before_caster = self.caster.current_hp
+            hp_before_ally = self.ally_front.current_hp
+
+            result = self.ss.execute_skill(self.caster, 110062, self.bf)
+            self.assertTrue(result.get("success"))
+
+            # caster和ally_front都应被回復
+            self.assertGreater(self.caster.current_hp, hp_before_caster,
+                               "caster should be healed by ally_all heal")
+            self.assertGreater(self.ally_front.current_hp, hp_before_ally,
+                               "ally_front should be healed (both ally_all and lowest_hp_priority)")
+        finally:
+            ss_mod.random = original_random
+
+    # ─── AS1: 祝福の斬撃 ───
+
+    def test_as1_branch1_remove_ep(self):
+        """
+        AS1(120137) Block1: 伤害+EXゲージ-1
+        验证: 强制选中Block1时，敌方EP减少
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [1]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+            ep_before = self.enemy_front.current_ep
+
+            result = self.ss.execute_skill(self.caster, 120137, self.bf)
+            self.assertTrue(result.get("success"))
+
+            self.assertLess(self.enemy_front.current_ep, ep_before,
+                            "enemy EP should be reduced by 1")
+        finally:
+            ss_mod.random = original_random
+
+    def test_as1_branch2_dmg_dealt_down_stackable(self):
+        """
+        AS1(120137) Block2: 伤害+与ダメージ15%減少(重複可)
+        验证: 强制选中Block2时，敌方有dmg_dealt_down debuff
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [2]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+
+            result = self.ss.execute_skill(self.caster, 120137, self.bf)
+            self.assertTrue(result.get("success"))
+
+            dealt_down = [d for d in self.enemy_front.debuffs if d.effect_type == DEALT_DAMAGE]
+            self.assertGreater(len(dealt_down), 0, "enemy should have dmg_dealt_down debuff")
+        finally:
+            ss_mod.random = original_random
+
+    def test_as1_branch3_lifesteal(self):
+        """
+        AS1(120137) Block3: 伤害+吸血100%
+        验证: 强制选中Block3时，caster HP增加
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [3]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+            self.caster.current_hp = 5000  # 不满血
+            hp_before = self.caster.current_hp
+
+            result = self.ss.execute_skill(self.caster, 120137, self.bf)
+            self.assertTrue(result.get("success"))
+
+            self.assertGreater(self.caster.current_hp, hp_before,
+                               "caster should be healed by lifesteal")
+        finally:
+            ss_mod.random = original_random
+
+    def test_as1_lv11_second_segment(self):
+        """
+        AS1(120137) Lv11+: 第二段4选1
+        验证: Lv11时执行两段攻击（group=0 + group=1各选1）
+        """
+        # 设置技能等级为11
+        self.caster.skill_levels[120137] = 11
+
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            # group=0选Block4(无追加), group=1选Block8(无追加)
+            call_count = [0]
+            def mock_choices(ids, weights, k):
+                call_count[0] += 1
+                # 第一次调用选group=0的Block4, 第二次选group=1的Block8
+                if call_count[0] == 1:
+                    return [4]  # group=0 Block4
+                else:
+                    return [8]  # group=1 Block8
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(mock_choices),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+            hp_before = self.enemy_front.current_hp
+
+            result = self.ss.execute_skill(self.caster, 120137, self.bf)
+            self.assertTrue(result.get("success"))
+
+            # 两段伤害都应造成伤害
+            self.assertLess(self.enemy_front.current_hp, hp_before,
+                            "enemy should take damage from both segments")
+            self.assertGreaterEqual(call_count[0], 2,
+                                   "should call random.choices twice for two groups")
+        finally:
+            ss_mod.random = original_random
+            self.caster.skill_levels[120137] = 10
+
+    # ─── AS2: 聖剣の峰打ち ───
+
+    def test_as2_branch1_attack_and_knockout(self):
+        """
+        AS2(120138) Block1(75%): 攻撃+気絶
+        验证: 强制选中Block1时，敌方被攻击并被赋予気絶
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [1]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+            hp_before = self.enemy_front.current_hp
+
+            result = self.ss.execute_skill(self.caster, 120138, self.bf)
+            self.assertTrue(result.get("success"))
+
+            # enemy_front是攻击力最高的(8000)
+            self.assertLess(self.enemy_front.current_hp, hp_before,
+                            "highest_atk enemy should take damage")
+            self.assertTrue(any(d.effect_type == KNOCKOUT for d in self.enemy_front.debuffs),
+                            "enemy should have knockout debuff")
+        finally:
+            ss_mod.random = original_random
+
+    def test_as2_branch2_self_knockout(self):
+        """
+        AS2(120138) Block2(25%): 自身减伤+気絶
+        验证: 强制选中Block2时，caster有减伤buff和気絶debuff
+        """
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [2]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+
+            result = self.ss.execute_skill(self.caster, 120138, self.bf)
+            self.assertTrue(result.get("success"))
+
+            # caster应有dmg_taken_down buff和knockout debuff
+            taken_down = [b for b in self.caster.buffs if b.effect_type == RECEIVED_DAMAGE]
+            self.assertGreater(len(taken_down), 0, "caster should have dmg_taken_down buff")
+            self.assertTrue(any(d.effect_type == KNOCKOUT for d in self.caster.debuffs),
+                            "caster should have knockout debuff")
+        finally:
+            ss_mod.random = original_random
+
+    def test_as2_lv14_branch3_evasion_1hit(self):
+        """
+        AS2(120138) Lv14 Block3(25%): 减伤+1hit回避+気絶
+        验证: Lv14时强制选中Block3，caster有1hit回避
+        """
+        self.caster.skill_levels[120138] = 14
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [3]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+
+            result = self.ss.execute_skill(self.caster, 120138, self.bf)
+            self.assertTrue(result.get("success"))
+
+            evade_buffs = [b for b in self.caster.buffs if b.effect_type == EVADE]
+            self.assertGreater(len(evade_buffs), 0, "caster should have evade buff")
+            self.assertEqual(evade_buffs[0].hit_limited, 1, "evade should be 1 hit")
+        finally:
+            ss_mod.random = original_random
+            self.caster.skill_levels[120138] = 10
+
+    def test_as2_lv15_branch4_evasion_2hit(self):
+        """
+        AS2(120138) Lv15 Block4(25%): 减伤+2hit回避+気絶
+        验证: Lv15时强制选中Block4，caster有2hit回避
+        """
+        self.caster.skill_levels[120138] = 15
+        import src.combat_v2.services.skill_service as ss_mod
+        original_random = ss_mod.random
+        try:
+            ss_mod.random = type('MockRandom', (), {
+                'choices': staticmethod(lambda ids, weights, k: [4]),
+                'seed': staticmethod(lambda x: None),
+            })()
+            self.caster.current_ap = 10
+
+            result = self.ss.execute_skill(self.caster, 120138, self.bf)
+            self.assertTrue(result.get("success"))
+
+            evade_buffs = [b for b in self.caster.buffs if b.effect_type == EVADE]
+            self.assertGreater(len(evade_buffs), 0, "caster should have evade buff")
+            self.assertEqual(evade_buffs[0].hit_limited, 2, "evade should be 2 hits")
+        finally:
+            ss_mod.random = original_random
+            self.caster.skill_levels[120138] = 10
+
+    # ─── AS3: 聖騎士の威光 ───
+
+    def test_as3_attack_main_and_adjacent(self):
+        """
+        AS3(120139) 主目标+邻接敌人攻击
+        验证: 主目标和邻接敌人都受到伤害
+        """
+        self.caster.current_ap = 10
+        hp_before_front = self.enemy_front.current_hp
+        hp_before_left = self.enemy_left_front.current_hp
+        hp_before_right = self.enemy_right_front.current_hp
+
+        result = self.ss.execute_skill(self.caster, 120139, self.bf)
+        self.assertTrue(result.get("success"))
+
+        # 主目标(enemy_front)应受伤
+        self.assertLess(self.enemy_front.current_hp, hp_before_front,
+                        "main target should take damage")
+        # 邻接敌人(enemy_left_front或enemy_right_front)应受伤
+        adjacent_damaged = (self.enemy_left_front.current_hp < hp_before_left or
+                            self.enemy_right_front.current_hp < hp_before_right)
+        self.assertTrue(adjacent_damaged, "at least one adjacent enemy should take damage")
+
+    # ─── PS1: 聖なる剣筋 ───
+
+    def test_ps1_triggers_on_freeze_applied(self):
+        """
+        PS1(130141) 凍結付与時触发
+        验证: 敌方被赋予凍結时，PS1触发并对该敌方造成伤害
+        """
+        self.caster.current_pp = 10
+        hp_before = self.enemy_front.current_hp
+
+        # 模拟凍結付与触发
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.caster,
+            affected_unit_ids=[self.enemy_front.unit_id],
+            applied_debuff_types={"freeze"},
+        )
+
+        # 应该有PS1触发动作
+        ps1_actions = [a for a in actions if a.skill_id == 130141]
+        self.assertGreater(len(ps1_actions), 0, "PS1 should trigger on freeze applied")
+
+        # 执行触发动作（参考test_actor_137301.py的PS2执行方式）
+        self.ss._pending_crit_triggers = []
+        self.ss._execute_trigger_actions_inline(
+            ps1_actions, self.bf, trigger_timing="on_debuff_applied"
+        )
+
+        self.assertLess(self.enemy_front.current_hp, hp_before,
+                        "PS1 should damage the frozen enemy")
+
+    def test_ps1_does_not_trigger_on_non_freeze(self):
+        """
+        PS1(130141) 非凍結debuff不触发
+        验证: 赋予非凍結debuff（如毒）时，PS1不触发
+        """
+        actions = self.ts.trigger_pawn_received_aura(
+            battlefield=self.bf,
+            actor=self.caster,
+            affected_unit_ids=[self.enemy_front.unit_id],
+            applied_debuff_types={"poison"},
+        )
+
+        # 不应有PS1触发
+        ps1_actions = [a for a in actions if a.skill_id == 130141]
+        self.assertEqual(len(ps1_actions), 0, "PS1 should NOT trigger on non-freeze debuff")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

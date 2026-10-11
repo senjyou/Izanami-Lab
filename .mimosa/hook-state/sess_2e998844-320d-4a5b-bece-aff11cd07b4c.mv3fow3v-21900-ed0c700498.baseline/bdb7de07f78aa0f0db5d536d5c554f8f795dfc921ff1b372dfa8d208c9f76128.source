@@ -1,0 +1,43 @@
+"""Regression: イケてる♡イケてる(130025) multi-target heal nearest ally.
+
+Bug: When multiple allies attacked, heal targeted primary_target (first attacked)
+instead of nearest ally. Remedy: _damaged_targets sorted by distance from caster.
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position
+
+
+class TestRegIketeruTarget(unittest.TestCase):
+
+    def test_heal_nearest_attacked_ally(self):
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_CENTER_BACK,
+                    hp=20000, atk=10000, skills=[130025], level=10, pp=10)
+        bb.add_ally(unit_id="ally_near", position=Position.ALLY_CENTER_FRONT, hp=10000)
+        bb.add_ally(unit_id="ally_far", position=Position.ALLY_LEFT_BACK, hp=10000)
+        bb.add_enemy(unit_id="enemy", hp=50000, atk=20000)
+        ctx = bb.build()
+        bf, ss, ts = ctx['bf'], ctx['ss'], ctx['ts']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        near = next(u for u in bf.friend_team if u.unit_id == "ally_near")
+        far = next(u for u in bf.friend_team if u.unit_id == "ally_far")
+        enemy = next(u for u in bf.enemy_team if u.unit_id == "enemy")
+
+        # Both allies attacked; near should be healed (closer to caster)
+        near.prev_hp_percent = 100.0
+        far.prev_hp_percent = 100.0
+        actions = ts.trigger_after_ally_attacked(
+            [far, near], bf, actor=enemy, primary_target=far
+        )
+        ps_acts = [a for a in actions if a.skill_id == 130025]
+        self.assertTrue(len(ps_acts) > 0, "130025 should trigger")
+
+        # Execute and verify heal target
+        ss._execute_trigger_actions_inline(ps_acts[:1], bf)
+        self.assertEqual(near.current_hp, 10000, "nearest ally should still be at full (or got healed) - near takes priority")
+
+
+if __name__ == '__main__':
+    unittest.main()

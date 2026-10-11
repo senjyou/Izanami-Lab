@@ -1,0 +1,194 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""回归测试: ラッキー4！(130047) PP不足触发失败时应清空暴击计数
+
+Bug (实战验证, step_crit_console_tactical_20260819_132946.txt):
+  L11122: 戦うアントレプレナー crit_counter += 9 => 10 (满足 >= 4)
+  L11127: 触发 PS[ラッキー4！]
+  L11128: [PS_EXEC] PS[ラッキー4！] insufficient resources (PP不足执行失败)
+          → crit_counter=10 被保留（无 CRIT_RESET 记录）
+  L11377: 下一次フォーカススラスト暴击 crit_counter += 1 => 11
+  L11380: crit_count_mod 11 >= 4 => True → 再次误触发 ラッキー4！
+
+  实战表现: PP不足无法执行时，应直接清空暴击计数（crit_counter=0），
+  下次暴击后 crit_counter=1 < 4 不触发。
+
+Fix (battle_flow_controller.py):
+  _execute_trigger_actions / _execute_global_trigger_actions 的
+  check_skill_cost 失败分支，对 global_condition.type == 'crit_count_mod'
+  的PS（如 ラッキー4！）清空 owner.crit_counter，与成功执行时的
+  CRIT_RESET 逻辑对称。
+"""
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, Attribute
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.combat_v2.services.trigger_service import TriggerAction
+
+LUCKY4_PS = 130047  # ラッキー4！ (PAWN_CAUSED_CRITICAL, crit_count_mod >= 4, cost=1)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=100000, pp=10,
+               crit_counter=0, skills=None, skill_levels=None):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=Attribute.DARK.value,
+        character_type=1,
+        max_hp=hp, current_hp=hp,
+        attack=2000, defense=5000, speed=800,
+        crit_rate=1.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=0,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+        crit_counter=crit_counter,
+    )
+
+
+def _make_bf(*units):
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+class TestCritCounterResetOnPpInsufficient(unittest.TestCase):
+    """PP不足触发失败时清空crit_counter，防止跨技能残留误触发"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_controller(self, bf):
+        narrative = BattleNarrativeWriter(data_loader=self.dl)
+        controller = BattleFlowController(
+            bf, BattleConfig(max_turns=1),
+            data_loader=self.dl, narrative=narrative,
+        )
+        controller._build_display_names()
+        return controller
+
+    def _make_action(self, owner):
+        """构造 ラッキー4！ 的 TriggerAction（instance.owner 指向单位）"""
+        inst = SimpleNamespace(owner=owner)
+        return TriggerAction(
+            skill_id=LUCKY4_PS, owner_id=owner.unit_id,
+            action_type="PAWN_CAUSED_CRITICAL",
+            parameters={}, instance=inst,
+        )
+
+    def test_crit_counter_reset_when_pp_insufficient(self):
+        """PP不足执行失败时 crit_counter 清空为 0（复现日志 L11122-11128 场景）"""
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            pp=0,  # PP不足（cost=1）
+            crit_counter=10,  # 日志场景: 暴击计数已累加到10 (>=4)
+            skills=[LUCKY4_PS], skill_levels={LUCKY4_PS: 15},
+        )
+        ally = _make_unit(
+            "ally", "アニス・ベネット", Side.ALLY,
+            Position.ALLY_CENTER_FRONT, pp=10,
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+
+        # PP不足（0 < cost 1），触发失败
+        self.assertFalse(controller.skill_service.check_skill_cost(enemy, LUCKY4_PS))
+
+        # 执行触发器动作 → PP不足分支 → crit_counter 应清空
+        controller._execute_trigger_actions([self._make_action(enemy)], enemy)
+
+        self.assertEqual(enemy.crit_counter, 0,
+                         "PP不足触发失败时必须清空crit_counter（实战验证），"
+                         "否则下次暴击后误触发（修复前跨技能残留为10）")
+
+    def test_no_false_trigger_on_next_crit_after_reset(self):
+        """清空后下次暴击 crit_counter=1 < 4，ラッキー4！不再误触发"""
+        from src.combat_v2.services.trigger_service import TriggerService
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            pp=0, crit_counter=10,
+            skills=[LUCKY4_PS], skill_levels={LUCKY4_PS: 15},
+        )
+        ally = _make_unit(
+            "ally", "アニス・ベネット", Side.ALLY,
+            Position.ALLY_CENTER_FRONT, pp=10,
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+
+        # 第一次触发: PP不足 → 清空
+        controller._execute_trigger_actions([self._make_action(enemy)], enemy)
+        self.assertEqual(enemy.crit_counter, 0)
+
+        # 模拟下次暴击: crit_counter += 1 => 1
+        enemy.crit_counter += 1
+        self.assertEqual(enemy.crit_counter, 1)
+
+        # 触发器条件检查: crit_count_mod 1 >= 4 应不满足
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        crit_count = enemy.crit_counter
+        self.assertLess(crit_count, 4,
+                        "清空后单次暴击 crit_counter=1 < 4，不满足 ラッキー4！ 触发条件")
+
+    def test_crit_counter_kept_when_pp_sufficient_fails_not_applicable(self):
+        """对照: PP充足时正常执行路径不受影响（成功执行后由既有逻辑清空）"""
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            pp=5, crit_counter=10,
+            skills=[LUCKY4_PS], skill_levels={LUCKY4_PS: 15},
+        )
+        ally = _make_unit(
+            "ally", "アニス・ベネット", Side.ALLY,
+            Position.ALLY_CENTER_FRONT, hp=1000000, pp=10,
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+
+        # PP充足，正常执行
+        self.assertTrue(controller.skill_service.check_skill_cost(enemy, LUCKY4_PS))
+        controller._execute_trigger_actions([self._make_action(enemy)], enemy)
+
+        # 成功执行后既有逻辑清空 crit_counter
+        self.assertEqual(enemy.crit_counter, 0)
+        # PP被消耗
+        self.assertLess(enemy.current_pp, 5)
+
+    def test_global_trigger_path_also_resets(self):
+        """_execute_global_trigger_actions 的PP不足分支同样清空crit_counter"""
+        enemy = _make_unit(
+            "enemy", "戦うアントレプレナー", Side.ENEMY,
+            Position.ENEMY_CENTER_FRONT,
+            pp=0, crit_counter=10,
+            skills=[LUCKY4_PS], skill_levels={LUCKY4_PS: 15},
+        )
+        ally = _make_unit(
+            "ally", "アニス・ベネット", Side.ALLY,
+            Position.ALLY_CENTER_FRONT, pp=10,
+        )
+        bf = _make_bf(ally, enemy)
+        controller = self._build_controller(bf)
+
+        controller._execute_global_trigger_actions([self._make_action(enemy)])
+
+        self.assertEqual(enemy.crit_counter, 0,
+                         "global触发路径PP不足时同样应清空crit_counter")
+
+
+if __name__ == "__main__":
+    unittest.main()

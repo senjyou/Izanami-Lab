@@ -1,0 +1,219 @@
+"""Regression: shield attack_limited consumed per-skill, not per-block.
+
+Bug: Skill ドリルミルキィパンチ (110030) Lv11+ grants a shield with
+     attack_limited=2 (expires after 2 attacks). The shield's attack_limited
+     was consumed per-block (per damage effect) instead of per-skill. This
+     caused the shield to expire too early when attacked by skills with
+     multiple damage effects (e.g. 追加攻撃), because each damage effect
+     consumed one charge.
+
+Fix: Shield attack_limited is now consumed once per skill execution (at skill
+     end), regardless of how many damage blocks/effects the attacking skill has.
+     This matches the behavior of most skills where 1 skill = 1 attack.
+"""
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+
+SHIELD = SkillEffectType.SHIELD.value
+DRILL_MILKY_PUNCH = 110030  # ドリルミルキィパンチ (EX, Lv11+ shield attack_limited=2)
+MULTI_HIT_SKILL = 120134    # なんか痛い攻撃魔法！ (main + additional attack in same block)
+
+
+def _make_unit(unit_id, name, side, position, *, hp=200000, atk=10000,
+               defense=3000, speed=500, element=2, character_type=1,
+               skills=None, skill_levels=None, pp=10, ep=10):
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=15, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=10, current_pp=pp, current_ep=ep,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+class TestRegShieldAttackLimitedPerSkill(unittest.TestCase):
+    """Shield attack_limited must be consumed per-skill, not per-block."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts
+
+    def _make_attack_limited_shield(self, unit, source_id, attack_limited=2,
+                                    shield_amount=50000):
+        """Manually add an attack_limited shield buff to a unit."""
+        buff = BuffState(
+            buff_id=f"test_shield_{unit.unit_id}",
+            name="テスト盾", effect_type=SHIELD, value=0.0,
+            duration=-1, timing_type=0,
+            source_unit_id=source_id,
+            source_skill_id=DRILL_MILKY_PUNCH,
+            is_debuff=False, is_stackable=True, is_memory_buff=False,
+            attack_limited=attack_limited,
+            shield_amount=shield_amount,
+        )
+        unit.buffs.append(buff)
+        unit.shield = shield_amount
+        return buff
+
+    def test_shield_consumed_once_per_single_attack_skill(self):
+        """Shield with attack_limited=2 should go to 1 after one attack skill."""
+        ally = _make_unit("ally", "盾持有者", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=200000, atk=10000)
+        enemy = _make_unit("enemy", "攻撃者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                           skills=[120041],  # 四連突: simple 4-hit single-target
+                           skill_levels={120041: 15})
+
+        self._make_attack_limited_shield(ally, enemy.unit_id, attack_limited=2,
+                                         shield_amount=99999)
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        ss.execute_skill(enemy, 120041, bf, skip_cost=True)
+
+        shield_buffs = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 1, "Shield should still exist (1 attack consumed)")
+        self.assertEqual(shield_buffs[0].attack_limited, 1,
+                         "attack_limited should be 1 (consumed once per skill)")
+
+    def test_shield_expired_after_two_attack_skills(self):
+        """Shield with attack_limited=2 should expire after two attack skills."""
+        ally = _make_unit("ally", "盾持有者", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=200000, atk=10000)
+        enemy = _make_unit("enemy", "攻撃者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                           skills=[120041],
+                           skill_levels={120041: 15})
+
+        self._make_attack_limited_shield(ally, enemy.unit_id, attack_limited=2,
+                                         shield_amount=99999)
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        # First attack
+        ss.execute_skill(enemy, 120041, bf, skip_cost=True)
+        shield_after_1 = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_after_1), 1, "Shield should exist after 1st attack")
+        self.assertEqual(shield_after_1[0].attack_limited, 1)
+
+        # Second attack
+        ss.execute_skill(enemy, 120041, bf, skip_cost=True)
+        shield_after_2 = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_after_2), 0,
+                         "Shield should be EXPIRED after 2nd attack (attack_limited reached 0)")
+
+    def test_shield_not_double_consumed_by_multi_effect_skill(self):
+        """Shield with attack_limited=2 should only consume 1 charge when
+        attacked by a skill with multiple damage effects (e.g. 追加攻撃).
+
+        Skill 120134 at Lv15 has main damage + additional damage in the same
+        block. The old per-block consumption would consume 2 charges (one per
+        damage effect), making the shield expire after just 1 multi-effect
+        skill. With per-skill consumption, only 1 charge is consumed.
+        """
+        ally = _make_unit("ally", "盾持有者", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=500000, atk=10000)
+        enemy = _make_unit("enemy", "攻撃者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                           skills=[MULTI_HIT_SKILL],
+                           skill_levels={MULTI_HIT_SKILL: 15})
+
+        self._make_attack_limited_shield(ally, enemy.unit_id, attack_limited=2,
+                                         shield_amount=99999)
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        ss.execute_skill(enemy, MULTI_HIT_SKILL, bf, skip_cost=True)
+
+        shield_buffs = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 1,
+                         "Shield should still exist after 1 multi-effect skill")
+        self.assertEqual(shield_buffs[0].attack_limited, 1,
+                         "attack_limited should be 1 (consumed once per skill, "
+                         "not once per damage effect)")
+
+    def test_shield_not_consumed_when_fully_evaded(self):
+        """Shield attack_limited should NOT be consumed when the attack
+        is fully evaded (all hits missed)."""
+        from src.entities_v2.enums import SkillEffectType as SET
+        ally = _make_unit("ally", "盾持有者", Side.ALLY,
+                          Position.ALLY_CENTER_FRONT, hp=200000, atk=10000)
+        enemy = _make_unit("enemy", "攻撃者", Side.ENEMY,
+                           Position.ENEMY_CENTER_FRONT, hp=200000, atk=50000,
+                           skills=[120041],
+                           skill_levels={120041: 15})
+
+        self._make_attack_limited_shield(ally, enemy.unit_id, attack_limited=2,
+                                         shield_amount=99999)
+        # Give ally perfect evasion (infinite hits)
+        ally.buffs.append(BuffState(
+            buff_id="evade_test", name="回避", effect_type=SET.EVADE.value,
+            value=0.0, duration=-1, timing_type=0,
+            source_unit_id=ally.unit_id, source_skill_id=0,
+            is_debuff=False, is_stackable=False, is_memory_buff=False,
+            hit_limited=99,
+        ))
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [enemy]
+        ss, _ = self._make_services(bf)
+
+        ss.execute_skill(enemy, 120041, bf, skip_cost=True)
+
+        shield_buffs = [b for b in ally.buffs if b.effect_type == SHIELD]
+        self.assertEqual(len(shield_buffs), 1, "Shield should still exist")
+        self.assertEqual(shield_buffs[0].attack_limited, 2,
+                         "attack_limited should remain 2 (attack was evaded)")
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

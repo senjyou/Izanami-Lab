@@ -1,0 +1,11 @@
+namespace Assets.Api.Client;
+
+public enum CharacterRoleTypes
+{
+	Unknown = 0,
+	PhysicalAttacker = 1,
+	IntelligenceAttacker = 2,
+	Tank = 3,
+	Support = 4,
+	Control = 5
+}

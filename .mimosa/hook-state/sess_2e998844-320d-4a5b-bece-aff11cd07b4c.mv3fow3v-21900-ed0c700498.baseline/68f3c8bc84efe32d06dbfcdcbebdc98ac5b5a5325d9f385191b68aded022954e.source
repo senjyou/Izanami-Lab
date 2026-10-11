@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""Regression: 100303隣歩む想い AS2「献身的な愛」目标选择追踪（special_notes 复合结构）
+
+Feature: GUI【备注信息】在心色EX追踪之外新增 AS2 目标选择记录。
+         AS2使用频率高（5回合战斗可达20次），不能逐次一行输出，
+         改为以目标对象为主键，列出各目标分别在第几次使用时被选为目标
+         （连续序号压缩为区间，如"第1-15、17次"）。
+
+改动点:
+- battle_flow_controller._track_magokoro_as2_targets: 从effects_applied提取mark
+  （标记「真心」）效果的目标（每次使用一条，含黑暗MISS导致目标为空的情形）
+- battle_flow_controller._build_special_notes: special_notes 改为复合结构
+  {"moodmaker_ex": ..., "magokoro_as2": ...}（按在场角色生成key，全不在场为None）
+- gui.utils._format_special_notes_single/_multi: 支持复合结构（兼容旧版扁平结构）
+
+Expected behavior:
+- AS2单场: "目标: 第1-18次" 聚合输出，按被选次数降序、首次被选序号升序
+- 心色EX单场: 保持原逐次输出不变
+- 多场: AS2目标选择概率 (共N次)，角色在场未使用的场次计入"(其中X场未使用AS2)"
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from gui.utils import (
+    _compress_use_indices,
+    _format_special_notes_single,
+    _format_special_notes_multi,
+)
+from tests.helpers.battle_builder import BattleBuilder
+from src.data.data_loader import DataLoader
+from src.combat_v2.battle_flow_controller import BattleFlowController
+
+
+# ─────────────────── 格式化：单场 ───────────────────
+
+class TestCompressUseIndices:
+    def test_empty(self):
+        assert _compress_use_indices([]) == ""
+
+    def test_single(self):
+        assert _compress_use_indices([4]) == "4"
+
+    def test_runs(self):
+        assert _compress_use_indices([1, 2, 3, 5, 7, 8]) == "1-3、5、7-8"
+
+    def test_unsorted_dedup(self):
+        assert _compress_use_indices([8, 1, 3, 2, 8, 7]) == "1-3、7-8"
+
+
+class TestSingleFormat:
+    def test_none_returns_empty(self):
+        assert _format_special_notes_single(None) == []
+
+    def test_legacy_flat_moodmaker_unchanged(self):
+        """旧版扁平结构（仅心色EX）输出保持不变"""
+        notes = {
+            "char_name": "心色見つめるムードメーカー",
+            "ex_skill_name": "あったかいの、どうぞ♪",
+            "ex_uses": [{"targets": ["A"]}, {"targets": ["B", "C"]}],
+            "died": False,
+            "used_ex": True,
+        }
+        lines = _format_special_notes_single(notes)
+        assert lines == [
+            "  【备注信息】",
+            "    心色見つめるムードメーカー EX「あったかいの、どうぞ♪」目标选择:",
+            "      第1次: ['A']",
+            "      第2次: ['B', 'C']",
+        ]
+
+    def test_composite_moodmaker_only(self):
+        notes = {
+            "moodmaker_ex": {
+                "char_name": "心色見つめるムードメーカー",
+                "ex_skill_name": "あったかいの、どうぞ♪",
+                "ex_uses": [{"targets": ["A"]}],
+                "died": False,
+                "used_ex": True,
+            },
+        }
+        lines = _format_special_notes_single(notes)
+        assert lines[1] == "    心色見つめるムードメーカー EX「あったかいの、どうぞ♪」目标选择:"
+        assert lines[2] == "      第1次: ['A']"
+        assert len(lines) == 3
+
+    def test_as2_aggregated_by_target(self):
+        """AS2以目标为主键聚合使用序号，连续序号压缩为区间，按被选次数降序"""
+        uses = [{"targets": ["主核"] if i < 18 else ["副核"]} for i in range(20)]
+        notes = {
+            "magokoro_as2": {
+                "char_name": "隣歩む想い",
+                "skill_name": "献身的な愛",
+                "skill_uses": uses,
+                "used_skill": True,
+            },
+        }
+        lines = _format_special_notes_single(notes)
+        assert lines == [
+            "  【备注信息】",
+            "    隣歩む想い AS2「献身的な愛」目标选择 (共20次):",
+            "      主核: 第1-18次",
+            "      副核: 第19-20次",
+        ]
+
+    def test_as2_interleaved_targets(self):
+        """交替目标：序号压缩正确（1-3、5、7-9）"""
+        pattern = ["A", "B", "A", "B", "A", "B", "A", "A", "A"]
+        uses = [{"targets": [t]} for t in pattern]
+        notes = {"magokoro_as2": {"char_name": "隣歩む想い", "skill_name": "献身的な愛",
+                                  "skill_uses": uses, "used_skill": True}}
+        lines = _format_special_notes_single(notes)
+        # A被选6次(第1,3,5,7,8,9次)、B被选3次(第2,4,6次) → A在前
+        assert "      A: 第1、3、5、7-9次" in lines
+        assert "      B: 第2、4、6次" in lines
+
+    def test_as2_unused(self):
+        notes = {"magokoro_as2": {"char_name": "隣歩む想い", "skill_name": "献身的な愛",
+                                  "skill_uses": [], "used_skill": False}}
+        lines = _format_special_notes_single(notes)
+        assert lines == ["  【备注信息】", "    隣歩む想い未使用AS2。"]
+
+    def test_both_blocks(self):
+        """心色与隣歩む想い同阵容：两个块并列输出"""
+        notes = {
+            "moodmaker_ex": {
+                "char_name": "心色見つめるムードメーカー",
+                "ex_skill_name": "あったかいの、どうぞ♪",
+                "ex_uses": [{"targets": ["A"]}],
+                "died": False,
+                "used_ex": True,
+            },
+            "magokoro_as2": {
+                "char_name": "隣歩む想い",
+                "skill_name": "献身的な愛",
+                "skill_uses": [{"targets": ["A"]}, {"targets": ["B"]}],
+                "used_skill": True,
+            },
+        }
+        lines = _format_special_notes_single(notes)
+        assert any("EX「あったかいの、どうぞ♪」目标选择:" in l for l in lines)
+        assert any("AS2「献身的な愛」目标选择 (共2次):" in l for l in lines)
+        assert "      A: 第1次" in lines
+        assert "      B: 第2次" in lines
+
+
+# ─────────────────── 格式化：多场 ───────────────────
+
+class TestMultiFormat:
+    def test_empty_list(self):
+        assert _format_special_notes_multi([], 5) == []
+        assert _format_special_notes_multi([None, None], 2) == []
+
+    def test_legacy_flat_moodmaker(self):
+        notes_list = [
+            {"char_name": "心色", "ex_skill_name": "EX", "ex_uses": [{"targets": ["A"]}]},
+            {"char_name": "心色", "ex_skill_name": "EX", "ex_uses": [{"targets": ["A"]}, {"targets": ["B"]}]},
+        ]
+        lines = _format_special_notes_multi(notes_list, 2)
+        assert "    心色 EX「EX」目标选择概率 (共3次EX):" in lines
+        assert "      A: 66.7% (2/3)" in lines
+        assert "      B: 33.3% (1/3)" in lines
+
+    def test_as2_probability(self):
+        notes_list = [
+            {"magokoro_as2": {"char_name": "隣歩む想い", "skill_name": "献身的な愛",
+                              "skill_uses": [{"targets": ["主核"]}] * 18
+                                           + [{"targets": ["副核"]}] * 2,
+                              "used_skill": True}},
+            {"magokoro_as2": {"char_name": "隣歩む想い", "skill_name": "献身的な愛",
+                              "skill_uses": [], "used_skill": False}},
+        ]
+        lines = _format_special_notes_multi(notes_list, 2)
+        assert "    隣歩む想い AS2「献身的な愛」目标选择概率 (共20次):" in lines
+        assert "      主核: 90.0% (18/20)" in lines
+        assert "      副核: 10.0% (2/20)" in lines
+        assert "    (其中1场未使用AS2)" in lines
+
+    def test_both_blocks_multi(self):
+        notes_list = [
+            {"moodmaker_ex": {"char_name": "心色", "ex_skill_name": "EX",
+                              "ex_uses": [{"targets": ["A"]}], "used_ex": True},
+             "magokoro_as2": {"char_name": "隣歩む想い", "skill_name": "献身的な愛",
+                              "skill_uses": [{"targets": ["A"]}], "used_skill": True}},
+        ]
+        lines = _format_special_notes_multi(notes_list, 1)
+        assert any("EX「EX」目标选择概率 (共1次EX):" in l for l in lines)
+        assert any("AS2「献身的な愛」目标选择概率 (共1次):" in l for l in lines)
+
+
+# ─────────────────── 控制器：追踪与构建 ───────────────────
+
+class TestControllerTracking:
+    @classmethod
+    def setup_class(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_bf(self, with_magokoro=True, with_moodmaker=False):
+        bb = BattleBuilder()
+        if with_magokoro:
+            bb.add_ally(unit_id="magokoro", character_id=100303,
+                        skills=[120180, 120181])
+            bb.add_ally(unit_id="allyA")
+            bb.add_ally(unit_id="allyB")
+        else:
+            bb.add_ally(unit_id="allyA")
+            bb.add_ally(unit_id="allyB")
+        if with_moodmaker:
+            bb.add_ally(unit_id="moodmaker", character_id=145301)
+        bb.add_enemy(unit_id="enemyA", hp=60000)
+        return bb.build()
+
+    def _make_ctl(self, bf):
+        return BattleFlowController(bf, self.dl)
+
+    def test_tracker_extracts_mark_target_from_real_skill_result(self):
+        """真实AS2执行结果中提取mark（标记「真心」）目标；自身ATK下降aura不入记录"""
+        ctx = self._build_bf()
+        bf, ss = ctx['bf'], ctx['ss']
+        magokoro = next(u for u in bf.friend_team if getattr(u, 'character_id', 0) == 100303)
+        ally_a = next(u for u in bf.friend_team if u.unit_id == "allyA")
+        ally_a.damage_dealt_total = 5000  # allyA为真心目标（自身以外最高累计输出）
+
+        r = ss.execute_skill(magokoro, 120181, bf)
+        assert r['success']
+
+        ctl = self._make_ctl(bf)
+        ctl._track_magokoro_as2_targets(r)
+        assert ctl._as2_target_notes == [{"targets": ["allyA"]}]
+
+    def test_tracker_records_empty_on_no_mark(self):
+        """无mark效果时记录空目标（保持使用次数序号的真实性）"""
+        ctx = self._build_bf()
+        bf = ctx['bf']
+        ctl = self._make_ctl(bf)
+        ctl._track_magokoro_as2_targets({"success": True, "effects_applied": []})
+        assert ctl._as2_target_notes == [{"targets": []}]
+
+    def test_build_special_notes_composite(self):
+        ctx = self._build_bf(with_moodmaker=True)
+        bf = ctx['bf']
+        ctl = self._make_ctl(bf)
+        ctl._track_magokoro_as2_targets({"success": True, "effects_applied": [
+            {"effect_type": "aura", "auras": [
+                {"target": "allyA", "target_id": "allyA", "effect": "标记「真心」"},
+            ]},
+        ]})
+        notes = ctl._build_special_notes()
+        assert set(notes.keys()) == {"moodmaker_ex", "magokoro_as2"}
+        as2 = notes["magokoro_as2"]
+        assert as2["skill_name"] == "献身的な愛"
+        assert as2["used_skill"] is True
+        assert as2["skill_uses"] == [{"targets": ["allyA"]}]
+        assert notes["moodmaker_ex"]["used_ex"] is False
+
+    def test_build_special_notes_magokoro_only(self):
+        ctx = self._build_bf(with_magokoro=True, with_moodmaker=False)
+        ctl = self._make_ctl(ctx['bf'])
+        notes = ctl._build_special_notes()
+        assert set(notes.keys()) == {"magokoro_as2"}
+
+    def test_build_special_notes_none_when_absent(self):
+        ctx = self._build_bf(with_magokoro=False, with_moodmaker=False)
+        ctl = self._make_ctl(ctx['bf'])
+        assert ctl._build_special_notes() is None
+
+    def test_moodmaker_tracker_still_works(self):
+        """既有心色EX追踪不受重构影响"""
+        ctx = self._build_bf(with_magokoro=False, with_moodmaker=True)
+        bf = ctx['bf']
+        ctl = self._make_ctl(bf)
+        ctl._track_moodmaker_ex_targets({"success": True, "effects_applied": [
+            {"effect_type": "aura", "auras": [
+                {"target": "allyA", "target_id": "allyA", "effect": "ATK:100→135"},
+            ]},
+        ]})
+        assert ctl._ex_target_notes == [{"targets": ["allyA"]}]
+        notes = ctl._build_special_notes()
+        assert set(notes.keys()) == {"moodmaker_ex"}

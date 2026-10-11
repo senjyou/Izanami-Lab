@@ -1,0 +1,148 @@
+"""Regression: ステルス buff 在 postfilter 索敌路径下未生效。
+
+Bug: ステルス只在 TargetService._select_targets 的 ONE_PAWN 分支被检查。
+     对于 enemy_single_furthest / enemy_single_highest_atk 等特殊 target_type，
+     代码路径走 ALL_PAWNS 取全部候选，再在 SkillService 的 damage execution
+     postfilter 中用 min()/max() 选最终目标 —— 完全绕过了 stealth 检查。
+     导致土雷持ステルス时，「カオスキャノン」(enemy_single_furthest) 仍打向土雷。
+
+Fix: 在 TargetService 新增 apply_stealth_redirection / select_min_with_stealth /
+     select_max_with_stealth 三个可复用方法；在 SkillService 所有 damage postfilter
+     分支（highest_atk / furthest / highest_spd / lowest_spd / highest_ep /
+     hp_ratio 系列 / column 系列）替换为 stealth-aware 方法；prescan 用
+     consume_stealth=False 避免预扫描消耗ステルス。
+
+机制（用户提供，2026-07 修正版）：
+- ステルス仅在自身被选为「第一優先対象」（候选列表首位）时触发
+- 触发后将自身移到候选末尾（append，不是移除）：仍留在候选中但处于最低優先級
+- 连锁：多个 stealth 单位依次触发（while + triggered 集合，每个单位一次调用只触发一次）
+- 候选数不足（甚至只有1个）也触发：只要自身是 primary 就触发，不论是否被攻击到
+- 副目标选择：被重定向的 stealth 单位即使距离 primary 最近也不优先，只有无其他单位可选时才轮到
+- LINE/COLUMN 主目标也适用：LINE 主目标=那排最近单位，COLUMN 主目标=前列最近单位
+- 反击类（target_identifier="trigger_attacker"）直接追踪来源，不适用ステルス
+- 消耗机制：duration_type="action"（土ノ浸食）触发不消耗 duration，duration 仅随持有者行动递减；
+  未来 duration_type="skill" 为技能制，技能结束时 duration-1
+- value 字段为 buff 层数，不是触发次数
+"""
+import unittest, sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from helpers.battle_builder import BattleBuilder
+from src.entities_v2.enums import Position, SkillEffectType, AuraUpdateTiming
+from src.entities_v2.unit_state import BuffState
+
+STEALTH = SkillEffectType.STEALTH.value
+
+
+def _stealth_buff(duration=2):
+    return BuffState(
+        buff_id="stealth_reg", name="ステルス",
+        effect_type=STEALTH,
+        value=1.0, duration=duration,
+        timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+        original_duration_type='action',
+    )
+
+
+class TestRegStealthPostfilter(unittest.TestCase):
+    """ステルス在 postfilter 索敌路径（enemy_single_furthest 等）下的消耗与重定向。"""
+
+    def _build(self):
+        """施法者(110301)在 ALLY_LEFT_FRONT；土雷在 RIGHT_BACK(最远)；诱饵在 RIGHT_FRONT(次远)。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_LEFT_FRONT,
+                    hp=50000, atk=10000, skills=[120025], level=10, pp=10, ap=10)
+        # 土雷：最远位置（距 ALLY_LEFT_FRONT 最远的是 ENEMY_RIGHT_BACK）
+        bb.add_enemy(unit_id="dorai", position=Position.ENEMY_RIGHT_BACK,
+                     hp=100000, atk=5000, defense=1000)
+        # 诱饵：次远位置
+        bb.add_enemy(unit_id="decoy", position=Position.ENEMY_RIGHT_FRONT,
+                     hp=100000, atk=5000, defense=1000)
+        return bb.build()
+
+    def test_no_stealth_furthest_hits_farthest(self):
+        """无ステルス时，カオスキャノン 打向最远敌人（土雷）。"""
+        ctx = self._build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        dorai = next(u for u in bf.enemy_team if u.unit_id == "dorai")
+        decoy = next(u for u in bf.enemy_team if u.unit_id == "decoy")
+
+        hp_dorai_before = dorai.current_hp
+        hp_decoy_before = decoy.current_hp
+
+        result = ss.execute_skill(caster=caster, skill_id=120025, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # 无ステルス → 最远(土雷)受击，诱饵不受击
+        self.assertLess(dorai.current_hp, hp_dorai_before,
+                        "无ステルス时土雷(最远)应受击")
+        self.assertEqual(decoy.current_hp, hp_decoy_before,
+                         "无ステルス时诱饵(次远)不应受击")
+
+    def test_stealth_redirects_furthest_to_decoy(self):
+        """土雷持ステルス时，カオスキャノン 应重定向打向诱饵，土雷不受击。"""
+        ctx = self._build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        dorai = next(u for u in bf.enemy_team if u.unit_id == "dorai")
+        decoy = next(u for u in bf.enemy_team if u.unit_id == "decoy")
+
+        # 给土雷付与ステルス
+        dorai.buffs.append(_stealth_buff(duration=2))
+
+        hp_dorai_before = dorai.current_hp
+        hp_decoy_before = decoy.current_hp
+
+        result = ss.execute_skill(caster=caster, skill_id=120025, battlefield=bf, skip_cost=True)
+        self.assertTrue(result["success"])
+
+        # ステルス生效 → 诱饵受击，土雷不受击
+        self.assertEqual(dorai.current_hp, hp_dorai_before,
+                         "持ステルス时土雷应被重定向，不受击")
+        self.assertLess(decoy.current_hp, hp_decoy_before,
+                        "持ステルス时诱饵应作为次远目标受击")
+
+    def test_stealth_triggered_but_duration_unchanged_action_based(self):
+        """action-based ステルス 重定向后触发但不消耗 duration（duration 仅随持有者行动递减）。"""
+        ctx = self._build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        dorai = next(u for u in bf.enemy_team if u.unit_id == "dorai")
+
+        dorai.buffs.append(_stealth_buff(duration=2))
+
+        ss.execute_skill(caster=caster, skill_id=120025, battlefield=bf, skip_cost=True)
+
+        stealth_buffs = [b for b in dorai.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth_buffs), 1, "ステルス应仍存在(action-based 触发不消耗)")
+        self.assertEqual(stealth_buffs[0].duration, 2,
+                         "action-based ステルス duration 应保持 2（触发不递减，仅随行动递减）")
+
+    def test_stealth_triggered_single_candidate_still_hit(self):
+        """只剩1个敌方候选时，自身是 primary 仍触发ステルス（但 action-based 不消耗 duration），且仍被攻击到。"""
+        bb = BattleBuilder()
+        bb.add_ally(unit_id="caster", position=Position.ALLY_LEFT_FRONT,
+                    hp=50000, atk=10000, skills=[120025], level=10, pp=10, ap=10)
+        bb.add_enemy(unit_id="dorai", position=Position.ENEMY_RIGHT_BACK,
+                     hp=100000, atk=5000, defense=1000)
+        ctx = bb.build()
+        bf, ss = ctx['bf'], ctx['ss']
+        caster = next(u for u in bf.friend_team if u.unit_id == "caster")
+        dorai = next(u for u in bf.enemy_team if u.unit_id == "dorai")
+
+        dorai.buffs.append(_stealth_buff(duration=2))
+        hp_before = dorai.current_hp
+
+        ss.execute_skill(caster=caster, skill_id=120025, battlefield=bf, skip_cost=True)
+
+        # 唯一候选 → ステルス触发（action-based 不消耗 duration），土雷仍受击
+        stealth_buffs = [b for b in dorai.buffs if b.effect_type == STEALTH]
+        self.assertEqual(len(stealth_buffs), 1, "唯一候选时ステルス触发但不消失(action-based)")
+        self.assertEqual(stealth_buffs[0].duration, 2,
+                         "action-based ステルス duration 应保持 2（触发不递减）")
+        self.assertLess(dorai.current_hp, hp_before,
+                        "唯一候选时土雷仍应受击")
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,2743 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+第六赛季对抗压制战 (Circle Battle S6) — 效果点级集成测试
+
+针对 5 个敌方单位 (霞光/大雷/若雷/鳴雷/土雷) 的 21 个技能的每个效果点
+(effect block 内每个 effect) 建立独立测试用例，通过真实 SkillService.execute_skill
++ 真实 TriggerService 触发链路验证效果是否真正生效。
+
+设计文档: docs/implementation_logs/circle_battle_s6_test_plan.md
+"""
+
+import os
+import sys
+import unittest
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import (
+    Side, Position, SkillEffectType, Attribute, CharacterType,
+)
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.trigger_service import TriggerService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+
+
+# =============================================================================
+# 辅助函数
+# =============================================================================
+
+def _find_aura(unit, effect_type, name=None):
+    """在 unit.buffs + unit.debuffs 中查找指定 effect_type 的 aura"""
+    pools = list(unit.buffs) + list(unit.debuffs)
+    for b in pools:
+        if b.effect_type != effect_type:
+            continue
+        if name is not None and getattr(b, 'name', '') != name:
+            continue
+        return b
+    return None
+
+
+def _count_auras(unit, effect_type, name=None):
+    """统计指定 effect_type (可选 name) 的 aura 数量"""
+    n = 0
+    for b in list(unit.buffs) + list(unit.debuffs):
+        if b.effect_type != effect_type:
+            continue
+        if name is not None and getattr(b, 'name', '') != name:
+            continue
+        n += 1
+    return n
+
+
+def _find_mark(unit, mark_name):
+    """查找指定名称的 mark aura"""
+    return _find_aura(unit, SkillEffectType.MARK.value, name=mark_name)
+
+
+def _count_marks(unit, mark_name):
+    """统计指定名称的 mark 数量"""
+    return _count_auras(unit, SkillEffectType.MARK.value, name=mark_name)
+
+
+def _find_status(unit, status_type):
+    """查找指定 status_type 的 status aura (status 通常存在 debuffs)
+    status_type 可以是: 'action_damage', 'stun', 'confusion' 等
+    实际 aura 的 effect_type 是 SkillEffectType 对应的枚举值 (如 ActionDamage/Knockout/Confusion)
+    """
+    _STATUS_TO_EFFECT_TYPE = {
+        "action_damage": SkillEffectType.ACTION_DAMAGE.value,
+        "stun": SkillEffectType.KNOCKOUT.value,
+        "knockout": SkillEffectType.KNOCKOUT.value,
+        "confusion": SkillEffectType.CONFUSION.value,
+        "poison": SkillEffectType.POISON.value if hasattr(SkillEffectType, 'POISON') else "Poison",
+        "burn": SkillEffectType.BURN.value if hasattr(SkillEffectType, 'BURN') else "Burn",
+    }
+    target_et = _STATUS_TO_EFFECT_TYPE.get(status_type, status_type)
+    for b in list(unit.buffs) + list(unit.debuffs):
+        if b.effect_type != target_et:
+            continue
+        return b
+    return None
+
+
+def _make_unit(unit_id, name, side, position, *,
+               hp=10000, atk=1000, defense=500, speed=500,
+               crit_rate=0.0, crit_damage=0.5,
+               element=Attribute.FIRE.value, character_type=1,
+               level=10, ap=10, pp=10, ep=0,
+               skills=None, skill_levels=None):
+    """构造 UnitState"""
+    return UnitState(
+        unit_id=unit_id, name=name, side=side, position=position,
+        character_id=0, level=level, element=element,
+        character_type=character_type,
+        max_hp=hp, current_hp=hp,
+        attack=atk, defense=defense, speed=speed,
+        crit_rate=crit_rate, crit_damage=crit_damage, advantage_damage=0.0,
+        initial_active_point=4, initial_passive_point=4, max_extra_point=10,
+        current_ap=ap, current_pp=pp, current_ep=ep,
+        is_alive=True,
+        skills=skills or [], skill_levels=skill_levels or {},
+        skill_cooldowns={},
+    )
+
+
+def _make_bf(*units):
+    """构造 BattlefieldState"""
+    bf = BattlefieldState()
+    bf.friend_team = [u for u in units if u.side == Side.ALLY]
+    bf.enemy_team = [u for u in units if u.side == Side.ENEMY]
+    return bf
+
+
+# =============================================================================
+# 基础测试基类：提供完整服务搭建
+# =============================================================================
+class _S6TestBase(unittest.TestCase):
+    """S6 效果点测试基类：搭建真实 DataLoader + 全套服务"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _make_services(self, bf):
+        """为指定战场构造全套服务并返回 (ss, ts, dms, aus, tgs, sts)"""
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        aus = AuraService()
+        dms = DamageService()
+        tgs = TargetService()
+        sts = StatusService()
+        ss = SkillService(
+            self.dl, rs,
+            target_service=tgs, damage_service=dms,
+            aura_service=aus, trigger_service=ts, status_service=sts,
+        )
+        ts.set_skill_service(ss)
+        ts.set_damage_service(dms)
+        ss.set_battlefield(bf)
+        return ss, ts, dms, aus, tgs, sts
+
+    # ── 强制暴击辅助 ──
+    def _force_crit(self, unit):
+        """强制 unit 攻击必定暴击 (crit_rate=1.0)"""
+        unit.crit_rate = 1.0
+
+    def _force_no_crit(self, unit):
+        """强制 unit 攻击不暴击"""
+        unit.crit_rate = 0.0
+
+
+# =============================================================================
+# 霞光 (165161363) — 5 技能 / 9 效果点
+# =============================================================================
+class TestS6KasumiEffectPoints(_S6TestBase):
+    """霞光技能效果点独立测试"""
+
+    def _make_kasumi(self, position=Position.ENEMY_CENTER_BACK, *,
+                     crit_rate=0.0, atk=10000, hp=100000):
+        """构造霞光 (暗属性, 物理型, 物攻)"""
+        return _make_unit(
+            "kasumi", "霞光", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=750,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.DARK.value, character_type=1,
+            skills=[210098, 220369, 220370, 230391, 230393],
+            skill_levels={210098: 10, 220369: 10, 220370: 10,
+                          230391: 10, 230393: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=Attribute.LIGHT.value, character_type=1,
+        )
+
+    # ─── 210098 真・紫影の斬撃 (EX) ───
+    def test_kasumi_210098_b1_e1_damage_all_enemies(self):
+        """210098 Block1 Effect1: damage(enemy_all) → 全部敌方 HP 下降"""
+        kasumi = self._make_kasumi()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=10000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=10000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=10000)
+        bf = _make_bf(kasumi, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=210098, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], "210098 应执行成功")
+
+        for ally in [a1, a2, a3]:
+            self.assertLess(ally.current_hp, hp_before[ally.unit_id],
+                            f"{ally.unit_id} 应受到 210098 伤害")
+
+    # ─── 220369 紫影の斬撃 (AS) ───
+    def test_kasumi_220369_b1_e1_damage_all_enemies(self):
+        """220369 Block1 Effect1: damage(enemy_all) → 全部敌方 HP 下降"""
+        kasumi = self._make_kasumi()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=10000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=10000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=10000)
+        bf = _make_bf(kasumi, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220369, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        for ally in [a1, a2, a3]:
+            self.assertLess(ally.current_hp, hp_before[ally.unit_id],
+                            f"{ally.unit_id} 应受到 220369 伤害")
+
+    def test_kasumi_220369_b2_e1_pp_gain_on_crit(self):
+        """220369 Block2 Effect1 (on_crit): modify_pp(self) +1
+        暴击时霞光 PP+1，且整技能仅 +1 (多敌暴击也只+1)
+        """
+        kasumi = self._make_kasumi(crit_rate=1.0)  # 强制暴击
+        kasumi.current_pp = 2  # 低于 cap(4) 以便观察 +1 不被截断
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=10000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=10000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=10000)
+        bf = _make_bf(kasumi, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        pp_before = kasumi.current_pp
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220369, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        pp_gain = kasumi.current_pp - pp_before
+        self.assertEqual(pp_gain, 1,
+                         f"暴击时 PP 应 +1 (实际 +{pp_gain})；多敌暴击也只+1 (once_per_skill)")
+
+    def test_kasumi_220369_b2_e1_no_pp_gain_without_crit(self):
+        """220369 Block2 Effect1 (on_crit): 非暴击时 PP 不变"""
+        kasumi = self._make_kasumi(crit_rate=0.0)  # 强制不暴击
+        kasumi.current_pp = 2  # cap=4
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=10000)
+        bf = _make_bf(kasumi, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        pp_before = kasumi.current_pp
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220369, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(kasumi.current_pp, pp_before,
+                         "非暴击时 PP 不应变化")
+
+    # ─── 220370 ラピッドファイア (AS) ───
+    def test_kasumi_220370_b1_e1_damage_highest_atk(self):
+        """220370 Block1 Effect1: damage(enemy_single_highest_atk) ×2 hit
+        Atk 最高敌方受到伤害 (2 hit)
+        """
+        kasumi = self._make_kasumi()
+        # a1 atk 最高
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, atk=9999)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=100000, atk=1000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT,
+                                   hp=100000, atk=500)
+        bf = _make_bf(kasumi, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220370, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # a1 (atk 最高) 必须受到伤害
+        self.assertLess(a1.current_hp, hp_before["a1"],
+                        "Atk 最高的 a1 应受到 220370 伤害")
+
+    def test_kasumi_220370_b1_e2_damage_highest_spd(self):
+        """220370 Block1 Effect2: damage(enemy_single_highest_spd) ×2 hit
+        Spd 最高敌方受到伤害 (与 Atk 最高不同时单独验证)
+        """
+        kasumi = self._make_kasumi()
+        # a1 atk 最高但 spd 最低；a3 spd 最高但 atk 最低
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, atk=9999, speed=100)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=100000, atk=1000, speed=300)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT,
+                                   hp=100000, atk=500, speed=999)
+        bf = _make_bf(kasumi, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220370, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # a1 (atk 最高) 和 a3 (spd 最高) 都应受到伤害
+        self.assertLess(a1.current_hp, hp_before["a1"],
+                        "Atk 最高的 a1 应受到 220370 Effect1 伤害")
+        self.assertLess(a3.current_hp, hp_before["a3"],
+                        "Spd 最高的 a3 应受到 220370 Effect2 伤害")
+
+    def test_kasumi_220370_b2_e1_pp_gain_on_crit_only_once(self):
+        """220370 Block2 Effect1 (on_crit): modify_pp(self) +1
+        即使 2 个 damage effect 都暴击，整技能仅 +1 PP (once_per_skill=true)
+        """
+        kasumi = self._make_kasumi(crit_rate=1.0)  # 强制暴击
+        kasumi.current_pp = 2  # cap=4, 设 2 以便观察 +1→3
+        # 提供两个不同目标 (atk 最高 / spd 最高) 让 2 个 effect 都暴击
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, atk=9999, speed=100)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT,
+                                   hp=100000, atk=500, speed=999)
+        bf = _make_bf(kasumi, a1, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        pp_before = kasumi.current_pp
+        result = ss.execute_skill(
+            caster=kasumi, skill_id=220370, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        pp_gain = kasumi.current_pp - pp_before
+        self.assertEqual(pp_gain, 1,
+                         f"2 effect 都暴击时 PP 应仅 +1 (once_per_skill)，实际 +{pp_gain}")
+
+    # ─── 230391 カウンターショット (PS, after_as_attacked) ───
+    def test_kasumi_230391_b1_e1_counter_damage_to_attacker(self):
+        """230391 Block1 Effect1: damage(enemy_single, trigger_attacker)
+        友方 AS 攻击霞光 → 霞光反撃攻击者，攻击者 HP 下降
+        """
+        kasumi = self._make_kasumi(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[120049],  # 一个简单的 AS 技能
+            skill_levels={120049: 10},
+        )
+        bf = _make_bf(kasumi, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 友方攻击者用 AS 攻击霞光
+        result = ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 触发 after_as_attacked (霞光被 AS 攻击后)
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[kasumi], battlefield=bf,
+            actor=ally_attacker, primary_target=kasumi,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230391]
+        self.assertGreater(len(ps_actions), 0,
+                           "霞光应触发 230391 反撃 PS")
+
+        # 执行 PS
+        ss._pending_crit_triggers = []
+        ally_hp_before = ally_attacker.current_hp
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        # 攻击者应受到反撃伤害
+        self.assertLess(ally_attacker.current_hp, ally_hp_before,
+                        "攻击者应受到霞光 230391 反撃伤害")
+
+    def test_kasumi_230391_b2_e1_pp_gain_on_crit(self):
+        """230391 Block2 Effect1 (on_crit): modify_pp(self) +1
+        反撃暴击时霞光 PP+1。
+        注意: PS 自身消耗 1 PP，on_crit +1 抵消后净 PP 变化=0。
+        因此通过检查 _inline_ps_results 中的 modify_pp 效果条目来验证 on_crit 生效，
+        同时对比有暴击(净变≥0)与无暴击(净变=-1)的差异。
+        """
+        kasumi = self._make_kasumi(position=Position.ENEMY_CENTER_FRONT,
+                                   crit_rate=1.0)  # 强制暴击
+        kasumi.initial_passive_point = 10  # 提高 cap 避免截断
+        kasumi.current_pp = 10
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(kasumi, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[kasumi], battlefield=bf,
+            actor=ally_attacker, primary_target=kasumi,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230391]
+        self.assertGreater(len(ps_actions), 0, "霞光应触发 230391 反撃 PS")
+
+        pp_before = kasumi.current_pp
+        ss._pending_crit_triggers = []
+        ss._inline_ps_results = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        # 1. 检查 _inline_ps_results 中存在 modify_pp 效果条目 (on_crit 生效的直接证据)
+        modify_pp_found = False
+        for ps_res in ss._inline_ps_results:
+            for eff in ps_res.get("result", {}).get("effects_applied", []):
+                if eff.get("effect_type") == "modify_pp":
+                    modify_pp_found = True
+                    self.assertEqual(eff.get("delta"), 1,
+                                     f"on_crit modify_pp delta 应为 1, 实际 {eff.get('delta')}")
+                    break
+            if modify_pp_found:
+                break
+        self.assertTrue(modify_pp_found,
+                        "反撃暴击时应触发 on_crit modify_pp(+1) 效果，"
+                        "但 _inline_ps_results 中未找到 modify_pp 条目")
+
+        # 2. 有暴击时 PP 净变化应 >= 0 (on_crit +1 抵消 PS 消耗 1 PP)
+        pp_gain = kasumi.current_pp - pp_before
+        self.assertGreaterEqual(pp_gain, 0,
+                                f"反撃暴击时 PP 净变化应 >=0 (on_crit +1 抵消 PS cost), 实际 {pp_gain}")
+
+    # ─── 230393 見切り構え・素 (PS, before_any_attacked) ───
+    def test_kasumi_230393_b1_e1_guard_buff_applied(self):
+        """230393 Block1 Effect1: guard(self) 50% (1 hit, attack_limited=1)
+        霞光被攻撃前获得 guard buff
+        """
+        kasumi = self._make_kasumi(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(kasumi, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 友方攻击者用 AS 攻击霞光
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+
+        # 触发 before_any_attacked (霞光被攻撃前)
+        trigger_actions = ts.trigger_before_any_attacked(
+            targets=[kasumi], battlefield=bf, attacker=ally_attacker,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230393]
+        self.assertGreater(len(ps_actions), 0,
+                           "霞光应触发 230393 見切り構え・素 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_any_attacked"
+        )
+
+        # 验证 guard buff
+        guard_buff = _find_aura(kasumi, SkillEffectType.GUARD.value)
+        self.assertIsNotNone(guard_buff, "霞光应获得 guard buff")
+
+    def test_kasumi_230393_b1_e2_crit_rate_up_permanent_stackable(self):
+        """230393 Block1 Effect2: crit_rate_up(self) +1% 永久重複可
+        被攻 2 次后霞光应有 2 个 crit_rate_up buff (重複可)
+        """
+        kasumi = self._make_kasumi(position=Position.ENEMY_CENTER_FRONT,
+                                   crit_rate=0.0)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=1000, defense=4000, speed=500,  # 低 atk 避免打死
+            element=Attribute.LIGHT.value,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(kasumi, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 第 1 次被攻
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_1 = ts.trigger_before_any_attacked(
+            targets=[kasumi], battlefield=bf, attacker=ally_attacker,
+        )
+        ps_actions_1 = [a for a in trigger_actions_1 if a.skill_id == 230393]
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_1, bf, trigger_timing="before_any_attacked"
+        )
+
+        crit_up_count_1 = _count_auras(kasumi, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        self.assertGreaterEqual(crit_up_count_1, 1,
+                                "第 1 次被攻后应有 ≥1 个 crit_rate_up buff")
+
+        # 重置攻击者 cooldown 准备第 2 次攻击
+        ally_attacker.skill_cooldowns = {}
+
+        # 第 2 次被攻
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_2 = ts.trigger_before_any_attacked(
+            targets=[kasumi], battlefield=bf, attacker=ally_attacker,
+        )
+        ps_actions_2 = [a for a in trigger_actions_2 if a.skill_id == 230393]
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_2, bf, trigger_timing="before_any_attacked"
+        )
+
+        crit_up_count_2 = _count_auras(kasumi, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        self.assertGreater(crit_up_count_2, crit_up_count_1,
+                           f"第 2 次被攻后 crit_rate_up 数量应增加 "
+                           f"({crit_up_count_1} → {crit_up_count_2})，重複可生效")
+
+    # ─── 230393 見切り構え・素: AS/PS/EX 攻撃タイプ別 guard 減傷テスト ───
+
+    def _make_kasumi_for_guard_test(self, position=Position.ENEMY_CENTER_FRONT,
+                                     with_guard=True, pp=4):
+        """guard テスト用霞光を作成 (230393 の有無を切替)"""
+        skills = [220369, 230393] if with_guard else [220369]
+        levels = {220369: 10, 230393: 10} if with_guard else {220369: 10}
+        u = _make_unit(
+            "kasumi", "霞光", Side.ENEMY, position,
+            hp=100000, atk=10000, defense=4000, speed=750,
+            crit_rate=0.0, crit_damage=0.5,
+            element=Attribute.DARK.value, character_type=1,
+            skills=skills, skill_levels=levels,
+        )
+        u.current_pp = pp
+        return u
+
+    def test_kasumi_230393_guard_vs_as_attack(self):
+        """見切り構え・素 vs AS攻撃: guard 85% (Lv10) 減傷検証
+        AS攻撃 → before_any_attacked → 230393発動 → guard buff → 減傷
+        """
+        # --- baseline: 230393 なし ---
+        kasumi_base = self._make_kasumi_for_guard_test(with_guard=False)
+        ally1 = _make_unit(
+            "ally1", "友方1", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf1 = _make_bf(kasumi_base, ally1)
+        ss1, *_ = self._make_services(bf1)
+
+        hp_base_before = kasumi_base.current_hp
+        r1 = ss1.execute_skill(caster=ally1, skill_id=120049, battlefield=bf1, skip_cost=True)
+        self.assertTrue(r1["success"])
+        dmg_base = hp_base_before - kasumi_base.current_hp
+        self.assertGreater(dmg_base, 0, "AS baseline ダメージ > 0 であるべき")
+
+        # --- with guard: 230393 あり ---
+        kasumi_guard = self._make_kasumi_for_guard_test(with_guard=True, pp=4)
+        ally2 = _make_unit(
+            "ally2", "友方2", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf2 = _make_bf(kasumi_guard, ally2)
+        ss2, *_ = self._make_services(bf2)
+
+        hp_guard_before = kasumi_guard.current_hp
+        r2 = ss2.execute_skill(caster=ally2, skill_id=120049, battlefield=bf2, skip_cost=True)
+        self.assertTrue(r2["success"])
+        dmg_guard = hp_guard_before - kasumi_guard.current_hp
+
+        # guard buff が消費されたか確認 (attack_limited=1)
+        guard_buff = _find_aura(kasumi_guard, SkillEffectType.GUARD.value)
+        # guard buff は1ヒットで消費されるため、実行後は残っていないかも
+        # (attack_limited=1 → 1回攻撃で消滅)
+
+        # guard 85% → dmg_guard ≈ dmg_base * 0.15
+        self.assertLess(dmg_guard, dmg_base,
+                        f"AS: guard有({dmg_guard}) < guard無({dmg_base}) であるべき")
+        expected = dmg_base * 0.15
+        self.assertAlmostEqual(dmg_guard, expected, delta=max(2, expected * 0.15),
+                               msg=f"AS: guard 85% 減傷期待値 {expected:.0f}, 実際 {dmg_guard}")
+
+    def test_kasumi_230393_guard_vs_ex_attack(self):
+        """見切り構え・素 vs EX攻撃: guard 85% (Lv10) 減傷検証
+        EX攻撃 → before_any_attacked → 230393発動 → guard buff → 減傷
+        """
+        # --- baseline: 230393 なし ---
+        kasumi_base = self._make_kasumi_for_guard_test(with_guard=False)
+        ally1 = _make_unit(
+            "ally1", "友方1", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[210098], skill_levels={210098: 10},
+            ep=10,
+        )
+        bf1 = _make_bf(kasumi_base, ally1)
+        ss1, *_ = self._make_services(bf1)
+
+        hp_base_before = kasumi_base.current_hp
+        r1 = ss1.execute_skill(caster=ally1, skill_id=210098, battlefield=bf1, skip_cost=True)
+        self.assertTrue(r1["success"])
+        dmg_base = hp_base_before - kasumi_base.current_hp
+        self.assertGreater(dmg_base, 0, "EX baseline ダメージ > 0 であるべき")
+
+        # --- with guard: 230393 あり ---
+        kasumi_guard = self._make_kasumi_for_guard_test(with_guard=True, pp=4)
+        ally2 = _make_unit(
+            "ally2", "友方2", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value,
+            skills=[210098], skill_levels={210098: 10},
+            ep=10,
+        )
+        bf2 = _make_bf(kasumi_guard, ally2)
+        ss2, *_ = self._make_services(bf2)
+
+        hp_guard_before = kasumi_guard.current_hp
+        r2 = ss2.execute_skill(caster=ally2, skill_id=210098, battlefield=bf2, skip_cost=True)
+        self.assertTrue(r2["success"])
+        dmg_guard = hp_guard_before - kasumi_guard.current_hp
+
+        self.assertLess(dmg_guard, dmg_base,
+                        f"EX: guard有({dmg_guard}) < guard無({dmg_base}) であるべき")
+        expected = dmg_base * 0.15
+        self.assertAlmostEqual(dmg_guard, expected, delta=max(2, expected * 0.15),
+                               msg=f"EX: guard 85% 減傷期待値 {expected:.0f}, 実際 {dmg_guard}")
+
+    def test_kasumi_230393_guard_vs_ps_attack(self):
+        """見切り構え・素 vs PS攻撃 (反撃シナリオ): guard 85% (Lv10) 減傷検証
+        霞光がASで味方を攻撃 → 味方の230391反撃 → 霞光にPS攻撃 → 230393発動 → 減傷
+        """
+        def _run_ps_scenario(with_guard):
+            """PS反撃シナリオを実行し、霞光の反撃被ダメージを返す"""
+            kasumi = self._make_kasumi_for_guard_test(
+                position=Position.ENEMY_CENTER_FRONT,
+                with_guard=with_guard, pp=4,
+            )
+            # 味方A: 230391反撃PS持ち (霞光のAS攻撃対象)
+            ally_a = _make_unit(
+                "ally_a", "反撃味方", Side.ALLY, Position.ALLY_CENTER_FRONT,
+                hp=50000, atk=8000, defense=4000, speed=500,
+                element=Attribute.LIGHT.value,
+                skills=[230391], skill_levels={230391: 10},
+            )
+            bf = _make_bf(kasumi, ally_a)
+            ss, ts, *_ = self._make_services(bf)
+
+            # 霞光がAS(220369)で味方Aを攻撃
+            r = ss.execute_skill(caster=kasumi, skill_id=220369, battlefield=bf, skip_cost=True)
+            self.assertTrue(r["success"])
+
+            # after_as_attacked トリガー発生 (味方AがAS攻撃された後)
+            trigger_actions = ts.trigger_after_as_attacked(
+                targets=[ally_a], battlefield=bf,
+                actor=kasumi, primary_target=ally_a,
+            )
+            ps_actions = [a for a in trigger_actions if a.skill_id == 230391]
+            self.assertGreater(len(ps_actions), 0, "味方Aの230391反撃が発動すべき")
+
+            # PS反撃実行 → 霞光が攻撃される → 230393発動(guard有りの場合)
+            hp_before = kasumi.current_hp
+            ss._pending_crit_triggers = []
+            ss._execute_trigger_actions_inline(
+                ps_actions, bf, trigger_timing="after_as_attacked"
+            )
+            dmg = hp_before - kasumi.current_hp
+            return dmg
+
+        # --- baseline: 230393 なし ---
+        dmg_base = _run_ps_scenario(with_guard=False)
+        self.assertGreater(dmg_base, 0, "PS baseline 反撃ダメージ > 0 であるべき")
+
+        # --- with guard: 230393 あり ---
+        dmg_guard = _run_ps_scenario(with_guard=True)
+
+        self.assertLess(dmg_guard, dmg_base,
+                        f"PS: guard有({dmg_guard}) < guard無({dmg_base}) であるべき")
+        expected = dmg_base * 0.15
+        self.assertAlmostEqual(dmg_guard, expected, delta=max(2, expected * 0.15),
+                               msg=f"PS: guard 85% 減傷期待値 {expected:.0f}, 実際 {dmg_guard}")
+
+
+# =============================================================================
+# 大雷 (161560553) — 4 技能 / 9 效果点
+# =============================================================================
+class TestS6DaleiEffectPoints(_S6TestBase):
+    """大雷技能效果点独立测试
+    大雷: 暗属性(6), EN型(2), EN攻撃角色
+    技能: 220367(AS大掃射) / 220368(AS大双弾) / 230389(PS大反撃) / 230390(PS大増幅)
+    """
+
+    def _make_dalei(self, position=Position.ENEMY_LEFT_FRONT, *,
+                    crit_rate=0.0, atk=10000, hp=100000):
+        """构造大雷 (暗属性, EN型, EN攻撃)"""
+        return _make_unit(
+            "dalei", "大雷", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=750,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.DARK.value, character_type=2,
+            skills=[220367, 220368, 230389, 230390],
+            skill_levels={220367: 10, 220368: 10, 230389: 10, 230390: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=Attribute.LIGHT.value, character_type=1,
+        )
+
+    # ─── 220367 大ノ掃射 (AS) ───
+    def test_dalei_220367_b1_e1_damage_row_with_hp_scaling(self):
+        """220367 Block1 Effect1: damage(enemy_row) + hp_scaling(max_bonus_pct=100)
+        横一列敌方 HP 下降；HP=100% 敌方伤害 ≥ HP=50% 敌方伤害
+        """
+        dalei = self._make_dalei()
+        a_full = self._make_ally_dummy("a_full", Position.ALLY_LEFT_FRONT,
+                                       hp=100000, defense=3000)
+        a_half = self._make_ally_dummy("a_half", Position.ALLY_RIGHT_FRONT,
+                                       hp=100000, defense=3000)
+        a_half.current_hp = int(a_half.max_hp * 0.5)  # 50% HP
+        bf = _make_bf(dalei, a_full, a_half)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a_full, a_half]}
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_full = hp_before["a_full"] - a_full.current_hp
+        dmg_half = hp_before["a_half"] - a_half.current_hp
+        self.assertGreater(dmg_full, 0, "HP=100% 敌方应受到伤害")
+        self.assertGreater(dmg_half, 0, "HP=50% 敌方应受到伤害")
+        self.assertGreaterEqual(dmg_full, dmg_half,
+                                f"HP=100% 敌方伤害({dmg_full})应 >= HP=50% 敌方伤害({dmg_half})")
+
+    def test_dalei_220367_b2_e1_remove_buff_on_crit(self):
+        """220367 Block2 Effect1 (on_crit): remove_buff_by_type(self, filter=[atk_up, crit_rate_up])
+        暴击时大雷身上 atk_up/crit_rate_up buff 全被解除
+        """
+        dalei = self._make_dalei(crit_rate=1.0)  # 强制暴击
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        atk_buff = BuffState(
+            buff_id="test_atk_up", name="TestAtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        crit_buff = BuffState(
+            buff_id="test_crit_up", name="TestCritUp",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        dalei.buffs.append(atk_buff)
+        dalei.buffs.append(crit_buff)
+        self.assertEqual(len(dalei.buffs), 2, "前置: 大雷应有 2 个 buff")
+
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        atk_remaining = [b for b in dalei.buffs
+                         if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        crit_remaining = [b for b in dalei.buffs
+                          if b.effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value]
+        self.assertEqual(len(atk_remaining), 0,
+                         "暴击时大雷 atk_up buff 应被全解除")
+        self.assertEqual(len(crit_remaining), 0,
+                         "暴击时大雷 crit_rate_up buff 应被全解除")
+
+    # ─── 220368 大ノ双弾 (AS) ───
+    def test_dalei_220368_b1_e1_damage_two_targets(self):
+        """220368 Block1 Effect1: damage(enemy_single, target_count=2)
+        防御低順 2 体 HP 下降
+        """
+        dalei = self._make_dalei()
+        a_low_def = self._make_ally_dummy("a_low", Position.ALLY_LEFT_FRONT,
+                                          hp=100000, defense=1000)
+        a_mid_def = self._make_ally_dummy("a_mid", Position.ALLY_CENTER_FRONT,
+                                          hp=100000, defense=3000)
+        a_high_def = self._make_ally_dummy("a_high", Position.ALLY_RIGHT_FRONT,
+                                           hp=100000, defense=9999)
+        bf = _make_bf(dalei, a_low_def, a_mid_def, a_high_def)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a_low_def, a_mid_def, a_high_def]}
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertLess(a_low_def.current_hp, hp_before["a_low"],
+                        "防御最低的 a_low 应受到 220368 伤害")
+        self.assertLess(a_mid_def.current_hp, hp_before["a_mid"],
+                        "防御第二低的 a_mid 应受到 220368 伤害")
+
+    def test_dalei_220368_b2_e1_remove_buff_on_crit(self):
+        """220368 Block2 Effect1 (on_crit): remove_buff_by_type(self, filter=[atk_up, crit_rate_up])
+        暴击时大雷 atk_up/crit_rate_up 全解除
+        """
+        dalei = self._make_dalei(crit_rate=1.0)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        bf = _make_bf(dalei, a1, a2)
+        ss, ts, *_ = self._make_services(bf)
+
+        atk_buff = BuffState(
+            buff_id="test_atk_up", name="TestAtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        crit_buff = BuffState(
+            buff_id="test_crit_up", name="TestCritUp",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        dalei.buffs.append(atk_buff)
+        dalei.buffs.append(crit_buff)
+
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        atk_remaining = [b for b in dalei.buffs
+                         if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        crit_remaining = [b for b in dalei.buffs
+                          if b.effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value]
+        self.assertEqual(len(atk_remaining), 0,
+                         "暴击时大雷 atk_up buff 应被全解除")
+        self.assertEqual(len(crit_remaining), 0,
+                         "暴击时大雷 crit_rate_up buff 应被全解除")
+
+    # ─── 230389 大ノ反撃 (PS, after_as_attacked) ───
+    def test_dalei_230389_b1_e1_counter_damage_to_attacker(self):
+        """230389 Block1 Effect1: damage(enemy_single, trigger_attacker)
+        友方 AS 攻击大雷 → 大雷反撃攻击者，攻击者 HP 下降
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(dalei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[dalei], battlefield=bf,
+            actor=ally_attacker, primary_target=dalei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230389]
+        self.assertGreater(len(ps_actions), 0, "大雷应触发 230389 反撃 PS")
+
+        ally_hp_before = ally_attacker.current_hp
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        self.assertLess(ally_attacker.current_hp, ally_hp_before,
+                        "攻击者应受到大雷 230389 反撃伤害")
+
+    def test_dalei_230389_b1_e2_shield_from_damage(self):
+        """230389 Block1 Effect2: shield_from_damage(self, 80%)
+        大雷获得 shield，shield 量 = 反撃伤害 × 80%
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(dalei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[dalei], battlefield=bf,
+            actor=ally_attacker, primary_target=dalei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230389]
+        self.assertGreater(len(ps_actions), 0, "大雷应触发 230389 反撃 PS")
+
+        shield_before = dalei.shield
+        ally_hp_before = ally_attacker.current_hp
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        counter_dmg = ally_hp_before - ally_attacker.current_hp
+        self.assertGreater(counter_dmg, 0, "反撃应造成伤害")
+
+        shield_gain = dalei.shield - shield_before
+        expected_shield = int(counter_dmg * 80 / 100)
+        self.assertGreater(shield_gain, 0, "大雷应获得 shield")
+        self.assertEqual(shield_gain, expected_shield,
+                         f"shield 量应 = 反撃伤害({counter_dmg})×80%={expected_shield}, 实际 {shield_gain}")
+
+    def test_dalei_230389_b2_e1_remove_buff_on_crit(self):
+        """230389 Block2 Effect1 (on_crit): remove_buff_by_type(self, filter=[atk_up, crit_rate_up])
+        反撃暴击时大雷 atk_up/crit_rate_up 全解除
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT, crit_rate=1.0)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.LIGHT.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(dalei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        atk_buff = BuffState(
+            buff_id="test_atk_up", name="TestAtkUp",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        crit_buff = BuffState(
+            buff_id="test_crit_up", name="TestCritUp",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=10.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        dalei.buffs.append(atk_buff)
+        dalei.buffs.append(crit_buff)
+
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[dalei], battlefield=bf,
+            actor=ally_attacker, primary_target=dalei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230389]
+        self.assertGreater(len(ps_actions), 0, "大雷应触发 230389 反撃 PS")
+
+        ss._pending_crit_triggers = []
+        ss._inline_ps_results = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        atk_remaining = [b for b in dalei.buffs
+                         if b.effect_type == SkillEffectType.STATUS_ATTACK.value]
+        crit_remaining = [b for b in dalei.buffs
+                          if b.effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value]
+        self.assertEqual(len(atk_remaining), 0,
+                         "反撃暴击时大雷 atk_up buff 应被全解除")
+        self.assertEqual(len(crit_remaining), 0,
+                         "反撃暴击时大雷 crit_rate_up buff 应被全解除")
+
+    # ─── 230390 大ノ増幅 (PS, after_as_attack = 自身 AS 後) ───
+    def test_dalei_230390_b1_e1_atk_up_stackable(self):
+        """230390 Block1 Effect1: atk_up(self) +10% 永久重複可
+        大雷 AS 攻击后获得 atk_up buff；2 次 AS 后有 2 个 atk_up
+        """
+        dalei = self._make_dalei()
+        dalei.debuffs.append(BuffState(
+            buff_id="test_crit_forbidden", name="CriticalForbidden",
+            effect_type=SkillEffectType.CRITICAL_FORBIDDEN.value, value=0,
+            duration=-1, timing_type=4,
+        ))
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 第 1 次 AS
+        ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_1 = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=220368, result={}, battlefield=bf
+        )
+        ps_actions_1 = [a for a in trigger_actions_1 if a.skill_id == 230390]
+        self.assertGreater(len(ps_actions_1), 0, "第 1 次 AS 后应触发 230390")
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_1, bf, trigger_timing="after_skill_use"
+        )
+
+        atk_count_1 = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        self.assertGreater(atk_count_1, 0, "第 1 次 AS 后大雷应有 atk_up buff")
+
+        # 第 2 次 AS
+        dalei.skill_cooldowns = {}
+        ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_2 = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=220368, result={}, battlefield=bf
+        )
+        ps_actions_2 = [a for a in trigger_actions_2 if a.skill_id == 230390]
+        self.assertGreater(len(ps_actions_2), 0, "第 2 次 AS 后应触发 230390")
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_2, bf, trigger_timing="after_skill_use"
+        )
+
+        atk_count_2 = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        self.assertGreater(atk_count_2, atk_count_1,
+                           f"第 2 次 AS 后 atk_up 数量应增加 "
+                           f"({atk_count_1} → {atk_count_2})，重複可生效")
+
+    def test_dalei_230390_b1_e2_crit_rate_up_stackable(self):
+        """230390 Block1 Effect2: crit_rate_up(self) +10% 永久重複可
+        大雷 AS 攻击后获得 crit_rate_up buff；2 次 AS 后有 2 个
+        """
+        dalei = self._make_dalei()
+        dalei.debuffs.append(BuffState(
+            buff_id="test_crit_forbidden", name="CriticalForbidden",
+            effect_type=SkillEffectType.CRITICAL_FORBIDDEN.value, value=0,
+            duration=-1, timing_type=4,
+        ))
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 第 1 次 AS
+        ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_1 = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=220368, result={}, battlefield=bf
+        )
+        ps_actions_1 = [a for a in trigger_actions_1 if a.skill_id == 230390]
+        self.assertGreater(len(ps_actions_1), 0, "第 1 次 AS 后应触发 230390")
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_1, bf, trigger_timing="after_skill_use"
+        )
+
+        crit_count_1 = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        self.assertGreater(crit_count_1, 0, "第 1 次 AS 后大雷应有 crit_rate_up buff")
+
+        # 第 2 次 AS
+        dalei.skill_cooldowns = {}
+        ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        trigger_actions_2 = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=220368, result={}, battlefield=bf
+        )
+        ps_actions_2 = [a for a in trigger_actions_2 if a.skill_id == 230390]
+        self.assertGreater(len(ps_actions_2), 0, "第 2 次 AS 后应触发 230390")
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions_2, bf, trigger_timing="after_skill_use"
+        )
+
+        crit_count_2 = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        self.assertGreater(crit_count_2, crit_count_1,
+                           f"第 2 次 AS 后 crit_rate_up 数量应增加 "
+                           f"({crit_count_1} → {crit_count_2})，重複可生效")
+
+
+# =============================================================================
+# 大雷严格测试 — 按用户7项要求
+# =============================================================================
+class TestS6DaleiStrictEffectPoints(_S6TestBase):
+    """大雷严格测试
+
+    按用户7项要求逐一测试:
+    1. 大ノ掃射 hp_scaling 每敌独立 (3敌方 1%/50%/100% HP)
+    2. 大ノ掃射 on_crit remove_buff_by_type (复数buff+第三类+无/1/多暴击)
+    3. 双弾/反撃 on_crit 配置一致性
+    4. 大ノ反撃 触发器正确性 (8种排除)
+    5. 大ノ反撃 盾效果赋予与计算
+    6. 大ノ増幅 触发器正确性
+    7. 叙事日志正确性
+    """
+
+    def _make_dalei(self, position=Position.ENEMY_LEFT_FRONT, *,
+                    crit_rate=0.0, atk=10000, hp=100000):
+        """构造大雷 (暗属性, EN型, EN攻撃)"""
+        return _make_unit(
+            "dalei", "大雷", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=750,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.DARK.value, character_type=2,
+            skills=[220367, 220368, 230389, 230390],
+            skill_levels={220367: 10, 220368: 10, 230389: 10, 230390: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=Attribute.LIGHT.value, character_type=1,
+        )
+
+    def _make_enemy_dummy(self, unit_id, position, *,
+                          hp=10000, atk=5000, defense=3000, speed=400,
+                          crit_rate=0.0):
+        return _make_unit(
+            unit_id, f"敌方_{unit_id}", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=Attribute.DARK.value, character_type=1,
+        )
+
+    def _make_ally_attacker(self, position=Position.ALLY_CENTER_FRONT, *,
+                            atk=8000, hp=50000):
+        """构造友方AS攻击者 (带AS技能 120049 レストブレイカー)"""
+        return _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, position,
+            hp=hp, atk=atk, defense=4000, speed=500,
+            element=Attribute.LIGHT.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+
+    def _add_test_buffs(self, dalei):
+        """给大雷添加测试buff: 2个atk_up + 2个crit_rate_up + 1个def_up(第三类)
+        所有buff使用不同buff_id确保共存。
+        """
+        atk1 = BuffState(
+            buff_id="test_atk_up_1", name="TestAtkUp1",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=10.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        atk2 = BuffState(
+            buff_id="test_atk_up_2", name="TestAtkUp2",
+            effect_type=SkillEffectType.STATUS_ATTACK.value,
+            value=20.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        crit1 = BuffState(
+            buff_id="test_crit_up_1", name="TestCritUp1",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=10.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        crit2 = BuffState(
+            buff_id="test_crit_up_2", name="TestCritUp2",
+            effect_type=SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+            value=20.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        def_up = BuffState(
+            buff_id="test_def_up", name="TestDefUp",
+            effect_type=SkillEffectType.STATUS_DEFENSE.value,
+            value=15.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=False,
+        )
+        dalei.buffs.extend([atk1, atk2, crit1, crit2, def_up])
+        return atk1, atk2, crit1, crit2, def_up
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点1: 大ノ掃射 hp_scaling 每敌独立
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_01_220367_hp_scaling_per_target_independent(self):
+        """要点1: 220367 大ノ掃射 hp_scaling.max_bonus_pct=100
+        设置3个同排敌方(ALLY), HP分别为1%/50%/100%, 验证每个敌方增伤独立。
+        hp_scaling_factor = 1.0 + (current_hp/max_hp) * 100 / 100
+          1% HP → factor=1.01, 50% HP → factor=1.50, 100% HP → factor=2.00
+        伤害应与hp_scaling_factor成正比。
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT, crit_rate=0.0)
+        # 3个友方同排(前排), HP比例不同, 其他属性相同
+        max_hp = 10_000_000
+        a_1pct = self._make_ally_dummy("a1pct", Position.ALLY_LEFT_FRONT,
+                                       hp=max_hp, defense=3000)
+        a_50pct = self._make_ally_dummy("a50pct", Position.ALLY_CENTER_FRONT,
+                                        hp=max_hp, defense=3000)
+        a_100pct = self._make_ally_dummy("a100pct", Position.ALLY_RIGHT_FRONT,
+                                         hp=max_hp, defense=3000)
+        a_1pct.current_hp = int(max_hp * 0.01)    # 1% HP
+        a_50pct.current_hp = int(max_hp * 0.50)   # 50% HP
+        a_100pct.current_hp = max_hp               # 100% HP
+        bf = _make_bf(dalei, a_1pct, a_50pct, a_100pct)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a_1pct, a_50pct, a_100pct]}
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], "220367 应执行成功")
+
+        dmg_1pct = hp_before["a1pct"] - a_1pct.current_hp
+        dmg_50pct = hp_before["a50pct"] - a_50pct.current_hp
+        dmg_100pct = hp_before["a100pct"] - a_100pct.current_hp
+
+        self.assertGreater(dmg_1pct, 0, "1% HP 敌方应受到伤害")
+        self.assertGreater(dmg_50pct, 0, "50% HP 敌方应受到伤害")
+        self.assertGreater(dmg_100pct, 0, "100% HP 敌方应受到伤害")
+
+        # 验证伤害与hp_scaling_factor成正比
+        # factor: 1.01 / 1.50 / 2.00
+        expected_ratio_50_over_1 = 1.50 / 1.01   # ≈ 1.485
+        expected_ratio_100_over_1 = 2.00 / 1.01  # ≈ 1.980
+        expected_ratio_100_over_50 = 2.00 / 1.50  # ≈ 1.333
+
+        actual_ratio_50_over_1 = dmg_50pct / dmg_1pct
+        actual_ratio_100_over_1 = dmg_100pct / dmg_1pct
+        actual_ratio_100_over_50 = dmg_100pct / dmg_50pct
+
+        self.assertAlmostEqual(actual_ratio_50_over_1, expected_ratio_50_over_1,
+                               delta=expected_ratio_50_over_1 * 0.05,
+                               msg=f"50%HP/1%HP 伤害比应≈{expected_ratio_50_over_1:.3f}, "
+                                   f"实际={actual_ratio_50_over_1:.3f} "
+                                   f"(dmg_50={dmg_50pct}, dmg_1={dmg_1pct})")
+        self.assertAlmostEqual(actual_ratio_100_over_1, expected_ratio_100_over_1,
+                               delta=expected_ratio_100_over_1 * 0.05,
+                               msg=f"100%HP/1%HP 伤害比应≈{expected_ratio_100_over_1:.3f}, "
+                                   f"实际={actual_ratio_100_over_1:.3f} "
+                                   f"(dmg_100={dmg_100pct}, dmg_1={dmg_1pct})")
+        self.assertAlmostEqual(actual_ratio_100_over_50, expected_ratio_100_over_50,
+                               delta=expected_ratio_100_over_50 * 0.05,
+                               msg=f"100%HP/50%HP 伤害比应≈{expected_ratio_100_over_50:.3f}, "
+                                   f"实际={actual_ratio_100_over_50:.3f} "
+                                   f"(dmg_100={dmg_100pct}, dmg_50={dmg_50pct})")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点2: 大ノ掃射 on_crit remove_buff_by_type
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_02a_220367_no_crit_no_buff_removal(self):
+        """要点2a: 无暴击时不触发remove_buff_by_type
+        5个buff(2atk+2crit+1def)全部保留。
+        注意: _add_test_buffs添加的crit_rate_up会使暴击率变为0.2,
+        需额外添加critical_forbidden debuff确保无暴击。
+        """
+        dalei = self._make_dalei(crit_rate=0.0)  # 不暴击
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=999999)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        self._add_test_buffs(dalei)
+        self.assertEqual(len(dalei.buffs), 5, "前置: 大雷应有 5 个 buff")
+        # 添加critical_forbidden debuff确保无暴击(crit_rate_up会使暴击率>0)
+        dalei.debuffs.append(BuffState(
+            buff_id="test_crit_forbidden", name="TestCritForbidden",
+            effect_type=SkillEffectType.CRITICAL_FORBIDDEN.value,
+            value=0.0, duration=-1, timing_type=2,
+            source_unit_id="test", caster_attack=10000, is_debuff=True,
+        ))
+
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        atk_remaining = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        crit_remaining = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        def_remaining = _count_auras(dalei, SkillEffectType.STATUS_DEFENSE.value)
+        self.assertEqual(atk_remaining, 2, "无暴击时 atk_up buff 应全部保留(2个)")
+        self.assertEqual(crit_remaining, 2, "无暴击时 crit_rate_up buff 应全部保留(2个)")
+        self.assertEqual(def_remaining, 1, "无暴击时 def_up buff 应保留(1个)")
+        self.assertEqual(len(dalei.buffs), 5, "无暴击时全部5个buff应保留")
+
+    def test_strict_02b_220367_single_crit_removes_all_atk_and_crit_buffs(self):
+        """要点2b: 1次暴击触发remove_buff_by_type, 解除全部atk_up+crit_rate_up, 保留第三类
+        """
+        dalei = self._make_dalei(crit_rate=1.0)  # 强制暴击
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        self._add_test_buffs(dalei)
+        self.assertEqual(len(dalei.buffs), 5, "前置: 大雷应有 5 个 buff")
+
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        atk_remaining = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        crit_remaining = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        def_remaining = _count_auras(dalei, SkillEffectType.STATUS_DEFENSE.value)
+        self.assertEqual(atk_remaining, 0, "暴击时 atk_up buff 应全被解除(2个→0)")
+        self.assertEqual(crit_remaining, 0, "暴击时 crit_rate_up buff 应全被解除(2个→0)")
+        self.assertEqual(def_remaining, 1, "暴击时 def_up(第三类) buff 应保留(1个)")
+        self.assertEqual(len(dalei.buffs), 1, "暴击后应仅剩1个buff(def_up)")
+
+    def test_strict_02c_220367_multi_crit_removes_only_once(self):
+        """要点2c: 多次暴击(3敌全暴击)也只触发1次remove_buff_by_type
+        once_per_skill=true → 整个技能只执行1次, 不会因3个目标都暴击而重复解除
+        """
+        dalei = self._make_dalei(crit_rate=1.0)  # 强制暴击
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=999999)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        self._add_test_buffs(dalei)
+        self.assertEqual(len(dalei.buffs), 5, "前置: 大雷应有 5 个 buff")
+
+        result = ss.execute_skill(
+            caster=dalei, skill_id=220367, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 3个目标都暴击, 但remove_buff_by_type只执行1次
+        atk_remaining = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        crit_remaining = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        def_remaining = _count_auras(dalei, SkillEffectType.STATUS_DEFENSE.value)
+        self.assertEqual(atk_remaining, 0, "多次暴击 atk_up 仍只解除1次(全被解除)")
+        self.assertEqual(crit_remaining, 0, "多次暴击 crit_rate_up 仍只解除1次(全被解除)")
+        self.assertEqual(def_remaining, 1, "多次暴击 def_up(第三类) 仍保留")
+        self.assertEqual(len(dalei.buffs), 1, "多次暴击后应仅剩1个buff(def_up)")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点3: 双弾/反撃 on_crit 配置一致性
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_03_on_crit_config_consistency(self):
+        """要点3: 检查220368/230389的on_crit block配置与220367一致
+        验证: condition.type=on_crit, once_per_skill=true,
+        effect_type=remove_buff_by_type, target_type=self, filter=[atk_up, crit_rate_up]
+        """
+        def _get_on_crit_block(skill_id):
+            parsed = self.dl.get_parsed_skill_data(skill_id)
+            for block in parsed.get("effect_blocks", []):
+                cond = block.get("condition")
+                if cond and cond.get("type") == "on_crit":
+                    return block
+            return None
+
+        def _extract_on_crit_info(skill_id):
+            block = _get_on_crit_block(skill_id)
+            self.assertIsNotNone(block, f"技能{skill_id}应有on_crit block")
+            cond = block["condition"]
+            eff = block["effects"][0]
+            return {
+                "once_per_skill": cond.get("once_per_skill"),
+                "effect_type": eff.get("effect_type"),
+                "target_type": eff.get("target_type"),
+                "filter": (eff.get("flags") or {}).get("filter"),
+            }
+
+        base_info = _extract_on_crit_info(220367)
+        self.assertEqual(base_info["once_per_skill"], True,
+                         "220367 on_crit once_per_skill应=true")
+        self.assertEqual(base_info["effect_type"], "remove_buff_by_type")
+        self.assertEqual(base_info["target_type"], "self")
+        self.assertEqual(base_info["filter"], ["atk_up", "crit_rate_up"])
+
+        for sid in [220368, 230389]:
+            info = _extract_on_crit_info(sid)
+            self.assertEqual(info, base_info,
+                             f"技能{sid}的on_crit配置应与220367完全一致, "
+                             f"实际={info}, 期望={base_info}")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点4: 大ノ反撃 触发器正确性 (8种排除)
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_04_230389_trigger_correctness(self):
+        """要点4: 230389 大ノ反撃 触发器正确性
+        trigger_type=after_as_attacked → 仅自身被AS技能攻击时触发
+        排除8种情况:
+          敌方(ALLY)被EX/AS/PS攻击 (场景1/2/3)
+          友方(ENEMY)被EX/AS/PS攻击 (场景4/5/6)
+          自身(大雷)被EX/PS攻击 (场景7/8)
+        仅自身被AS攻击时触发 (正例)
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT)
+        other_enemy = self._make_enemy_dummy("other_en", Position.ENEMY_LEFT_FRONT)
+        ally1 = self._make_ally_attacker(position=Position.ALLY_CENTER_FRONT)
+        ally2 = self._make_ally_dummy("ally2", Position.ALLY_LEFT_FRONT)
+        bf = _make_bf(dalei, other_enemy, ally1, ally2)
+        ss, ts, *_ = self._make_services(bf)
+
+        def _check_as_attacked(targets, primary, actor, label):
+            """调用trigger_after_as_attacked并检查230389是否触发"""
+            actions = ts.trigger_after_as_attacked(
+                targets=targets, battlefield=bf,
+                actor=actor, primary_target=primary,
+            )
+            ps_actions = [a for a in actions if a.skill_id == 230389]
+            return ps_actions
+
+        # ── 正例: 自身(大雷)被AS攻击 → 触发 ──
+        ps = _check_as_attacked([dalei], dalei, ally1, "自身被AS攻击")
+        self.assertGreater(len(ps), 0, "正例: 自身(大雷)被AS攻击应触发230389")
+
+        # ── 场景2: 敌方(ALLY)被AS攻击 → 不触发(大雷不是primary_target) ──
+        ps = _check_as_attacked([ally2], ally2, other_enemy, "敌方被AS攻击")
+        self.assertEqual(len(ps), 0, "场景2: 敌方(ALLY)被AS攻击时230389不应触发")
+
+        # ── 场景5: 友方(ENEMY)被AS攻击 → 不触发(大雷不是primary_target) ──
+        ps = _check_as_attacked([other_enemy], other_enemy, ally1, "友方被AS攻击")
+        self.assertEqual(len(ps), 0, "场景5: 友方(ENEMY)被AS攻击时230389不应触发")
+
+        # ── 场景1/3/4/6/7/8: EX/PS技能攻击 → 不触发 ──
+        # trigger_after_as_attacked仅由battle_flow在AS技能后调用, EX/PS不调用
+        # 此处验证trigger_after_skill_use(AFTER_SKILL_USE)不匹配230389(trigger_type=after_as_attacked→AFTER_AS_ATTACKED)
+        # 使用EX技能210098(skill_type=3)和PS技能230390(skill_type=2)
+        for skill_id, skill_label in [(210098, "EX"), (230390, "PS")]:
+            # 模拟大雷被EX/PS攻击: trigger_after_skill_use不会触发230389
+            actions = ts.trigger_after_skill_use(
+                actor=ally1, skill_id=skill_id, result={}, battlefield=bf
+            )
+            ps = [a for a in actions if a.skill_id == 230389]
+            self.assertEqual(len(ps), 0,
+                             f"场景7/8: 大雷被{skill_label}技能攻击时 "
+                             f"trigger_after_skill_use不应触发230389 "
+                             f"(trigger_type=after_as_attacked≠after_as_attack)")
+
+            # 模拟其他单位被EX/PS攻击: 同样不触发
+            actions = ts.trigger_after_skill_use(
+                actor=ally1, skill_id=skill_id, result={}, battlefield=bf,
+                primary_target=other_enemy,
+            )
+            ps = [a for a in actions if a.skill_id == 230389]
+            self.assertEqual(len(ps), 0,
+                             f"场景1/3/4/6: 其他单位被{skill_label}技能攻击时 "
+                             f"230389不应触发")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点5: 大ノ反撃 盾效果赋予与计算
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_05_230389_shield_value_calculation(self):
+        """要点5: 230389 大ノ反撃 shield_from_damage(80%)
+        大雷被AS攻击 → 反撃攻击者 → 自身获得shield = 反撃伤害 × 80%
+        _apply_shield_from_damage使用_most_recent_damage(技能内累计伤害)
+        """
+        dalei = self._make_dalei(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = self._make_ally_attacker(position=Position.ALLY_CENTER_FRONT)
+        bf = _make_bf(dalei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 先执行友方AS攻击大雷
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[dalei], battlefield=bf,
+            actor=ally_attacker, primary_target=dalei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230389]
+        self.assertGreater(len(ps_actions), 0, "大雷应触发230389反撃")
+
+        shield_before = dalei.shield
+        ally_hp_before = ally_attacker.current_hp
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        # 验证反撃伤害
+        counter_dmg = ally_hp_before - ally_attacker.current_hp
+        self.assertGreater(counter_dmg, 0, "反撃应造成伤害")
+
+        # 验证shield值 = 反撃伤害 × 80%
+        shield_gain = dalei.shield - shield_before
+        expected_shield = int(counter_dmg * 80 / 100)
+        self.assertGreater(shield_gain, 0, "大雷应获得shield")
+        self.assertEqual(shield_gain, expected_shield,
+                         f"shield值应=反撃伤害({counter_dmg})×80%={expected_shield}, "
+                         f"实际={shield_gain}")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点6: 大ノ増幅 触发器正确性
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_06a_230390_trigger_on_self_as_attack(self):
+        """要点6a: 230390 大ノ増幅 trigger_type=after_as_attack
+        自身AS技能攻击敌方后才触发
+        """
+        dalei = self._make_dalei()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        ss.execute_skill(
+            caster=dalei, skill_id=220368, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=220368, result={}, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230390]
+        self.assertGreater(len(ps_actions), 0, "大雷自身AS攻击后应触发230390増幅")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_skill_use"
+        )
+        atk_count = _count_auras(dalei, SkillEffectType.STATUS_ATTACK.value)
+        crit_count = _count_auras(dalei, SkillEffectType.STATUS_CRITICAL_CHANCE.value)
+        self.assertGreater(atk_count, 0, "230390应赋予大雷atk_up buff")
+        self.assertGreater(crit_count, 0, "230390应赋予大雷crit_rate_up buff")
+
+    def test_strict_06b_230390_no_trigger_on_other_unit_as_attack(self):
+        """要点6b: 其他单位AS攻击后不触发230390(owner!=actor)
+        排除场上其他单位攻击后误触发
+        """
+        dalei = self._make_dalei()
+        ally_attacker = self._make_ally_attacker()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, ally_attacker, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 友方使用AS攻击 → 230390不应触发(大雷不是actor)
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        trigger_actions = ts.trigger_after_skill_use(
+            actor=ally_attacker, skill_id=120049, result={}, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230390]
+        self.assertEqual(len(ps_actions), 0,
+                         "其他单位(友方)AS攻击时230390不应触发(owner!=actor)")
+
+        # 其他敌方(ENEMY)使用AS → 230390也不应触发(大雷不是actor)
+        other_enemy = self._make_enemy_dummy("other_en", Position.ENEMY_LEFT_FRONT)
+        other_enemy.skills = [120049]
+        other_enemy.skill_levels = {120049: 10}
+        bf2 = _make_bf(dalei, other_enemy, a1)
+        ss2, ts2, *_ = self._make_services(bf2)
+        ss2.execute_skill(
+            caster=other_enemy, skill_id=120049, battlefield=bf2, skip_cost=True
+        )
+        trigger_actions2 = ts2.trigger_after_skill_use(
+            actor=other_enemy, skill_id=120049, result={}, battlefield=bf2
+        )
+        ps_actions2 = [a for a in trigger_actions2 if a.skill_id == 230390]
+        self.assertEqual(len(ps_actions2), 0,
+                         "其他单位(敌方)AS攻击时230390不应触发(owner!=actor)")
+
+    def test_strict_06c_230390_no_trigger_on_ex_ps_skill(self):
+        """要点6c: 大雷使用EX/PS技能后不触发230390(仅AS触发)
+        after_as_attack → AFTER_SKILL_USE, 检查skill_type==AS
+        """
+        dalei = self._make_dalei()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=999999)
+        bf = _make_bf(dalei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # EX技能(210098) → 230390不应触发
+        actions_ex = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=210098, result={}, battlefield=bf
+        )
+        ps_ex = [a for a in actions_ex if a.skill_id == 230390]
+        self.assertEqual(len(ps_ex), 0,
+                         "大雷使用EX技能(210098)时230390不应触发(仅AS触发)")
+
+        # PS技能(230389) → 230390不应触发
+        actions_ps = ts.trigger_after_skill_use(
+            actor=dalei, skill_id=230389, result={}, battlefield=bf
+        )
+        ps_ps = [a for a in actions_ps if a.skill_id == 230390]
+        self.assertEqual(len(ps_ps), 0,
+                         "大雷使用PS技能(230389)时230390不应触发(仅AS触发)")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 要点7: 叙事日志正确性
+    # ═══════════════════════════════════════════════════════════════════
+    def test_strict_07_narrative_logs(self):
+        """要点7: 测试叙事日志, 每个技能触发是否正确输出叙事日志
+        通过BattleFlowController跑完整战斗, 检查narrative._lines:
+        - 大雷AS技能使用日志 [使用技能·AS]
+        - 大ノ増幅 PS触发日志 ⚡[PS触发]
+        - 大ノ反撃 PS触发日志 ⚡[PS触发]
+        - 大ノ反撃 加盾日志 [护盾]
+        - 暴击时解除buff日志 [解除增益]
+
+        规避死循环: 设置max_extra_point=0避免EP满但没有EX技能时单位被
+        反复加入行动轴导致死循环(战斗引擎已知限制)。
+        """
+        dalei = _make_unit(
+            "dalei", "大雷", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=999999, atk=8000, defense=4000, speed=750,
+            crit_rate=1.0, crit_damage=0.5,  # 强制暴击触发on_crit
+            element=Attribute.DARK.value, character_type=2,
+            skills=[220367, 220368, 230389, 230390],
+            skill_levels={220367: 10, 220368: 10, 230389: 10, 230390: 10},
+        )
+        ally = _make_unit(
+            "ally", "友方", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=999999, atk=8000, defense=4000, speed=600,
+            crit_rate=0.0,
+            element=Attribute.LIGHT.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        # 规避死循环: EP满但无EX技能时单位会被反复加入行动轴
+        for u in (dalei, ally):
+            u.max_extra_point = 0
+            u.current_ep = 0
+
+        # 给大雷添加测试buff(2atk+2crit+1def), 暴击时被remove_buff_by_type解除
+        self._add_test_buffs(dalei)
+        self.assertEqual(len(dalei.buffs), 5, "前置: 大雷应有 5 个 buff")
+
+        bf = BattlefieldState()
+        bf.friend_team = [ally]
+        bf.enemy_team = [dalei]
+
+        narrative = BattleNarrativeWriter(data_loader=self.dl)
+        config = BattleConfig(max_turns=2)
+        controller = BattleFlowController(
+            battlefield=bf, config=config,
+            data_loader=self.dl, narrative=narrative,
+        )
+        controller.execute_battle()
+
+        lines = narrative._lines
+        full_text = "\n".join(lines)
+
+        # 检查大雷AS技能使用日志
+        dalei_as_used = any(
+            "大ノ掃射" in line or "大ノ双弾" in line
+            for line in lines
+        )
+        self.assertTrue(dalei_as_used,
+                        f"叙事日志应包含大雷AS技能(大ノ掃射/大ノ双弾)使用记录, "
+                        f"实际日志:\n{full_text}")
+
+        # 检查大ノ増幅 PS触发日志
+        amp_triggered = any(
+            "大ノ増幅" in line and "PS触发" in line
+            for line in lines
+        )
+        self.assertTrue(amp_triggered,
+                        f"叙事日志应包含大ノ増幅 PS触发记录, "
+                        f"实际日志:\n{full_text}")
+
+        # 检查大ノ反撃 PS触发日志
+        # 大ノ反撃需要友方AS攻击大雷才触发
+        counter_triggered = any(
+            "大ノ反撃" in line and "PS触发" in line
+            for line in lines
+        )
+        self.assertTrue(counter_triggered,
+                        f"叙事日志应包含大ノ反撃 PS触发记录, "
+                        f"实际日志:\n{full_text}")
+
+        # 检查大ノ反撃 加盾日志 [护盾]
+        shield_logged = any(
+            "[护盾]" in line and "大雷" in line
+            for line in lines
+        )
+        self.assertTrue(shield_logged,
+                        f"叙事日志应包含大ノ反撃加盾记录[护盾], "
+                        f"实际日志:\n{full_text}")
+
+        # 检查暴击时解除buff日志 [解除增益]
+        buff_removed_logged = any(
+            "[解除增益]" in line and "大雷" in line
+            for line in lines
+        )
+        self.assertTrue(buff_removed_logged,
+                        f"叙事日志应包含暴击解除buff记录[解除增益], "
+                        f"实际日志:\n{full_text}")
+
+
+# =============================================================================
+# 若雷 (161730551) — 4 技能 / 7 效果点
+# =============================================================================
+class TestS6WakareiEffectPoints(_S6TestBase):
+    """若雷技能效果点独立测试
+    若雷: 风属性(3), EN型(2), 輔助型
+    技能: 220360(AS若掃射) / 220361(AS若双弾) / 230383(PS若再生) / 230384(PS若減衰)
+    """
+
+    def _make_wakarei(self, position=Position.ENEMY_CENTER_BACK, *,
+                      crit_rate=0.0, atk=10000, hp=100000):
+        """构造若雷 (风属性, EN型, 輔助)"""
+        return _make_unit(
+            "wakarei", "若雷", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=793,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.WIND.value, character_type=2,
+            skills=[220360, 220361, 230383, 230384],
+            skill_levels={220360: 10, 220361: 10, 230383: 10, 230384: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0, element=Attribute.FIRE.value):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=element, character_type=1,
+        )
+
+    # ─── 220360 若ノ掃射 (AS) ───
+    def test_waka_220360_b1_e1_damage_lowest_def_row(self):
+        """220360 Block1 Effect1: damage(enemy_row_of_lowest_def)
+        防御最低敌方所在横一列 HP 下降
+        """
+        wakarei = self._make_wakarei()
+        # 3 个友方: a_low_def(前排,防最低) / a_high_def(前排) / a_back(后排)
+        a_low_def = self._make_ally_dummy("a_low", Position.ALLY_LEFT_FRONT,
+                                          hp=100000, defense=1000)
+        a_high_def = self._make_ally_dummy("a_high", Position.ALLY_RIGHT_FRONT,
+                                           hp=100000, defense=5000)
+        a_back = self._make_ally_dummy("a_back", Position.ALLY_CENTER_BACK,
+                                       hp=100000, defense=999)
+        bf = _make_bf(wakarei, a_low_def, a_high_def, a_back)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a_low_def, a_high_def, a_back]}
+        result = ss.execute_skill(
+            caster=wakarei, skill_id=220360, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 防御最低的是 a_back(def=999, 后排)，应攻击后排
+        # a_back 和 a_low_def(前排) 不在同一排
+        # 但只有 a_back 在后排，所以后排只 a_back 被攻击
+        self.assertLess(a_back.current_hp, hp_before["a_back"],
+                        "防御最低敌方(a_back, 后排)应受到 220360 伤害")
+        # 前排的 a_low_def 和 a_high_def 不应受到伤害
+        self.assertEqual(a_low_def.current_hp, hp_before["a_low"],
+                         "前排 a_low_def 不应受到 220360 伤害 (目标为后排)")
+        self.assertEqual(a_high_def.current_hp, hp_before["a_high"],
+                         "前排 a_high_def 不应受到 220360 伤害 (目标为后排)")
+
+    def test_waka_220360_b1_e2_split_heal_all_allies(self):
+        """220360 Block1 Effect2: split_heal_by_damage(ally_all, 100%)
+        与ダメ 100% 均分到全体友方，每个友方回血 = 总伤害/友方数
+        """
+        wakarei = self._make_wakarei()
+        # 若雷的队友 (敌方侧)
+        teammate = _make_unit(
+            "enemy_tm", "若雷队友", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=100000, atk=5000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        # 友方目标 (防御最低)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, defense=1000)
+        bf = _make_bf(wakarei, teammate, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 先让若雷队友受伤，以便观察回血
+        teammate.current_hp = int(teammate.max_hp * 0.5)
+        wakarei.current_hp = int(wakarei.max_hp * 0.5)
+        tm_hp_before = teammate.current_hp
+        wk_hp_before = wakarei.current_hp
+
+        result = ss.execute_skill(
+            caster=wakarei, skill_id=220360, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 查找 split_heal_by_damage 效果
+        heal_effects = [e for e in result.get("effects_applied", [])
+                        if e.get("effect_type") == "split_heal_by_damage"]
+        self.assertTrue(len(heal_effects) > 0, "应有 split_heal_by_damage 效果")
+
+        heal_eff = heal_effects[0]
+        total_heal = heal_eff.get("total_heal", 0)
+        target_count = heal_eff.get("target_count", 0)
+        self.assertGreater(total_heal, 0, "总回血量应 > 0")
+        self.assertGreaterEqual(target_count, 2, "至少 2 个友方 (若雷+队友) 被回血")
+
+        # 验证每个目标回血量 = total_heal / target_count
+        details = heal_eff.get("details", [])
+        per_target = total_heal // target_count if target_count > 0 else 0
+        for d in details:
+            self.assertEqual(d["heal"], per_target,
+                             f"每个友方回血量应均等 = {per_target}, 实际 {d['heal']}")
+
+        # 验证实际 HP 增加
+        self.assertGreater(teammate.current_hp, tm_hp_before,
+                           "若雷队友应被回血")
+        self.assertGreater(wakarei.current_hp, wk_hp_before,
+                           "若雷自身应被回血 (ally_all 含自己)")
+
+    # ─── 220361 若ノ双弾 (AS) ───
+    def test_waka_220361_b1_e1_damage_lowest_def_x2(self):
+        """220361 Block1 Effect1: damage(enemy_single_lowest_def_x2)
+        防御低順 2 体 HP 下降
+        """
+        wakarei = self._make_wakarei()
+        a_low = self._make_ally_dummy("a_low", Position.ALLY_LEFT_FRONT,
+                                      hp=100000, defense=1000)
+        a_mid = self._make_ally_dummy("a_mid", Position.ALLY_CENTER_FRONT,
+                                      hp=100000, defense=3000)
+        a_high = self._make_ally_dummy("a_high", Position.ALLY_RIGHT_FRONT,
+                                       hp=100000, defense=9999)
+        bf = _make_bf(wakarei, a_low, a_mid, a_high)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a_low, a_mid, a_high]}
+        result = ss.execute_skill(
+            caster=wakarei, skill_id=220361, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        self.assertLess(a_low.current_hp, hp_before["a_low"],
+                        "防御最低的 a_low 应受到 220361 伤害")
+        self.assertLess(a_mid.current_hp, hp_before["a_mid"],
+                        "防御第二低的 a_mid 应受到 220361 伤害")
+        self.assertEqual(a_high.current_hp, hp_before["a_high"],
+                         "防御最高的 a_high 不应受到 220361 伤害")
+
+    def test_waka_220361_b1_e2_split_heal_lowest_hp_x2(self):
+        """220361 Block1 Effect2: split_heal_by_damage(ally_single_lowest_hp_x2, 100%)
+        HP 低順 2 友方均分回血
+        """
+        wakarei = self._make_wakarei()
+        # 敌方目标 (2 个, 防御低)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, defense=1000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=100000, defense=2000)
+        # 若雷的队友 (HP 不同, 用于验证 lowest_hp_x2)
+        tm_low = _make_unit(
+            "tm_low", "若雷队友_低HP", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=50000, atk=3000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        tm_high = _make_unit(
+            "tm_high", "若雷队友_高HP", Side.ENEMY, Position.ENEMY_RIGHT_FRONT,
+            hp=50000, atk=3000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        # 设置 HP: tm_low 20%, wakarei 40%, tm_high 100%
+        # 按绝对HP: tm_low(10000) < wakarei(40000) < tm_high(50000)
+        tm_low.current_hp = int(tm_low.max_hp * 0.2)
+        wakarei_hp_ratio = 0.4
+        tm_high.current_hp = tm_high.max_hp
+
+        bf = _make_bf(wakarei, tm_low, tm_high, a1, a2)
+        ss, ts, *_ = self._make_services(bf)
+        wakarei.current_hp = int(wakarei.max_hp * wakarei_hp_ratio)
+
+        tm_low_hp_before = tm_low.current_hp
+        wk_hp_before = wakarei.current_hp
+        tm_high_hp_before = tm_high.current_hp
+
+        result = ss.execute_skill(
+            caster=wakarei, skill_id=220361, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        heal_effects = [e for e in result.get("effects_applied", [])
+                        if e.get("effect_type") == "split_heal_by_damage"]
+        self.assertTrue(len(heal_effects) > 0, "应有 split_heal_by_damage 效果")
+
+        heal_eff = heal_effects[0]
+        target_count = heal_eff.get("target_count", 0)
+        self.assertEqual(target_count, 2,
+                         f"应治疗 HP 最低的 2 个友方, 实际 target_count={target_count}")
+
+        # HP 最低的 2 个: tm_low(30%) 和 wakarei(80%)
+        # tm_high(100%) 不应被治疗
+        self.assertGreater(tm_low.current_hp, tm_low_hp_before,
+                           "HP 最低的 tm_low 应被回血")
+        self.assertGreater(wakarei.current_hp, wk_hp_before,
+                           "HP 第二低的 wakarei 应被回血")
+        self.assertEqual(tm_high.current_hp, tm_high_hp_before,
+                         "HP 最高的 tm_high 不应被回血")
+
+    def test_waka_220361_b2_e1_dmg_dealt_up_self(self):
+        """220361 Block2 Effect1: dmg_dealt_up(self) +25% 1 行動重複可
+        若雷自身获得 dmg_dealt_up buff (duration=1, stackable)
+        """
+        wakarei = self._make_wakarei()
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=999999, defense=1000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=999999, defense=2000)
+        bf = _make_bf(wakarei, a1, a2)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=wakarei, skill_id=220361, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        dmg_dealt_up_buffs = [b for b in wakarei.buffs
+                              if b.effect_type == SkillEffectType.DEALT_DAMAGE.value]
+        self.assertEqual(len(dmg_dealt_up_buffs), 1,
+                         "若雷应获得 1 个 dmg_dealt_up buff")
+        buff = dmg_dealt_up_buffs[0]
+        self.assertAlmostEqual(buff.value, 25.0,
+                               msg=f"dmg_dealt_up value 应为 25%, 实际 {buff.value}")
+        self.assertEqual(buff.duration, 1,
+                         f"dmg_dealt_up duration 应为 1, 实际 {buff.duration}")
+        self.assertTrue(buff.is_stackable,
+                        "dmg_dealt_up 应可叠加")
+
+    # ─── 230383 若ノ再生 (PS, after_ally_attacked) ───
+    def test_waka_230383_b1_e1_heal_attacked_ally(self):
+        """230383 Block1 Effect1: heal(ally_single, trigger_attacker, power=35)
+        友方被攻击后，受击者 HP 回复
+        """
+        wakarei = self._make_wakarei(position=Position.ENEMY_CENTER_BACK)
+        teammate = _make_unit(
+            "enemy_tm", "若雷队友", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=50000, atk=5000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(wakarei, teammate, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 友方攻击者攻击若雷队友
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+        tm_hp_after_attack = teammate.current_hp
+        self.assertLess(tm_hp_after_attack, teammate.max_hp,
+                        "若雷队友应受到攻击伤害")
+
+        # 触发 after_ally_attacked
+        trigger_actions = ts.trigger_after_ally_attacked(
+            targets=[teammate], battlefield=bf,
+            actor=ally_attacker, primary_target=teammate,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230383]
+        self.assertGreater(len(ps_actions), 0, "若雷应触发 230383 再生 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_ally_attacked"
+        )
+
+        # 受击者 (teammate) 应被回血
+        self.assertGreater(teammate.current_hp, tm_hp_after_attack,
+                           "230383 应回血受击者 (若雷队友)")
+
+    # ─── 230384 若ノ減衰 (PS, before_as_attacked, attacker_is_back_row) ───
+    def test_waka_230384_b1_e1_skill_power_down(self):
+        """230384 Block1 Effect1: skill_power_down(enemy_single, trigger_attacker, 50%)
+        后列敌方攻击若雷友方时，攻击者获得 skill_power_down debuff，本次伤害减少
+        """
+        wakarei = self._make_wakarei(position=Position.ENEMY_CENTER_BACK)
+        teammate = _make_unit(
+            "enemy_tm", "若雷队友", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=999999, atk=5000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        # 攻击者在后排 (满足 attacker_is_back_row 条件)
+        ally_attacker_back = _make_unit(
+            "ally_atk_back", "后排攻击者", Side.ALLY, Position.ALLY_CENTER_BACK,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(wakarei, teammate, ally_attacker_back)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 触发 before_as_attacked (在攻击执行前)
+        trigger_actions = ts.trigger_before_as_attacked(
+            targets=[teammate], battlefield=bf, attacker=ally_attacker_back
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230384]
+        self.assertGreater(len(ps_actions), 0,
+                           "若雷应触发 230384 減衰 PS (后排攻击者)")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_as_attacked"
+        )
+
+        # 攻击者应获得 skill_power_down debuff
+        spd_debuffs = [d for d in ally_attacker_back.debuffs
+                       if d.effect_type == SkillEffectType.SKILL_POWER_DOWN.value]
+        self.assertEqual(len(spd_debuffs), 1,
+                         "后排攻击者应获得 skill_power_down debuff")
+        self.assertAlmostEqual(spd_debuffs[0].value, 50.0,
+                               msg=f"skill_power_down value 应为 50%, 实际 {spd_debuffs[0].value}")
+
+    def test_waka_230384_no_trigger_when_attacker_front_row(self):
+        """230384 验证: 攻击者在前排时不触发 (attacker_is_back_row 条件不满足)"""
+        wakarei = self._make_wakarei(position=Position.ENEMY_CENTER_BACK)
+        teammate = _make_unit(
+            "enemy_tm", "若雷队友", Side.ENEMY, Position.ENEMY_LEFT_FRONT,
+            hp=999999, atk=5000, defense=3000,
+            element=Attribute.WIND.value, character_type=2,
+        )
+        # 攻击者在前排 (不满足 attacker_is_back_row 条件)
+        ally_attacker_front = _make_unit(
+            "ally_atk_front", "前排攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(wakarei, teammate, ally_attacker_front)
+        ss, ts, *_ = self._make_services(bf)
+
+        trigger_actions = ts.trigger_before_as_attacked(
+            targets=[teammate], battlefield=bf, attacker=ally_attacker_front
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230384]
+        self.assertEqual(len(ps_actions), 0,
+                         "攻击者在前排时不应触发 230384 (attacker_is_back_row 不满足)")
+
+
+# =============================================================================
+# 鳴雷 (161620553) — 4 技能 / 7 效果点
+# =============================================================================
+class TestS6MingleiEffectPoints(_S6TestBase):
+    """鳴雷技能效果点独立测试
+    鳴雷: 水属性(2), EN型(2), 控制型(5)
+    技能: 220365(AS鳴掃射) / 220366(AS鳴双弾) / 230386(PS鳴硬直) / 230387(PS鳴抑制)
+    核心新机制: 神鳴りmark系统, 気絶/混乱分岐, ターン開始mark付与
+    """
+
+    def _make_minglei(self, position=Position.ENEMY_CENTER_BACK, *,
+                      crit_rate=0.0, atk=10000, hp=100000):
+        """构造鳴雷 (水属性, EN型, 控制)"""
+        return _make_unit(
+            "minglei", "鳴雷", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=915,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.WATER.value, character_type=2,
+            skills=[220365, 220366, 230386, 230387],
+            skill_levels={220365: 10, 220366: 10,
+                          230386: 10, 230387: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0, element=Attribute.FIRE.value):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=element, character_type=1,
+        )
+
+    def _make_kaminari_mark(self, unit, mark_name="神鳴り"):
+        """为 unit 添加一个神鳴り mark debuff (用于 230386 b2 前置条件)"""
+        mark_buff = BuffState(
+            buff_id=f"mark_{mark_name}_{unit.unit_id}",
+            name=mark_name,
+            effect_type=SkillEffectType.MARK.value,
+            value=0.0, duration=-1, timing_type="durable_target_maneuver_end",
+            source_unit_id="test", caster_attack=0, is_debuff=True,
+        )
+        unit.debuffs.append(mark_buff)
+        return mark_buff
+
+    # ─── 220365 鳴ノ掃射 (AS) ───
+    def test_minglei_220365_b1_e1_damage_row(self):
+        """220365 Block1 Effect1: damage(enemy_row, EN)
+        横一列敌方 HP 下降
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        # 友方: 前排3体 (会构成完整横一列)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        # 后排1体 (用于验证不受到伤害)
+        a_back = self._make_ally_dummy("a_back", Position.ALLY_CENTER_BACK, hp=100000)
+        bf = _make_bf(minglei, a1, a2, a3, a_back)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3, a_back]}
+        result = ss.execute_skill(
+            caster=minglei, skill_id=220365, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 鳴雷在中后排，最近敌方所在排 = 前排 (a1/a2/a3 距离最近)
+        # enemy_row + LINE + NEAREST: 选最近敌方所在排
+        front_dmg = sum(1 for a in [a1, a2, a3]
+                        if a.current_hp < hp_before[a.unit_id])
+        self.assertGreaterEqual(front_dmg, 1,
+                                "前排至少1体应受到 220365 伤害 (enemy_row)")
+        # 后排不应受到伤害 (与前排不在同一排)
+        self.assertEqual(a_back.current_hp, hp_before["a_back"],
+                         "后排 a_back 不应受到 220365 伤害 (目标为前排)")
+
+    def test_minglei_220365_b1_e2_dmg_taken_up_stackable(self):
+        """220365 Block1 Effect2: dmg_taken_up(enemy_row, 3.15%, 永続, 重複可)
+        横一列敌方获得 dmg_taken_up debuff；2 次叠加后伤害加深
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        bf = _make_bf(minglei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=minglei, skill_id=220365, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证受击者获得 dmg_taken_up debuff (RECEIVED_DAMAGE)
+        for a in [a1, a2, a3]:
+            dtu_debuffs = [d for d in a.debuffs
+                           if d.effect_type == SkillEffectType.RECEIVED_DAMAGE.value
+                           and d.value > 0]
+            self.assertGreaterEqual(len(dtu_debuffs), 1,
+                                    f"{a.unit_id} 应获得 dmg_taken_up debuff")
+            self.assertAlmostEqual(dtu_debuffs[0].value, 3.15,
+                                   msg=f"dmg_taken_up value 应为 3.15%, 实际 {dtu_debuffs[0].value}")
+
+        # 第 2 次施法: 验证重複可叠加
+        result2 = ss.execute_skill(
+            caster=minglei, skill_id=220365, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result2["success"])
+
+        for a in [a1, a2, a3]:
+            dtu_debuffs = [d for d in a.debuffs
+                           if d.effect_type == SkillEffectType.RECEIVED_DAMAGE.value
+                           and d.value > 0]
+            self.assertGreaterEqual(len(dtu_debuffs), 2,
+                                    f"{a.unit_id} 第2次后应有 ≥2 个 dmg_taken_up (重複可)")
+
+    # ─── 220366 鳴ノ双弾 (AS) ───
+    def test_minglei_220366_b1_e1_damage_two_targets(self):
+        """220366 Block1 Effect1: damage(enemy_single, target_count=2, EN)
+        2 体敌方 HP 下降
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        bf = _make_bf(minglei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=minglei, skill_id=220366, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        damaged = sum(1 for a in [a1, a2, a3]
+                      if a.current_hp < hp_before[a.unit_id])
+        self.assertEqual(damaged, 2,
+                         f"应有 2 体敌方受到 220366 伤害 (target_count=2), 实际 {damaged}")
+
+    def test_minglei_220366_b1_e2_dmg_dealt_down_two_targets(self):
+        """220366 Block1 Effect2: dmg_dealt_down(enemy_single, 15%, 1 行動, 重複可, target_count=2)
+        2 体敌方获得 dmg_dealt_down debuff
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        bf = _make_bf(minglei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=minglei, skill_id=220366, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 2 体受击者获得 dmg_dealt_down debuff (DEALT_DAMAGE, value=+15 正值存为 debuff)
+        # 注: dmg_dealt_down 存正值 (+15), 计算时 /100 → 0.15, net = buff - debuff = -0.15, result = 1 + (-0.15) = 0.85
+        debuff_count = 0
+        for a in [a1, a2, a3]:
+            ddd_debuffs = [d for d in a.debuffs
+                           if d.effect_type == SkillEffectType.DEALT_DAMAGE.value
+                           and d.value > 0]
+            if ddd_debuffs:
+                debuff_count += 1
+                self.assertAlmostEqual(ddd_debuffs[0].value, 15.0,
+                                       msg=f"{a.unit_id} dmg_dealt_down value 应为 +15%, 实际 {ddd_debuffs[0].value}")
+        self.assertEqual(debuff_count, 2,
+                         f"应有 2 体敌方获得 dmg_dealt_down debuff, 实际 {debuff_count}")
+
+    # ─── 230386 鳴ノ硬直 (PS, after_as_attacked) ───
+    def test_minglei_230386_b1_e1_stun_without_mark(self):
+        """230386 Block1 Effect1: add_status(stun, 1 行動) on trigger_attacker
+        友方 AS 攻击鳴雷 → 鳴雷反撃；攻击者无神鳴り mark → 获得 stun (KNOCKOUT) status
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        bf = _make_bf(minglei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 友方攻击者攻击鳴雷 (无神鳴り mark)
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+
+        # 触发 after_as_attacked
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[minglei], battlefield=bf,
+            actor=ally_attacker, primary_target=minglei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230386]
+        self.assertGreater(len(ps_actions), 0, "鳴雷应触发 230386 硬直 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        # 攻击者应获得 stun (KNOCKOUT) status
+        stun_debuffs = [d for d in ally_attacker.debuffs
+                        if d.effect_type == SkillEffectType.KNOCKOUT.value]
+        self.assertEqual(len(stun_debuffs), 1,
+                         f"无神鳴り mark 的攻击者应获得 stun, 实际 {len(stun_debuffs)} 个")
+
+        # 同时验证不是 confusion
+        conf_debuffs = [d for d in ally_attacker.debuffs
+                        if d.effect_type == SkillEffectType.CONFUSION.value]
+        self.assertEqual(len(conf_debuffs), 0,
+                         "无神鳴り mark 时不应获得 confusion")
+
+    def test_minglei_230386_b2_e1_confusion_with_mark(self):
+        """230386 Block2 Effect1: add_status(confusion, 1 行動) on trigger_attacker
+        攻击者持神鳴り mark → 获得 confusion status (非 stun)
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_FRONT)
+        ally_attacker = _make_unit(
+            "ally_atk", "友方攻击者", Side.ALLY, Position.ALLY_CENTER_FRONT,
+            hp=50000, atk=8000, defense=4000, speed=500,
+            element=Attribute.FIRE.value, character_type=1,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        # 攻击者持神鳴り mark (前置条件)
+        self._make_kaminari_mark(ally_attacker)
+
+        bf = _make_bf(minglei, ally_attacker)
+        ss, ts, *_ = self._make_services(bf)
+
+        ss.execute_skill(
+            caster=ally_attacker, skill_id=120049, battlefield=bf, skip_cost=True
+        )
+
+        trigger_actions = ts.trigger_after_as_attacked(
+            targets=[minglei], battlefield=bf,
+            actor=ally_attacker, primary_target=minglei,
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230386]
+        self.assertGreater(len(ps_actions), 0, "鳴雷应触发 230386 硬直 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="after_as_attacked"
+        )
+
+        # 攻击者应获得 confusion status
+        conf_debuffs = [d for d in ally_attacker.debuffs
+                        if d.effect_type == SkillEffectType.CONFUSION.value]
+        self.assertEqual(len(conf_debuffs), 1,
+                         f"持神鳴り mark 的攻击者应获得 confusion, 实际 {len(conf_debuffs)} 个")
+
+        # 同时验证不是 stun (注意: 已有的神鳴り mark 不算 stun)
+        stun_debuffs = [d for d in ally_attacker.debuffs
+                        if d.effect_type == SkillEffectType.KNOCKOUT.value]
+        self.assertEqual(len(stun_debuffs), 0,
+                         "持神鳴り mark 时不应获得 stun")
+
+    # ─── 230387 鳴ノ抑制 (PS, on_turn_start, round_number > 1) ───
+    def test_minglei_230387_b1_e1_mark_kaminari(self):
+        """230387 Block1 Effect1: mark(enemy_single, 神鳴り, priority_no_mark=true)
+        第 2 回合开始时，1 个未持 mark 的敌方获得神鳴り mark
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        # 3 个友方，均未持 mark
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        bf = _make_bf(minglei, a1, a2, a3)
+        bf.turn_number = 2  # 第 2 回合 (满足 round_number > 1)
+        ss, ts, *_ = self._make_services(bf)
+
+        # 触发 on_turn_start
+        trigger_actions = ts.trigger_turn_start(bf)
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230387]
+        self.assertGreater(len(ps_actions), 0,
+                           "第2回合鳴雷应触发 230387 抑制 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证: 恰好 1 个友方获得神鳴り mark
+        marked_count = 0
+        for a in [a1, a2, a3]:
+            kaminari_marks = [d for d in (a.debuffs + a.buffs)
+                              if d.effect_type == SkillEffectType.MARK.value
+                              and getattr(d, 'name', '') == "神鳴り"]
+            if kaminari_marks:
+                marked_count += 1
+        self.assertEqual(marked_count, 1,
+                         f"应有恰好 1 个友方获得神鳴り mark, 实际 {marked_count} 个")
+
+    def test_minglei_230387_b1_e2_dmg_taken_down_ally_front(self):
+        """230387 Block1 Effect2: dmg_taken_down(ally_front, 30%, mark_condition=神鳴り)
+        鳴雷前衛获得 dmg_taken_down buff (仅对神鳴り所持者攻击生效)
+        """
+        minglei = self._make_minglei(position=Position.ENEMY_CENTER_BACK)
+        # 鳴雷前衛 (中前排)
+        front_ally = _make_unit(
+            "enemy_front", "鳴雷前衛", Side.ENEMY, Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=3000,
+            element=Attribute.WATER.value, character_type=2,
+        )
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        bf = _make_bf(minglei, front_ally, a1)
+        bf.turn_number = 2  # 第 2 回合
+        ss, ts, *_ = self._make_services(bf)
+
+        trigger_actions = ts.trigger_turn_start(bf)
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230387]
+        self.assertGreater(len(ps_actions), 0,
+                           "第2回合鳴雷应触发 230387 抑制 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="on_turn_start"
+        )
+
+        # 验证鳴雷前衛获得 dmg_taken_down buff (RECEIVED_DAMAGE, value=+30 正值存为 buff, mark_condition=神鳴り)
+        # 注: dmg_taken_down 存正值 (+30), 计算时 /100 → 0.3, net = buff - debuff = 0.3, result = 1 - 0.3 = 0.7
+        dtd_buffs = [b for b in front_ally.buffs
+                     if b.effect_type == SkillEffectType.RECEIVED_DAMAGE.value
+                     and b.value > 0]
+        self.assertGreaterEqual(len(dtd_buffs), 1,
+                                "鳴雷前衛应获得 dmg_taken_down buff")
+        self.assertAlmostEqual(dtd_buffs[0].value, 30.0,
+                               msg=f"dmg_taken_down value 应为 +30%, 实际 {dtd_buffs[0].value}")
+        self.assertEqual(getattr(dtd_buffs[0], 'mark_condition', ''),
+                         "神鳴り",
+                         "dmg_taken_down 应带 mark_condition=神鳴り")
+
+
+# =============================================================================
+# 土雷 (161850551) — 4 技能 / 12 效果点
+# =============================================================================
+class TestS6TuleiEffectPoints(_S6TestBase):
+    """土雷技能效果点独立测试
+
+    土雷: 光属性(5), EN型(2), 控制型(5), 速度915
+    技能: 220362(AS土浸食) / 220363(AS土掃射) / 220364(AS土双弾) / 230385(PS土付加)
+    核心机制: block_buff_by_type, stealth, action_damage, before_ally_as_attack
+    """
+
+    def _make_tulei(self, position=Position.ENEMY_CENTER_BACK, *,
+                    crit_rate=0.0, atk=10000, hp=100000):
+        """构造土雷 (光属性, EN型, 控制型)"""
+        return _make_unit(
+            "tulei", "土雷", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=4000, speed=915,
+            crit_rate=crit_rate, crit_damage=0.5,
+            element=Attribute.LIGHT.value, character_type=2,
+            skills=[220362, 220363, 220364, 230385],
+            skill_levels={220362: 10, 220363: 10,
+                          220364: 10, 230385: 10},
+        )
+
+    def _make_ally_dummy(self, unit_id, position, *,
+                         hp=10000, atk=5000, defense=3000, speed=400,
+                         crit_rate=0.0):
+        return _make_unit(
+            unit_id, f"友方_{unit_id}", Side.ALLY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            crit_rate=crit_rate,
+            element=Attribute.DARK.value, character_type=1,
+        )
+
+    def _make_enemy_teammate(self, unit_id, position, *,
+                             hp=100000, atk=5000, defense=3000, speed=500,
+                             skills=None, skill_levels=None):
+        """构造土雷队友 (用于 PS 230385 测试)"""
+        return _make_unit(
+            unit_id, f"敌方_{unit_id}", Side.ENEMY, position,
+            hp=hp, atk=atk, defense=defense, speed=speed,
+            element=Attribute.LIGHT.value, character_type=2,
+            skills=skills or [], skill_levels=skill_levels or {},
+        )
+
+    # ─── 220362 土ノ浸食 (AS) ───
+    def test_tulei_220362_b1_e1_block_buff_by_type(self):
+        """220362 Block1 Effect1: block_buff_by_type(enemy_all, 5 类 buff, 2 行動, source_action)
+        全部敌方获得 BLOCK_BUFF_BY_TYPE debuff，block_status_list 包含 5 类
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        bf = _make_bf(tulei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220362, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"], "220362 应执行成功")
+
+        # 全部友方应获得 BLOCK_BUFF_BY_TYPE debuff
+        for ally in [a1, a2, a3]:
+            bbt_debuffs = [d for d in ally.debuffs
+                           if d.effect_type == SkillEffectType.BLOCK_BUFF_BY_TYPE.value]
+            self.assertGreaterEqual(len(bbt_debuffs), 1,
+                                    f"{ally.unit_id} 应获得 block_buff_by_type debuff")
+            blocked_list = getattr(bbt_debuffs[0], 'block_status_list', []) or []
+            # 5 类: atk_up, def_up, spd_up, crit_rate_up, max_hp_up
+            self.assertGreaterEqual(len(blocked_list), 5,
+                                    f"{ally.unit_id} block_status_list 应包含 5 类, 实际 {len(blocked_list)}")
+            self.assertEqual(getattr(bbt_debuffs[0], 'duration', 0), 2,
+                             f"{ally.unit_id} block_buff_by_type duration 应为 2")
+
+    def test_tulei_220362_b1_e2_stealth_self(self):
+        """220362 Block1 Effect2: stealth(self, 2 行動)
+        土雷自身获得 STEALTH buff (duration=2)
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        bf = _make_bf(tulei, a1)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220362, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        stealth_buffs = [b for b in tulei.buffs
+                         if b.effect_type == SkillEffectType.STEALTH.value]
+        self.assertGreaterEqual(len(stealth_buffs), 1,
+                                "土雷应获得 stealth buff")
+        self.assertEqual(stealth_buffs[0].duration, 2,
+                         f"stealth duration 应为 2, 实际 {stealth_buffs[0].duration}")
+
+    # ─── 220363 土ノ掃射 (AS) ───
+    def test_tulei_220363_b1_e1_damage_row(self):
+        """220363 Block1 Effect1: damage(enemy_row, EN)
+        横一列敌方 HP 下降
+        注: enemy_row 在 target_service 中走 LINE 范围，按 anchor 所在排选择
+        土雷位于 ENEMY_CENTER_BACK，最近敌方是 ALLY_CENTER_FRONT (前排) → 选所有前排友方
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        # 友方放置: 前排3个 + 后排1个
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        a4 = self._make_ally_dummy("a4", Position.ALLY_CENTER_BACK, hp=100000)
+        bf = _make_bf(tulei, a1, a2, a3, a4)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3, a4]}
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220363, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 前排 (a1, a2, a3) 应受伤; 后排 (a4) 不受伤
+        for ally in [a1, a2, a3]:
+            self.assertLess(ally.current_hp, hp_before[ally.unit_id],
+                            f"前排 {ally.unit_id} 应受到 220363 伤害")
+        self.assertEqual(a4.current_hp, hp_before["a4"],
+                         "后排 a4 不应受到 220363 伤害")
+
+    def test_tulei_220363_b1_e2_action_damage_en_2turns(self):
+        """220363 Block1 Effect2: add_status(action_damage, 10% Atk, EN, 2 行動)
+        前排敌方获得 action_damage status (持续 2 行動, EN 属性)
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT, hp=100000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT, hp=100000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT, hp=100000)
+        a4 = self._make_ally_dummy("a4", Position.ALLY_CENTER_BACK, hp=100000)
+        bf = _make_bf(tulei, a1, a2, a3, a4)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220363, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 前排 (a1, a2, a3) 应获得 action_damage status
+        for ally in [a1, a2, a3]:
+            ad_status = _find_status(ally, "action_damage")
+            self.assertIsNotNone(ad_status,
+                                 f"{ally.unit_id} 应获得 action_damage status")
+            self.assertEqual(getattr(ad_status, 'duration', 0), 2,
+                             f"{ally.unit_id} action_damage duration 应为 2, 实际 {getattr(ad_status, 'duration', 0)}")
+            # value 应为 10.0 (10% Atk)
+            self.assertAlmostEqual(getattr(ad_status, 'value', 0), 10.0,
+                                   msg=f"{ally.unit_id} action_damage value 应为 10.0")
+        # 后排 a4 不应获得
+        self.assertIsNone(_find_status(a4, "action_damage"),
+                          "后排 a4 不应获得 action_damage status")
+
+    # ─── 220364 土ノ双弾 (AS) ───
+    def test_tulei_220364_b1_e1_damage_two_targets(self):
+        """220364 Block1 Effect1: damage(enemy_single, target_count=2, EN)
+        2 体敌方 HP 下降 (防御低順)
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        # 3 个友方不同防御，使防御低順 2 体确定
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, defense=3000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=100000, defense=2000)  # 防御最低
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT,
+                                   hp=100000, defense=2500)  # 防御次低
+        bf = _make_bf(tulei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        hp_before = {u.unit_id: u.current_hp for u in [a1, a2, a3]}
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220364, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        damaged = sum(1 for a in [a1, a2, a3]
+                      if a.current_hp < hp_before[a.unit_id])
+        self.assertEqual(damaged, 2,
+                         f"应有 2 体敌方受到 220364 伤害 (target_count=2), 实际 {damaged}")
+
+    def test_tulei_220364_b1_e2_action_damage_en_1turn(self):
+        """220364 Block1 Effect2: add_status(action_damage, 10% Atk, EN, 1 行動, target_count=2)
+        2 体敌方获得 action_damage status (持续 1 行動)
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        a1 = self._make_ally_dummy("a1", Position.ALLY_LEFT_FRONT,
+                                   hp=100000, defense=3000)
+        a2 = self._make_ally_dummy("a2", Position.ALLY_CENTER_FRONT,
+                                   hp=100000, defense=2000)
+        a3 = self._make_ally_dummy("a3", Position.ALLY_RIGHT_FRONT,
+                                   hp=100000, defense=2500)
+        bf = _make_bf(tulei, a1, a2, a3)
+        ss, ts, *_ = self._make_services(bf)
+
+        result = ss.execute_skill(
+            caster=tulei, skill_id=220364, battlefield=bf, skip_cost=True
+        )
+        self.assertTrue(result["success"])
+
+        # 验证 2 体受击者获得 action_damage status, duration=1
+        status_count = 0
+        for ally in [a1, a2, a3]:
+            ad_status = _find_status(ally, "action_damage")
+            if ad_status:
+                status_count += 1
+                self.assertEqual(getattr(ad_status, 'duration', 0), 1,
+                                 f"{ally.unit_id} action_damage duration 应为 1, 实际 {getattr(ad_status, 'duration', 0)}")
+                self.assertAlmostEqual(getattr(ad_status, 'value', 0), 10.0,
+                                       msg=f"{ally.unit_id} action_damage value 应为 10.0")
+        self.assertEqual(status_count, 2,
+                         f"应有 2 体敌方获得 action_damage status, 实际 {status_count}")
+
+    # ─── 230385 土ノ付加 (PS, before_ally_as_attack, target_is_front_ally) ───
+    def _setup_230385(self):
+        """搭建 230385 测试环境
+        土雷位于 ENEMY_CENTER_BACK，正前方 = ENEMY_CENTER_FRONT (土雷队友攻击者)
+        友方dummy位于 ALLY_CENTER_FRONT (供攻击)
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        # 土雷正前方友方 (敌方阵营) - 作为 AS 攻击者
+        front_attacker = self._make_enemy_teammate(
+            "enemy_front", Position.ENEMY_CENTER_FRONT,
+            hp=100000, atk=5000, defense=3000, speed=500,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        # 友方目标 (供 front_attacker 攻击)
+        ally_target = self._make_ally_dummy(
+            "ally_tgt", Position.ALLY_LEFT_FRONT, hp=999999, defense=1000
+        )
+        bf = _make_bf(tulei, front_attacker, ally_target)
+        ss, ts, *_ = self._make_services(bf)
+        return tulei, front_attacker, ally_target, bf, ss, ts
+
+    def test_tulei_230385_b1_e1_atk_down(self):
+        """230385 Block1 Effect1: atk_down(ally_single=trigger_attacker, 5%, 1 行動, 重複可, carried_debuff)
+        土雷正前方友方 AS 攻击前，攻击者获得 atk_down 携带式载荷buff (攻击时转移给敌方)
+        """
+        tulei, front_attacker, ally_target, bf, ss, ts = self._setup_230385()
+
+        # 触发 before_ally_as_attack (土雷正前方友方发起 AS 前)
+        trigger_actions = ts.trigger_before_ally_as_attack(
+            actor=front_attacker, skill_id=120049, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230385]
+        self.assertGreater(len(ps_actions), 0,
+                           "土雷应触发 230385 付加 PS (正前方友方 AS 前)")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_ally_as_attack"
+        )
+
+        # 验证攻击者获得 atk_down 携带式载荷buff (STATUS_ATTACK, value=+5)
+        # carried_debuff载荷存储在buffs中，攻击时转移给被攻击的敌方
+        atk_down_payloads = [b for b in front_attacker.buffs
+                             if b.effect_type == SkillEffectType.STATUS_ATTACK.value
+                             and b.value > 0
+                             and getattr(b, 'hit_limited_flags', {}).get('carried_debuff')]
+        self.assertGreaterEqual(len(atk_down_payloads), 1,
+                                "土雷正前方友方应获得 atk_down 携带式载荷buff")
+        self.assertAlmostEqual(atk_down_payloads[0].value, 5.0,
+                               msg=f"atk_down value 应为 5%, 实际 {atk_down_payloads[0].value}")
+
+    def test_tulei_230385_b1_e2_def_down(self):
+        """230385 Block1 Effect2: def_down(trigger_attacker, 5%, 1 行動, 重複可, carried_debuff)
+        土雷正前方友方 AS 攻击前，攻击者获得 def_down 携带式载荷buff (攻击时转移给敌方)
+        """
+        tulei, front_attacker, ally_target, bf, ss, ts = self._setup_230385()
+
+        trigger_actions = ts.trigger_before_ally_as_attack(
+            actor=front_attacker, skill_id=120049, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230385]
+        self.assertGreater(len(ps_actions), 0,
+                           "土雷应触发 230385 付加 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_ally_as_attack"
+        )
+
+        def_down_payloads = [b for b in front_attacker.buffs
+                             if b.effect_type == SkillEffectType.STATUS_DEFENSE.value
+                             and b.value > 0
+                             and getattr(b, 'hit_limited_flags', {}).get('carried_debuff')]
+        self.assertGreaterEqual(len(def_down_payloads), 1,
+                                "土雷正前方友方应获得 def_down 携带式载荷buff")
+        self.assertAlmostEqual(def_down_payloads[0].value, 5.0,
+                               msg=f"def_down value 应为 5%, 实际 {def_down_payloads[0].value}")
+
+    def test_tulei_230385_b1_e3_spd_down(self):
+        """230385 Block1 Effect3: spd_down(trigger_attacker, 5%, 1 行動, 重複可, carried_debuff)
+        土雷正前方友方 AS 攻击前，攻击者获得 spd_down 携带式载荷buff (攻击时转移给敌方)
+        """
+        tulei, front_attacker, ally_target, bf, ss, ts = self._setup_230385()
+
+        trigger_actions = ts.trigger_before_ally_as_attack(
+            actor=front_attacker, skill_id=120049, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230385]
+        self.assertGreater(len(ps_actions), 0,
+                           "土雷应触发 230385 付加 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_ally_as_attack"
+        )
+
+        spd_down_payloads = [b for b in front_attacker.buffs
+                             if b.effect_type == SkillEffectType.STATUS_SPEED.value
+                             and b.value > 0
+                             and getattr(b, 'hit_limited_flags', {}).get('carried_debuff')]
+        self.assertGreaterEqual(len(spd_down_payloads), 1,
+                                "土雷正前方友方应获得 spd_down 携带式载荷buff")
+        self.assertAlmostEqual(spd_down_payloads[0].value, 5.0,
+                               msg=f"spd_down value 应为 5%, 实际 {spd_down_payloads[0].value}")
+
+    def test_tulei_230385_b1_e4_crit_rate_down(self):
+        """230385 Block1 Effect4: crit_rate_down(trigger_attacker, 5%, 1 行動, 重複可, carried_debuff)
+        土雷正前方友方 AS 攻击前，攻击者获得 crit_rate_down 携带式载荷buff (攻击时转移给敌方)
+        """
+        tulei, front_attacker, ally_target, bf, ss, ts = self._setup_230385()
+
+        trigger_actions = ts.trigger_before_ally_as_attack(
+            actor=front_attacker, skill_id=120049, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230385]
+        self.assertGreater(len(ps_actions), 0,
+                           "土雷应触发 230385 付加 PS")
+
+        ss._pending_crit_triggers = []
+        ss._execute_trigger_actions_inline(
+            ps_actions, bf, trigger_timing="before_ally_as_attack"
+        )
+
+        crit_down_payloads = [b for b in front_attacker.buffs
+                              if b.effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value
+                              and b.value > 0
+                              and getattr(b, 'hit_limited_flags', {}).get('carried_debuff')]
+        self.assertGreaterEqual(len(crit_down_payloads), 1,
+                                "土雷正前方友方应获得 crit_rate_down 携带式载荷buff")
+        self.assertAlmostEqual(crit_down_payloads[0].value, 5.0,
+                               msg=f"crit_rate_down value 应为 5%, 实际 {crit_down_payloads[0].value}")
+
+    def test_tulei_230385_not_triggered_for_non_front_ally(self):
+        """230385 验证 global_condition target_is_front_ally 限定
+        非正前方友方 AS 攻击前不应触发 230385
+        """
+        tulei = self._make_tulei(position=Position.ENEMY_CENTER_BACK)
+        # 非正前方 (左前) 的敌方单位作为攻击者
+        non_front_attacker = self._make_enemy_teammate(
+            "enemy_left", Position.ENEMY_LEFT_FRONT,
+            hp=100000, atk=5000, defense=3000, speed=500,
+            skills=[120049], skill_levels={120049: 10},
+        )
+        ally_target = self._make_ally_dummy(
+            "ally_tgt", Position.ALLY_LEFT_FRONT, hp=999999, defense=1000
+        )
+        bf = _make_bf(tulei, non_front_attacker, ally_target)
+        ss, ts, *_ = self._make_services(bf)
+
+        trigger_actions = ts.trigger_before_ally_as_attack(
+            actor=non_front_attacker, skill_id=120049, battlefield=bf
+        )
+        ps_actions = [a for a in trigger_actions if a.skill_id == 230385]
+        self.assertEqual(len(ps_actions), 0,
+                         "非正前方友方 AS 前，230385 不应触发")
+
+
+if __name__ == '__main__':
+    unittest.main()

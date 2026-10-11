@@ -1,0 +1,751 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+角色112302「発情バニー」技能验证测试
+
+技能列表:
+  - 110057 バニー＆ベット (EX): 敌单体攻击 + 除外全体4hit追加攻击(不会心) + 自身good_luck(1行动) + 重置120126冷却
+  - 120126 オッドイーブン (AS): 敌单体2hit, good_luck时2hit目威力提升, Lv11+ dmg_dealt_down debuff
+  - 120127 ハイローベット (AS): 残HP少→2体/3体攻击, 最低HP≤60%时暴击率上升
+  - 120128 ストレートアップ (AS): 敌单体攻击
+  - 130132 ジャックポット (PS): on_critical → crit_rate_up(可叠加), Lv11+ crit_dmg_up(可叠加)
+"""
+
+import sys
+import os
+import time
+import logging
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.entities_v2.custom_dummy import (
+    CustomDummyConfig, build_synthetic_character_data, build_custom_skill_data,
+    build_custom_parsed_skill, collect_custom_skill_ids,
+)
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+
+
+class LogCaptureHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record.getMessage())
+
+
+def create_dummy_unit(data_loader, name, side, pos, char_id, hp, atk, defense, speed,
+                      ap, pp, ep_max=8, role_type=0, position_type=3, element=1, char_type=1):
+    cfg = CustomDummyConfig(
+        name=name,
+        element=element,
+        character_type=char_type,
+        position_type=position_type,
+        role_type=role_type if role_type > 0 else 1,
+        hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        ap=ap,
+        pp=pp,
+    )
+    char_data = build_synthetic_character_data(abs(char_id) - 1, cfg)
+    char_data.character_id = char_id
+    data_loader._custom_characters[char_id] = char_data
+
+    base_idx = abs(char_id) - 1
+    as_skill = build_custom_skill_data(
+        base_idx, False, 1, "通常攻撃", 100, 1, 0, 1, 3, 1, 1, 1
+    )
+    data_loader._custom_skills[as_skill.skill_id] = as_skill
+    as_parsed = build_custom_parsed_skill(
+        base_idx, False, 1, 3, 1, 1
+    )
+    data_loader._custom_parsed_skills[str(as_skill.skill_id)] = as_parsed
+    data_loader._custom_character_skills[char_id] = [as_skill.skill_id]
+    data_loader._custom_dummy_configs[char_id] = cfg
+
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=200,
+        element=cfg.element,
+        character_type=cfg.character_type,
+        max_hp=hp,
+        current_hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        crit_rate=0.15,
+        crit_damage=0.5,
+        advantage_damage=0.25,
+        initial_active_point=ap,
+        initial_passive_point=pp,
+        max_extra_point=ep_max,
+        current_ap=ap,
+        current_pp=pp,
+        current_ep=0,
+        skills=[as_skill.skill_id],
+        skill_levels={as_skill.skill_id: 1},
+        skill_cooldowns={},
+        role_type=role_type,
+        position_type=position_type,
+    )
+
+
+def create_character_unit(data_loader, stat_calculator, char_id, side, pos,
+                          panel_config, player_config, fury_count=0):
+    char = data_loader.get_character_by_id(char_id)
+    if not char:
+        raise ValueError(f"Character {char_id} not found!")
+    char_config = panel_config.get_character_config(char_id, char.default_rarity)
+    stats = stat_calculator.calculate_stats(char_config, player_config)
+    char_skills = data_loader.load_character_skills()
+    skills = char_skills.get(char_id, [])
+    side_prefix = "F" if side == Side.ALLY else "E"
+    max_ep = 7
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=char.name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=char_config.level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=stats.hp,
+        current_hp=stats.hp,
+        attack=stats.attack,
+        defense=stats.defense,
+        speed=stats.speed,
+        crit_rate=stats.critical_rate,
+        crit_damage=stats.critical_damage - 1.5,
+        advantage_damage=stats.advantage_damage - 1.25,
+        initial_active_point=stats.initial_ap,
+        initial_passive_point=stats.initial_pp,
+        max_extra_point=max_ep,
+        current_ap=stats.initial_ap,
+        current_pp=stats.initial_pp,
+        current_ep=0,
+        skills=skills,
+        skill_levels=panel_config.skill_levels.get(char_id, {}),
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+        fury_count=fury_count,
+    )
+
+
+def _verify_and_print(bf, test_name, checks):
+    print(f"\n{'─'*50}")
+    print(f"[验证] {test_name}")
+    print(f"{'─'*50}")
+    passed = 0
+    failed = 0
+    for desc, condition, expected, actual in checks:
+        status = "✅" if condition else "❌"
+        if condition:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status} {desc}")
+        if not condition:
+            print(f"     期望: {expected}, 实际: {actual}")
+    print(f"  结果: {passed}通过 / {failed}失败")
+    return failed == 0
+
+
+def run_test(name, friends_config, enemies_config, data_loader, panel_config,
+             player_config, stat_calculator, memory_card_ids=None, test_index=0):
+    print(f"\n{'='*60}")
+    print(f"Test {test_index}: {name}")
+    print(f"{'='*60}")
+
+    bf = BattlefieldState()
+    friends = []
+    enemies = []
+
+    for cfg in friends_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ALLY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("position_type", 3),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ALLY, cfg["pos"], panel_config, player_config,
+                fury_count=cfg.get("fury_count", 0),
+            )
+            cooldown_override = cfg.get("skill_cooldown_override", None)
+            if cooldown_override:
+                for sk_id, cd_val in cooldown_override.items():
+                    u.skill_cooldowns[sk_id] = cd_val
+            ep_override = cfg.get("ep_override", None)
+            if ep_override is not None:
+                u.current_ep = ep_override
+            speed_override = cfg.get("speed_override", None)
+            if speed_override is not None:
+                u.speed = speed_override
+            hp_override = cfg.get("hp_override", None)
+            if hp_override is not None:
+                u.current_hp = hp_override
+            pre_buffs = cfg.get("pre_buffs", None)
+            if pre_buffs:
+                for b_data in pre_buffs:
+                    bf_buff = BuffState(
+                        buff_id=b_data.get("buff_id", "pre_buff"),
+                        name=b_data.get("name", "PreBuff"),
+                        effect_type=b_data.get("effect_type", "PreBuff"),
+                        value=b_data.get("value", 0),
+                        duration=b_data.get("duration", -1),
+                        timing_type=b_data.get("timing_type", AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value),
+                        source_unit_id=u.unit_id,
+                        caster_attack=u.attack,
+                        is_debuff=b_data.get("is_debuff", False),
+                    )
+                    if b_data.get("is_debuff"):
+                        u.debuffs.append(bf_buff)
+                    else:
+                        u.buffs.append(bf_buff)
+        bf.add_unit(u)
+        friends.append(u)
+
+    for cfg in enemies_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ENEMY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("position_type", 3),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ENEMY, cfg["pos"], panel_config, player_config,
+            )
+        hp_override = cfg.get("hp_override", None)
+        if hp_override is not None:
+            u.current_hp = hp_override
+        bf.add_unit(u)
+        enemies.append(u)
+
+    if memory_card_ids:
+        bf.memory_cards = []
+        for card_id in memory_card_ids:
+            memory_data = data_loader.get_memory(card_id)
+            if memory_data:
+                highlights = [
+                    MemoryHighlight(
+                        character_attribute=hl.character_attribute,
+                        character_base_master_id=hl.character_base_master_id,
+                        character_master_id=hl.character_master_id,
+                        character_role=hl.character_role,
+                        character_team_master_id=hl.character_team_master_id,
+                        character_type=hl.character_type,
+                        is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                        party_position=hl.party_position,
+                        skill_master_id=hl.skill_master_id,
+                    )
+                    for hl in memory_data.highlights
+                ]
+                bf.memory_cards.append(MemoryCard(
+                    card_id=card_id,
+                    name=memory_data.name,
+                    description=memory_data.description,
+                    rarity=memory_data.rarity,
+                    highlights=highlights,
+                ))
+
+    print(f"  己方: {[f'{u.name}({u.position.name})' for u in friends]}")
+    print(f"  敌方: {[f'{u.name}({u.position.name})' for u in enemies]}")
+    for u in friends:
+        print(f"    [{u.name}] HP={u.current_hp}/{u.max_hp} ATK={u.attack} DEF={u.defense} SPD={u.speed} EP={u.current_ep}/{u.max_extra_point}")
+    for u in enemies:
+        print(f"    [{u.name}] HP={u.current_hp}/{u.max_hp} ATK={u.attack} DEF={u.defense} SPD={u.speed}")
+
+    controller = BattleFlowController(
+        bf, data_loader=data_loader,
+        narrative=BattleNarrativeWriter(data_loader=data_loader)
+    )
+    result = controller.execute_battle()
+
+    print(f"\n  战斗结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in bf.get_all_units():
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        shield_s = f" shield={u.shield}" if u.shield > 0 else ""
+        good_luck_buffs = [b for b in u.buffs if b.effect_type == "good_luck"]
+        gl_info = f" good_luck(dur={good_luck_buffs[0].duration})" if good_luck_buffs else ""
+        dmg_down_debuffs = [b for b in u.debuffs if b.effect_type in ("dmg_dealt_down", "DealtDamage")]
+        dmg_down_info = f" dmg_down={dmg_down_debuffs[0].value}" if dmg_down_debuffs else ""
+        crit_up_buffs = [b for b in u.buffs if b.effect_type in ("crit_rate_up", "StatusCriticalChance")]
+        crit_up_info = f" crit_up={crit_up_buffs[0].value}" if crit_up_buffs else ""
+        crit_dmg_buffs = [b for b in u.buffs if b.effect_type in ("crit_dmg_up", "CriticalBonusModification")]
+        crit_dmg_info = f" crit_dmg={crit_dmg_buffs[0].value}" if crit_dmg_buffs else ""
+        cd_info = ""
+        if u.skill_cooldowns:
+            cd_info = f" CDs={dict(u.skill_cooldowns)}"
+        print(f"    [{u.unit_id}] {u.name}({u.position.name}): {s}{shield_s}{gl_info}{dmg_down_info}{crit_up_info}{crit_dmg_info}{cd_info}")
+
+    if controller.narrative:
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "battle_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        safe_name = name.replace(" ", "_").replace("/", "_").replace(":", "")[:40]
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_path = os.path.join(log_dir, f"test{test_index:02d}_{safe_name}_{timestamp}.txt")
+        controller.narrative.write(log_path)
+        print(f"\n  日志: {log_path}")
+        return log_path, bf, result
+    return None, bf, result
+
+
+def main():
+    panel_config = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data)
+
+    char_id = 112302
+
+    char = data_loader.get_character_by_id(char_id)
+    panel_config.rarities[char_id] = 14
+    panel_config.affection_levels[char_id] = 40
+    skill_ids = data_loader.load_character_skills().get(char_id, [])
+    panel_config.skill_levels[char_id] = {sid: 10 for sid in skill_ids}
+    module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"),
+                  int(f"{char.character_type}3")]
+    panel_config.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+
+    player_config = panel_config.get_player_config()
+
+    all_passed = True
+    test_idx = 0
+
+    # ============================================================
+    # Test 1: 110057 バニー＆ベット (EX) Lv10
+    # 验证: 敌单体攻击 + 除外全体4hit追加攻击(不会心) + good_luck + 120126冷却重置
+    # 需要3个敌人: 最近敌被block1攻击, 其余2个被block2攻击
+    # 敌人速度更快(900)确保先攻, EP=7确保可发动EX
+    # ============================================================
+    test_idx += 1
+    _, bf1, _ = run_test("EX_110057_单体+除外全体4hit+good_luck+冷却重置",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT, "ep_override": 7,
+             "skill_cooldown_override": {120126: 3}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "最近敌", "char_id": -101,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 200000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌B", "char_id": -102,
+             "pos": Position.ENEMY_RIGHT_FRONT,
+             "hp": 200000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌C", "char_id": -103,
+             "pos": Position.ENEMY_LEFT_FRONT,
+             "hp": 200000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit = next((u for u in bf1.get_all_units() if u.character_id == char_id), None)
+    enemy_a = next((u for u in bf1.get_all_units() if u.name == "最近敌"), None)
+    enemy_b = next((u for u in bf1.get_all_units() if u.name == "敌B"), None)
+    enemy_c = next((u for u in bf1.get_all_units() if u.name == "敌C"), None)
+    nearest_hurt = enemy_a and enemy_a.current_hp < enemy_a.max_hp
+    b_hurt = enemy_b and enemy_b.current_hp < enemy_b.max_hp
+    c_hurt = enemy_c and enemy_c.current_hp < enemy_c.max_hp
+    _verify_and_print(bf1, "EX 110057 バニー＆ベット (Lv10)", [
+        ("最近敌受到伤害(block1)", nearest_hurt, "HP<max", f"最近敌 HP={enemy_a.current_hp}/{enemy_a.max_hp}" if enemy_a else "N/A"),
+        ("敌B受到伤害(block2, 除外全体)", b_hurt, "HP<max", f"敌B HP={enemy_b.current_hp}/{enemy_b.max_hp}" if enemy_b else "N/A"),
+        ("敌C受到伤害(block2, 除外全体)", c_hurt, "HP<max", f"敌C HP={enemy_c.current_hp}/{enemy_c.max_hp}" if enemy_c else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 2: 120126 オッドイーブン (AS) Lv10 无good_luck
+    # 验证: 2hit攻击(威力+威力2), 第二段用威力2
+    # 冷却4回合, 用cooldown override强制使用120126
+    # ============================================================
+    test_idx += 1
+    _, bf2, _ = run_test("AS_120126_无good_luck_2hit",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120127: 5, 120128: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -201,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 500000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit2 = next((u for u in bf2.get_all_units() if u.character_id == char_id), None)
+    enemy2 = next((u for u in bf2.get_all_units() if u.name == "敌A"), None)
+    enemy_hurt2 = enemy2 and enemy2.current_hp < enemy2.max_hp
+    _verify_and_print(bf2, "AS 120126 オッドイーブン (无good_luck)", [
+        ("敌A受到伤害(2hit)", enemy_hurt2, "HP<max", f"敌A HP={enemy2.current_hp}/{enemy2.max_hp}" if enemy2 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 3: 120126 オッドイーブン (AS) Lv10 有good_luck
+    # 验证: good_luck存在时, 2hit目用威力3(威力3 > 威力2)
+    # 预赋good_luck buff
+    # ============================================================
+    test_idx += 1
+    _, bf3, _ = run_test("AS_120126_有good_luck_威力3",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120127: 5, 120128: 5},
+             "pre_buffs": [
+                 {
+                     "buff_id": "test_good_luck",
+                     "name": "good_luck",
+                     "effect_type": "good_luck",
+                     "value": 0,
+                     "duration": 99,
+                     "timing_type": AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+                     "is_debuff": False,
+                 }
+             ]},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -301,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 500000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit3 = next((u for u in bf3.get_all_units() if u.character_id == char_id), None)
+    enemy3 = next((u for u in bf3.get_all_units() if u.name == "敌A"), None)
+    enemy_hurt3 = enemy3 and enemy3.current_hp < enemy3.max_hp
+    has_good_luck3 = any(b.effect_type == "good_luck" for b in char_unit3.buffs) if char_unit3 else False
+    _verify_and_print(bf3, "AS 120126 オッドイーブン (有good_luck, 威力3)", [
+        ("敌A受到伤害(2hit, 威力3)", enemy_hurt3, "HP<max", f"敌A HP={enemy3.current_hp}/{enemy3.max_hp}" if enemy3 else "N/A"),
+        ("good_luck状态存在", has_good_luck3, "有", "无" if not has_good_luck3 else ""),
+    ])
+
+    # ============================================================
+    # Test 4: 120126 オッドイーブン (AS) Lv11 - dmg_dealt_down debuff
+    # 验证: Lv11时施加dmg_dealt_down debuff(20%)持续1行动
+    # ============================================================
+    test_idx += 1
+    panel_config_l11 = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+    panel_config_l11.rarities[char_id] = 14
+    panel_config_l11.affection_levels[char_id] = 40
+    panel_config_l11.skill_levels[char_id] = {sid: 11 for sid in skill_ids}
+    panel_config_l11.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+    player_config_l11 = panel_config_l11.get_player_config()
+
+    _, bf4, _ = run_test("AS_120126_Lv11_dmg_dealt_down_debuff",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120127: 5, 120128: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -401,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 5000000, "atk": 1000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config_l11,
+        player_config=player_config_l11, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    enemy4 = next((u for u in bf4.get_all_units() if u.name == "敌A"), None)
+    enemy_hurt4 = enemy4 and enemy4.current_hp < enemy4.max_hp
+    dmg_down_debuffs = [b for b in enemy4.debuffs if b.effect_type in ("dmg_dealt_down", "DealtDamage")] if enemy4 else []
+    has_dmg_down = len(dmg_down_debuffs) > 0
+    dmg_down_val = dmg_down_debuffs[0].value if dmg_down_debuffs else 0
+    _verify_and_print(bf4, "AS 120126 オッドイーブン (Lv11, dmg_dealt_down)", [
+        ("敌A受到伤害", enemy_hurt4, "HP<max", f"敌A HP={enemy4.current_hp}/{enemy4.max_hp}" if enemy4 else "N/A"),
+        (f"dmg_dealt_down debuff施加(≈20%)", has_dmg_down and dmg_down_val > 15 and dmg_down_val < 25,
+         "≈20%", f"有({dmg_down_val}%)" if has_dmg_down else "无"),
+    ])
+
+    # ============================================================
+    # Test 5: 120127 ハイローベット (AS) Lv10 - 残HP少→2体
+    # 验证: 选择HP最低的2个敌人攻击, 第3个敌人不受伤害
+    # 3个敌人HP相同, 验证target_count=2 (仅2体被攻击)
+    # 通过检查战斗日志验证120127瞄准了2个敌人
+    # ============================================================
+    test_idx += 1
+    log_path5, bf5, _ = run_test("AS_120127_残HP少→2体+暴击率上升",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120126: 5, 120128: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -501,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌B", "char_id": -502,
+             "pos": Position.ENEMY_RIGHT_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌C", "char_id": -503,
+             "pos": Position.ENEMY_LEFT_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    enemy_a5 = next((u for u in bf5.get_all_units() if u.name == "敌A"), None)
+    enemy_b5 = next((u for u in bf5.get_all_units() if u.name == "敌B"), None)
+    enemy_c5 = next((u for u in bf5.get_all_units() if u.name == "敌C"), None)
+    a_hurt5 = enemy_a5 and enemy_a5.current_hp < enemy_a5.max_hp
+    b_hurt5 = enemy_b5 and enemy_b5.current_hp < enemy_b5.max_hp
+
+    has_target2 = False
+    if log_path5:
+        with open(log_path5, "r", encoding="utf-8") as f:
+            log_content = f.read()
+            has_target2 = "ハイローベット" in log_content and "瞄准了:" in log_content and "敌A" in log_content and "敌B" in log_content
+
+    _verify_and_print(bf5, "AS 120127 ハイローベット (Lv10, 残HP少→2体)", [
+        ("敌A受到伤害", a_hurt5, "HP<max", f"敌A HP={enemy_a5.current_hp}/{enemy_a5.max_hp}" if enemy_a5 else "N/A"),
+        ("敌B受到伤害", b_hurt5, "HP<max", f"敌B HP={enemy_b5.current_hp}/{enemy_b5.max_hp}" if enemy_b5 else "N/A"),
+        ("120127瞄准2体(敌A+敌B)", has_target2, "True", "False" if not has_target2 else ""),
+    ])
+
+    # ============================================================
+    # Test 6: 120127 ハイローベット (AS) Lv15 - 残HP少→3体
+    # 验证: Lv15时选择HP最低的3个敌人攻击 (target_count=3)
+    # ============================================================
+    test_idx += 1
+    panel_config_l15 = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+    panel_config_l15.rarities[char_id] = 14
+    panel_config_l15.affection_levels[char_id] = 40
+    panel_config_l15.skill_levels[char_id] = {sid: 15 for sid in skill_ids}
+    panel_config_l15.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+    player_config_l15 = panel_config_l15.get_player_config()
+
+    _, bf6, _ = run_test("AS_120127_Lv15_残HP少→3体",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120126: 5, 120128: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -601,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌B", "char_id": -602,
+             "pos": Position.ENEMY_RIGHT_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌C", "char_id": -603,
+             "pos": Position.ENEMY_LEFT_FRONT,
+             "hp": 100000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config_l15,
+        player_config=player_config_l15, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    enemy_a6 = next((u for u in bf6.get_all_units() if u.name == "敌A"), None)
+    enemy_b6 = next((u for u in bf6.get_all_units() if u.name == "敌B"), None)
+    enemy_c6 = next((u for u in bf6.get_all_units() if u.name == "敌C"), None)
+    a_hurt6 = enemy_a6 and enemy_a6.current_hp < enemy_a6.max_hp
+    b_hurt6 = enemy_b6 and enemy_b6.current_hp < enemy_b6.max_hp
+    c_hurt6 = enemy_c6 and enemy_c6.current_hp < enemy_c6.max_hp
+    _verify_and_print(bf6, "AS 120127 ハイローベット (Lv15, 残HP少→3体)", [
+        ("敌A受到伤害", a_hurt6, "HP<max", f"敌A HP={enemy_a6.current_hp}/{enemy_a6.max_hp}" if enemy_a6 else "N/A"),
+        ("敌B受到伤害", b_hurt6, "HP<max", f"敌B HP={enemy_b6.current_hp}/{enemy_b6.max_hp}" if enemy_b6 else "N/A"),
+        ("敌C受到伤害", c_hurt6, "HP<max", f"敌C HP={enemy_c6.current_hp}/{enemy_c6.max_hp}" if enemy_c6 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 7: 120128 ストレートアップ (AS) Lv10
+    # 验证: 敌单体攻击, 基本威力195%
+    # ============================================================
+    test_idx += 1
+    _, bf7, _ = run_test("AS_120128_基本单体攻击",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120126: 5, 120127: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -701,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 500000, "atk": 25000, "defense": 3000, "speed": 900,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    enemy7 = next((u for u in bf7.get_all_units() if u.name == "敌A"), None)
+    enemy_hurt7 = enemy7 and enemy7.current_hp < enemy7.max_hp
+    _verify_and_print(bf7, "AS 120128 ストレートアップ (Lv10)", [
+        ("敌A受到伤害", enemy_hurt7, "HP<max", f"敌A HP={enemy7.current_hp}/{enemy7.max_hp}" if enemy7 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 8: 130132 ジャックポット (PS) - on_critical触发
+    # 验证: 暴击时触发PS, crit_rate_up(可叠加)
+    # 使用高暴击率buff确保暴击发生
+    # Lv10: 仅crit_rate_up; Lv11+: 同时crit_dmg_up
+    # ============================================================
+    test_idx += 1
+    _, bf8, _ = run_test("PS_130132_on_critical_crit_rate_up",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120126: 5, 120127: 5},
+             "pre_buffs": [
+                 {
+                     "buff_id": "test_crit_rate",
+                     "name": "StatusCriticalChance",
+                     "effect_type": SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+                     "value": 100.0,
+                     "duration": 10,
+                     "timing_type": AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+                     "is_debuff": False,
+                 }
+             ]},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -801,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 5000000, "atk": 1000, "defense": 1000, "speed": 100,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit8 = next((u for u in bf8.get_all_units() if u.character_id == char_id), None)
+    crit_up_buffs = [b for b in char_unit8.buffs if b.effect_type in ("crit_rate_up", "StatusCriticalChance", SkillEffectType.STATUS_CRITICAL_CHANCE.value)]
+    jp_crit_buffs = [b for b in crit_up_buffs if b.source_unit_id == char_unit8.unit_id and b.effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value] if char_unit8 else []
+    has_crit_stack = len(jp_crit_buffs) > 0
+    _verify_and_print(bf8, "PS 130132 ジャックポット (on_critical, crit_rate_up)", [
+        (f"crit_rate_up叠加(暴击时触发)", has_crit_stack, "有", f"crit_up_buffs={len(jp_crit_buffs)}" if has_crit_stack else "无"),
+    ])
+
+    # ============================================================
+    # Test 9: 130132 ジャックポット (PS) Lv11 - crit_rate_up + crit_dmg_up
+    # 验证: Lv11+时暴击触发crit_rate_up和crit_dmg_up
+    # ============================================================
+    test_idx += 1
+    _, bf9, _ = run_test("PS_130132_Lv11_crit_rate+crit_dmg_up",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "skill_cooldown_override": {120126: 5, 120127: 5},
+             "pre_buffs": [
+                 {
+                     "buff_id": "test_crit_rate",
+                     "name": "StatusCriticalChance",
+                     "effect_type": SkillEffectType.STATUS_CRITICAL_CHANCE.value,
+                     "value": 100.0,
+                     "duration": 10,
+                     "timing_type": AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value,
+                     "is_debuff": False,
+                 }
+             ]},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -901,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 5000000, "atk": 1000, "defense": 1000, "speed": 100,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config_l11,
+        player_config=player_config_l11, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit9 = next((u for u in bf9.get_all_units() if u.character_id == char_id), None)
+    crit_dmg_buffs = [b for b in char_unit9.buffs if b.effect_type in ("crit_dmg_up", "CriticalBonusModification", SkillEffectType.CRITICAL_BONUS_MODIFICATION.value)] if char_unit9 else []
+    jp_crit_dmg = [b for b in crit_dmg_buffs if b.source_unit_id == char_unit9.unit_id and b.effect_type == SkillEffectType.CRITICAL_BONUS_MODIFICATION.value] if char_unit9 else []
+    has_crit_dmg = len(jp_crit_dmg) > 0
+    _verify_and_print(bf9, "PS 130132 ジャックポット (Lv11, crit_dmg_up)", [
+        (f"crit_dmg_up生效(暴击触发)", has_crit_dmg, "有", f"crit_dmg_buffs={len(jp_crit_dmg)}" if has_crit_dmg else "无"),
+    ])
+
+    print(f"\n{'='*60}")
+    print("ALL TESTS COMPLETE")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,554 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+角色111302「恥じらうカジノラビット」技能验证测试
+
+测试技能:
+  - 110056 スローイング・カード (EX): 敌全体攻击 + card_buff(L1-10:ワンペア, L11+:スリーカード)
+  - 120123 ショーダウン (AS): 盾(maxHP10%) + 攻击(最高HP, card_buff扩展) + 击杀时盾_from伤害 + damage_link
+  - 120124 レイズ (AS): HP消耗(maxHP10%) + HP比例伤害(dmg% x consumed) + HP>=70%时AP-1
+  - 120125 スチール (AS): 3hit + 偷取生命(cure%) + 击杀时card_buff(スリーカード)
+  - 130131 ブラフ (PS): 被攻击后→攻击者dmg_taken_up(hit_limited) + L11+ HP<30%时全体盾
+"""
+
+import sys
+import os
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from src.entities_v2.unit_state import UnitState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+from src.entities_v2.enums import Side, Position
+from src.entities_v2.custom_dummy import (
+    CustomDummyConfig, build_synthetic_character_data, build_custom_skill_data,
+    build_custom_parsed_skill, collect_custom_skill_ids,
+)
+from src.combat_v2.battle_flow_controller import BattleFlowController
+from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.data.data_loader import DataLoader
+from src.data.stat_calculator import StatCalculator
+from src.config.panel_config import PanelConfig, ModuleConfig
+from src.config.player_config import SchoolLevels
+
+
+def create_dummy_unit(data_loader, name, side, pos, char_id, hp, atk, defense, speed,
+                      ap, pp, ep_max=8, role_type=0, position_type=3, element=1, char_type=1):
+    cfg = CustomDummyConfig(
+        name=name,
+        element=element,
+        character_type=char_type,
+        position_type=position_type,
+        role_type=role_type if role_type > 0 else 1,
+        hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        ap=ap,
+        pp=pp,
+    )
+    char_data = build_synthetic_character_data(abs(char_id) - 1, cfg)
+    char_data.character_id = char_id
+    data_loader._custom_characters[char_id] = char_data
+
+    base_idx = abs(char_id) - 1
+    as_skill = build_custom_skill_data(
+        base_idx, False, 1, "通常攻撃", 100, 1, 0, 1, 3, 1, 1, 1
+    )
+    data_loader._custom_skills[as_skill.skill_id] = as_skill
+    as_parsed = build_custom_parsed_skill(
+        base_idx, False, 1, 3, 1, 1
+    )
+    data_loader._custom_parsed_skills[str(as_skill.skill_id)] = as_parsed
+    data_loader._custom_character_skills[char_id] = [as_skill.skill_id]
+    data_loader._custom_dummy_configs[char_id] = cfg
+
+    side_prefix = "F" if side == Side.ALLY else "E"
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=200,
+        element=cfg.element,
+        character_type=cfg.character_type,
+        max_hp=hp,
+        current_hp=hp,
+        attack=atk,
+        defense=defense,
+        speed=speed,
+        crit_rate=0.15,
+        crit_damage=0.5,
+        advantage_damage=0.25,
+        initial_active_point=ap,
+        initial_passive_point=pp,
+        max_extra_point=ep_max,
+        current_ap=ap,
+        current_pp=pp,
+        current_ep=0,
+        skills=[as_skill.skill_id],
+        skill_levels={as_skill.skill_id: 1},
+        skill_cooldowns={},
+        role_type=role_type,
+        position_type=position_type,
+    )
+
+
+def create_character_unit(data_loader, stat_calculator, char_id, side, pos,
+                          panel_config, player_config, fury_count=0):
+    char = data_loader.get_character_by_id(char_id)
+    if not char:
+        raise ValueError(f"Character {char_id} not found!")
+    char_config = panel_config.get_character_config(char_id, char.default_rarity)
+    stats = stat_calculator.calculate_stats(char_config, player_config)
+    char_skills = data_loader.load_character_skills()
+    skills = char_skills.get(char_id, [])
+    side_prefix = "F" if side == Side.ALLY else "E"
+    max_ep = 7
+    return UnitState(
+        unit_id=f"{side_prefix}_{char_id}",
+        name=char.name,
+        side=side,
+        position=pos,
+        character_id=char_id,
+        level=char_config.level,
+        element=char.attribute,
+        character_type=char.character_type,
+        max_hp=stats.hp,
+        current_hp=stats.hp,
+        attack=stats.attack,
+        defense=stats.defense,
+        speed=stats.speed,
+        crit_rate=stats.critical_rate,
+        crit_damage=stats.critical_damage - 1.5,
+        advantage_damage=stats.advantage_damage - 1.25,
+        initial_active_point=stats.initial_ap,
+        initial_passive_point=stats.initial_pp,
+        max_extra_point=max_ep,
+        current_ap=stats.initial_ap,
+        current_pp=stats.initial_pp,
+        current_ep=0,
+        skills=skills,
+        skill_levels=panel_config.skill_levels.get(char_id, {}),
+        skill_cooldowns={},
+        role_type=char.role_type,
+        position_type=char.position_type,
+        fury_count=fury_count,
+    )
+
+
+def _verify_and_print(bf, test_name, checks):
+    """输出验证结果"""
+    print(f"\n{'─'*50}")
+    print(f"[验证] {test_name}")
+    print(f"{'─'*50}")
+    passed = 0
+    failed = 0
+    for desc, condition, expected, actual in checks:
+        status = "✅" if condition else "❌"
+        if condition:
+            passed += 1
+        else:
+            failed += 1
+        print(f"  {status} {desc}")
+        if not condition:
+            print(f"     期望: {expected}, 实际: {actual}")
+    print(f"  结果: {passed}通过 / {failed}失败")
+    return failed == 0
+
+
+def run_test(name, friends_config, enemies_config, data_loader, panel_config,
+             player_config, stat_calculator, memory_card_ids=None, test_index=0):
+    print(f"\n{'='*60}")
+    print(f"Test {test_index}: {name}")
+    print(f"{'='*60}")
+
+    bf = BattlefieldState()
+    friends = []
+    enemies = []
+
+    for cfg in friends_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ALLY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ALLY, cfg["pos"], panel_config, player_config,
+                fury_count=cfg.get("fury_count", 0),
+            )
+            cooldown_override = cfg.get("skill_cooldown_override", None)
+            if cooldown_override:
+                for sk_id, cd_val in cooldown_override.items():
+                    u.skill_cooldowns[sk_id] = cd_val
+            ep_override = cfg.get("ep_override", None)
+            if ep_override is not None:
+                u.current_ep = ep_override
+            speed_override = cfg.get("speed_override", None)
+            if speed_override is not None:
+                u.speed = speed_override
+            hp_override = cfg.get("hp_override", None)
+            if hp_override is not None:
+                u.current_hp = hp_override
+        bf.add_unit(u)
+        friends.append(u)
+
+    for cfg in enemies_config:
+        if cfg.get("is_dummy"):
+            u = create_dummy_unit(
+                data_loader, cfg["name"], Side.ENEMY, cfg["pos"], cfg["char_id"],
+                cfg["hp"], cfg["atk"], cfg["defense"], cfg["speed"],
+                cfg["ap"], cfg["pp"], cfg.get("ep", 8),
+                cfg.get("role_type", 0),
+                cfg.get("element", 1),
+                cfg.get("char_type", 1),
+            )
+        else:
+            u = create_character_unit(
+                data_loader, stat_calculator, cfg["char_id"],
+                Side.ENEMY, cfg["pos"], panel_config, player_config,
+            )
+        bf.add_unit(u)
+        enemies.append(u)
+
+    if memory_card_ids:
+        bf.memory_cards = []
+        for card_id in memory_card_ids:
+            memory_data = data_loader.get_memory(card_id)
+            if memory_data:
+                highlights = [
+                    MemoryHighlight(
+                        character_attribute=hl.character_attribute,
+                        character_base_master_id=hl.character_base_master_id,
+                        character_master_id=hl.character_master_id,
+                        character_role=hl.character_role,
+                        character_team_master_id=hl.character_team_master_id,
+                        character_type=hl.character_type,
+                        is_targeting_friendly_party=hl.is_targeting_friendly_party,
+                        party_position=hl.party_position,
+                        skill_master_id=hl.skill_master_id,
+                    )
+                    for hl in memory_data.highlights
+                ]
+                bf.memory_cards.append(MemoryCard(
+                    card_id=card_id,
+                    name=memory_data.name,
+                    description=memory_data.description,
+                    rarity=memory_data.rarity,
+                    highlights=highlights,
+                ))
+
+    print(f"  己方: {[f'{u.name}({u.position.name})' for u in friends]}")
+    print(f"  敌方: {[f'{u.name}({u.position.name})' for u in enemies]}")
+    for u in friends:
+        print(f"    [{u.name}] HP={u.current_hp}/{u.max_hp} ATK={u.attack} DEF={u.defense} SPD={u.speed} EP={u.current_ep}/{u.max_extra_point}")
+    for u in enemies:
+        print(f"    [{u.name}] HP={u.current_hp}/{u.max_hp} ATK={u.attack} DEF={u.defense} SPD={u.speed}")
+
+    controller = BattleFlowController(
+        bf, data_loader=data_loader,
+        narrative=BattleNarrativeWriter(data_loader=data_loader)
+    )
+    result = controller.execute_battle()
+
+    print(f"\n  战斗结果: {result['result']} | 回合: {result['total_turns']} | 胜者: {result['winner']}")
+    for u in bf.get_all_units():
+        s = f"HP={u.current_hp}/{u.max_hp}" if u.is_alive else "阵亡"
+        shield_s = f" shield={u.shield}" if u.shield > 0 else ""
+        card_buffs = [b for b in u.buffs if b.effect_type == "card_buff"]
+        card_info = f" card={card_buffs[0].value}" if card_buffs else ""
+        dmg_taken_buffs = [b for b in getattr(u, 'debuffs', []) if 'dmg_taken' in str(b.effect_type).lower() or 'received_damage' in str(b.effect_type).lower()]
+        hit_info = f" hit_lim={dmg_taken_buffs[0].hit_limited}" if dmg_taken_buffs else ""
+        debuff_info = f" dmg_taken_up" if dmg_taken_buffs else ""
+        damage_link_buffs = [b for b in u.buffs if b.effect_type == "damage_link"]
+        dl_info = f" dmg_link" if damage_link_buffs else ""
+        print(f"    [{u.unit_id}] {u.name}({u.position.name}): {s}{shield_s} fury={getattr(u, 'fury_count', 0)}{card_info}{debuff_info}{hit_info}{dl_info}")
+
+    if controller.narrative:
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "battle_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        safe_name = name.replace(" ", "_").replace("/", "_").replace(":", "")[:40]
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_path = os.path.join(log_dir, f"test{test_index:02d}_{safe_name}_{timestamp}.txt")
+        controller.narrative.write(log_path)
+        print(f"\n  日志: {log_path}")
+        return log_path, bf, result
+    return None, bf, result
+
+
+def main():
+    panel_config = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+
+    data_loader = DataLoader()
+    data_loader.load_all()
+
+    lerp_data = data_loader.load_level_lerp_data()
+    stat_calculator = StatCalculator(lerp_data)
+
+    char_id = 111302
+
+    char = data_loader.get_character_by_id(char_id)
+    panel_config.rarities[char_id] = 14
+    panel_config.affection_levels[char_id] = 40
+    skill_ids = data_loader.load_character_skills().get(char_id, [])
+    panel_config.skill_levels[char_id] = {sid: 10 for sid in skill_ids}
+    module_ids = [int(f"{char.character_type}1"), int(f"{char.character_type}2"),
+                  int(f"{char.character_type}3")]
+    panel_config.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+
+    player_config = panel_config.get_player_config()
+
+    all_passed = True
+    test_idx = 0
+
+    # ============================================================
+    # Test 1: 110056 スローイング・カード (EX)
+    # 验证: 敌全体伤害 + self card_buff(ワンペア, value=1, 3行动)
+    # 用低血量敌人确保EX一击杀敌，card_buff保持在duration=3不会消耗
+    # ============================================================
+    test_idx += 1
+    _, bf1, _ = run_test("EX_110056_全体攻击+card_buff",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT, "ep_override": 7},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌前A", "char_id": -101,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 18000, "atk": 5000, "defense": 3000, "speed": 300,
+             "ap": 2, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit = next((u for u in bf1.get_all_units() if u.character_id == char_id), None)
+    enemy = next((u for u in bf1.get_all_units() if u.character_id < 0), None)
+    has_card = any(b.effect_type == "card_buff" for b in char_unit.buffs)
+    card_val = max((b.value for b in char_unit.buffs if b.effect_type == "card_buff"), default=0)
+    _verify_and_print(bf1, "EX 110056 スローイング・カード", [
+        ("敌方受到伤害", enemy and enemy.current_hp < enemy.max_hp, "HP<max", f"HP={enemy.current_hp}/{enemy.max_hp}" if enemy else "N/A"),
+        ("自身获得card_buff(ワンペア=1)", has_card and card_val == 1, "card_buff=1", f"card_buff={'有' if has_card else '无'}, value={card_val}"),
+        ("card_buff持续3行动", has_card and any(b.duration == 3 for b in char_unit.buffs if b.effect_type == "card_buff"), "duration=3", f"duration={next((b.duration for b in char_unit.buffs if b.effect_type=='card_buff'), 'N/A')}"),
+    ])
+
+    # ============================================================
+    # Test 2: 120125 スチール
+    # 验证: 3hit dmg + lifesteal(100%) + on kill card_buff(スリーカード)
+    # 用cooldown override强制使用スチール，避免ショーダウン抢先
+    # ============================================================
+    test_idx += 1
+    _, bf2, _ = run_test("AS_120125_3hit+lifesteal+kill_card",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "hp_override": 18000,
+             "skill_cooldown_override": {120123: 5, 120124: 5}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "弱敌A", "char_id": -201,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 15000, "atk": 3000, "defense": 2000, "speed": 100,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit2 = next((u for u in bf2.get_all_units() if u.character_id == char_id), None)
+    enemy2 = next((u for u in bf2.get_all_units() if u.character_id < 0), None)
+    has_card2 = any(b.effect_type == "card_buff" for b in char_unit2.buffs)
+    card_val2 = max((b.value for b in char_unit2.buffs if b.effect_type == "card_buff"), default=0)
+    enemy_dead = not enemy2.is_alive if enemy2 else False
+    char_healed = char_unit2.current_hp > 18000 if char_unit2 else False
+    _verify_and_print(bf2, "AS 120125 スチール", [
+        ("敌方被击杀(触发card_buff)", enemy_dead, "敌方阵亡", f"敌方{'阵亡' if enemy_dead else '存活'}"),
+        ("自身获得card_buff(スリーカード=2)", has_card2 and card_val2 == 2, "card_buff=2", f"card_buff={'有' if has_card2 else '无'}, value={card_val2}"),
+        ("lifesteal回血(cure=100%→全偷取)", char_healed, "HP恢复", f"HP={char_unit2.current_hp}" if char_unit2 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 3: 120124 レイズ
+    # 验证: HP消耗10%maxHP + HP比例伤害(dmg=312%) + HP>=70%时AP-1
+    # ============================================================
+    test_idx += 1
+    _, bf3, _ = run_test("AS_120124_hp_consume+ratio_dmg+ap_removal",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A", "char_id": -301,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 200000, "atk": 3000, "defense": 3000, "speed": 100,
+             "ap": 3, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit3 = next((u for u in bf3.get_all_units() if u.character_id == char_id), None)
+    enemy3 = next((u for u in bf3.get_all_units() if u.character_id < 0), None)
+    hp_lost = char_unit3.max_hp - char_unit3.current_hp > 0 if char_unit3 else False
+    hp_consumed_pct = ((char_unit3.max_hp - char_unit3.current_hp) / char_unit3.max_hp * 100) if char_unit3 else 0
+    enemy_hp_lost = enemy3.current_hp < enemy3.max_hp if enemy3 else False
+    _verify_and_print(bf3, "AS 120124 レイズ", [
+        ("自身HP消耗(≈10%maxHP)", hp_lost and hp_consumed_pct >= 9 and hp_consumed_pct <= 11,
+         "HP消耗约10%", f"HP消耗={hp_consumed_pct:.1f}%"),
+        ("敌方受到HP比例伤害(=consumed×312%)", enemy_hp_lost,
+         "敌方HP下降", f"敌方HP={enemy3.current_hp}/{enemy3.max_hp}" if enemy3 else "N/A"),
+        ("HP>=70%时AP-1生效(初始HP=100%)", enemy3 and enemy3.current_ap < enemy3.initial_active_point if enemy3 else False,
+         "敌方AP减少", f"敌方AP={enemy3.current_ap}/{enemy3.initial_active_point}" if enemy3 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 4: 120123 ショーダウン + card_buff交互
+    # 验证: EX→card_buff(ワンペア=1)→120123 shield(maxHP10%) + 2目标攻击
+    # ============================================================
+    test_idx += 1
+    _, bf4, _ = run_test("AS_120123_card_buff_expand_shield+2target",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT,
+             "ep_override": 7,
+             "skill_cooldown_override": {120124: 2, 120125: 2}},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "敌A高HP", "char_id": -401,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 80000, "atk": 3000, "defense": 2000, "speed": 100,
+             "ap": 1, "pp": 1},
+            {"is_dummy": True, "name": "敌B中HP", "char_id": -402,
+             "pos": Position.ENEMY_RIGHT_FRONT,
+             "hp": 60000, "atk": 2000, "defense": 2000, "speed": 100,
+             "ap": 1, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit4 = next((u for u in bf4.get_all_units() if u.character_id == char_id), None)
+    enemy_a = next((u for u in bf4.get_all_units() if u.name == "敌A高HP"), None)
+    enemy_b = next((u for u in bf4.get_all_units() if u.name == "敌B中HP"), None)
+    has_shield = char_unit4.shield > 0 if char_unit4 else False
+    a_hurt = enemy_a and enemy_a.current_hp < enemy_a.max_hp
+    b_hurt = enemy_b and enemy_b.current_hp < enemy_b.max_hp
+    _verify_and_print(bf4, "AS 120123 ショーダウン (card_buff扩展)", [
+        ("自身获得maxHP10%护盾", has_shield, "shield>0", f"shield={char_unit4.shield if char_unit4 else 0}"),
+        ("card_buff(ワンペア)扩展: 敌A也受伤害", a_hurt, "敌A受伤", f"敌A HP={enemy_a.current_hp}/{enemy_a.max_hp}" if enemy_a else "N/A"),
+        ("card_buff(ワンペア)扩展: 敌B也受伤害", b_hurt, "敌B受伤", f"敌B HP={enemy_b.current_hp}/{enemy_b.max_hp}" if enemy_b else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 5: 130131 ブラフ (PS) - Lv10 dmg_taken_up + hit_limited
+    # 验证: 被攻击→攻击者dmg_taken_up(50%) + hit_limited=1
+    # debuff的duration=1 turn, 会在角色下次行动结束时自动消失
+    # PS消耗PP为证据, 检查PP<初始4即证明PS被触发
+    # ============================================================
+    test_idx += 1
+    _, bf5, _ = run_test("PS_130131_on_attacked_dmg_taken_up",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT, "speed_override": 100},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "攻击敌", "char_id": -501,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 200000, "atk": 10000, "defense": 2000, "speed": 500,
+             "ap": 2, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config,
+        player_config=player_config, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit5 = next((u for u in bf5.get_all_units() if u.character_id == char_id), None)
+    enemy5 = next((u for u in bf5.get_all_units() if u.name == "攻击敌"), None)
+    pp_used = char_unit5.current_pp < char_unit5.initial_passive_point if char_unit5 else False
+    enemy_hurt = enemy5 and enemy5.current_hp < enemy5.max_hp
+    _verify_and_print(bf5, "PS 130131 ブラフ (Lv10)", [
+        ("PS技能触发(PP被消耗: {}/{} < {})".format(
+            char_unit5.current_pp, char_unit5.initial_passive_point, char_unit5.initial_passive_point) if char_unit5 else "",
+         pp_used, "PP<4=PS已触发", f"PP={char_unit5.current_pp}/{char_unit5.initial_passive_point}" if char_unit5 else "N/A"),
+        ("敌方受到伤害(debuff生效)", enemy_hurt,
+         "敌方HP下降", f"敌方HP={enemy5.current_hp}/{enemy5.max_hp}" if enemy5 else "N/A"),
+    ])
+
+    # ============================================================
+    # Test 6: 130131 ブラフ (PS) - Lv11 HP<30% 全体护盾
+    # 验证: HP<30%时→ally_all shield(maxHP×15%) + hit_limited=1
+    # ============================================================
+    test_idx += 1
+    panel_config_l11 = PanelConfig(
+        character_level=200,
+        school_levels=SchoolLevels(
+            physical_level=25, en_level=25, agility_level=25,
+            fire_level=25, water_level=25, earth_level=25, wind_level=25,
+            light_level=25, dark_level=25,
+        ),
+        equipment_ids=[11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34],
+        equipment_enabled=False,
+    )
+    panel_config_l11.rarities[char_id] = 14
+    panel_config_l11.affection_levels[char_id] = 40
+    panel_config_l11.skill_levels[char_id] = {sid: 11 for sid in skill_ids}
+    panel_config_l11.modules[char_id] = [
+        ModuleConfig(module_id=mid, tier=9, level=50)
+        for mid in module_ids
+    ]
+    player_config_l11 = panel_config_l11.get_player_config()
+
+    _, bf6, _ = run_test("PS_130131_Lv11_HP_below30_shield_all",
+        friends_config=[
+            {"is_dummy": False, "char_id": char_id,
+             "pos": Position.ALLY_CENTER_FRONT, "speed_override": 100,
+             "hp_override": 5000},
+        ],
+        enemies_config=[
+            {"is_dummy": True, "name": "攻击敌L", "char_id": -601,
+             "pos": Position.ENEMY_CENTER_FRONT,
+             "hp": 200000, "atk": 10000, "defense": 2000, "speed": 500,
+             "ap": 2, "pp": 1},
+        ],
+        data_loader=data_loader, panel_config=panel_config_l11,
+        player_config=player_config_l11, stat_calculator=stat_calculator,
+        test_index=test_idx,
+    )
+    char_unit6 = next((u for u in bf6.get_all_units() if u.character_id == char_id), None)
+    enemy6 = next((u for u in bf6.get_all_units() if u.name == "攻击敌L"), None)
+    hp_initial = 5000
+    hp_pct_initial = hp_initial / char_unit6.max_hp * 100 if char_unit6 else 0
+    has_shield6 = char_unit6.shield > 0 if char_unit6 else False
+    expected_shield_min = int(char_unit6.max_hp * 15 / 100) if char_unit6 else 0
+    _verify_and_print(bf6, "PS 130131 ブラフ (Lv11 HP<30% shield)", [
+        (f"初始HP={hp_initial}/{char_unit6.max_hp}≈{hp_pct_initial:.1f}% < 30%", hp_pct_initial < 30, "HP<30%", f"初始HP%={hp_pct_initial:.1f}%"),
+        (f"全体护盾触发(maxHP×15%≈{expected_shield_min})", has_shield6, "shield>0", f"shield={char_unit6.shield if char_unit6 else 0}"),
+    ])
+
+    print(f"\n{'='*60}")
+    print("ALL TESTS COMPLETE")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

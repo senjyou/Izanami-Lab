@@ -1,0 +1,199 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""子单位(sub_unit)完全吸收伤害时，最低1点伤害规则不应作用于HP的回归测试
+
+Bug 场景:
+- 目标身上有 sub_unit buff（HP 充足）
+- 攻击造成的伤害被 sub_unit 完全吸收（shield_portion=0, direct_damage=0）
+- 旧代码的"最低1点伤害"兜底只检查 en_shield/physical_shield/shield，
+  未检查 sub_unit HP，导致 1 点伤害绕过 sub_unit 直接打 HP
+
+修复:
+- 在最低1点伤害兜底中追加 sub_unit HP 检查（顺序：盾→子单位→HP）
+"""
+
+import unittest
+import sys
+import os
+
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, 'src')
+
+from src.data.data_loader import DataLoader
+from src.entities_v2.unit_state import UnitState, BuffState
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Side, Position, SkillEffectType, AuraUpdateTiming
+from src.combat_v2.services.resource_service import ResourceService
+from src.combat_v2.services.target_service import TargetService
+from src.combat_v2.services.damage_service import DamageService
+from src.combat_v2.services.skill_service import SkillService
+from src.combat_v2.services.aura_service import AuraService
+from src.combat_v2.services.status_service import StatusService
+from src.combat_v2.services.trigger_service import TriggerService
+
+
+class TestSubUnitMinDamageAbsorption(unittest.TestCase):
+    """子单位完全吸收伤害时不应造成HP伤害"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dl = DataLoader()
+        cls.dl.load_all()
+
+    def _build_bf(self):
+        """构建 キョンシーハッカー 攻击 アビスヴェヒター 的场景"""
+        self.bf = BattlefieldState()
+
+        # 攻击者: キョンシーハッカー (EN型, 2 hits AS)
+        self.kyonshi = UnitState(
+            unit_id="ally_kyonshi", name="キョンシーハッカー", side=Side.ALLY,
+            position=Position.ALLY_LEFT_BACK, character_id=117302, level=15,
+            element=3, character_type=2,  # 风属性, EN型
+            max_hp=148105, current_hp=148105,
+            attack=133141, defense=48981, speed=1000,
+            crit_rate=0.0, crit_damage=0.5, advantage_damage=0.0,
+            initial_active_point=2, initial_passive_point=2, max_extra_point=100,
+            current_ap=10, current_pp=10, current_ep=100,
+            skills=[120068], skill_levels={120068: 15},
+            skill_cooldowns={},
+        )
+
+        # 目标: アビスヴェヒター (高HP)
+        self.abyss = UnitState(
+            unit_id="enemy_abyss", name="アビスヴェヒター", side=Side.ENEMY,
+            position=Position.ENEMY_LEFT_FRONT, character_id=999002, level=200,
+            element=1, character_type=1,
+            max_hp=12467681, current_hp=12467681,
+            attack=51726, defense=68224, speed=500,
+            crit_rate=0.0, crit_damage=0.0, advantage_damage=0.0,
+            initial_active_point=4, initial_passive_point=4, max_extra_point=0,
+            current_ap=4, current_pp=4, current_ep=0,
+            skills=[], skill_levels={}, skill_cooldowns={},
+        )
+        self.bf.add_unit(self.kyonshi)
+        self.bf.add_unit(self.abyss)
+
+        rs = ResourceService()
+        ts = TriggerService()
+        ts.set_data_loader(self.dl)
+        asvc = AuraService()
+        dmgsvc = DamageService()
+        tgtsvc = TargetService()
+        stsvc = StatusService()
+        self.ss = SkillService(self.dl, rs, target_service=tgtsvc,
+                               damage_service=dmgsvc, aura_service=asvc,
+                               status_service=stsvc, trigger_service=ts)
+        ts.set_skill_service(self.ss)
+        self.ss.set_battlefield(self.bf)
+
+    def _apply_sub_unit_buff(self, sub_hp: int):
+        """在 abyss 上预设一个 sub_unit buff"""
+        sub_buff = BuffState(
+            buff_id="test_sub_abyss", name="子機Ⅰ",
+            effect_type=SkillEffectType.SUB_UNIT.value,
+            value=10.0, duration=-1,
+            timing_type=AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value,
+            source_unit_id=self.abyss.unit_id,
+            source_skill_id=130079,
+            caster_attack=self.abyss.attack,
+            is_debuff=False,
+            sub_unit_hp=sub_hp, sub_unit_max_hp=sub_hp,
+        )
+        self.abyss.buffs.append(sub_buff)
+        return sub_buff
+
+    def test_sub_unit_fully_absorbs_no_hp_loss(self):
+        """
+        sub_unit HP 充足时完全吸收所有 hit 的伤害，目标 HP 不应减少。
+        旧 bug: 即使 sub_unit 完全吸收了原伤害，最低1点伤害兜底仍会扣 1 HP。
+        """
+        self._build_bf()
+        # sub_unit HP 充足: AS1 120068 是 2 hits，每 hit ~57802 伤害
+        # 设置 sub_unit HP = 200000 远超总伤害 115604，确保完全吸收
+        sub_buff = self._apply_sub_unit_buff(sub_hp=200000)
+
+        target_hp_before = self.abyss.current_hp
+        sub_hp_before = sub_buff.sub_unit_hp
+
+        result = self.ss.execute_skill(
+            caster=self.kyonshi,
+            skill_id=120068,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"], f"技能执行应成功: {result.get('error', '')}")
+
+        damage_effects = [e for e in result.get("effects_applied", [])
+                          if e.get("effect_type") == "damage"]
+        self.assertGreater(len(damage_effects), 0, "应产生伤害效果")
+
+        # 找到 abyss 的伤害记录
+        abyss_hit = None
+        for dmg_effect in damage_effects:
+            for t in dmg_effect.get("targets", []):
+                if t.get("target_id") == self.abyss.unit_id:
+                    abyss_hit = t
+                    break
+            if abyss_hit:
+                break
+        self.assertIsNotNone(abyss_hit, "abyss 应被命中")
+
+        # 关键断言: sub_unit 完全吸收后 abyss HP 不应减少
+        hp_loss = target_hp_before - self.abyss.current_hp
+        self.assertEqual(
+            hp_loss, 0,
+            f"sub_unit 完全吸收后 abyss HP 不应减少, "
+            f"before={target_hp_before}, after={self.abyss.current_hp}, loss={hp_loss}"
+        )
+
+        # sub_unit HP 应有所减少（吸收了所有伤害）
+        sub_hp_loss = sub_hp_before - sub_buff.sub_unit_hp
+        self.assertGreater(
+            sub_hp_loss, 0,
+            f"sub_unit HP 应减少, before={sub_hp_before}, after={sub_buff.sub_unit_hp}"
+        )
+
+        # sub_unit 不应被耗尽（HP 仍 > 0）
+        self.assertGreater(
+            sub_buff.sub_unit_hp, 0,
+            f"sub_unit HP 应仍为正, after={sub_buff.sub_unit_hp}"
+        )
+
+    def test_sub_unit_depleted_then_hp_takes_damage(self):
+        """
+        对照组: sub_unit HP 不足时，剩余伤害应正常打 HP。
+        确保修复未破坏 sub_unit 耗尽后的正常 HP 伤害路径。
+        """
+        self._build_bf()
+        # sub_unit HP 仅能吸收第一 hit 的一部分
+        sub_buff = self._apply_sub_unit_buff(sub_hp=30000)
+
+        target_hp_before = self.abyss.current_hp
+
+        result = self.ss.execute_skill(
+            caster=self.kyonshi,
+            skill_id=120068,
+            battlefield=self.bf,
+            skip_cost=True,
+        )
+        self.assertTrue(result["success"])
+
+        # sub_unit 应已耗尽（HP=0），并被移除
+        self.assertEqual(
+            sub_buff.sub_unit_hp, 0,
+            f"sub_unit 应已耗尽, after={sub_buff.sub_unit_hp}"
+        )
+        sub_buffs_after = [b for b in self.abyss.buffs
+                          if b.effect_type == SkillEffectType.SUB_UNIT.value]
+        self.assertEqual(len(sub_buffs_after), 0, "耗尽的 sub_unit 应被移除")
+
+        # abyss HP 应减少（sub_unit 耗尽后剩余伤害打 HP）
+        hp_loss = target_hp_before - self.abyss.current_hp
+        self.assertGreater(
+            hp_loss, 0,
+            f"sub_unit 耗尽后 abyss HP 应减少, loss={hp_loss}"
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()
