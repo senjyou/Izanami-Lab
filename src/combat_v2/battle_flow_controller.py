@@ -2139,6 +2139,12 @@ class BattleFlowController:
                     owner.cumulative_hp_damage = _reset_val
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
+                    # 味方累計型（他の味方が累計…）：被弾単位のカウンターもリセットして再装填
+                    _tb_fail = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                    if _tb_fail is not None and _tb_fail is not owner:
+                        _tb_fail.cumulative_hp_damage = _reset_val
+                        _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative PS[%s] cannot execute)",
+                                  _tb_fail.name, _reset_val, skill_name)
                 # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
                 # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
                 if _parsed_fail:
@@ -2221,6 +2227,14 @@ class BattleFlowController:
                         owner.cumulative_hp_damage = 0
                         _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 after PS[%s] executed successfully",
                                   owner.name, skill_name)
+                        # 味方累計型（他の味方が累計…）：被弾単位のカウンターもリセット
+                        # （「たびに」=25%チャunksごとの再装填。リセットしないと閾値超過中の
+                        #   全ての被弾で再発動してしまう）
+                        _tb = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                        if _tb is not None and _tb is not owner:
+                            _tb.cumulative_hp_damage = 0
+                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative PS[%s] executed)",
+                                      _tb.name, skill_name)
 
                     # once_per_battle: PS成功执行后标记，确保整个战斗中只触发一次（如130165 いっしょにがんばる）
                     if parsed.get('once_per_battle'):
@@ -2300,15 +2314,18 @@ class BattleFlowController:
                 # 需要立即重新检查并触发on_cumulative_damage PS
                 # （如 アンデッドリベンジ on_critical 造成伤害→それはやりすぎ！+ on_cumulative_damage 触发）
                 # cumulative_hp_damage在PS成功执行后重置为0，避免无限递归
+                # 死亡的被弹单位也传入：味方累計型PS（シャドウグー230491等）は
+                # 被弾味方が一撃死しても発動する（直接型はtrigger_service内でスキップ）
                 if damaged_targets_reaction:
                     _seen_ids = set()
                     _unique_damaged = []
                     for _u in damaged_targets_reaction:
-                        if _u.unit_id not in _seen_ids and _u.is_alive:
+                        if _u.unit_id not in _seen_ids:
                             _seen_ids.add(_u.unit_id)
                             _unique_damaged.append(_u)
                     if _unique_damaged:
-                        _per_hit_resets = self._compute_per_hit_reset_values(_unique_damaged)
+                        _per_hit_resets = self._compute_per_hit_reset_values(
+                            [_u for _u in _unique_damaged if _u.is_alive])
                         cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
                             self.battlefield, _unique_damaged,
                             per_hit_reset_values=_per_hit_resets)
@@ -2484,6 +2501,12 @@ class BattleFlowController:
                     owner.cumulative_hp_damage = _reset_val
                     _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to %d (PP insufficient, global PS[%s] cannot execute)",
                               owner.name, _reset_val, skill_name)
+                    # 味方累計型：被弾単位のカウンターもリセットして再装填
+                    _tb_fail = action.parameters.get('cumulative_triggered_by') if hasattr(action, 'parameters') else None
+                    if _tb_fail is not None and _tb_fail is not owner:
+                        _tb_fail.cumulative_hp_damage = _reset_val
+                        _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to %d (ally-cumulative global PS[%s] cannot execute)",
+                                  _tb_fail.name, _reset_val, skill_name)
                 # crit_count_mod条件触发器（如 ラッキー4！）：PP不足无法执行时直接清空暴击计数
                 # 实战验证：若保留计数，下次暴击后会立即误触发（跨技能残留）
                 if _parsed_fail:
@@ -2558,6 +2581,12 @@ class BattleFlowController:
                         owner.cumulative_hp_damage = 0
                         _log.info("[CUMULATIVE_DMG_RESET] %s: cumulative_hp_damage reset to 0 after global PS[%s] executed successfully",
                                   owner.name, skill_name)
+                        # 味方累計型：被弾単位のカウンターもリセット（L2218と同様）
+                        _tb = params.get('cumulative_triggered_by')
+                        if _tb is not None and _tb is not owner:
+                            _tb.cumulative_hp_damage = 0
+                            _log.info("[CUMULATIVE_DMG_RESET] triggered_by %s: cumulative_hp_damage reset to 0 (ally-cumulative global PS[%s] executed)",
+                                      _tb.name, skill_name)
 
                     # once_per_battle: 全局PS成功执行后同样标记（S7 230489 ダイブスリープ等），
                     # 与_execute_trigger_actions的once_per_battle标记保持一致
@@ -2632,15 +2661,17 @@ class BattleFlowController:
                 # 累计伤害再检查：全局PS技能造成伤害后，被攻击单位的累计伤害可能超过阈值
                 # 需要立即重新检查并触发on_cumulative_damage PS
                 # cumulative_hp_damage在PS成功执行后重置为0，避免无限递归
+                # 死亡的被弹单位也传入（味方累計型PSは一撃死でも発動、L2303と同様）
                 if damaged_targets_reaction:
                     _seen_ids = set()
                     _unique_damaged = []
                     for _u in damaged_targets_reaction:
-                        if _u.unit_id not in _seen_ids and _u.is_alive:
+                        if _u.unit_id not in _seen_ids:
                             _seen_ids.add(_u.unit_id)
                             _unique_damaged.append(_u)
                     if _unique_damaged:
-                        _per_hit_resets = self._compute_per_hit_reset_values(_unique_damaged)
+                        _per_hit_resets = self._compute_per_hit_reset_values(
+                            [_u for _u in _unique_damaged if _u.is_alive])
                         cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(
                             self.battlefield, _unique_damaged,
                             per_hit_reset_values=_per_hit_resets)

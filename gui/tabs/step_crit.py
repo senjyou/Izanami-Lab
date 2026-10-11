@@ -448,7 +448,7 @@ class StepCritTab(ttk.Frame):
         """用户选择分支"""
         if self._simulator and self._simulator.is_interactive_running():
             self._simulator.make_interactive_branch_decision(block_id)
-            if self._current_branch_decision_type == "random_draw":
+            if self._current_branch_decision_type in ("random_draw", "enemy_random"):
                 # 找到候选索引对应的描述
                 cand_desc = ""
                 for i, bid in enumerate(self._branch_candidate_block_ids):

@@ -614,32 +614,35 @@ class TriggerService:
         actions = []
         units_to_check = damaged_units if damaged_units else battlefield.get_all_units()
         for unit in units_to_check:
-            if not unit.is_alive:
-                continue
-
-            # 从PS技能配置中读取累计伤害阈值
-            threshold = self._get_cumulative_damage_threshold(unit)
-            if threshold is not None:
-                # 检查累计HP伤害是否达到阈值
-                threshold_value = unit.max_hp * threshold / 100
-                _log.info("[CUMULATIVE_DMG_CHECK] %s: cumulative_hp_damage=%d, threshold=%.0f (max_hp=%d * %d%%), exceeded=%s",
-                          unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold,
-                          unit.cumulative_hp_damage >= threshold_value)
-                if unit.cumulative_hp_damage >= threshold_value:
-                    _log.info("[CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f (max_hp=%d * %d%%), triggering",
-                              unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold)
-                    # per-hit reset valueをaction.parametersに付与
-                    _reset_val = 0  # デフォルト（単hit等）
-                    if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
-                        _reset_val = per_hit_reset_values[unit.unit_id]
-                    ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
-                    _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
-                    for _a in _new_actions:
-                        _a.parameters['cumulative_pp_zero_reset'] = _reset_val
-                    actions.extend(_new_actions)
+            # 直接型on_cumulative_damage（自身の累計）：死亡単位はPSを発動できないためスキップ。
+            # 味方累計型（他の味方が累計…、シャドウグー230491等）：被弾味方が一撃で死亡しても
+            # ダメージは「受けた」ものであり、PSオーナーが生存していれば発動する
+            # （死亡した被弾単位のスキップは味方累計スキャンのみに限定）。
+            if unit.is_alive:
+                # 从PS技能配置中读取累计伤害阈值
+                threshold = self._get_cumulative_damage_threshold(unit)
+                if threshold is not None:
+                    # 检查累计HP伤害是否达到阈值
+                    threshold_value = unit.max_hp * threshold / 100
+                    _log.info("[CUMULATIVE_DMG_CHECK] %s: cumulative_hp_damage=%d, threshold=%.0f (max_hp=%d * %d%%), exceeded=%s",
+                              unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold,
+                              unit.cumulative_hp_damage >= threshold_value)
+                    if unit.cumulative_hp_damage >= threshold_value:
+                        _log.info("[CUMULATIVE_DMG] %s: cumulative_hp_damage=%d >= threshold=%.0f (max_hp=%d * %d%%), triggering",
+                                  unit.name, unit.cumulative_hp_damage, threshold_value, unit.max_hp, threshold)
+                        # per-hit reset valueをaction.parametersに付与
+                        _reset_val = 0  # デフォルト（単hit等）
+                        if per_hit_reset_values and unit.unit_id in per_hit_reset_values:
+                            _reset_val = per_hit_reset_values[unit.unit_id]
+                        ctx = TriggerContext(TriggerTiming.CUMULATIVE_DAMAGE, battlefield, triggered_by=unit)
+                        _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
+                        for _a in _new_actions:
+                            _a.parameters['cumulative_pp_zero_reset'] = _reset_val
+                        actions.extend(_new_actions)
 
             # 130159 アクア・セービング: 检查同阵营友方的 on_cumulative_damage PS
             # （ally_cumulative_damage_percent 条件，triggered_by=damaged_unit）
+            # 被弾単位が死亡していても走査する（一撃死でも累計閾値到達は発動条件）
             _ally_triggers = self._get_ally_cumulative_damage_triggers(unit, battlefield)
             for (_ps_owner, _ally_threshold, _mark_name) in _ally_triggers:
                 # 检查damaged_unit是否持有指定mark（若mark_name为None则不检查）
@@ -667,6 +670,9 @@ class TriggerService:
                     _new_actions = self.check_triggers(TriggerTiming.CUMULATIVE_DAMAGE, ctx)
                     for _a in _new_actions:
                         _a.parameters['cumulative_pp_zero_reset'] = _reset_val
+                        # 味方累計型：被弾単位（triggered_by）を記録し、PS成功後に
+                        # 被弾単位のカウンターをリセットして「たびに」の再装填を実現
+                        _a.parameters['cumulative_triggered_by'] = unit
                     actions.extend(_new_actions)
 
         return actions

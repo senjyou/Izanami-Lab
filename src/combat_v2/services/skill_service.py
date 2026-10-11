@@ -973,6 +973,7 @@ class SkillService:
         )
         self._pre_scanned_non_damage_enemy_targets = []  # 非伤害敌方效果目标（如spd_down的enemy_all）
         self._pre_scanned_cover_candidates = []  # 按block顺序排列的被攻击友方候选（纯效果技能为空）
+        self._prescan_primary_target = None  # 首个damage block主目标快照（供_is_block_definitely_skipped判定prev_target_element_advantage）
         if _has_damage_effects:
             _seen_ids = set()
             _prescan_primary_target = None  # 用于adjacent_enemies等依赖主目标的目标类型
@@ -1119,6 +1120,9 @@ class SkillService:
                                     )
                                     if _prescan_primary_target is None and _is_primary_target_type:
                                         _prescan_primary_target = _pt
+                                        # 同步到self，供_is_block_definitely_skipped在
+                                        # 后续block的跳过判定中读取（prev_target_element_advantage）
+                                        self._prescan_primary_target = _pt
             if self._pre_scanned_cover_candidates:
                 _log.info("[COVER_PRESCAN] %s: pre-scanned cover candidates: %s",
                           caster.name, [t.name for t in self._pre_scanned_cover_candidates])
@@ -1133,6 +1137,14 @@ class SkillService:
             #   合并后all_block_targets含全部5体，アイギスランパード/代助一避均可触发。
             _seen_nd_ids = set(_pt.unit_id for _pt in self._pre_scanned_cover_candidates)
             for _nd_block in resolved.effect_blocks:
+                # 条件确定性失败的block不会执行，其非伤害效果目标不计入预扫描
+                # （与cover候选预扫描/纯效果AS路径一致；否则被跳过block的enemy_all目标
+                #   会合并进all_block_targets，令target_is_self防御PS在未被攻击时误触发，
+                #   如230493 ファストジャッジ Block2属性有利不成立时誤触発鉄壁の母娘）
+                if self._is_block_definitely_skipped(caster, getattr(_nd_block, 'condition', None), skill_id):
+                    _log.info("[NON_DMG_ENEMY_TARGETS] %s: block %s skipped (condition definitely unmet), targets excluded",
+                              caster.name, getattr(_nd_block, 'block_id', '?'))
+                    continue
                 for _nd_effect in _nd_block.effects:
                     _nd_et = getattr(_nd_effect, 'effect_type', None)
                     _nd_tt = getattr(_nd_effect, 'target_type', None)
@@ -1255,6 +1267,10 @@ class SkillService:
         # 纯效果技能不执行 damage，因此不会触发 before_as_attacked。
         # 注意：技能可能有damage效果但condition不满足(如120159 Block2 self_has_mark)，
         # 实际执行的是纯效果block，也需要在效果施加前触发before_as_attacked。
+        # 例外：add_status（状態異常付与：炎上/凍結/暗闇/継続ダメージ等）不算攻击——
+        # ルインブースト(220461)实测（継続ENダメージ付与のみのAS）不触发
+        # before_any_attacked/before_as_attacked等被攻撃反応PS；デバフ系
+        # （atk_down/dmg_dealt_down等）维持既有语义（仍算攻击）。
         if meta.skill_type == SkillType.AS.value and self.trigger_service:
             # 无实际伤害的AS需预扫描敌方效果目标（纯效果技能，或damage块全部被条件跳过，
             # 如120159纯效果分支）——由这些目标决定是否触发before_as_attacked；
@@ -1273,7 +1289,8 @@ class SkillService:
                     for _nd_effect in _nd_block.effects:
                         _nd_et = getattr(_nd_effect, 'effect_type', None)
                         _nd_tt = getattr(_nd_effect, 'target_type', None)
-                        if _nd_et != 'damage' and _nd_tt and _nd_tt.startswith('enemy'):
+                        if (_nd_et not in ('damage', 'add_status')
+                                and _nd_tt and _nd_tt.startswith('enemy')):
                             _nd_range = self._resolve_target_range(_nd_tt)
                             _nd_tso = type('obj', (object,), {
                                 'display_target_type': self._resolve_target_type(_nd_tt),
@@ -3912,7 +3929,8 @@ class SkillService:
 
         确定性类型：has_mark_at_start / lacks_mark_at_start / self_has_mark /
         self_lacks_mark（技能执行前快照=实时）/ active_level_min / active_level_max /
-        and组合（任一子条件确定失败即跳过）。
+        prev_target_element_advantage（预扫描阶段前一block伤害目标=首个damage block
+        主目标，已可确定）/ and组合（任一子条件确定失败即跳过）。
         其余条件（target_*/随机分支/HP阈值等）返回False（视为可能执行，保持既有行为）。
 
         用途：预扫描（cover候选/非伤害敌方目标）与before_as_attacked提前触发判定，
@@ -3940,6 +3958,16 @@ class SkillService:
             return caster.skill_levels.get(skill_id, 1) < block_condition.get('value', 0)
         if cond_type == 'active_level_max':
             return caster.skill_levels.get(skill_id, 1) > block_condition.get('value', 0)
+        if cond_type == 'prev_target_element_advantage':
+            # 前一block伤害目标在预扫描阶段已可确定：首个damage block主目标
+            # （self._prescan_primary_target由cover候选预扫描同步，见execute_skill）。
+            # 判定逻辑必须与执行期分支（~L1528）保持一致；无预扫描主目标时
+            # 保守返回False（视为可能执行）。
+            _adv_pt = getattr(self, '_prescan_primary_target', None)
+            if _adv_pt is None:
+                return False
+            _advantages = {1: 3, 2: 1, 3: 4, 4: 2, 5: 6, 6: 5}
+            return _advantages.get(getattr(caster, 'element', 0)) != getattr(_adv_pt, 'element', 0)
         if cond_type == 'and':
             return any(
                 self._is_block_definitely_skipped(caster, sub, skill_id)
@@ -9582,6 +9610,49 @@ class SkillService:
             "removed": removed_details,
         }
 
+    def _pick_random_target_with_override(self, caster: UnitState,
+                                          candidates: List[UnitState],
+                                          decision_type: str = "enemy_random") -> List[UnitState]:
+        """ランダム単体目標選択（逐步暴击分支决策対応）。
+
+        _random_draw_override_func 設定時（逐步暴擊モード）はユーザー選択を優先し、
+        未設定時は random.choice で一様抽選する。戻り値は1要素のリスト。
+        """
+        if not candidates:
+            return []
+        if self._random_draw_override_func is not None:
+            candidates_ctx = []
+            for idx, u in enumerate(candidates):
+                candidates_ctx.append({
+                    'index': idx,
+                    'target_name': u.name,
+                    'target_id': u.unit_id,
+                    'description': f"敵 {u.name}",
+                })
+            ctx = {
+                'caster_name': caster.name,
+                'caster_id': caster.unit_id,
+                'skill_name': self._get_skill_name(getattr(self, '_current_skill_id', 0)),
+                'skill_id': getattr(self, '_current_skill_id', 0),
+                'candidates': candidates_ctx,
+                'decision_type': decision_type,
+            }
+            try:
+                selected_idx = self._random_draw_override_func(ctx)
+                if isinstance(selected_idx, int) and 0 <= selected_idx < len(candidates):
+                    _log.info("[ENEMY_RANDOM] %s: override[%s] -> %s",
+                              caster.name, decision_type, candidates[selected_idx].name)
+                    return [candidates[selected_idx]]
+                _log.warning("[ENEMY_RANDOM] %s: invalid index %s, fallback to random",
+                             caster.name, selected_idx)
+            except Exception as e:
+                _log.warning("[ENEMY_RANDOM] %s: override error %s, fallback to random",
+                             caster.name, e)
+        _pick = random.choice(candidates)
+        _log.info("[ENEMY_RANDOM] %s: random -> %s (candidates=%d)",
+                  caster.name, _pick.name, len(candidates))
+        return [_pick]
+
     def _apply_add_status(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
         if not self.aura_service or not self.target_service:
             _log.info("[ADD_STATUS] %s: aura_service or target_service unavailable", caster.name)
@@ -9655,6 +9726,18 @@ class SkillService:
             targets = [t for t in prev_cached_targets[effect.target_type] if t.is_alive]
             _log.info("[ADD_STATUS] %s: using prev_block cached damage targets for %s -> %s",
                       caster.name, effect.target_type, [t.name for t in targets])
+        elif effect.target_type == "enemy_random":
+            # ランダムな敵単体（シャドウグー230491等）: 全生存敵から一様ランダムに1体選択
+            # 従来は_resolve_target_range未登録でONE_PAWN（最近敵）フォールバックになっていた。
+            # 逐步暴撃モードでは_random_draw_override_func経由でユーザー選択可能（decision_type=enemy_random）。
+            _er_tso = type('obj', (object,), {
+                'display_target_type': self._resolve_target_type("enemies"),
+                'display_target_range': self._resolve_target_range("enemies"),  # ALL_PAWNS
+                'display_target_priority': None,
+                'target_type_name': 'enemy_random',
+            })()
+            _er_candidates = self.target_service.select_targets(_er_tso, caster, battlefield)
+            targets = self._pick_random_target_with_override(caster, _er_candidates)
         else:
             targets = self.target_service.select_targets(st_skill_obj, caster, battlefield)
             # 对特殊索敌类型应用后过滤，与damage执行保持一致

@@ -583,7 +583,7 @@ class StepCritSimulator:
             skill_id=context.get('skill_id', 0),
             group_id=context.get('draw_index', 0),
             candidates=candidates,
-            decision_type="random_draw",
+            decision_type=context.get('decision_type', 'random_draw'),
         )
 
         # 从预填序列获取决策
@@ -633,7 +633,7 @@ class StepCritSimulator:
             skill_id=context.get('skill_id', 0),
             group_id=draw_index,
             candidates=candidates,
-            decision_type="random_draw",
+            decision_type=context.get('decision_type', 'random_draw'),
         )
 
         # 优先使用预填序列（自动应用，不暂停）
