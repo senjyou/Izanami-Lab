@@ -376,6 +376,20 @@ class TargetService:
                       nearest.name, farthest.name)
             return [nearest, farthest]
 
+        # 11.51: 最もHPが高い敵単体（残りHP绝对值，非比例；120008/130017 修正后使用）
+        # 描述「HPが最も多い敵単体」。同HP回退位置距离序。
+        # Must be checked BEFORE ALL_PAWNS early return（_resolve_target_range 登记为 ONE_PAWN，
+        # 但 damage pre-pop 路径用 ALL_PAWNS 拉全候选后传回）
+        if target_type_name == 'enemy_single_highest_hp':
+            if not ordered:
+                return []
+            sorted_by_hp = sorted(ordered, key=lambda u: (-u.current_hp, self._get_sort_key(caster, u)))
+            self.apply_stealth_redirection(sorted_by_hp, consume=True)
+            result = sorted_by_hp[:1]
+            _log.info("[TARGET]   enemy_single_highest_hp: -> %s",
+                      [(u.name, u.current_hp) for u in result])
+            return result
+
         if r_type == DisplayTargetRange.ALL_PAWNS:
             return ordered
 
@@ -504,6 +518,7 @@ class TargetService:
             return result
 
         # 100303 める: 最も残りHPの少ない敵単体（残りHP绝对值，非比例）
+        # 11.51 修订: 230495/130180/130092 等描述「最も(残り)HPが低い敵単体」同族，同HP回退位置距离序
         if target_type_name == 'enemy_single_lowest_hp':
             if not ordered:
                 return []

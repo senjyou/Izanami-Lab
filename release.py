@@ -338,6 +338,26 @@ def main():
     status = run_cmd("git status --short", cwd=SCRIPT_DIR)
     if status:
         print("  有未提交的更改，先提交...")
+
+        # 安全检查：提交前列出将被纳入的文件，拦截不该入库的工具产物
+        # （历史事故：.mimosa/ 曾被 `git add .` 扫入并推送，1142个文件/30MB）
+        FORBIDDEN_PREFIXES = ('.mimosa/', '_backup', '_recycle_bin/', '.trae/',
+                              '.agent/', '.zcode/', '.dbg/', '.pytest_cache/',
+                              '__pycache__/', 'dist/', 'build/')
+        untracked = run_cmd("git ls-files --others --exclude-standard", cwd=SCRIPT_DIR)
+        offenders = [
+            p for p in untracked.splitlines()
+            if p.strip() and p.replace('\\', '/').startswith(FORBIDDEN_PREFIXES)
+        ]
+        if offenders:
+            print(f"  错误: 检测到 {len(offenders)} 个不应入库的文件，已中止发布：")
+            for p in offenders[:10]:
+                print(f"    - {p}")
+            if len(offenders) > 10:
+                print(f"    ... 还有 {len(offenders) - 10} 个")
+            print("  请将它们加入 .gitignore 后重试。")
+            sys.exit(1)
+
         run_cmd("git add .", cwd=SCRIPT_DIR)
         commit_msg = f"Release {version}"
         if new_features:

@@ -6906,5 +6906,139 @@
         ]
       }
     ]
+  },
+  "400257": {
+    "skill_id": 400257,
+    "name": "防御上昇【右列前衛】",
+    "description": "戦闘開始時に発動。右列前衛の味方の防御力を2行動の間500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 4,
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 2,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400260": {
+    "skill_id": 400260,
+    "name": "ダメージ上昇【アタッカー】",
+    "description": "戦闘開始時に発動。物理アタッカー・ENアタッカーの味方の与えるダメージを2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0
+          }
+        ]
+      }
+    ]
+  },
+  "400261": {
+    "skill_id": 400261,
+    "name": "防御減少【敵シャイ】",
+    "description": "戦闘開始時に発動。シャイ属性の敵全員の防御力を140下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 140,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400262": {
+    "skill_id": 400262,
+    "name": "最大AP増加2T開始【シリウスシュガー】",
+    "description": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを1増加させる",
+    "trigger": {
+      "type": "periodic_start",
+      "periodic_turn": 2
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxAp",
+            "value": 1,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "turn",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400263": {
+    "skill_id": 400263,
+    "name": "攻撃上昇【中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の味方の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 2,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
   }
 }

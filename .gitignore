@@ -46,6 +46,22 @@ db/
 .vscode/
 .idea/
 
+# === AI 工具运行时产物 ===
+# .mimosa/ 是 AI 编码工具的会话状态/hook-state/报告目录（约30MB、1100+文件，
+# 文件名多为随机ID），纯运行时产物，不属于项目源码，严禁入库。
+# 注意：本次曾因其已被跟踪而被 release.py 的 `git add .` 推向远程，仅加 ignore
+# 不足以修复——已跟踪文件必须另用 `git rm -r --cached` 取消跟踪。
+.mimosa/
+
+# AI 工具会话摘要（自动生成的大文件，含对话记录，不入库）
+_zcode_session_digest.md
+
+# === 临时脚本/备份（下划线前缀的临时文件不入库）===
+_*.py
+_backup_*/
+_tmp_*/
+data/*_backup_*/
+
 # === 测试缓存 ===
 .pytest_cache/
 .tox/

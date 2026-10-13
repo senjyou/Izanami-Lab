@@ -85754,5 +85754,185 @@
       }
     },
     "display_info": {}
+  },
+  "400257": {
+    "skill_id": 400257,
+    "name": "防御上昇【右列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列前衛の味方の防御力を2行動の間{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400261": {
+    "skill_id": 400261,
+    "name": "防御減少【敵シャイ】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。シャイ属性の敵全員の防御力を{def}下降させる"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 140.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400262": {
+    "skill_id": 400262,
+    "name": "最大AP増加2T開始【シリウスシュガー】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを{ap}増加させる"
+      }
+    ],
+    "template_tags": {
+      "ap": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400263": {
+    "skill_id": 400263,
+    "name": "攻撃上昇【中央列前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。中央列前衛の味方の攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400260": {
+    "skill_id": 400260,
+    "name": "ダメージ上昇【アタッカー】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。物理アタッカー・ENアタッカーの味方の与えるダメージを{dmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

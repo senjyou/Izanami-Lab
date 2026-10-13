@@ -485,8 +485,9 @@ class BattleNarrativeWriter:
 
     def heal(self, source_name: str, target_name: str, amount: int,
              source_hp: str = "", hp_before: int = 0, target_max_hp: int = 0,
-             is_crit: bool = False, formula: str = ""):
-        hp_after = hp_before + amount
+             is_crit: bool = False, formula: str = "", hp_after: int = None):
+        if hp_after is None:
+            hp_after = hp_before + amount
         crit_tag = "【Critical】" if is_crit else ""
         formula_str = f" {formula}" if formula else ""
         if target_max_hp:

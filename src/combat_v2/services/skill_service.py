@@ -2499,7 +2499,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_en_priority" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_single_lowest_mark_count" or effect.target_type == "enemy_single_lowest_def" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_highest_hp_ratio" or effect.target_type == "enemy_column_lowest_mark_count"):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_en_priority" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_single_lowest_mark_count" or effect.target_type == "enemy_single_lowest_def" or effect.target_type == "enemy_single_lowest_hp" or effect.target_type == "enemy_single_highest_hp" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_highest_hp_ratio" or effect.target_type == "enemy_column_lowest_mark_count"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -2726,6 +2726,8 @@ class SkillService:
                                   self.damage_service._calculate_final_stat(best, "defense") if best and self.damage_service else (best.defense if best else 0))
                     elif effect.target_type == "enemy_single_lowest_hp_ratio" and dmg_targets:
                         # 使用技能开始时的HP快照计算HP百分比，确保跨block比较的是同一时刻的HP
+                        # 平局回退位置距离序（11.51 修订: 服务端实测该索敌家族无 SPD tie-break，
+                        # 230495 系绝对值索敌错配，见数据修正记录）
                         pre_hp_snapshot = getattr(self, '_pre_skill_hp', {})
                         best = self.target_service.select_min_with_stealth(
                             dmg_targets,
@@ -2737,6 +2739,30 @@ class SkillService:
                         self._block_damage_targets[effect.target_type] = dmg_targets
                         _log.info("[SKILL_EXEC] %s: lowest_hp_ratio filter -> %s (using pre-skill HP)",
                                   caster.name, best.name)
+                    # 11.51: 绝对值HP索敌 damage 路径（230495/130180/130092/120008/130017 数据修正后使用）
+                    # pre-pop 缓存的是全体候选，这里过滤为单目标；同HP回退位置距离序
+                    elif effect.target_type == "enemy_single_lowest_hp" and dmg_targets:
+                        best = self.target_service.select_min_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (u.current_hp, self.target_service._get_sort_key(caster, u)),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: lowest_hp filter -> %s (hp=%d)",
+                                  caster.name, best.name if best else 'N/A',
+                                  best.current_hp if best else 0)
+                    elif effect.target_type == "enemy_single_highest_hp" and dmg_targets:
+                        best = self.target_service.select_max_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (u.current_hp, -self.target_service._get_sort_key(caster, u)),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _log.info("[SKILL_EXEC] %s: highest_hp filter -> %s (hp=%d)",
+                                  caster.name, best.name if best else 'N/A',
+                                  best.current_hp if best else 0)
                     elif effect.target_type == "enemy_single_highest_mark_count" and dmg_targets:
                         # 按 mark 数量降序选取目标（mark_count 相同时按距离升序，最近优先）
                         # 用于 EX あわあわふー「最も「ほてり」を多く持っている敵を優先」
@@ -4635,6 +4661,7 @@ class SkillService:
             "actual_damage": actual_damage,
             "shield_absorbed": shield_absorbed,
             "hit_shield_absorbed": hit_shield_absorbed,
+            "hit_hp_losses": _hit_losses if (hp_loss > 0 and dmg_result.hit_details) else [],
             "crit": dmg_result.is_critical,
             "hits": dmg_result.hit_details,
             "hit_crits": dmg_result.hit_crits,
@@ -7788,6 +7815,8 @@ class SkillService:
             "enemy_single_lowest_hp_ratio",
             "enemy_single_lowest_max_hp",
             "enemy_single_lowest_def",
+            "enemy_single_lowest_hp",
+            "enemy_single_highest_hp",
             "enemy_single_highest_mark_count",
             "enemy_single_lowest_mark_count",
             "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
@@ -8223,8 +8252,34 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s: lowest_def filter -> %s",
                           caster.name, best.name if best else 'N/A')
 
+        # 11.51: 绝对值HP索敌 aura 路径（230495/130180/130092/120008/130017 数据修正后使用）
+        if effect.target_type == "enemy_single_lowest_hp":
+            if targets:
+                best = self.target_service.select_min_with_stealth(
+                    targets,
+                    key_func=lambda u: (u.current_hp, self.target_service._get_sort_key(caster, u)),
+                    consume=True
+                )
+                targets = [best] if best else []
+                _log.info("[AURA_APPLY] %s: lowest_hp filter -> %s (hp=%d)",
+                          caster.name, best.name if best else 'N/A',
+                          best.current_hp if best else 0)
+
+        if effect.target_type == "enemy_single_highest_hp":
+            if targets:
+                best = self.target_service.select_max_with_stealth(
+                    targets,
+                    key_func=lambda u: (u.current_hp, -self.target_service._get_sort_key(caster, u)),
+                    consume=True
+                )
+                targets = [best] if best else []
+                _log.info("[AURA_APPLY] %s: highest_hp filter -> %s (hp=%d)",
+                          caster.name, best.name if best else 'N/A',
+                          best.current_hp if best else 0)
+
         if effect.target_type == "enemy_single_lowest_hp_ratio":
             if targets:
+                # 平局回退位置距离序（11.51 修订）
                 best = self.target_service.select_min_with_stealth(
                     targets,
                     key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,
@@ -11686,6 +11741,7 @@ class SkillService:
                  "enemy_all_exclude_primary",
                  "attacker_row",
                  "enemy_single_lowest_hp",
+                 "enemy_single_highest_hp",
                  "attacked_targets"):
             return DisplayTargetType.ENEMIES.value
         if t in ("friends", "friend", "ally_single"):
@@ -11729,6 +11785,7 @@ class SkillService:
                  "enemy_single_lowest_mark_count",
                  "enemy_back_center_single",
                  "enemy_single_lowest_hp",
+                 "enemy_single_highest_hp",
                  "ally_single_lowest_hp",
                  "ally_single_highest_damage_dealt"): return DisplayTargetRange.ONE_PAWN.value
         if t in ("enemy_row", "enemy_front", "ally_front", "ally_front_row", "ally_back", "ally_row",
@@ -11867,7 +11924,24 @@ class SkillService:
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_lowest_hp":
+            # 11.51: 绝对值HP索敌 prescan（230495/130180/130092 数据修正后使用），同HP按位置距离
+            best = self.target_service.select_min_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (u.current_hp, self.target_service._get_sort_key(caster, u)),
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_highest_hp":
+            # 11.51: 绝对值HP索敌 prescan（120008/130017 数据修正后使用），同HP按位置距离
+            best = self.target_service.select_max_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (u.current_hp, -self.target_service._get_sort_key(caster, u)),
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
         elif target_type == "enemy_single_lowest_hp_ratio":
+            # 平局回退位置距离序（11.51 修订）
             best = self.target_service.select_min_with_stealth(
                 dmg_targets,
                 key_func=lambda u: (int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0,

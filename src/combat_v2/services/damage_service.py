@@ -303,7 +303,12 @@ class DamageService:
                     _log.info("[DMG_CALC] penetrate_defense: def %d → %d (%.0f%%)",
                               orig, defense, penetrate * 100)
 
-            base_diff = max(1, atk - defense)
+            # base_diff 不做 min1（2026-10-12 服务端回放对比器判定）:
+            # ATK<DEF 时 base=0，raw 伤害=0，由 per-hit 的 max(1, floor(raw))
+            # （L540 附近）保证最低 1 点——与游戏一致（EX 威力200.8% 打高防目标
+            # 实测 1 点非暴击；若 base min1 则为 2，与游戏不符）。
+            # 暴击不放大最低1点（raw=0 → 1×crit 仍是 max(1,0)=1），与游戏一致。
+            base_diff = max(0, atk - defense)
             _log.info("[DMG_CALC] step1_base_diff: final_atk=%d final_def=%d => base_diff=%d", atk, defense, base_diff)
 
         # 混乱处理：代理数值（ATK ≤ DEF时用ATK×代理%替代base_diff）

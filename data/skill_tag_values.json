@@ -28469,5 +28469,60 @@
         }
       ]
     }
+  },
+  "400257": {
+    "def": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 500.0
+        }
+      ]
+    }
+  },
+  "400261": {
+    "def": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 140.0
+        }
+      ]
+    }
+  },
+  "400262": {
+    "ap": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 1.0
+        }
+      ]
+    }
+  },
+  "400263": {
+    "atk": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 1500.0
+        }
+      ]
+    }
+  },
+  "400260": {
+    "dmg": {
+      "interpolation_mode": 1,
+      "values": [
+        {
+          "level": 1,
+          "value": 2.0
+        }
+      ]
+    }
   }
 }

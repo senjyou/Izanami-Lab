@@ -3937,7 +3937,7 @@
     "effects": [
      {
       "effect_type": "damage",
-      "target_type": "enemy_single_highest_hp_ratio",
+      "target_type": "enemy_single_highest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": "威力",
@@ -3956,7 +3956,7 @@
      },
      {
       "effect_type": "add_status",
-      "target_type": "enemy_single_highest_hp_ratio",
+      "target_type": "enemy_single_highest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": "poison",
@@ -11492,7 +11492,7 @@
     "effects": [
      {
       "effect_type": "def_down",
-      "target_type": "enemy_single_highest_hp_ratio",
+      "target_type": "enemy_single_highest_hp",
       "target_identifier": null,
       "value": 0.0,
       "value_tag": "def",
@@ -17117,7 +17117,7 @@
     "effects": [
      {
       "effect_type": "mark",
-      "target_type": "enemy_single_lowest_hp_ratio",
+      "target_type": "enemy_single_lowest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": null,
@@ -17137,7 +17137,7 @@
      },
      {
       "effect_type": "dmg_taken_up",
-      "target_type": "enemy_single_lowest_hp_ratio",
+      "target_type": "enemy_single_lowest_hp",
       "target_identifier": null,
       "value": 0.0,
       "value_tag": "dmg",
@@ -87764,7 +87764,7 @@
     "effects": [
      {
       "effect_type": "damage",
-      "target_type": "enemy_single_lowest_hp_ratio",
+      "target_type": "enemy_single_lowest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": "威力",
@@ -87783,7 +87783,7 @@
      },
      {
       "effect_type": "mark",
-      "target_type": "enemy_single_lowest_hp_ratio",
+      "target_type": "enemy_single_lowest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": null,
@@ -92696,7 +92696,7 @@
     "effects": [
      {
       "effect_type": "damage",
-      "target_type": "enemy_single_lowest_hp_ratio",
+      "target_type": "enemy_single_lowest_hp",
       "target_identifier": null,
       "value": null,
       "value_tag": "威力",

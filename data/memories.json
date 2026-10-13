@@ -4024,7 +4024,7 @@
         "character_attribute": null,
         "character_base_master_id": null,
         "character_master_id": null,
-        "character_role": 4,
+        "character_role": 3,
         "character_team_master_id": null,
         "character_type": null,
         "is_targeting_friendly_party": true,
@@ -4510,6 +4510,115 @@
         "is_targeting_friendly_party": true,
         "party_position": null,
         "skill_master_id": 400036
+      }
+    ]
+  },
+  "10030": {
+    "memory_id": 10030,
+    "name": "コトハの居場所",
+    "description": "仕方ないわね……\\nじゃあ、本当にひと口だけ味を見てあげる。",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 4,
+        "skill_master_id": 400257
+      }
+    ]
+  },
+  "20094": {
+    "memory_id": 20094,
+    "name": "ありがとう",
+    "description": "……思ってたより、ちゃんと美味しいじゃない。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 154,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400140
+      },
+      {
+        "character_attribute": 3,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": false,
+        "party_position": null,
+        "skill_master_id": 400261
+      }
+    ]
+  },
+  "30039": {
+    "memory_id": 30039,
+    "name": "かえってきた学園生活",
+    "description": "もう、そろってからかわないでください～！",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": 101,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400262
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 2,
+        "skill_master_id": 400263
+      }
+    ]
+  },
+  "30046": {
+    "memory_id": 30046,
+    "name": "足跡に感謝を、旅路に祝福を",
+    "description": "これからも見せてくれるんでしょ？\\nあんたと一緒に掴み取った、『未来』ってやつを。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 1,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400260
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 2,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400260
       }
     ]
   }

@@ -1904,8 +1904,14 @@ class BattleFlowController:
                     )
             if self.narrative:
                 # HOT可能有多个来源，每个来源单独输出
+                # 2026-10-12: 来源=HOTの施加者（source_unit_id），与游戏 log 的 SourcePawn 一致。
+                # 旧实现误用持有者(unit)自身；game 实测（battle_004）唯一無二 的 HOT tick
+                # 来源恒为施加者 唯一無二，即使目标是 混沌/世界/ノーブル/心色。
                 for rd in regen_details:
-                    self.narrative.heal(source_name=self._get_display_name(unit),
+                    _src_id = rd.get('source_unit_id')
+                    _src_unit = next((u for u in self.battlefield.get_all_units()
+                                      if u.unit_id == _src_id), None) if _src_id else None
+                    self.narrative.heal(source_name=self._get_display_name(_src_unit or unit),
                                        target_name=self._get_display_name(unit),
                                        amount=rd['amount'],
                                        source_hp=f"HP:{unit.current_hp}/{unit.max_hp}",
@@ -1926,8 +1932,21 @@ class BattleFlowController:
         else:
             # regen_amount=0（満血等）でもheal_link転送は発生する（理論回復量で転送）
             # HOT回復の叙事ログは出力しないが、heal_link転送の叙事ログのみ出力
+            # 2026-10-12: 満血時も amount=0 のHOT tick叙事を出力——游戏服务端对
+            # 满血 HOT tick 也发 PawnReceivedHealing（amount=0）事件，
+            # battle_compare HP 轨迹校验依赖两侧事件序列一致（实测 game 27 vs sim 26）。
             if self.narrative:
                 for rd in regen_details:
+                    # 来源=HOTの施加者（与上分支同理，游戏 log 的 SourcePawn 恒为施加者）
+                    _src_id = rd.get('source_unit_id')
+                    _src_unit = next((u for u in self.battlefield.get_all_units()
+                                      if u.unit_id == _src_id), None) if _src_id else None
+                    self.narrative.heal(source_name=self._get_display_name(_src_unit or unit),
+                                        target_name=self._get_display_name(unit),
+                                        amount=rd['amount'],
+                                        source_hp=f"HP:{unit.current_hp}/{unit.max_hp}",
+                                        hp_before=unit.current_hp,
+                                        target_max_hp=unit.max_hp)
                     for lt in rd.get('heal_link_transfers', []):
                         self.narrative.heal_link_transfer(
                             source_name=self._get_display_name(lt["source_id"]),
@@ -3043,6 +3062,7 @@ class BattleFlowController:
             hit_crits = t.get("hit_crits", [t.get("crit")])
             hit_evades = t.get("hit_evades", [])
             hit_shield_list = t.get("hit_shield_absorbed", [])
+            hit_hp_losses = t.get("hit_hp_losses") or []  # 每hit真实HP损失（盾吸收/最低1点/HP上限修正后）
             hit_count = len(hit_details)
             if hit_count > 1 and len(hit_crits) == hit_count:
                 running_hp = t['hp_before']
@@ -3054,7 +3074,10 @@ class BattleFlowController:
                         modifiers = ["Miss"]
                         actual_hp_loss = 0
                     else:
-                        actual_hp_loss = max(0, hit_dmg - hit_shield)
+                        # 优先用引擎记录的每hit真实HP损失（含盾吸收/最低1点/HP上限封顶），
+                        # 缺失时回退 max(0, hit_dmg - hit_shield) 近似
+                        actual_hp_loss = (hit_hp_losses[i] if i < len(hit_hp_losses)
+                                          else max(0, hit_dmg - hit_shield))
                         running_hp = max(0, running_hp - actual_hp_loss)
                         modifiers = []
                         if hit_crits[i]:
@@ -3171,6 +3194,7 @@ class BattleFlowController:
                     target_max_hp=target_max,
                     is_crit=h.get('is_crit', False),
                     formula=h.get('heal_formula', ''),
+                    hp_after=h.get('hp_after'),
                 )
             # 回復リンク転送叙事ログ
             for lt in applied.get("heal_link_transfers", []):
