@@ -41,6 +41,22 @@ class BattleNarrativeWriter:
         self._lines: List[str] = []
         self._turn: int = 0
         self._data_loader = data_loader
+        # AP上限解析（可选）：让叙事显示的有效上限包含 StatusMaxAp buff 修正
+        # （回忆卡 400262）。未注入时回退 initial_active_point。
+        self._max_ap_resolver = None
+
+    def set_max_ap_resolver(self, func):
+        """注入 AP上限解析函数: func(unit) -> int"""
+        self._max_ap_resolver = func
+
+    def _ap_cap(self, unit: UnitState) -> int:
+        """单位当前有效AP上限（含 StatusMaxAp 修正），用于叙事显示。"""
+        if self._max_ap_resolver is not None:
+            try:
+                return int(self._max_ap_resolver(unit))
+            except Exception:
+                pass
+        return unit.initial_active_point
 
     def _add(self, text: str):
         self._lines.append(text)
@@ -115,7 +131,7 @@ class BattleNarrativeWriter:
 
     def unit_action_start(self, unit: UnitState, display_name: str = None):
         name = display_name or unit.name
-        self._add(f"  [行动开始] {name}  AP:{unit.current_ap}/{unit.initial_active_point}  PP:{unit.current_pp}/{unit.initial_passive_point}  EP:{unit.current_ep}/{unit.max_extra_point}")
+        self._add(f"  [行动开始] {name}  AP:{unit.current_ap}/{self._ap_cap(unit)}  PP:{unit.current_pp}/{unit.initial_passive_point}  EP:{unit.current_ep}/{unit.max_extra_point}")
 
     def unit_action_start_display(self, name: str, ap: int, ap_max: int, pp: int, pp_max: int, ep: int, ep_max: int):
         self._add(f"  [行动开始] {name}  AP:{ap}/{ap_max}  PP:{pp}/{pp_max}  EP:{ep}/{ep_max}")
@@ -128,7 +144,7 @@ class BattleNarrativeWriter:
     def unit_full_status(self, unit: UnitState, display_name: str = None):
         name = display_name or unit.name
         hp_pct = int(unit.current_hp / unit.max_hp * 100) if unit.max_hp > 0 else 0
-        self._add(f"  [状态] {name} HP:{unit.current_hp}/{unit.max_hp}({hp_pct}%)  AP:{unit.current_ap}/{unit.initial_active_point}  EP:{unit.current_ep}/{unit.max_extra_point}")
+        self._add(f"  [状态] {name} HP:{unit.current_hp}/{unit.max_hp}({hp_pct}%)  AP:{unit.current_ap}/{self._ap_cap(unit)}  EP:{unit.current_ep}/{unit.max_extra_point}")
 
     def skill_prepare(self, unit: UnitState, skill_name: str, skill_type: int = 1, display_name: str = None):
         name = display_name or unit.name
@@ -615,7 +631,7 @@ class BattleNarrativeWriter:
         for u in alive_units:
             name = (display_names or {}).get(u.unit_id, u.name) if display_names else u.name
             hp_pct = int(u.current_hp / u.max_hp * 100) if u.max_hp > 0 else 0
-            self._add(f"    {name} HP:{u.current_hp}/{u.max_hp}({hp_pct}%)  AP:{u.current_ap}/{u.initial_active_point}  EP:{u.current_ep}/{u.max_extra_point}")
+            self._add(f"    {name} HP:{u.current_hp}/{u.max_hp}({hp_pct}%)  AP:{u.current_ap}/{self._ap_cap(u)}  EP:{u.current_ep}/{u.max_extra_point}")
 
     def battle_end(self, winner: str, total_turns: int = 0):
         self._add("")

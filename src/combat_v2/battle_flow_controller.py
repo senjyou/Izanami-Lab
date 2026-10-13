@@ -89,6 +89,17 @@ class BattleFlowController:
         self.aura_service = AuraService()
         self.status_service = StatusService()
 
+        # AP上限解析：让 ResourceService 的恢复/封顶逻辑感知 StatusMaxAp buff
+        # （回忆卡 400262「1ターンの間、最大APを1増加させる」）
+        self.resource_service.set_max_ap_resolver(
+            lambda u: self.damage_service._calculate_final_stat(u, "max_ap")
+        )
+        # 叙事日志使用同一解析函数，保证「日志与实际行为一致」（project_rules 11.5）
+        if self.narrative is not None and hasattr(self.narrative, 'set_max_ap_resolver'):
+            self.narrative.set_max_ap_resolver(
+                lambda u: self.resource_service.get_max_ap(u)
+            )
+
         self.trigger_service = TriggerService()
         self.trigger_service.set_data_loader(self.data_loader)
         self.trigger_service.set_damage_service(self.damage_service)
@@ -364,7 +375,8 @@ class BattleFlowController:
         if self.narrative:
             for u in self.battlefield.get_all_units():
                 if u.is_alive:
-                    self.narrative.resource_restore(self._get_display_name(u), u.current_ap, u.initial_active_point,
+                    self.narrative.resource_restore(self._get_display_name(u), u.current_ap,
+                                                    self.resource_service.get_max_ap(u),
                                                     u.current_pp, u.initial_passive_point)
 
         # TURN_START触发器分两阶段执行：
@@ -528,7 +540,8 @@ class BattleFlowController:
         unit.action_phase = UnitActionPhase.CHECKING_STATUS
 
         if self.narrative:
-            self.narrative.unit_action_start_display(self._get_display_name(unit), unit.current_ap, unit.initial_active_point,
+            self.narrative.unit_action_start_display(self._get_display_name(unit), unit.current_ap,
+                                                      self.resource_service.get_max_ap(unit),
                                                       unit.current_pp, unit.initial_passive_point,
                                                       unit.current_ep, unit.max_extra_point)
 
@@ -601,7 +614,7 @@ class BattleFlowController:
         if self.narrative:
             cost = meta.resource_cost if meta else 1
             self.narrative.resource_deduct(self._get_display_name(unit), skill_type, cost,
-                                           unit.current_ap, unit.initial_active_point,
+                                           unit.current_ap, self.resource_service.get_max_ap(unit),
                                            unit.current_pp, unit.initial_passive_point,
                                            unit.current_ep, unit.max_extra_point)
 
@@ -2189,7 +2202,7 @@ class BattleFlowController:
             if self.narrative:
                 cost = skill_data.resource_cost if skill_data else 1
                 self.narrative.resource_deduct(self._get_display_name(owner), 2, cost,
-                                               owner.current_ap, owner.initial_active_point,
+                                               owner.current_ap, self.resource_service.get_max_ap(owner),
                                                owner.current_pp, owner.initial_passive_point,
                                                owner.current_ep, owner.max_extra_point)
 
@@ -2465,7 +2478,7 @@ class BattleFlowController:
             self.narrative.ps_trigger(self._get_display_name(owner), skill_name, self._get_display_name(source_unit))
             self.narrative.skill_prepare(owner, skill_name, 2, self._get_display_name(owner))
             self.narrative.resource_deduct(self._get_display_name(owner), 2, cost,
-                                           owner.current_ap, owner.initial_active_point,
+                                           owner.current_ap, self.resource_service.get_max_ap(owner),
                                            owner.current_pp, owner.initial_passive_point,
                                            owner.current_ep, owner.max_extra_point)
 
@@ -2560,7 +2573,7 @@ class BattleFlowController:
             if self.narrative:
                 cost = skill_data.resource_cost if skill_data else 1
                 self.narrative.resource_deduct(self._get_display_name(owner), 2, cost,
-                                               owner.current_ap, owner.initial_active_point,
+                                               owner.current_ap, self.resource_service.get_max_ap(owner),
                                                owner.current_pp, owner.initial_passive_point,
                                                owner.current_ep, owner.max_extra_point)
 
@@ -3341,7 +3354,8 @@ class BattleFlowController:
                             target_dname = self._get_display_name(at.get('target_id', at.get('target')))
                             self.narrative.resource_restore(target_dname, at['ap_after'], at['ap_max'])
                     else:
-                        self.narrative.resource_restore(caster_dname, caster.current_ap, caster.initial_active_point)
+                        self.narrative.resource_restore(caster_dname, caster.current_ap,
+                                                        self.resource_service.get_max_ap(caster))
                 elif rtype == "add_ep":
                     # add_ep 可能有多个目标，逐个显示
                     ep_targets = applied.get("targets", [])
@@ -4067,6 +4081,16 @@ class BattleFlowController:
         value_source = effect.get("value_source", "")
         attack_limited = effect.get("attack_limited", 0)
 
+        # duration_type="turn"（回合制）必须改走回合结束递减，否则永不生效：
+        #   - timing_type=DURABLE_WHEN_USED(6)：让 process_maneuver_end 跳过（不在行动结束递减）
+        #   - original_duration_type="turn"：让 aura_service.process_turn_end 在回合结束递减
+        # 与 skill_service 的 turn 分支（_resolve_aura_timing ~L8673）保持一致。
+        # 回忆卡 400262「1ターンの間、最大APを1増加させる」依赖此语义（原本被静默忽略 → buff 永续）。
+        original_duration_type = ""
+        if effect.get("duration_type") == "turn":
+            timing_type = AuraUpdateTiming.DURABLE_WHEN_USED.value
+            original_duration_type = "turn"
+
         # AcquireMark 类型：获得mark标记
         # duration支持：默认-1（永続，如400205「三ツ星」）；带duration/duration_type时为行動制mark
         # （如400232「1行動の『アイデア』を付与する」→ duration=1, duration_type="action"，
@@ -4166,9 +4190,32 @@ class BattleFlowController:
             is_memory_buff=True,
             damage_element=damage_element,
             attack_limited=attack_limited,
+            original_duration_type=original_duration_type,
         )
 
         success = self.aura_service.add_aura(target_unit, buff)
+
+        # StatusMaxAp（最大AP修正）：除创建 buff 外，还需让本回合的额外AP立即可用。
+        # 原因：回合流程中 AP 恢复（_restore_ap_pp_for_all）发生在回忆卡触发**之前**，
+        # 恢复量按旧上限封顶；若不在此处补足，上限提升在当回合不可观测
+        # （400262 每2回合的回合开始触发、回合末即过期，用户永远看不到那1点AP）。
+        # 语义依据：技能路径的 add_max_ap 与 add_ap 是两条**独立**效果（130075），
+        # 即「提升上限」本身不自动发放当前AP，故此处显式补发等量当前AP。
+        if success and effect_type == SkillEffectType.STATUS_MAX_AP.value:
+            new_cap = self.damage_service._calculate_final_stat(target_unit, "max_ap")
+            old_ap = target_unit.current_ap
+            if is_buff:
+                target_unit.current_ap = min(old_ap + int(abs(final_value)), new_cap)
+            else:
+                # 最大AP降低：当前AP不得超过新上限
+                target_unit.current_ap = min(old_ap, new_cap)
+            _log.info("[MEMORY]       max_ap: %s -> %s cap=%d current_ap %d->%d",
+                      card_name, target_unit.name, new_cap, old_ap, target_unit.current_ap)
+            if self.narrative and target_unit.current_ap != old_ap:
+                target_dname = self._get_display_name(target_unit)
+                self.narrative.memory_effect(
+                    card_name, target_dname,
+                    f"最大AP→{new_cap}  AP {old_ap}→{target_unit.current_ap}")
 
         if value_tag == 1:
             _log.info("[MEMORY]       structured: %s -> %s type=%s val=%d(fixed) buff=%s ok=%s",

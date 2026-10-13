@@ -686,7 +686,12 @@ class DamageService:
 
     def _calculate_final_stat(self, unit: UnitState, stat_name: str) -> int:
         """计算战斗内最终属性: Base * (1 + Sum(百分比/100)) + Sum(固定值) —— 三类buff规则"""
-        base_val = getattr(unit, stat_name, 0)
+        # max_ap 无 UnitState 字段：AP上限的基准值是 initial_active_point
+        # （ResourceService.restore_ap/restore_ap_pp 原本直接读该字段）
+        if stat_name == "max_ap":
+            base_val = getattr(unit, "initial_active_point", 0)
+        else:
+            base_val = getattr(unit, stat_name, 0)
 
         if stat_name == "attack":
             target_effect = SkillEffectType.STATUS_ATTACK.value
@@ -696,6 +701,11 @@ class DamageService:
             target_effect = SkillEffectType.STATUS_SPEED.value
         elif stat_name == "max_hp":
             target_effect = SkillEffectType.STATUS_MAX_HP.value
+        elif stat_name == "max_ap":
+            # StatusMaxAp（最大AP修正）：回忆卡 400262「1ターンの間、最大APを1増加させる」
+            # 技能路径的等价效果 add_max_ap 直接改 initial_active_point，不创建 buff；
+            # 回忆卡路径创建 StatusMaxAp buff，故此处按三类buff规则聚合使其生效。
+            target_effect = SkillEffectType.STATUS_MAX_AP.value
         else:
             target_effect = SkillEffectType.STATUS_DEFENSE.value
 

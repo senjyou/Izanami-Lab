@@ -9,7 +9,30 @@ class ResourceService:
     资源管理服务
     负责AP/PP/EP的消耗、恢复和验证
     """
-    
+
+    def __init__(self):
+        # AP上限的额外修正来源（StatusMaxAp buff 聚合）。
+        # 由 BattleFlowController 注入 DamageService._calculate_final_stat；
+        # 未注入时回退到 initial_active_point（原有行为）。
+        self._max_ap_resolver = None
+
+    def set_max_ap_resolver(self, func):
+        """注入 AP上限解析函数: func(unit) -> int"""
+        self._max_ap_resolver = func
+
+    def get_max_ap(self, unit: UnitState) -> int:
+        """单位当前的有效AP上限。
+
+        基准是 initial_active_point（add_max_ap 等技能效果直接改它），
+        叠加 StatusMaxAp 类 buff 的修正（回忆卡 400262「最大APを1増加させる」）。
+        """
+        if self._max_ap_resolver is not None:
+            try:
+                return int(self._max_ap_resolver(unit))
+            except Exception:
+                pass
+        return unit.initial_active_point
+
     def consume_ap(self, unit: UnitState, amount: int) -> bool:
         if amount < 0:
             return False
@@ -56,7 +79,7 @@ class ResourceService:
         if amount <= 0:
             return
         old = unit.current_ap
-        cap = unit.initial_active_point
+        cap = self.get_max_ap(unit)
         unit.current_ap = min(unit.current_ap + amount, cap)
         _log.info("[RESOURCE] %s restore_ap: %d -> %d (+%d, cap=%d)",
                   unit.name, old, unit.current_ap, unit.current_ap - old, cap)
@@ -72,7 +95,7 @@ class ResourceService:
 
     def restore_ap_pp(self, unit: UnitState) -> None:
         old_ap, old_pp = unit.current_ap, unit.current_pp
-        unit.current_ap = unit.initial_active_point
+        unit.current_ap = self.get_max_ap(unit)
         unit.current_pp = unit.initial_passive_point
         _log.info("[RESOURCE] %s restore_ap_pp: AP %d->%d PP %d->%d",
                   unit.name, old_ap, unit.current_ap, old_pp, unit.current_pp)

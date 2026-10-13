@@ -10995,7 +10995,7 @@ class SkillService:
                         "target_id": t.unit_id,
                         "amount": t.current_ap - old_ap,
                         "ap_after": t.current_ap,
-                        "ap_max": t.initial_active_point,
+                        "ap_max": self.resource_service.get_max_ap(t),
                     })
                     _log.info("[RESOURCE_EFFECT] %s: add_ap -> %s: value=%d", caster.name, t.name, value)
             elif ap_target_identifier != "trigger_attacker":
@@ -11010,7 +11010,7 @@ class SkillService:
                     "target_id": caster.unit_id,
                     "amount": caster.current_ap - old_ap,
                     "ap_after": caster.current_ap,
-                    "ap_max": caster.initial_active_point,
+                    "ap_max": self.resource_service.get_max_ap(caster),
                 })
             return {
                 "effect_type": "add_ap",
@@ -11209,7 +11209,8 @@ class SkillService:
                                   caster.name, t.name, value, actual_ap, t.current_ap)
                         entry = {
                             "target_id": t.unit_id, "target": t.unit_id,
-                            "amount": actual_ap, "ap_after": t.current_ap, "ap_max": t.initial_active_point
+                            "amount": actual_ap, "ap_after": t.current_ap,
+                            "ap_max": self.resource_service.get_max_ap(t)
                         }
                         cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(t.unit_id)
                         if cover_replaced_for:
@@ -11232,7 +11233,8 @@ class SkillService:
                                   caster.name, target.name, value, actual_ap)
                         entry = {"effect_type": "remove_ap", "targets": [{
                             "target_id": target.unit_id, "target": target.unit_id,
-                            "amount": actual_ap, "ap_after": target.current_ap, "ap_max": target.initial_active_point
+                            "amount": actual_ap, "ap_after": target.current_ap,
+                            "ap_max": self.resource_service.get_max_ap(target)
                         }]}
                         cover_replaced_for = getattr(self, '_cover_debuff_replacements', {}).get(target.unit_id)
                         if cover_replaced_for:
