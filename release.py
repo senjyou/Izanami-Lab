@@ -37,12 +37,35 @@ FEATURE_CATEGORIES = OrderedDict([
 
 
 def run_cmd(cmd, cwd=None):
-    """运行命令并返回结果"""
+    """运行命令并返回结果
+
+    encoding='utf-8' 是必需的，原因见下方注释。
+    另外这里**不再只依赖 returncode**：若子进程的 reader 线程仍然解码失败
+    （例如未来换用别的 encoding 又被绕过），stdout/stderr 会变成 None，
+    此时显式报错退出，避免"命令失败却被当成成功"继续往下发布。
+    """
     print(f"  执行: {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
+    # 注意: 必须显式指定 encoding='utf-8'。
+    # 子进程（git / python / gh）输出的是 UTF-8，而 Windows 简体中文环境下
+    # Python 的 locale 默认编码是 cp936(GBK)。若依赖 text=True 的默认解码，
+    # subprocess 会在 **reader 线程** 里用 GBK 解码 UTF-8 字节并抛
+    # UnicodeDecodeError —— 该异常不会传到主线程（脚本不崩），
+    # 但这条命令的 stdout/stderr 会被静默丢弃（返回 None），
+    # 使得 returncode 检查形同虚设。典型触发点：core.autocrlf=true 时
+    # `git add` 对含中文文件名的工作区文件打印
+    # "LF will be replaced by CRLF" 警告，警告里的路径是原样 UTF-8。
+    result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True,
+                            text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
         print(f"  错误: {result.stderr}")
         sys.exit(result.returncode)
+    if result.stdout is None or result.stderr is None:
+        print("  错误: 命令输出解码失败（stdout/stderr 为 None），已中止。")
+        print(f"  命令: {cmd}")
+        sys.exit(1)
+    if result.stderr:
+        # 保留警告信息（如 git 的 LF/CRLF 警告），便于排查
+        print(f"  {result.stderr.strip()}")
     return result.stdout
 
 
@@ -140,7 +163,8 @@ def _detect_code_changes(version: str) -> bool:
     try:
         result = subprocess.run(
             ['git', 'tag', '--sort=-version:refname'],
-            capture_output=True, text=True, cwd=SCRIPT_DIR
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            cwd=SCRIPT_DIR
         )
         tags = [t.strip() for t in result.stdout.splitlines() if t.strip()]
         current_tag = version if version.startswith('v') else f'v{version}'
@@ -154,7 +178,8 @@ def _detect_code_changes(version: str) -> bool:
         result = subprocess.run(
             ['git', 'diff', '--name-only', prev_tag, 'HEAD',
              '--', 'src/', 'gui_app.py', 'version.py', 'build.py'],
-            capture_output=True, text=True, cwd=SCRIPT_DIR
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            cwd=SCRIPT_DIR
         )
         return bool(result.stdout.strip())
     except Exception:
@@ -172,7 +197,8 @@ def generate_manifest(dist_dir: Path, version: str, features: list, zip_path: Pa
     try:
         result = subprocess.run(
             ['git', 'ls-files', '--', 'data/'],
-            capture_output=True, text=True, cwd=SCRIPT_DIR
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
+            cwd=SCRIPT_DIR
         )
         git_tracked = set(line.strip() for line in result.stdout.splitlines() if line.strip())
     except Exception:
@@ -428,7 +454,8 @@ def main():
         '--notes-file', str(notes_file),
         '--repo', REPOSITORY,
     ]
-    result = subprocess.run(gh_cmd, capture_output=True, text=True)
+    result = subprocess.run(gh_cmd, capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
     if result.returncode != 0:
         print(f"  错误: {result.stderr}")
         sys.exit(result.returncode)

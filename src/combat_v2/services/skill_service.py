@@ -154,6 +154,8 @@ class SkillService:
         self._caster_buffs_active_during_damage: set = set()  # caster的buff在damage效果执行时已存在（用于attack_limited清理区分前后付与）
         self._is_memory_card_execution: bool = False
         self._pending_deaths: set = set()  # 延迟阵亡判定：技能结算完成后统一处理
+        # 付与者倒下时立即解除 source_death_remove 效果的回调（由 BattleFlowController 注入）
+        self._source_death_cleanup: Optional[Callable[[list], None]] = None
         self._tactical_exercise_mode: bool = False  # 战术演习模式：敌人会复活，target_survived使用is_alive判断
         self._skill_name_cache: Dict[int, str] = {}  # skill_id -> name cache
         self._branch_override_func: Optional[Callable[[Dict], int]] = None  # 分支选择覆盖函数
@@ -198,6 +200,47 @@ class SkillService:
 
     def set_battlefield(self, battlefield: BattlefieldState):
         self._battlefield = battlefield
+
+    def set_source_death_cleanup(self, func: Optional[Callable[[list], None]]):
+        """注入「付与者倒下 → 解除其施加的 source_death_remove 效果」的回调。
+
+        由 BattleFlowController 注入 `_remove_source_death_buffs_from_dead`。
+        """
+        self._source_death_cleanup = func
+
+    def _register_pending_death(self, unit: UnitState):
+        """登记延迟阵亡，并**立即**解除该单位作为付与者施加的 source_death_remove 效果。
+
+        为什么需要「立即」：
+          延迟阵亡（is_alive 保持 True 直到技能结束）是为了让 target_survived 等
+          条件判定与击杀统计在技能内部保持一致，这个语义要保留。
+          但「付与者が倒れると解除される」类效果（source_death_remove）在 HP 归零的
+          瞬间就应该消失 —— 否则**同一技能的后续 block** 仍会吃到已倒下付与者的
+          debuff。
+
+        实测 bug 实例（step_crit_console_tactical_20261015_224154.txt）：
+          「なにするかーーー！！」第二段的主伤害。
+          ニーナ／ジーナ・ミーシナ 行动时给我方全体上了 atk_down -20%（带
+          source_death_remove）。第一段把 ニーナ 打到 HP=0（延迟阵亡），
+          第二段却仍带着这个 -20% 计算 →
+              final_atk = 109158 × (1 + 0.94 − 0.20) + 1250 = 191184 → 142056
+          而实战为
+              final_atk = 109158 × (1 + 0.94) + 1250 = 213016 → 167276
+          （实测 167281，差异仅为显示取整）。
+          清理日志也确实晚到技能结束才出现（processing pending deaths 之后）。
+        """
+        self._pending_deaths.add(unit.unit_id)
+        if self._source_death_cleanup is None:
+            return
+        try:
+            self._source_death_cleanup([unit])
+        except Exception as e:  # 清理失败不得中断技能结算
+            _log.warning("[SOURCE_DEATH_REMOVE] %s: cleanup failed: %s", unit.name, e)
+            return
+        # 被移除的可能是眩晕/冻结等控制类效果，需同步 is_stunned 等标志位
+        if self.aura_service is not None and self._battlefield is not None:
+            for u in self._battlefield.get_all_units():
+                self.aura_service._sync_stun_freeze_flags(u)
 
     def set_branch_override(self, func: Optional[Callable[[Dict], int]]):
         """设置分支选择覆盖函数。func接收context dict，返回选中的block_id"""
@@ -4487,38 +4530,10 @@ class SkillService:
             # Sub-unit HP consumption: after normal shields, before HP damage
             # Only for non-piercing damage (poison/burn are handled separately)
             if shield_portion > 0:
-                sub_unit_buffs = [b for b in target.buffs if b.effect_type == SkillEffectType.SUB_UNIT.value and b.sub_unit_hp > 0]
-                for sub_buff in sub_unit_buffs:
-                    if shield_portion <= 0:
-                        break
-                    if shield_portion <= sub_buff.sub_unit_hp:
-                        absorbed_by_sub = shield_portion
-                        sub_buff.sub_unit_hp -= shield_portion
-                        shield_absorbed += shield_portion
-                        _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' absorbs %d damage, HP %d->%d",
-                                  target.name, sub_buff.name, shield_portion,
-                                  sub_buff.sub_unit_hp + shield_portion, sub_buff.sub_unit_hp)
-                        shield_portion = 0
-                    else:
-                        absorbed_by_sub = sub_buff.sub_unit_hp
-                        shield_absorbed += sub_buff.sub_unit_hp
-                        shield_portion -= sub_buff.sub_unit_hp
-                        _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' HP depleted (absorbed %d), removing",
-                                  target.name, sub_buff.name, sub_buff.sub_unit_hp)
-                        sub_buff.sub_unit_hp = 0
-                    sub_unit_absorbs.append({
-                        "sub_unit_name": sub_buff.name,
-                        "absorbed": absorbed_by_sub,
-                        "sub_unit_hp_after": sub_buff.sub_unit_hp,
-                        "sub_unit_max_hp": sub_buff.sub_unit_max_hp,
-                    })
-                    if sub_buff.sub_unit_hp <= 0:
-                        target.buffs = [b for b in target.buffs if b.buff_id != sub_buff.buff_id]
-                        _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' EXPIRED (HP=0)", target.name, sub_buff.name)
-                        # [GAME_BUG_SIMULATION] 子機Ⅱ跨目标联动失效（HP耗尽触发）
-                        # 原实现路径：sub_unit_link_group为空时_cascade_linked_sub_unit_expiry直接返回
-                        self.aura_service._cascade_linked_sub_unit_expiry(
-                            sub_buff, target, battlefield.get_all_units())
+                _sub_absorbed, shield_portion, _sub_absorbs = self._absorb_sub_unit_shields(
+                    target, shield_portion, battlefield)
+                shield_absorbed += _sub_absorbed
+                sub_unit_absorbs.extend(_sub_absorbs)
 
         actual_damage = shield_portion + direct_damage
         # 非闪避命中最低1点伤害，可作用于护盾或HP
@@ -4570,6 +4585,60 @@ class SkillService:
                 actual_damage = 1
 
         return actual_damage, shield_absorbed, sub_unit_absorbs
+
+    def _absorb_sub_unit_shields(self, target: UnitState, damage: int,
+                                  battlefield: BattlefieldState) -> tuple:
+        """子单位（子機）による盾吸收：通用盾の後に子機HPが吸収する。
+
+        主伤害路径 `_apply_damage_absorb_shields_and_subunits` 与自傷
+        `_apply_consume_hp` 共用（吸收顺序：盾 → 子单位 → HP）。
+
+        Returns:
+            (absorbed, remaining, sub_unit_absorbs)
+            - absorbed: 子单位合计吸收量（会计入 shield_absorbed）
+            - remaining: 仍应打到HP的量
+            - sub_unit_absorbs: 供叙事日志使用的吸收明细
+        """
+        absorbed = 0
+        remaining = damage
+        sub_unit_absorbs = []
+        if remaining <= 0:
+            return absorbed, remaining, sub_unit_absorbs
+        sub_unit_buffs = [b for b in target.buffs
+                          if b.effect_type == SkillEffectType.SUB_UNIT.value
+                          and b.sub_unit_hp > 0]
+        for sub_buff in sub_unit_buffs:
+            if remaining <= 0:
+                break
+            if remaining <= sub_buff.sub_unit_hp:
+                absorbed_by_sub = remaining
+                sub_buff.sub_unit_hp -= remaining
+                absorbed += remaining
+                _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' absorbs %d damage, HP %d->%d",
+                          target.name, sub_buff.name, remaining,
+                          sub_buff.sub_unit_hp + remaining, sub_buff.sub_unit_hp)
+                remaining = 0
+            else:
+                absorbed_by_sub = sub_buff.sub_unit_hp
+                absorbed += sub_buff.sub_unit_hp
+                remaining -= sub_buff.sub_unit_hp
+                _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' HP depleted (absorbed %d), removing",
+                          target.name, sub_buff.name, sub_buff.sub_unit_hp)
+                sub_buff.sub_unit_hp = 0
+            if absorbed_by_sub > 0:
+                sub_unit_absorbs.append({
+                    "sub_unit_name": sub_buff.name,
+                    "absorbed": absorbed_by_sub,
+                    "sub_unit_hp_after": sub_buff.sub_unit_hp,
+                    "sub_unit_max_hp": sub_buff.sub_unit_max_hp,
+                })
+            if sub_buff.sub_unit_hp <= 0:
+                target.buffs = [b for b in target.buffs if b.buff_id != sub_buff.buff_id]
+                _log.info("[SUB_UNIT_DMG] %s: sub_unit '%s' EXPIRED (HP=0)", target.name, sub_buff.name)
+                # [GAME_BUG_SIMULATION] 子機Ⅱ跨目标联动失效（HP耗尽触发）
+                self.aura_service._cascade_linked_sub_unit_expiry(
+                    sub_buff, target, battlefield.get_all_units())
+        return absorbed, remaining, sub_unit_absorbs
 
     def _apply_damage_apply_hp_loss_and_record_hit(
         self, caster: UnitState, target: UnitState, dmg_skill_obj, dmg_result,
@@ -4804,7 +4873,8 @@ class SkillService:
                               target.name, target.current_hp, target.max_hp, heal_pct)
             else:
                 # 延迟阵亡判定：仅标记，技能完整结算后再统一设置 is_alive=False
-                self._pending_deaths.add(target.unit_id)
+                # （同时立即解除该单位作为付与者施加的 source_death_remove 效果）
+                self._register_pending_death(target)
                 _log.info("[PENDING_DEATH] %s: HP=0, death deferred until skill end", target.name)
 
         # hit_limited debuff 消耗（per-hit）
@@ -6885,7 +6955,7 @@ class SkillService:
                             "calc_detail": dmg_result.calc_detail,
                         })
                         if dt.current_hp <= 0:
-                            self._pending_deaths.add(dt.unit_id)
+                            self._register_pending_death(dt)
                             _log.info("[ON_CRIT] %s -> %s: killed by on_crit damage (death deferred)", caster.name, dt.name)
                     # 将追撃伤害结果添加到_on_crit_effects，用于叙事日志显示
                     if on_crit_targets_hit:
@@ -12326,35 +12396,60 @@ class SkillService:
             consume_amount = int(caster.current_hp * pct / 100)
 
         hp_before = caster.current_hp
-        actual_consume = min(consume_amount, caster.current_hp - 1)
-        caster.current_hp -= actual_consume
-        self._hp_consumed = actual_consume
+
+        # 自傷も通常のダメージと同じく「まず盾で吸収 → 子単位 → 残りをHPから消費」する。
+        # （以前は盾も子単位も無視して直接HPを削っていた）
+        # 盾の順序は他のダメージ経路と同一: EN盾(EN型)/物理盾(非EN型) → 通用盾 → 子単位HP
+        is_en_damage = (getattr(caster, 'character_type', 1) == 2)
+        shield_absorbed, remaining = self._absorb_secondary_shields(
+            caster, consume_amount, is_en_damage)
+        sub_absorbed, remaining, sub_unit_absorbs = self._absorb_sub_unit_shields(
+            caster, remaining, battlefield)
+        shield_absorbed += sub_absorbed
+
+        # 実際にHPから引く分（自傷で死なないよう最低1HPは残す）
+        hp_loss = min(remaining, max(0, caster.current_hp - 1))
+        caster.current_hp -= hp_loss
+
+        # 「消費分」= 名義消費量。盾で吸収された分も「消費」に含める。
+        # 原文「自身の現在HPの10%を消費し、…消費分×{cure}%分回復する」なので、
+        # heal_base / shield_base / damage_base = consume_hp の基数はこの名義量。
+        self._hp_consumed = consume_amount
 
         # 自傷HP消費は累計傷害に含まれる（ゲーム内挙動：私に任せて！+の自傷でそれはやりすぎ！+が触发）
-        caster.cumulative_hp_damage += actual_consume
-        if actual_consume > 0:
-            self._per_hit_hp_losses.setdefault(caster.unit_id, []).append(actual_consume)
+        # 盾吸收分は HP を削っていないので、統計は実際の HP 損失のみ計上（他のダメージ経路と同様）
+        caster.cumulative_hp_damage += hp_loss
+        if hp_loss > 0:
+            self._per_hit_hp_losses.setdefault(caster.unit_id, []).append(hp_loss)
 
         # 自傷もダメージ統計とスコアリングトラッカーに記録（戦術演習計分対象）
         # 敵方自残のダメージは計分に含まれる（target_side=="enemy"で_total_damage_to_enemiesに加算）
-        caster.damage_dealt_total += actual_consume
-        caster.damage_taken_total += actual_consume
+        caster.damage_dealt_total += hp_loss
+        caster.damage_taken_total += hp_loss
         tracker = getattr(battlefield, 'scoring_tracker', None)
         if tracker is not None:
             source_side = "ally" if caster.side.value == "ally" else "enemy"
             tracker.record_damage(
                 source_id=caster.unit_id, source_name=caster.name, source_side=source_side,
                 target_id=caster.unit_id, target_name=caster.name, target_side=source_side,
-                actual_damage=actual_consume, shield_absorbed=0,
+                actual_damage=hp_loss, shield_absorbed=shield_absorbed,
             )
 
-        _log.info("[CONSUME_HP] %s: consumed %d HP (%.0f%% of %s), hp %d→%d, cumulative_hp_damage=%d",
-                  caster.name, actual_consume, pct, hp_base,
-                  hp_before, caster.current_hp, caster.cumulative_hp_damage)
+        _log.info("[CONSUME_HP] %s: consume=%d (%.0f%% of %s), hp_loss=%d, shield_absorbed=%d (sub_unit=%d), hp %d→%d, cumulative_hp_damage=%d",
+                  caster.name, consume_amount, pct, hp_base,
+                  hp_loss, shield_absorbed, sub_absorbed, hp_before,
+                  caster.current_hp, caster.cumulative_hp_damage)
 
         return {
             "effect_type": "consume_hp",
-            "consumed": actual_consume,
+            # consumed = 実際にHPから減った分（従来どおり。叙事の -N HP 表示に使う）
+            "consumed": hp_loss,
+            # consume_amount = 「消費分」（名義量。盾/子単位で吸収された分も「消費」に含む）
+            #   heal_base / shield_base / damage_base = consume_hp の基数（_hp_consumed）と同値
+            "consume_amount": consume_amount,
+            "shield_absorbed": shield_absorbed,
+            # 叙事で「[子单位吸收]」を出すための明細
+            "sub_unit_absorbs": sub_unit_absorbs,
             "target": caster.unit_id,
             "target_id": caster.unit_id,
             "hp_before": hp_before,
@@ -12861,7 +12956,7 @@ class SkillService:
                       shield_info, dead_mark)
 
             if target.current_hp <= 0:
-                self._pending_deaths.add(target.unit_id)
+                self._register_pending_death(target)
                 _log.info("[HP_RATIO_DMG] %s: death deferred for %s", caster.name, target.name)
 
         # per-target附魔处理结束后，统一消耗hit_limited（1次攻击=1次消耗，而非1个目标=1次消耗）
@@ -13122,7 +13217,7 @@ class SkillService:
             _log.info("[DAMAGE_SPECIAL] %s -> %s: hp %d→%d (-%d, shield_absorbed=%d)",
                       caster.name, target.name, hp_before, target.current_hp, actual_dmg, shield_absorbed)
             if target.current_hp <= 0:
-                self._pending_deaths.add(target.unit_id)
+                self._register_pending_death(target)
                 _log.info("[DAMAGE_SPECIAL] %s: death deferred for %s", caster.name, target.name)
 
         # per-target附魔处理结束后，统一消耗hit_limited（1次攻击=1次消耗，而非1个目标=1次消耗）

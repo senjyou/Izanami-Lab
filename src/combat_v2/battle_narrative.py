@@ -495,9 +495,12 @@ class BattleNarrativeWriter:
         self._add(f"  [吸血] {source_name} 回复 {heal_amount} HP (造成伤害{damage_based_on}的{cure_pct:.0f}%) HP:{hp_before}/{max_hp}→{hp_after}/{max_hp}")
 
     def consume_hp(self, source_name: str, amount: int, hp_before: int,
-                   hp_after: int, max_hp: int, pct: float, hp_base: str):
+                   hp_after: int, max_hp: int, pct: float, hp_base: str,
+                   shield_absorbed: int = 0):
         base_label = "最大HP" if hp_base == "max_hp" else "当前HP"
-        self._add(f"  [HP消耗] {source_name} (HP:{hp_before}/{max_hp}→{hp_after}/{max_hp}): -{amount} HP (自傷:{base_label}的{pct:.0f}%)")
+        # 自傷も盾が先に吸収する（残りがHP消耗）。吸収分がある時のみ表示。
+        shield_tag = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
+        self._add(f"  [HP消耗] {source_name} (HP:{hp_before}/{max_hp}→{hp_after}/{max_hp}): -{amount} HP (自傷:{base_label}的{pct:.0f}%){shield_tag}")
 
     def heal(self, source_name: str, target_name: str, amount: int,
              source_hp: str = "", hp_before: int = 0, target_max_hp: int = 0,

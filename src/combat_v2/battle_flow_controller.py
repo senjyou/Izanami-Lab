@@ -113,6 +113,13 @@ class BattleFlowController:
             status_service=self.status_service,
             trigger_service=self.trigger_service,
         )
+        # 付与者倒下 → 立即解除其施加的 source_death_remove 效果。
+        # 延迟阵亡（_pending_deaths）只在技能结束时置 is_alive=False，但这类效果
+        # 必须在 HP 归零瞬间失效，否则同一技能的后续 block 仍会吃到已死亡付与者的
+        # debuff（实测：ニーナ atk_down -20% 导致「なにするかーーー！！」第二段
+        # 142056，实战 167281）。
+        self.skill_service.set_source_death_cleanup(
+            self._remove_source_death_buffs_from_dead)
 
         self.action_axis = ActionAxisService()
         self.action_axis.set_damage_service(self.damage_service)
@@ -3372,6 +3379,9 @@ class BattleFlowController:
             self.narrative.fury_add(self._get_display_name(caster), fc)
         elif etype == "consume_hp":
             # HP消耗（自傷）叙事ログ
+            # -N HP には「実際にHPから減った分」(consumed) を出す。
+            # 盾で吸収された分は (护盾吸收:N) として別途表示。
+            # 「消費分」(consume_amount) = 盾吸収 + HP損失 で、heal_base=consume_hp の基数。
             self.narrative.consume_hp(
                 source_name=caster_dname,
                 amount=applied.get('consumed', 0),
@@ -3380,7 +3390,13 @@ class BattleFlowController:
                 max_hp=applied.get('max_hp', 0),
                 pct=applied.get('pct', 0),
                 hp_base=applied.get('hp_base', 'current_hp'),
+                shield_absorbed=applied.get('shield_absorbed', 0),
             )
+            # 子单位（子機）が自傷を吸収した場合も叙事に出す
+            for sa in (applied.get('sub_unit_absorbs') or []):
+                self.narrative.sub_unit_absorb(
+                    caster_dname, sa['sub_unit_name'], sa['absorbed'],
+                    sa['sub_unit_hp_after'], sa['sub_unit_max_hp'])
 
     def _log_narrative_resource(self, caster: UnitState, caster_dname: str, applied: dict) -> None:
         """输出 add_ap/add_ep/remove_ap/remove_pp/remove_ep/modify_pp 效果的叙事日志"""
