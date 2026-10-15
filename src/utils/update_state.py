@@ -11,10 +11,15 @@ src/utils/update_state.py
 """
 
 import json
+import logging
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+from src.utils.account_manager import atomic_write_text
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,7 +56,11 @@ class UpdateStateStore:
             user_data_dir: 用户数据目录（如 %APPDATA%/Izanami Lab/）
         """
         self._dir = user_data_dir / "update"
-        self._dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            # 目录不可写不应阻断启动：此前它会一路冒泡到 GUI 启动流程。
+            _log.warning("%s 无法创建，更新状态将无法持久化: %s", self._dir, e)
         self._state_path = self._dir / self.STATE_FILE
         self._manifest_path = self._dir / self.MANIFEST_FILE
 
@@ -68,10 +77,18 @@ class UpdateStateStore:
             return self._default_state()
 
     def save_state(self, state: Dict[str, Any]):
-        """保存更新状态"""
+        """保存更新状态。
+
+        写失败只记日志、不抛异常：状态文件不可写（如用户配置目录被安全软件
+        拒绝写入）时，更新功能应当降级，而绝不能让 GUI 启动失败或卡住。
+        """
         state["updated_at"] = time.time()
-        with open(self._state_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        try:
+            atomic_write_text(
+                self._state_path,
+                json.dumps(state, ensure_ascii=False, indent=2))
+        except OSError as e:
+            _log.warning("更新状态写入失败（已忽略，不影响使用）: %s", e)
 
     def update_state_field(self, **kwargs):
         """更新状态中的指定字段"""
@@ -188,14 +205,18 @@ class UpdateStateStore:
             return {}
 
     def save_local_manifest(self, version: str, files: Dict[str, Dict[str, Any]]):
-        """保存本地文件清单"""
+        """保存本地文件清单（写失败只记日志，理由同 save_state）"""
         manifest = {
             "version": version,
             "files": files,
             "updated_at": time.time(),
         }
-        with open(self._manifest_path, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        try:
+            atomic_write_text(
+                self._manifest_path,
+                json.dumps(manifest, ensure_ascii=False, indent=2))
+        except OSError as e:
+            _log.warning("本地文件清单写入失败（已忽略）: %s", e)
 
     def update_local_manifest(self, version: str, added_or_modified: Dict[str, Dict[str, Any]],
                               deleted: List[str] = None):

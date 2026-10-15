@@ -35,6 +35,40 @@ FEATURE_CATEGORIES = OrderedDict([
     ('o', '其他'),
 ])
 
+# 严禁入库的工具/运行时产物前缀。
+# 历史事故：
+#   1. `.mimosa/` 被 `git add .` 扫入并推送（1142个文件/30MB）
+#   2. `_analysis/` 被 `git add .` 扫入并提交入库（113个文件）——
+#      **一旦被跟踪，`.gitignore` 就失效**，仅检查「未跟踪文件」拦不住，
+#      此后每次发布都会继续带上它。故本脚本同时检查已跟踪路径并自动取消跟踪。
+FORBIDDEN_PREFIXES = ('.mimosa/', '_backup', '_recycle_bin/', '.trae/',
+                      '.agent/', '.zcode/', '.dbg/', '.pytest_cache/',
+                      '__pycache__/', 'dist/', 'build/', '_analysis/')
+
+
+def _norm(p: str) -> str:
+    return p.strip().replace('\\', '/')
+
+
+def find_forbidden_untracked(untracked_text: str) -> list:
+    """从 `git ls-files --others --exclude-standard` 输出中挑出违禁文件。
+
+    这些文件尚未被跟踪，`git add .` 会把它们扫进提交 -> 必须中止发布。
+    """
+    return [p.strip() for p in untracked_text.splitlines()
+            if p.strip() and _norm(p).startswith(FORBIDDEN_PREFIXES)]
+
+
+def find_forbidden_tracked_dirs(tracked_text: str) -> list:
+    """从 `git ls-files` 输出中挑出「已被跟踪」的违禁顶层目录。
+
+    `.gitignore` 对已跟踪文件无效，必须显式 `git rm -r --cached`。
+    """
+    return sorted({
+        _norm(p).split('/')[0] for p in tracked_text.splitlines()
+        if p.strip() and _norm(p).startswith(FORBIDDEN_PREFIXES)
+    })
+
 
 def run_cmd(cmd, cwd=None):
     """运行命令并返回结果
@@ -366,15 +400,10 @@ def main():
         print("  有未提交的更改，先提交...")
 
         # 安全检查：提交前列出将被纳入的文件，拦截不该入库的工具产物
-        # （历史事故：.mimosa/ 曾被 `git add .` 扫入并推送，1142个文件/30MB）
-        FORBIDDEN_PREFIXES = ('.mimosa/', '_backup', '_recycle_bin/', '.trae/',
-                              '.agent/', '.zcode/', '.dbg/', '.pytest_cache/',
-                              '__pycache__/', 'dist/', 'build/')
+        # （前缀定义与判定函数见模块顶部 FORBIDDEN_PREFIXES / find_forbidden_*）
+        # (a) 未跟踪且未被忽略的违禁文件：`git add .` 会把它们扫进去 -> 直接中止
         untracked = run_cmd("git ls-files --others --exclude-standard", cwd=SCRIPT_DIR)
-        offenders = [
-            p for p in untracked.splitlines()
-            if p.strip() and p.replace('\\', '/').startswith(FORBIDDEN_PREFIXES)
-        ]
+        offenders = find_forbidden_untracked(untracked)
         if offenders:
             print(f"  错误: 检测到 {len(offenders)} 个不应入库的文件，已中止发布：")
             for p in offenders[:10]:
@@ -383,6 +412,20 @@ def main():
                 print(f"    ... 还有 {len(offenders) - 10} 个")
             print("  请将它们加入 .gitignore 后重试。")
             sys.exit(1)
+
+        # (b) 已被跟踪的违禁路径：`.gitignore` 对已跟踪文件无效，
+        #     所以必须显式取消跟踪，否则本次提交仍会带上它们。
+        #     `git rm -r --cached` 只改索引，本地文件保留。
+        tracked = run_cmd("git ls-files", cwd=SCRIPT_DIR)
+        bad_tracked = find_forbidden_tracked_dirs(tracked)
+        if bad_tracked:
+            print(f"  警告: 检测到 {len(bad_tracked)} 个已被跟踪的违禁目录，"
+                  f"将取消跟踪（本地文件保留）：")
+            for p in bad_tracked:
+                print(f"    - {p}")
+            for p in bad_tracked:
+                run_cmd(f"git rm -r --cached --quiet {p}", cwd=SCRIPT_DIR)
+            print("  已取消跟踪；本次提交会把这些文件从仓库中删除。")
 
         run_cmd("git add .", cwd=SCRIPT_DIR)
         commit_msg = f"Release {version}"

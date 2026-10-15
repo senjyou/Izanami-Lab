@@ -62,6 +62,12 @@ def _pre_start_migration():
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
+    # 尽早启用文件日志（迁移/启动阶段的失败也要留痕）
+    try:
+        from src.utils.app_logging import setup_file_logging
+        setup_file_logging()
+    except Exception:
+        pass
     _pre_start_migration()
     from gui.app import MGGBattleSimulatorGUI
     MGGBattleSimulatorGUI()

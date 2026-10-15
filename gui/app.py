@@ -10,6 +10,7 @@
   5. 角色单位构建（_create_unit）
 """
 
+import logging
 import subprocess
 import sys
 import json
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+log = logging.getLogger(__name__)
 
 from src.data.data_loader import DataLoader
 from src.config.panel_config import PanelConfig, ModuleConfig
@@ -82,6 +85,20 @@ class MGGBattleSimulatorGUI:
         return char.name
 
     def __init__(self):
+        # 尽早启用文件日志：配置保存/关闭失败此前被静默吞掉，现场毫无线索。
+        try:
+            from src.utils.app_logging import setup_file_logging, log_write_probe
+            setup_file_logging()
+            # 关键配置路径的可写性探测：下次「写不进配置」时日志会直接点名
+            log_write_probe({
+                "APP_DATA_ROOT": APP_DATA_ROOT,
+                "user_data": _USER_DATA,
+                "global_config": GLOBAL_CONFIG_PATH,
+                "char_config": CHAR_CONFIG_PATH,
+                "ui_config": UI_CONFIG_PATH,
+            })
+        except Exception:
+            pass
         self.root = tk.Tk()
         self.root.title(f"Izanami Lab v{__version__}")
         self.root.geometry("1400x960")
@@ -725,7 +742,7 @@ class MGGBattleSimulatorGUI:
         return {"theme": "深色", "developer_mode": False}
 
     def _save_ui_config(self):
-        """保存外观配置"""
+        """保存外观配置（失败只记日志，不打断交互）"""
         try:
             UI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             config = {
@@ -734,14 +751,57 @@ class MGGBattleSimulatorGUI:
             }
             with open(UI_CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            # 曾经这里是 `pass`：主题设置保存不上时完全没有线索。
+            log.warning("外观配置保存失败（%s）: %s", UI_CONFIG_PATH, e)
+
+    def _close_optimizers(self):
+        """结束可能在运行的「智能优化」任务。
+
+        优化跑在 `daemon=False` 的 spawn 子进程里（打包版就是**另一个
+        Izanami Lab.exe**）。非守护子进程会让父进程在退出时一直等它，
+        所以不主动收尾的话，即使窗口关掉了，进程也不会结束：
+        表现为「关不掉」，而且它会一直占用 `_internal` 里的 DLL/PYD，
+        导致下次 `python build.py` 清理 dist 时报
+        `PermissionError [WinError 5] 拒绝访问`。
+        """
+        for name in ("team_tab", "tactical_tab", "circle_tab", "composite_tab",
+                     "step_crit_tab", "global_tab", "char_tab", "dummy_tab"):
+            tab = getattr(self, name, None)
+            runner = getattr(tab, "_optimize_runner", None) if tab is not None else None
+            if runner is None:
+                continue
+            try:
+                runner.close()
+                log.info("关闭时已结束智能优化任务（%s）", name)
+            except Exception as e:
+                log.warning("关闭时结束智能优化任务失败（%s）: %s", name, e)
 
     def _on_close(self):
-        self.update_daemon.stop()
-        self._save_char_config()
-        self.data_loader.save_custom_dummies()
-        self.root.destroy()
+        """关闭窗口：任何收尾失败都不允许阻止窗口关闭。
+
+        曾经的写法是先无条件执行 update_daemon.stop() / _save_char_config() /
+        data_loader.save_custom_dummies()，最后才 root.destroy()。其中
+        `save_custom_dummies()` 内部没有任何异常保护，一旦失败（账号目录不可写、
+        自定义木桩数据无法序列化等），`root.destroy()` 就永远不会执行 ——
+        现象正是用户报告的「点关闭没反应 / 关不掉」。
+
+        现在逐步 try/except，并用 finally 保证窗口一定销毁。
+        另外必须先结束智能优化子进程，否则主进程会一直等它（见 _close_optimizers）。
+        """
+        try:
+            for step, func in (
+                ("结束智能优化任务", self._close_optimizers),
+                ("停止更新守护进程", self.update_daemon.stop),
+                ("保存角色配置", self._save_char_config),
+                ("保存自定义木桩", self.data_loader.save_custom_dummies),
+            ):
+                try:
+                    func()
+                except Exception as e:
+                    log.warning("关闭时「%s」失败（已忽略，继续关闭）: %s", step, e)
+        finally:
+            self.root.destroy()
 
     # ────────────────────────────── 账号切换 ──────────────────────────────
 
@@ -816,8 +876,8 @@ class MGGBattleSimulatorGUI:
             with open(CHAR_CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(serializable, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to save char_config: %s", e)
+            # 曾经只用 logging.warning，而应用根本没配置 logging —— 等于静默失败。
+            log.warning("角色配置保存失败（%s）: %s", CHAR_CONFIG_PATH, e)
 
     def _load_char_config(self):
         if not CHAR_CONFIG_PATH.exists():

@@ -13,17 +13,19 @@
 安全约定：
 - accounts.json 的 dir 字段与账号包内的相对路径视为不可信输入，拼接前必须
   通过 _safe_dir_name / _safe_rel 校验，导入文件另做 resolve 包含性校验。
-- 所有文件写入走 _atomic_write_bytes（mkstemp + fdopen + os.replace），
+- 所有文件写入走 atomic_write_bytes（同目录临时文件 + fdopen + os.replace），
   目标路径永不出现写模式 open()，同时保证写坏一半不会破坏原文件。
 """
 
 import json
+import logging
 import os
 import re
 import shutil
-import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+
+_log = logging.getLogger(__name__)
 
 REGISTRY_VERSION = 1
 BUNDLE_SCHEMA = "izanami-account"
@@ -41,6 +43,11 @@ STANDARD_ACCOUNT_DIRS = [
 
 _WINDOWS_ILLEGAL = re.compile(r'[\\/:*?"<>|]')
 
+# 原子写临时文件的最大尝试次数。刻意远小于 tempfile.TMP_MAX(10000)：
+# 随机后缀下名字撞车几乎不可能，重试只是极端情况兜底；
+# 而失控的重试会把调用它的主线程卡死（详见 atomic_write_bytes 的说明）。
+_TMP_ATTEMPTS = 8
+
 
 def _now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -54,12 +61,52 @@ def sanitize_account_name(name: str) -> str:
     return name or "account"
 
 
+def _tmp_candidate(target: Path) -> Path:
+    """同目录临时文件名：进程号 + 随机后缀，避免与其它写入者撞车。"""
+    return target.parent / f".tmp-{os.getpid()}-{os.urandom(8).hex()}"
+
+
 def atomic_write_bytes(target: Path, data: bytes) -> None:
-    """把字节内容原子写入 target：同目录 mkstemp 临时文件 + os.replace。
+    """把字节内容原子写入 target：同目录临时文件 + os.replace。
 
     写失败时清理临时文件且不触碰原文件；目标路径的父目录必须已存在。
+
+    **刻意不复用 `tempfile.mkstemp`**：在 Windows 上，当目录不可写
+    （`os.open` 抛 PermissionError）而 `os.access(dir, os.W_OK)` 仍返回 True 时，
+    CPython 的 `_mkstemp_inner` 会把它当作「已有同名目录占用该名字」而 continue，
+    最多重试 `TMP_MAX = 10000` 次，**且永不报错**。
+    打包版曾因此卡死在启动路径
+    （gui/app.py -> AccountRegistry.touch_current -> _write -> 本函数）：
+    窗口已创建但永远进不了 mainloop，表现为白屏 + 单核 100% CPU + Windows
+    AppHang，且因为 `touch_current` 静默吞异常而毫无线索。
+
+    这里只在**确实被同名目录占用**时重试，其余 PermissionError 立即抛出，
+    并把重试次数限制在 `_TMP_ATTEMPTS` 次，任何情况下都不会无限重试。
     """
-    fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp-")
+    fd = None
+    tmp = None
+    last_err = None
+    for _ in range(_TMP_ATTEMPTS):
+        candidate = _tmp_candidate(target)
+        try:
+            fd = os.open(candidate,
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                         | getattr(os, "O_BINARY", 0), 0o600)
+            tmp = candidate
+            break
+        except FileExistsError as e:
+            # 名字撞车（随机后缀，概率极低）：换个名字重试
+            last_err = e
+        except PermissionError as e:
+            # 与 mkstemp 的关键差别：只有「同名目录占用」才重试，否则立刻失败
+            if candidate.is_dir():
+                last_err = e
+                continue
+            raise
+    if tmp is None:
+        raise last_err if last_err is not None else OSError(
+            f"无法在 {target.parent} 创建临时文件")
+
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -194,15 +241,20 @@ class AccountRegistry:
         self._write(data)
 
     def touch_current(self) -> None:
-        """启动时刷新当前账号的 last_used，失败静默（不影响启动）。"""
+        """启动时刷新当前账号的 last_used，失败静默（不影响启动）。
+
+        注意：失败必须留下日志。此前这里静默吞异常，加上 atomic_write_bytes
+        会失控重试，打包版启动卡死（白屏 + 单核 100% CPU）时毫无线索。
+        """
         try:
             data = self._read()
             acc = self._find(data, data.get("current"))
             if acc is not None:
                 acc["last_used"] = _now_str()
                 self._write(data)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning("%s 不可写，跳过 last_used 刷新（不影响启动）: %s",
+                         self.app_root, e)
 
     def dismiss_legacy_import(self) -> None:
         data = self._read()

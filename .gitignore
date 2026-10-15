@@ -15,6 +15,8 @@ data/ui_config.json
 
 # === 运行时产物 ===
 data/battle_logs/
+# 应用运行日志（src/utils/app_logging.py 写入；打包版在 exe 同级 logs/）
+logs/
 
 # === 用户预设 ===
 data/presets/
@@ -29,6 +31,18 @@ references/
 .dbg/
 data/*.bak
 data/*.bak*
+
+# _analysis/ 是本地分析用的临时脚本/报告/图表目录（pytest 探针、方差分析、
+# 各种 *_probe.png / *.log / *.md 报告等），不属于项目源码，严禁入库。
+# 注意：本目录曾被 `git add .` 扫入并提交（113个文件），
+# 一旦被跟踪，仅加 ignore 是无效的 —— 必须同时 `git rm -r --cached _analysis`。
+_analysis/
+
+# 临时/诊断用的 PyInstaller 输出目录（如 pyinstaller --distpath dist_probe 调试用）。
+# 单个数千文件，一旦被 `git add .` 扫入就会污染仓库（同 _analysis 的教训）。
+# 正式打包输出是 dist/ 与 build/（已在上面忽略）。
+dist_*/
+build_*/
 
 # === 设计文档与测试 ===
 docs/
