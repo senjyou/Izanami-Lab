@@ -1,0 +1,75 @@
+正在加载所有数据...
+[OK] 已加载 96 个角色数据
+[OK] 已加载 1830 个技能数据
+[OK] 已加载 1388 个解析后的技能效果
+[OK] 已加载 96 个角色技能映射
+[OK] 已加载 200 个等级的插值数据
+[OK] 已加载 3 种类型的好感度加成
+[OK] 已加载 96 个角色的稀有度加成
+[OK] 已加载 9 个学园系统, 2 组等级加成
+[OK] 已加载 12 个装备
+[OK] 已加载 9 个模块定义
+[OK] 已加载 9 个模块的状态数据
+[OK] 已加载 8 种词条类型
+[OK] 已加载 13339 个敌方单位
+[OK] 已加载 164 张回忆卡
+[OK] 已加载 264 个回忆卡结构化效果
+[OK] 已加载 56 个战术演习敌方单位
+[OK] 已加载对抗压制战数据 (3 个赛季, 300 个阶段)
+[OK] 已加载复合战术演习数据 (5 个敌人)
+[OK] 所有数据加载完成
+============================================================================
+ARM M: positions FIXED, memory set VARIES
+============================================================================
+[OK] 已加载 6879 个敌方技能映射
+  mem 0: score=    11,236,296  cards=[10001, 10002, 10003, 10004, 10005, 10006]
+  mem 1: score=    10,882,207  cards=[10001, 10004, 10005, 10006, 10010, 30023]
+  mem 2: score=    11,196,260  cards=[10002, 10006, 10007, 10009, 10010, 10011]
+  mem 3: score=    10,781,619  cards=[10001, 10002, 10003, 10005, 10011, 30023]
+  mem 4: score=    10,865,242  cards=[10001, 10003, 10006, 10012, 20021, 30021]
+  mem 5: score=    10,708,113  cards=[10003, 10006, 10008, 10013, 20092, 30021]
+
+============================================================================
+ARM P: memory set FIXED, positions VARY
+============================================================================
+  pos 0: score=    11,236,296  positions=[100301, 101301, 102301, 103301, 104301, None]
+  pos 1: score=    12,154,930  positions=[103301, 101301, 102301, 100301, 104301, None]
+  pos 2: score=    11,821,379  positions=[104301, 101301, 102301, 103301, 100301, None]
+  pos 3: score=    10,476,480  positions=[100301, 102301, 101301, 103301, 104301, None]
+  pos 4: score=     9,951,052  positions=[101301, 100301, 102301, 103301, 104301, None]
+  pos 5: score=    11,250,500  positions=[100301, 101301, 102301, 104301, 103301, None]
+
+============================================================================
+DECOMPOSITION
+============================================================================
+
+  MEMORY axis (positions fixed)
+    n=6  mean=10,944,956  sd=219,590 (2.01%)
+    range 10,708,113 .. 11,236,296   spread=4.83%
+
+  POSITION axis (memory fixed)
+    n=6  mean=11,148,440  sd=820,887 (7.36%)
+    range 9,951,052 .. 12,154,930   spread=19.77%
+
+  memory-axis spread :   4.83%   (sd 2.01%)
+  position-axis spread:  19.77%   (sd 7.36%)
+  ratio (position / memory) by sd: 3.7x
+
+  memory-buff vector per config (analytic, zero-battle):
+    mem 0: {'StatusMaxHp': 1050.0, 'StatusSpeed': 40.0, 'StatusCriticalChance': 5.0, 'StatusDefense': 1450.0}
+    mem 1: {'StatusMaxHp': 2100.0, 'StatusDefense': 1450.0, 'StatusAttack': 1258.0}
+    mem 2: {'StatusSpeed': 40.0, 'StatusDefense': 1250.0, 'StatusMaxHp': 2100.0}
+    mem 3: {'StatusMaxHp': 1050.0, 'StatusSpeed': 40.0, 'StatusCriticalChance': 5.0, 'StatusDefense': 500.0, 'StatusAttack': 1258.0}
+    mem 4: {'StatusMaxHp': 1050.0, 'StatusCriticalChance': 10.0, 'StatusDefense': 750.0, 'DealtDamage': 8.4, 'CriticalBonusModification': 10.5, 'StatusSpeed': 20.0}
+    mem 5: {'StatusCriticalChance': 10.0, 'StatusDefense': 890.0, 'DealtDamage': 16.8, 'StatusMaxHp': 700.0}
+
+  within the memory arm, does each buff type track score?
+    CriticalBonusModification      spearman=-0.131
+    DealtDamage                    spearman=-0.676
+    StatusAttack                   spearman=-0.207
+    StatusCriticalChance           spearman=-0.598
+    StatusDefense                  spearman=+0.725
+    StatusMaxHp                    spearman=+0.617
+    StatusSpeed                    spearman=+0.494
+
+wrote decomposition.json

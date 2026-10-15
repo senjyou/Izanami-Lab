@@ -25,6 +25,10 @@ class DamageService:
         self._crit_override_func: Optional[Callable[[Dict], bool]] = None
         self._crit_context: Dict[str, Any] = {}
         self._darkness_override_func = None  # 黑暗掷骰覆盖（逐步暴击分支决策，与skill_service共用random_draw通道）
+        # 「行動開始時」的mark数快照 {unit_id: {mark_name: 层数}}，供 hit_count_per_mark 使用。
+        # None = 未取快照（直接用实时层数，兼容直接调用 execute_skill 的单元测试路径）。
+        # 由 BattleFlowController._execute_unit_action 在每次行动开始时刷新。
+        self._mark_counts_at_action_start: Optional[Dict[str, Dict[str, int]]] = None
 
     def set_darkness_override(self, func):
         """设置黑暗掷骰覆盖函数。func接收context dict，返回候选索引（0=MISS, 1=命中）"""
@@ -239,6 +243,45 @@ class DamageService:
         debuff_val = self._aggregate_buff_value(filtered_debuffs, effect_type, is_debuff_list=True, value_tag=value_tag, unit=unit, attacker=attacker)
         return buff_val - debuff_val
 
+    def snapshot_mark_counts_at_action_start(self, battlefield) -> None:
+        """行动开始时快照所有单位的mark层数（供 hit_count_per_mark 判定「所持している」）。
+
+        由 BattleFlowController._execute_unit_action 在每次行动开始时调用，必须在
+        before_skill_use / before_ally_as_attack 窗口（PS可追加mark）之前取快照。
+
+        背景：220466「断罪の時だ！」的描述为「対象に付与されている『刻痕』1つにつき
+        1ヒット追加」，即按**攻击宣言时已持有**的刻痕数追加hit。而 PS 230497
+        「我が雄姿を見よ！+」是 before_skill_use 触发、对攻击目标追加1行动刻痕 +
+        附魔伤害——同一次行动内刚赋予的刻痕不应计入该次攻击的hit数。
+        """
+        counts: Dict[str, Dict[str, int]] = {}
+        for u in battlefield.get_all_units():
+            per_unit: Dict[str, int] = {}
+            for b in (getattr(u, 'buffs', []) or []) + (getattr(u, 'debuffs', []) or []):
+                if getattr(b, 'effect_type', None) == SkillEffectType.MARK.value:
+                    mname = getattr(b, 'name', '')
+                    if mname:
+                        per_unit[mname] = per_unit.get(mname, 0) + int(getattr(b, 'stack_count', 1) or 1)
+            counts[u.unit_id] = per_unit
+        self._mark_counts_at_action_start = counts
+
+    def _count_marks_for_hit_count_per_mark(self, defender: UnitState, mark_name: str) -> int:
+        """统计 defender 持有的指定mark层数（hit_count_per_mark 用）。
+
+        已取「行动开始」快照时按快照计数（同一次行动内新赋予的mark不计入）；
+        未取快照时（直接调用 execute_skill / calculate_damage 的单元测试路径）
+        回退到实时层数，保持原有行为不变。
+        """
+        snap = self._mark_counts_at_action_start
+        if snap is not None:
+            return snap.get(defender.unit_id, {}).get(mark_name, 0)
+        cnt = 0
+        for _m in defender.buffs + defender.debuffs:
+            if (_m.effect_type == SkillEffectType.MARK.value
+                    and getattr(_m, 'name', '') == mark_name):
+                cnt += int(getattr(_m, 'stack_count', 1) or 1)
+        return cnt
+
     def calculate_damage(self, attacker: UnitState, defender: UnitState, skill_data: Any,
                          is_cover_damage: bool = False, on_crit_callback=None) -> DamageResult:
         """
@@ -379,16 +422,14 @@ class DamageService:
         hit_count = getattr(skill_data, "hit_count", 1) or 1
 
         # 动态hit数：按目标持有的mark数追加hit（120176「断罪の時だ！」刻痕1つにつき1ヒット追加、上限+9）
+        # 「付与されている」按**攻击宣言时已持有**的层数计（行动开始快照），
+        # 同一次行动内 PS 刚赋予的刻痕不计入（否则220466会被自身PS2多加1hit）。
         _hcpm = getattr(skill_data, "hit_count_per_mark", None)
         if _hcpm and isinstance(_hcpm, dict) and defender is not None:
             _hcpm_mark = _hcpm.get('mark_name', '')
             _hcpm_max_extra = int(_hcpm.get('max_extra', 0) or 0)
             if _hcpm_mark:
-                _hcpm_cnt = 0
-                for _m in defender.buffs + defender.debuffs:
-                    if (_m.effect_type == SkillEffectType.MARK.value
-                            and getattr(_m, 'name', '') == _hcpm_mark):
-                        _hcpm_cnt += int(getattr(_m, 'stack_count', 1) or 1)
+                _hcpm_cnt = self._count_marks_for_hit_count_per_mark(defender, _hcpm_mark)
                 _hcpm_extra = min(_hcpm_cnt, _hcpm_max_extra) if _hcpm_max_extra > 0 else _hcpm_cnt
                 if _hcpm_extra > 0:
                     hit_count += _hcpm_extra

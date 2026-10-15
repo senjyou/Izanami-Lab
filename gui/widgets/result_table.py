@@ -49,6 +49,9 @@ class ResultTablePanel(ttk.Frame):
         # ── 下方：Notebook（表格容器） ──
         self._notebook = ttk.Notebook(self._paned)
         self._paned.add(self._notebook, weight=2)
+        # No tables yet, so collapse the table pane: an empty notebook would
+        # otherwise reserve most of the height and show as blank space.
+        self._sync_notebook()
 
         self.apply_theme()
 
@@ -62,6 +65,38 @@ class ResultTablePanel(ttk.Frame):
         for tab_id in self._notebook.tabs():
             self._notebook.forget(tab_id)
         self._trees = []
+        self._sync_notebook()
+
+    def _sync_notebook(self):
+        """Show the table area only while it actually has tables.
+
+        The paned window gives the notebook ``weight=2`` against the summary's
+        ``weight=1``, so an EMPTY notebook still reserves two thirds of the
+        height and draws as a large blank block. A caller that reports text only
+        (the optimizer) would therefore leave most of the panel empty. The
+        notebook is removed from the pane while it has no tabs, which hands its
+        weight back to the summary, and re-added when tables arrive.
+
+        ``panes()`` returns widget path NAMES, so membership is tested by name
+        rather than by comparing the widget objects.
+        """
+        try:
+            has_tabs = bool(self._notebook.tabs())
+        except tk.TclError:
+            return
+        try:
+            managed = str(self._notebook) in [str(p) for p in self._paned.panes()]
+        except tk.TclError:
+            return
+        try:
+            if has_tabs and not managed:
+                self._paned.add(self._notebook, weight=2)
+            elif not has_tabs and managed:
+                self._paned.forget(self._notebook)
+        except tk.TclError:
+            # add/forget can race with a pending geometry pass; the next call
+            # reconciles, and a failed sync must not break the caller's report.
+            pass
 
     def set_summary(self, text: str):
         """设置摘要文本（覆盖式）"""
@@ -128,6 +163,8 @@ class ResultTablePanel(ttk.Frame):
 
         self._trees.append(tree)
         self.apply_theme()
+        # A table arrived, so the pane must be visible again.
+        self._sync_notebook()
 
     def _sort_by_column(self, tree: ttk.Treeview, col: str):
         """点击列头排序（升序/降序切换）"""

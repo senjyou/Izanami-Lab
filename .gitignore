@@ -58,6 +58,7 @@ _zcode_session_digest.md
 
 # === 临时脚本/备份（下划线前缀的临时文件不入库）===
 _*.py
+!__init__.py
 _backup_*/
 _tmp_*/
 data/*_backup_*/

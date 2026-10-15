@@ -74722,7 +74722,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 2,
-      "duration_type": "source_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -74734,7 +74734,9 @@
         "def_up",
         "spd_up",
         "crit_rate_up"
-       ]
+       ],
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -74764,7 +74766,7 @@
   "display_target_type": 3,
   "parse_status": "manual",
   "parse_notes": [
-   "AS: 敵全体 buff_block 5类 2行動 + 自身ステルス 2行動 (source_action, 死亡解除)"
+   "AS: 敵全体 buff_block 5类 2行動 + 自身ステルス 2行動 (duration_type=action + duration_owner=caster, 死亡解除)"
   ],
   "simultaneous_limit": null
  },
@@ -82714,7 +82716,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -82722,7 +82724,8 @@
       "flags": {
        "value_type": "percent",
        "stackable": true,
-       "source_death_remove": true
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -86535,13 +86538,14 @@
       "value_tag": "shield",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "source_death_remove": true
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -87981,7 +87985,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88004,7 +88008,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88054,7 +88058,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88075,7 +88079,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88097,7 +88101,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88120,7 +88124,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88150,7 +88154,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88172,7 +88176,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88195,7 +88199,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88219,7 +88223,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88250,7 +88254,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88272,7 +88276,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88295,7 +88299,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88319,7 +88323,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88350,7 +88354,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88371,7 +88375,7 @@
       "value_tag": null,
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88393,7 +88397,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88416,7 +88420,7 @@
       "value_tag": "dmg",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -88522,7 +88526,7 @@
       "value_tag": "ex",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
@@ -90910,7 +90914,7 @@
      },
      {
       "effect_type": "atk_down",
-      "target_type": "self",
+      "target_type": "enemy_all",
       "target_identifier": null,
       "value": 20.0,
       "value_tag": null,
@@ -90922,14 +90926,16 @@
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "value_type": "percent"
+       "value_type": "percent",
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
       "effect_type": "block_buff_by_type",
-      "target_type": "self",
+      "target_type": "enemy_all",
       "target_identifier": null,
       "value": null,
       "value_tag": null,
@@ -90943,7 +90949,9 @@
       "flags": {
        "blocked_buff_types": [
         "atk_up"
-       ]
+       ],
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -90982,7 +90990,7 @@
   "display_target_type": 3,
   "parse_status": "manual",
   "parse_notes": [
-   "EX: damage(enemy_all, 威力) + atk_down(self 20%, 1行动) + block_buff_by_type(self, 阻止atk_up, 2行动) + [HP>=50%]add_ap(self +1)"
+   "EX: damage(enemy_all, 威力) + atk_down(enemy_all 20%, 1行动, duration_owner=caster) + block_buff_by_type(enemy_all, 阻止atk_up, 2行动, duration_owner=caster, source_death_remove) + [HP>=50%]add_ap(self +1)"
   ]
  },
  "120176": {
@@ -92776,7 +92784,7 @@
      },
      {
       "effect_type": "atk_down",
-      "target_type": "self",
+      "target_type": "enemy_all",
       "target_identifier": null,
       "value": 20.0,
       "value_tag": null,
@@ -92788,14 +92796,16 @@
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "value_type": "percent"
+       "value_type": "percent",
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
       "effect_type": "block_buff_by_type",
-      "target_type": "self",
+      "target_type": "enemy_all",
       "target_identifier": null,
       "value": null,
       "value_tag": null,
@@ -92809,7 +92819,9 @@
       "flags": {
        "blocked_buff_types": [
         "atk_up"
-       ]
+       ],
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -94767,13 +94779,14 @@
       "value_tag": "shield",
       "value_source": null,
       "duration": 1,
-      "duration_type": "attacker_action",
+      "duration_type": "action",
       "duration_tag": null,
       "hit_count": null,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "source_death_remove": true
+       "source_death_remove": true,
+       "duration_owner": "caster"
       },
       "ignore_defense": 0,
       "ignore_shield": 0

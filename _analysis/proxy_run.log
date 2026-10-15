@@ -1,0 +1,56 @@
+正在加载所有数据...
+[OK] 已加载 96 个角色数据
+[OK] 已加载 1830 个技能数据
+[OK] 已加载 1388 个解析后的技能效果
+[OK] 已加载 96 个角色技能映射
+[OK] 已加载 200 个等级的插值数据
+[OK] 已加载 3 种类型的好感度加成
+[OK] 已加载 96 个角色的稀有度加成
+[OK] 已加载 9 个学园系统, 2 组等级加成
+[OK] 已加载 12 个装备
+[OK] 已加载 9 个模块定义
+[OK] 已加载 9 个模块的状态数据
+[OK] 已加载 8 种词条类型
+[OK] 已加载 13339 个敌方单位
+[OK] 已加载 164 张回忆卡
+[OK] 已加载 264 个回忆卡结构化效果
+[OK] 已加载 56 个战术演习敌方单位
+[OK] 已加载对抗压制战数据 (3 个赛季, 300 个阶段)
+[OK] 已加载复合战术演习数据 (5 个敌人)
+[OK] 所有数据加载完成
+configs=18  seeds=2  real battles=36
+
+[OK] 已加载 6879 个敌方技能映射
+  cfg  0  score=    11,206,888  mem_buff_kinds=4
+  cfg  1  score=    11,523,058  mem_buff_kinds=4
+  cfg  2  score=    12,626,269  mem_buff_kinds=4
+  cfg  3  score=    12,626,269  mem_buff_kinds=5
+  cfg  4  score=    11,754,534  mem_buff_kinds=5
+  cfg  5  score=    11,555,265  mem_buff_kinds=4
+  cfg  6  score=    11,429,166  mem_buff_kinds=4
+  cfg  7  score=    11,463,865  mem_buff_kinds=5
+  cfg  8  score=     9,270,205  mem_buff_kinds=5
+  cfg  9  score=     9,524,678  mem_buff_kinds=6
+  cfg 10  score=    10,717,338  mem_buff_kinds=6
+  cfg 11  score=    11,545,236  mem_buff_kinds=3
+  cfg 12  score=    11,523,058  mem_buff_kinds=5
+  cfg 13  score=    11,130,265  mem_buff_kinds=4
+  cfg 14  score=    10,735,025  mem_buff_kinds=5
+  cfg 15  score=    10,639,429  mem_buff_kinds=6
+  cfg 16  score=    11,521,480  mem_buff_kinds=3
+  cfg 17  score=    11,296,502  mem_buff_kinds=4
+
+=== correlation of analytic features with REAL score ===
+  StatusCriticalChance               spearman=-0.647
+  StatusMaxHp                        spearman=+0.611
+  StatusSpeed                        spearman=-0.400
+  StatusAttack                       spearman=+0.324
+  CriticalBonusModification          spearman=-0.250
+  StatusDefense                      spearman=+0.212
+  DealtDamage                        spearman=+0.205
+
+  COMBINED weighted proxy            spearman=-0.715
+  top-3 overlap (best single feature vs truth): 0/3
+  top-5 overlap (best single feature vs truth): 0/5
+
+wrote proxy_experiment.json

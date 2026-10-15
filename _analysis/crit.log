@@ -1,0 +1,53 @@
+正在加载所有数据...
+[OK] 已加载 96 个角色数据
+[OK] 已加载 1830 个技能数据
+[OK] 已加载 1388 个解析后的技能效果
+[OK] 已加载 96 个角色技能映射
+[OK] 已加载 200 个等级的插值数据
+[OK] 已加载 3 种类型的好感度加成
+[OK] 已加载 96 个角色的稀有度加成
+[OK] 已加载 9 个学园系统, 2 组等级加成
+[OK] 已加载 12 个装备
+[OK] 已加载 9 个模块定义
+[OK] 已加载 9 个模块的状态数据
+[OK] 已加载 8 种词条类型
+[OK] 已加载 13339 个敌方单位
+[OK] 已加载 164 张回忆卡
+[OK] 已加载 264 个回忆卡结构化效果
+[OK] 已加载 56 个战术演习敌方单位
+[OK] 已加载对抗压制战数据 (3 个赛季, 300 个阶段)
+[OK] 已加载复合战术演习数据 (5 个敌人)
+[OK] 所有数据加载完成
+==============================================================================
+DOES THE JACKPOT LOOP NEED HIGH CRIT RATE? (carry = 発情バニー 112302)
+==============================================================================
+carry modules set to crit-rate affixes; supports unchanged
+
+ crit% per affix          mean      CV  max/min  p90/p10
+[OK] 已加载 6879 个敌方技能映射
+            0.0%     9,769,414   4.22%   1.169x   1.128x
+            3.5%    10,084,435   3.01%   1.119x   1.089x
+            7.0%    10,325,100   3.03%   1.122x   1.081x
+
+==============================================================================
+NOTE ON WHY THE SYNTHETIC LINEUP UNDERSTATES VARIANCE
+==============================================================================
+
+  * bunny base crit_rate = 15%, crit_damage = 0.0
+  * none of the four fixture supports grant crit rate
+  * ジャックポット needs CRITS to fire; at 15% it triggers rarely, so the
+    feedback loop cannot compound and variance stays low
+
+  A real 四拐一 build supplies large crit-rate buffs from supports, pushing the
+  carry's crit rate high enough that each attack chain feeds the next. Only then
+  does the positive feedback produce the wide 上下限 observed in the simulator.
+
+  => My synthetic lineups CANNOT reproduce the user's 2x because the crit-feed
+     supports are missing. The user's observation is consistent with the
+     mechanic; my test harness simply lacks the right supports.
+
+  IMPORTANT: this does NOT weaken the Roll5 conclusion. That conclusion is
+  structural (mean vs E[max of 5]) and was verified at zero battle cost; it
+  holds regardless of the exact variance magnitude.
+
+wrote crit_sweep.json

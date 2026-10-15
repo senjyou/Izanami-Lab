@@ -637,6 +637,15 @@ class MGGBattleSimulatorGUI:
         style.map("TCheckbutton",
                   background=[("active", s["bg"])],
                   indicatorcolor=[("selected", s["accent"])])
+        # clam draws a selected checkbutton as a filled box with a glyph that
+        # reads as an "X" -- the opposite of a tick. Replace just that indicator;
+        # see gui/widgets/checkmark_indicator.py for why the theme is not swapped.
+        try:
+            from gui.widgets.checkmark_indicator import install as _install_ticks
+            _install_ticks(style, s, self.root)
+        except Exception:
+            # A cosmetic indicator must never break the style pass.
+            pass
 
         style.configure("TRadiobutton", background=s["bg"], foreground=s["fg"],
                         indicatorcolor=s["surface"], indicatorforeground=s["fg"])

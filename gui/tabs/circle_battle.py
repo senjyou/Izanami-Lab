@@ -42,9 +42,12 @@ from gui.dialogs.enemy_detail import EnemyDetailDialog
 from gui.utils import _format_special_notes_single, _format_special_notes_multi
 
 from gui.tabs.base import BattleTabMixin
+from gui.optimizer_tab_mixin import OptimizeTabMixin
 
 
-class CircleBattleTab(BattleTabMixin, ttk.Frame):
+class CircleBattleTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
+    # 智能优化使用对抗压制战评价器
+    _OPTIMIZE_MODE = "circle"
     """对抗压制战模式 - 多敌方阵容，阶段1~100，回合耗尽未全灭判败"""
 
     # 当前支持的赛季（初期仅第5赛季）
@@ -256,6 +259,8 @@ class CircleBattleTab(BattleTabMixin, ttk.Frame):
                                         command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
                                         width=16)
         self._rdps_log_btn.grid(row=0, column=5, padx=5, pady=5)
+        # 智能优化入口（站位 × 共享回忆搜索；设置走二级弹窗）
+        self.build_optimize_button(battle_frame, column=6)
 
         # ── 特殊值日志导出按钮 ──
         export_frame = ttk.LabelFrame(f, text="特殊值日志导出（批量模拟后可用，以我方伤害为标准）")
@@ -277,6 +282,9 @@ class CircleBattleTab(BattleTabMixin, ttk.Frame):
 
         self._result_panel = ResultTablePanel(right_frame, self.app, title="战斗结果")
         self._result_panel.pack(fill=tk.BOTH, expand=True)
+        # 最优阵容缩略预览：卡片图像，显示在战斗结果面板下方
+        # （id 属解包数据不能显示，纯名称识别度低，故用真实卡图）
+        self.build_result_preview(right_frame)
 
         # 初始化敌方预览
         self._on_stage_change()

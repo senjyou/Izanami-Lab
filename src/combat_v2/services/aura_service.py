@@ -23,6 +23,23 @@ class AuraService:
                       unit.name, aura.effect_type, aura.value, aura.duration)
             return False
 
+        # 1.1 debuff_immune 检查: 目标持有 debuff_immune 时，阻止所有 debuff 新付与
+        # 「異常状態（眩暈/凍結/毒/燃焼/黑暗/混乱/幻惑）は debuff 的子集」，因此一并被阻挡。
+        #
+        # 【为何集中在此实现】debuff 的付与路径分散在 skill_service 的多个 handler
+        # （_apply_aura / _apply_add_status / carried_debuff / sub_unit 的
+        #  add_status_to_attack / sub_unit_target_debuffs 等），而它们最终**都**经
+        # add_aura。若在各 handler 内各自检查，极易漏检（历史 bug 即由此产生：
+        # _apply_add_status 与 carried_debuff 两条路径都曾漏掉 debuff_immune）。
+        # 在此集中检查后，任何新增付与路径都自动获得该免疫能力。
+        #
+        # 注意：debuff_immune 自身是 buff（is_debuff=False），不会被自己阻挡。
+        if aura.is_debuff and self.has_debuff_immune(unit):
+            _log.info("[DEBUFF_IMMUNE] %s: %s blocked by debuff_immune",
+                      unit.name, aura.effect_type)
+            self.consume_debuff_immune(unit)
+            return False
+
         # 1.2 block_buff_by_type 检查: 目标持有 BLOCK_BUFF_BY_TYPE debuff 时，
         # 阻止 blocked_buff_types 列表中的 buff 新付与 (S6 土雷 220362)
         # 注意: BLOCK_BUFF_BY_TYPE 自身不应被自己阻止
@@ -610,6 +627,42 @@ class AuraService:
                     b.duration -= 1
 
         # 注意: 不在此处调用check_expiration，由调用方在恢复逻辑后统一清理
+
+    # ========== debuff_immune（免疫所有 debuff，含異常状態） ==========
+
+    # 「異常状態」= debuff 的子集，持有 debuff_immune 时应一并免疫。
+    # 完整 7 种（与 skill_service 的 STATUS_AILMENT_TYPES 一致）：
+    #   眩暈 / 凍結 / 毒 / 燃焼 / 黑暗 / 混乱 / 幻惑
+    AILMENT_TYPES = frozenset({
+        "knockout", "freeze", "poison", "conflagration",
+        "darkness", "confusion", "genwaku",
+    })
+
+    @staticmethod
+    def has_debuff_immune(unit: UnitState) -> bool:
+        """目标是否持有 debuff_immune（大小写不敏感，兼容 'debuff_immune'/'DebuffImmune'）。"""
+        return any(
+            str(getattr(b, 'effect_type', '')).lower() == "debuff_immune"
+            for b in (getattr(unit, 'buffs', None) or [])
+        )
+
+    @staticmethod
+    def consume_debuff_immune(unit: UnitState) -> None:
+        """消费 debuff_immune 的 hit_limited（1 次阻挡 = 1 层），归零时移除 buff。
+
+        无 hit_limited 记录（duration 型免疫）时不消费，有效期内可阻挡多次。
+        """
+        for buff in (getattr(unit, 'buffs', None) or []):
+            if str(getattr(buff, 'effect_type', '')).lower() != "debuff_immune":
+                continue
+            if getattr(buff, 'hit_limited', 0) and buff.hit_limited > 0:
+                buff.hit_limited -= 1
+                _log.info("[DEBUFF_IMMUNE] %s: debuff_immune hit_limited %d->%d",
+                          unit.name, buff.hit_limited + 1, buff.hit_limited)
+                if buff.hit_limited <= 0:
+                    unit.buffs = [b for b in unit.buffs if b.buff_id != buff.buff_id]
+                    _log.info("[DEBUFF_IMMUNE] %s: debuff_immune buff EXPIRED", unit.name)
+            break  # 只消费第一个 debuff_immune buff
 
     def _is_immune(self, unit: UnitState, aura: BuffState) -> bool:
         """检查是否免疫"""

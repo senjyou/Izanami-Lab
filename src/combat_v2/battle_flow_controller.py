@@ -525,6 +525,12 @@ class BattleFlowController:
         for _u in self.battlefield.get_all_units():
             _u._damage_taken_in_action = 0
 
+        # 220466 断罪の時だ！等 hit_count_per_mark：快照「行動開始時」的mark层数。
+        # 必须在下方 before_skill_use / before_ally_as_attack 窗口（PS可对攻击目标追加mark）
+        # 之前取快照，使「対象に付与されている刻痕1つにつき1ヒット」按攻击宣言时的持有数计，
+        # 同一次行动内刚赋予的刻痕不计入本次攻击的hit数。
+        self.damage_service.snapshot_mark_counts_at_action_start(self.battlefield)
+
         # 更新所有存活单位的prev_hp_percent为当前HP百分比
         # 修复: 行动间治疗（HOT/技能治疗）后prev_hp_percent未更新，
         # 导致下次DOT降血时阈值跨越检测失效（如「再起律動」不触发）
@@ -735,22 +741,9 @@ class BattleFlowController:
             unit_count_actions = self.trigger_service.trigger_unit_count_below(self.battlefield)
             self._execute_global_trigger_actions(unit_count_actions)
 
-            # 4.5 清除死亡单位施加的「高揚」mark及其linked debuff
-            self._remove_marks_from_dead_caster(newly_dead)
-
-            # 4.6 清除死亡单位相关的ダメージリンクbuff
-            # 死亡者自身のdamage_link buffと、死亡者をsourceとするdamage_link buffを全て削除
-            # トリガー検査の後に実行され、self_damage_link_active条件は死亡者のbuff残存を考慮済み
-            self._remove_damage_link_from_dead(newly_dead)
-
-            # 4.7 清除死亡单位相关的回復リンクbuff
-            # 死亡者自身のheal_link buffと、死亡者をsource(転送先)とするheal_link buffを全て削除
-            self._remove_heal_link_from_dead(newly_dead)
-
-            # 4.8 清除死亡单位施加的带 source_death_remove 标志的 buff/debuff
-            # 施法者被击败时，其施加的 source_death_remove=True 的 buff/debuff 自动消失
-            # 例: 130161 PS1 def_down「防御デバフは付与者が倒れると解除される」
-            self._remove_source_death_buffs_from_dead(newly_dead)
+            # 4.5-4.8 清除死亡单位施加的效果（高揚mark / damage_link / heal_link /
+            #        source_death_remove标志的buff・debuff）
+            self._remove_caster_death_effects(newly_dead)
 
             # 5. 钩子：击杀触发器处理完毕后，允许子类（如战术演习）在此执行复活等逻辑
             self._on_deaths_resolved(newly_dead)
@@ -990,6 +983,8 @@ class BattleFlowController:
                 self._execute_trigger_actions(kill_actions, killer)
                 any_kill_actions = self.trigger_service.trigger_pawn_any_kill(killer, self.battlefield)
                 self._execute_trigger_actions(any_kill_actions, killer)
+        # 付与者死亡清理（必须早于复活钩子：复活=视为倒下）
+        self._remove_caster_death_effects(dot_killed)
         # 允许子类（如战术演习）在此执行复活等逻辑
         self._on_deaths_resolved(dot_killed)
         if self.narrative:
@@ -1125,8 +1120,7 @@ class BattleFlowController:
             unit_count_actions = self.trigger_service.trigger_unit_count_below(self.battlefield)
             self._execute_global_trigger_actions(unit_count_actions)
 
-            self._remove_marks_from_dead_caster(newly_dead)
-            self._remove_damage_link_from_dead(newly_dead)
+            self._remove_caster_death_effects(newly_dead)
             self._on_deaths_resolved(newly_dead)
 
         # 6. 输出复活叙事
@@ -1609,6 +1603,33 @@ class BattleFlowController:
             newly_dead: 本次行动中新阵亡的单位列表
         """
         pass
+
+    def _remove_caster_death_effects(self, newly_dead: list) -> None:
+        """清除新阵亡单位作为「付与者」施加的所有效果（caster-death cleanup）。
+
+        必须在 `_on_deaths_resolved`（战术演习在此复活敌方）**之前**调用：
+        复活是「视为倒下」的时点，付与者一旦倒下，其施加的以下效果都应立即解除。
+
+        包含4类（原先只在主AS路径各自调用，导致PS击杀/DoT击杀/蓄力路径漏清理）：
+          1. 「高揚」mark 及其 linked debuff（_remove_marks_from_dead_caster）
+          2. damage_link buff（死亡者自身 + 以死亡者为source）
+          3. heal_link buff（同上）
+          4. 带 source_death_remove 标志的 buff/debuff
+             （例：220467「軍靴の調べにすくめ！」刻痕「自身が倒れると解除される」、
+               130161 def_down、130169「観察」等）
+
+        背景（bug 实例）：军靴の調べにすくめ！赋予我方的「刻痕」带 source_death_remove，
+        但该次击杀发生在 PS（ストレラ）结算中，走的是 `_execute_trigger_actions` 的
+        PS击杀分支——该分支只调用了 `_on_deaths_resolved`（直接复活、跳过清理），
+        于是阶段推进（=视为倒下）后刻痕仍然残留并继续生效。
+        """
+        if not newly_dead:
+            return
+        # トリガー検査の後に実行され、self_damage_link_active条件は死亡者のbuff残存を考慮済み
+        self._remove_marks_from_dead_caster(newly_dead)
+        self._remove_damage_link_from_dead(newly_dead)
+        self._remove_heal_link_from_dead(newly_dead)
+        self._remove_source_death_buffs_from_dead(newly_dead)
 
     def _remove_marks_from_dead_caster(self, newly_dead: list) -> None:
         """清除死亡单位施加的「高揚」mark及其linked debuff。
@@ -2332,6 +2353,8 @@ class BattleFlowController:
                     self._execute_trigger_actions(kill_actions, owner)
                     any_kill_actions = self.trigger_service.trigger_pawn_any_kill(owner, self.battlefield)
                     self._execute_trigger_actions(any_kill_actions, owner)
+                    # 付与者死亡清理（必须早于复活钩子：复活=视为倒下）
+                    self._remove_caster_death_effects(ps_newly_dead)
                     # 钩子：PS击杀后也执行复活逻辑
                     self._on_deaths_resolved(ps_newly_dead)
                     if self.narrative:
@@ -2688,6 +2711,8 @@ class BattleFlowController:
                     self._execute_trigger_actions(kill_actions, owner)
                     any_kill_actions = self.trigger_service.trigger_pawn_any_kill(owner, self.battlefield)
                     self._execute_trigger_actions(any_kill_actions, owner)
+                    # 付与者死亡清理（必须早于复活钩子：复活=视为倒下）
+                    self._remove_caster_death_effects(global_newly_dead)
                     # 钩子：全局PS击杀后也执行复活逻辑
                     self._on_deaths_resolved(global_newly_dead)
                     if self.narrative:
@@ -3075,7 +3100,9 @@ class BattleFlowController:
             hit_crits = t.get("hit_crits", [t.get("crit")])
             hit_evades = t.get("hit_evades", [])
             hit_shield_list = t.get("hit_shield_absorbed", [])
-            hit_hp_losses = t.get("hit_hp_losses") or []  # 每hit真实HP损失（盾吸收/最低1点/HP上限修正后）
+            # 每hit真实HP损失（含最低1点/HP上限封顶）。仅用于推进 hp_after 轨迹，
+            # 不可用作「显示伤害」——见下方 display_damage 注释。
+            hit_hp_losses = t.get("hit_hp_losses") or []
             hit_count = len(hit_details)
             if hit_count > 1 and len(hit_crits) == hit_count:
                 running_hp = t['hp_before']
@@ -3085,13 +3112,20 @@ class BattleFlowController:
                     is_evaded = hit_evades[i] if i < len(hit_evades) else False
                     if is_evaded:
                         modifiers = ["Miss"]
-                        actual_hp_loss = 0
+                        display_damage = 0
+                        hp_loss_this_hit = 0
                     else:
-                        # 优先用引擎记录的每hit真实HP损失（含盾吸收/最低1点/HP上限封顶），
-                        # 缺失时回退 max(0, hit_dmg - hit_shield) 近似
-                        actual_hp_loss = (hit_hp_losses[i] if i < len(hit_hp_losses)
-                                          else max(0, hit_dmg - hit_shield))
-                        running_hp = max(0, running_hp - actual_hp_loss)
+                        # 显示伤害 = 该hit的真实伤害（扣盾后），**不因目标HP见底而截断**。
+                        # 口径与单hit分支（actual_damage）、以及附魔/追加/子单位叙事一致：
+                        # 附魔伤害在 HP:0 时仍显示全额（实测 91339），主伤害也应如此。
+                        # 若改用被HP截断的损失值，致死后各hit会被压成「剩余HP」和「0」，
+                        # 丢失真实伤害记录（如 169736→102375、89632→0）。
+                        display_damage = max(0, hit_dmg - hit_shield)
+                        # HP轨迹推进用引擎记录的真实HP损失（含最低1点/HP上限封顶），
+                        # 使 hp_after 与引擎实际HP一致；缺失时回退显示伤害。
+                        hp_loss_this_hit = (hit_hp_losses[i] if i < len(hit_hp_losses)
+                                            else display_damage)
+                        running_hp = max(0, running_hp - hp_loss_this_hit)
                         modifiers = []
                         if hit_crits[i]:
                             modifiers.append("Critical")
@@ -3105,7 +3139,7 @@ class BattleFlowController:
                         target_name=self._get_display_name(t.get('target_id', t['target'])),
                         hp_before=hp_before_hit,
                         hp_after=running_hp,
-                        damage=actual_hp_loss,
+                        damage=display_damage,
                         damage_type=dmg_type,
                         modifiers=modifiers,
                         shield_absorbed=hit_shield,
@@ -3270,6 +3304,13 @@ class BattleFlowController:
                 # 眩晕打断蓄力叙事
                 if s.get("charge_cancelled"):
                     self.narrative.charge_cancelled(target_dname, s["charge_skill_name"], "眩晕")
+            # 输出被免疫/闪避的状態異常叙事（debuff_immune / BlockSpecificAura 等）
+            # 異常状態は debuff 的子集，被免疫时应与aura同样输出「免疫减益」叙事
+            for b in applied.get("blocked", []):
+                target_dname = self._get_display_name(b.get('target_id', b['target']))
+                source_dname = self._get_display_name(b.get('source_id', b['source']))
+                self.narrative.debuff_blocked(target_dname, b['effect'], source_dname,
+                                              b.get('reason', 'debuff_immune'))
 
     def _log_narrative_damage_variants(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
         """输出 hp_ratio_damage/damage_special/lifesteal/add_fury/consume_hp 效果的叙事日志"""

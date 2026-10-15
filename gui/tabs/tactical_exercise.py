@@ -43,11 +43,12 @@ from gui.widgets.rdps import (
     _export_rdps_tracking_log,
 )
 from gui.dialogs.enemy_picker import EnemyPickerDialog
+from gui.optimizer_tab_mixin import OptimizeTabMixin
 
 from gui.tabs.base import BattleTabMixin
 
 
-class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
+class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
     """战术演习模式 - 单体敌方无限复活，阶段递增"""
 
     def __init__(self, parent, app):
@@ -248,6 +249,8 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
                                         command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
                                         width=16)
         self._rdps_log_btn.grid(row=0, column=5, padx=5, pady=5)
+        # 智能优化入口（站位 × 共享回忆搜索；设置走二级弹窗）
+        self.build_optimize_button(battle_frame, column=6)
 
         # ── 特殊值日志导出按钮 ──
         export_frame = ttk.LabelFrame(f, text="特殊值日志导出（多场模拟后可用）")
@@ -269,6 +272,9 @@ class TacticalExerciseTab(BattleTabMixin, ttk.Frame):
 
         self._result_panel = ResultTablePanel(right_frame, self.app, title="演习结果")
         self._result_panel.pack(fill=tk.BOTH, expand=True)
+        # 最优阵容缩略预览：卡片图像，显示在演习结果面板下方
+        # （id 属解包数据不能显示，纯名称识别度低，故用真实卡图）
+        self.build_result_preview(right_frame)
 
         # 初始化敌方预览（自动选中第一个）
         self._refresh_enemy_selection()

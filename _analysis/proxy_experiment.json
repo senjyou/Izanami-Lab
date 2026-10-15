@@ -1,0 +1,552 @@
+{
+ "rows": [
+  {
+   "idx": 0,
+   "score": 11206888.5,
+   "feats": {
+    "StatusMaxHp": 1050.0,
+    "StatusSpeed": 40.0,
+    "StatusCriticalChance": 5.0,
+    "StatusDefense": 1450.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10001,
+    10002,
+    10003,
+    10004,
+    10005,
+    10006
+   ]
+  },
+  {
+   "idx": 1,
+   "score": 11523058.0,
+   "feats": {
+    "StatusDefense": 890.0,
+    "StatusAttack": 1258.0,
+    "StatusMaxHp": 1750.0,
+    "DealtDamage": 8.4,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10005,
+    10006,
+    10008,
+    10010,
+    20092,
+    30023
+   ]
+  },
+  {
+   "idx": 2,
+   "score": 12626269.0,
+   "feats": {
+    "StatusDefense": 890.0,
+    "StatusMaxHp": 1750.0,
+    "DealtDamage": 8.4,
+    "StatusAttack": 1258.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    103301,
+    101301,
+    102301,
+    100301,
+    104301,
+    null
+   ],
+   "memories": [
+    10005,
+    10006,
+    10008,
+    10010,
+    20092,
+    30023
+   ]
+  },
+  {
+   "idx": 3,
+   "score": 12626269.0,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusMaxHp": 1750.0,
+    "StatusDefense": 640.0,
+    "DealtDamage": 8.4,
+    "StatusAttack": 1258.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    103301,
+    101301,
+    102301,
+    100301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10008,
+    10010,
+    10011,
+    20092,
+    30023
+   ]
+  },
+  {
+   "idx": 4,
+   "score": 11754534.0,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusMaxHp": 1750.0,
+    "StatusDefense": 640.0,
+    "DealtDamage": 8.4,
+    "StatusAttack": 1258.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    104301,
+    101301,
+    102301,
+    103301,
+    100301,
+    null
+   ],
+   "memories": [
+    10002,
+    10008,
+    10010,
+    10011,
+    20092,
+    30023
+   ]
+  },
+  {
+   "idx": 5,
+   "score": 11555265.0,
+   "feats": {
+    "StatusSpeed": 60.0,
+    "StatusMaxHp": 1050.0,
+    "DealtDamage": 8.4,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    104301,
+    101301,
+    102301,
+    103301,
+    100301,
+    null
+   ],
+   "memories": [
+    10002,
+    10010,
+    10012,
+    10013,
+    20021,
+    20092
+   ]
+  },
+  {
+   "idx": 6,
+   "score": 11429166.5,
+   "feats": {
+    "StatusSpeed": 60.0,
+    "StatusMaxHp": 1050.0,
+    "DealtDamage": 8.4,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    102301,
+    101301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10010,
+    10012,
+    10013,
+    20021,
+    20092
+   ]
+  },
+  {
+   "idx": 7,
+   "score": 11463865.0,
+   "feats": {
+    "StatusMaxHp": 1050.0,
+    "StatusSpeed": 60.0,
+    "StatusCriticalChance": 5.0,
+    "StatusDefense": 500.0,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    102301,
+    101301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10001,
+    10002,
+    10003,
+    10011,
+    10012,
+    20021
+   ]
+  },
+  {
+   "idx": 8,
+   "score": 9270205.0,
+   "feats": {
+    "StatusMaxHp": 1050.0,
+    "StatusSpeed": 60.0,
+    "StatusCriticalChance": 5.0,
+    "StatusDefense": 500.0,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    101301,
+    100301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10001,
+    10002,
+    10003,
+    10011,
+    10012,
+    20021
+   ]
+  },
+  {
+   "idx": 9,
+   "score": 9524677.5,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusDefense": 500.0,
+    "DealtDamage": 8.4,
+    "StatusCriticalChance": 5.0,
+    "StatusAttack": 1258.0,
+    "StatusMaxHp": 1050.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    101301,
+    100301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10005,
+    10010,
+    10011,
+    30021,
+    30023
+   ]
+  },
+  {
+   "idx": 10,
+   "score": 10717337.5,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusDefense": 500.0,
+    "DealtDamage": 8.4,
+    "StatusCriticalChance": 5.0,
+    "StatusAttack": 1258.0,
+    "StatusMaxHp": 1050.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    104301,
+    103301,
+    null
+   ],
+   "memories": [
+    10002,
+    10005,
+    10010,
+    10011,
+    30021,
+    30023
+   ]
+  },
+  {
+   "idx": 11,
+   "score": 11545236.0,
+   "feats": {
+    "StatusCriticalChance": 5.0,
+    "StatusMaxHp": 2100.0,
+    "StatusAttack": 1258.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    104301,
+    103301,
+    null
+   ],
+   "memories": [
+    10003,
+    10007,
+    10009,
+    10010,
+    10013,
+    30023
+   ]
+  },
+  {
+   "idx": 12,
+   "score": 11523058.0,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusDefense": 640.0,
+    "StatusAttack": 1258.0,
+    "StatusMaxHp": 1750.0,
+    "DealtDamage": 8.4,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10008,
+    10010,
+    10011,
+    20092,
+    30023
+   ]
+  },
+  {
+   "idx": 13,
+   "score": 11130265.0,
+   "feats": {
+    "StatusSpeed": 60.0,
+    "StatusMaxHp": 1050.0,
+    "DealtDamage": 8.4,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10010,
+    10012,
+    10013,
+    20021,
+    20092
+   ]
+  },
+  {
+   "idx": 14,
+   "score": 10735025.0,
+   "feats": {
+    "StatusMaxHp": 1050.0,
+    "StatusSpeed": 60.0,
+    "StatusCriticalChance": 5.0,
+    "StatusDefense": 500.0,
+    "CriticalBonusModification": 10.5,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10001,
+    10002,
+    10003,
+    10011,
+    10012,
+    20021
+   ]
+  },
+  {
+   "idx": 15,
+   "score": 10639429.0,
+   "feats": {
+    "StatusSpeed": 40.0,
+    "StatusDefense": 500.0,
+    "DealtDamage": 8.4,
+    "StatusCriticalChance": 5.0,
+    "StatusAttack": 1258.0,
+    "StatusMaxHp": 1050.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10005,
+    10010,
+    10011,
+    30021,
+    30023
+   ]
+  },
+  {
+   "idx": 16,
+   "score": 11521480.0,
+   "feats": {
+    "StatusCriticalChance": 5.0,
+    "StatusMaxHp": 2100.0,
+    "StatusAttack": 1258.0,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10003,
+    10007,
+    10009,
+    10010,
+    10013,
+    30023
+   ]
+  },
+  {
+   "idx": 17,
+   "score": 11296502.5,
+   "feats": {
+    "StatusSpeed": 60.0,
+    "StatusCriticalChance": 5.0,
+    "StatusMaxHp": 2100.0,
+    "DealtDamage": 8.4,
+    "_front_row_count": 3,
+    "_allies": 5
+   },
+   "positions": [
+    100301,
+    101301,
+    102301,
+    103301,
+    104301,
+    null
+   ],
+   "memories": [
+    10002,
+    10003,
+    10009,
+    10010,
+    10012,
+    20092
+   ]
+  }
+ ],
+ "scored": [
+  [
+   "StatusCriticalChance",
+   -0.6471638866421188
+  ],
+  [
+   "StatusMaxHp",
+   0.6114120344262304
+  ],
+  [
+   "StatusSpeed",
+   -0.39999413950183293
+  ],
+  [
+   "StatusAttack",
+   0.3235819433210594
+  ],
+  [
+   "CriticalBonusModification",
+   -0.2501292323684139
+  ],
+  [
+   "StatusDefense",
+   0.21187720229782703
+  ],
+  [
+   "DealtDamage",
+   0.2046511901196114
+  ]
+ ],
+ "seeds": [
+  9101,
+  9102
+ ]
+}

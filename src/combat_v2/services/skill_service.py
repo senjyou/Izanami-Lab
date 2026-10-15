@@ -4327,7 +4327,27 @@ class SkillService:
                     if should_nullify and invuln_buff.hit_limited > 0:
                         nullified_damage += (hit_dmg - 1)  # 差值：原伤害-1
                         new_hit_details.append(1)  # 伤害无效=1点伤害
-                        new_hit_crits.append(False)  # 无效化不算暴击
+                        # 无效化只改伤害值，不改暴击结果：原hit的暴击判定必须保留。
+                        #
+                        # 依据1（附魔暴击共享，本bug的直接原因）：
+                        #   _process_enchant_damage_for_target 用
+                        #   force_crit = any(target_info["hit_crits"]) 决定附魔/追加/子单位
+                        #   伤害是否暴击（见 project_memory.md「暴击必须共享主攻击」）。
+                        #   此处改写为 False 后，主攻击暴击但被无效化时附魔伤害丢失暴击。
+                        #   实例（step_crit_console_tactical_20261015_130931.txt）：
+                        #   L520 主伤害 464747 crit=True → L521 被无效化为1 →
+                        #   L526 附魔 59477 crit=False（应暴击）。
+                        #
+                        # 依据2（与同类「最低1点伤害」路径保持一致）：
+                        #   _apply_damage_absorb_shields_and_subunits 的最低1点伤害规则、
+                        #   freeze 增伤分支都只改 actual_damage，均不动 hit_crits。
+                        #   无效化把伤害压到1点与它们同类，不应单独改写暴击标记。
+                        #
+                        # 依据3（实战伤害下限不清除暴击标记）：
+                        #   服务端回放 dump/battle_001_narrative.txt 中同为「1 点」的hit，
+                        #   L443 带【Critical·Guarded】而 L1322/L1590/L2261 仅【Guarded】，
+                        #   说明暴击标记与最终伤害值相互独立、由判定时的暴击结果决定。
+                        new_hit_crits.append(dmg_result.hit_crits[idx] if idx < len(dmg_result.hit_crits) else False)
                         new_hit_evades.append(False)
                         invuln_buff.hit_limited -= 1
                         _log.info("[DMG_INVULNERABLE] %s: hit[%d] %d <= threshold %d (hp*%.2f%%) -> 1 damage (nullified), hit_limited=%d",
@@ -7285,7 +7305,12 @@ class SkillService:
             caster, effect, battlefield, effect_flags_aura
         )
         # dur_type 用于后续 aura_detail_dict 显示，与 _compute_aura_value_duration 内部保持一致
+        # 归一化：source_action 语义上是「按施法者行动计数」，叙事/详情标签统一显示为 "action"（行动），
+        # 否则 battle_narrative 会落到 else 分支渲染成「回合」，与「自身がN回行動を終えるまでの間」不符。
+        # （与 _apply_block_buff_by_type 的 narr_dur_type 归一化保持一致）
         dur_type = original_dur_type or "action"
+        if dur_type == "source_action":
+            dur_type = "action"
 
         mapped_effect_type = _JSON_EFFECT_TO_ENUM.get(effect.effect_type, effect.effect_type)
         mapped_effect_type = _MASTERDATA_STATUS_MAP.get(effect.effect_type, mapped_effect_type)
@@ -9967,6 +9992,7 @@ class SkillService:
             timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
 
         status_details = []
+        blocked_details = []  # 被免疫/闪避的状態異常记录（供叙事层 _log_narrative_effects 使用）
         effect_condition = getattr(effect, 'condition', None)
         is_hp_threshold_cross = (effect_condition and isinstance(effect_condition, dict)
                                  and effect_condition.get('type') == 'hp_threshold_cross')
@@ -9985,6 +10011,27 @@ class SkillService:
             if not self._check_target_condition(target, effect_condition):
                 _log.info("[ADD_STATUS] %s -> %s: SKIPPED (condition %s not met)",
                           caster.name, target.name, effect_condition.get('type') if effect_condition else 'none')
+                continue
+            # === debuff_immune 前置检查 ===
+            # 異常状態（眩暈/凍結/毒/燃焼/黑暗/混乱/幻惑 共7种）は debuff 的子集，
+            # 持有 debuff_immune 时应一并免疫。
+            # 兜底拦截已集中到 AuraService.add_aura（所有付与路径的唯一汇聚点），
+            # 此处的前置检查保留用于：提前短路 + 产出 blocked 详情（供叙事输出「免疫减益」）。
+            if is_debuff and self._has_debuff_immune(target):
+                _log.info("[ADD_STATUS] %s -> %s: DEBUFF BLOCKED (debuff_immune active)",
+                          caster.name, target.name)
+                self._consume_debuff_immune(target)
+                if not hasattr(self, '_debuff_immune_blocked_targets'):
+                    self._debuff_immune_blocked_targets = set()
+                self._debuff_immune_blocked_targets.add(target.unit_id)
+                blocked_details.append({
+                    "target": target.name,
+                    "target_id": target.unit_id,
+                    "effect": normalized,
+                    "source": caster.name,
+                    "source_id": caster.unit_id,
+                    "reason": "debuff_immune",
+                })
                 continue
             if is_hp_threshold_cross:
                 threshold = effect_condition.get('value', 70)
@@ -10084,6 +10131,7 @@ class SkillService:
             "is_debuff": is_debuff,
             "target_count": len(status_details),
             "statuses": status_details,
+            "blocked": blocked_details,
         }
 
     def _apply_remove_debuff(self, caster: UnitState, effect, battlefield: BattlefieldState) -> Optional[Dict]:
@@ -10557,10 +10605,18 @@ class SkillService:
         # source_action -> DURABLE_SOURCE_MANEUVER_END (施法者行动结束时-1)
         # action -> DURABLE_TARGET_MANEUVER_END (目标行动结束时-1)
         # attacker_action -> DURABLE_WHEN_USED (攻击者行动结束时由_cleanup_guard_buffs清除)
+        # duration_owner="caster"（与 _apply_aura 一致）: action + owner=caster
+        #   等价于 source_action → DURABLE_SOURCE_MANEUVER_END。
+        #   canonical 写法统一为 action + duration_owner=caster，两种都保留兼容。
         if duration_type == 'source_action':
             timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
         elif duration_type == 'action':
-            timing = AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value
+            if (getattr(effect, 'flags', None) or {}).get('duration_owner') == 'caster':
+                timing = AuraUpdateTiming.DURABLE_SOURCE_MANEUVER_END.value
+                _log.info("[BLOCK_BUFF_BY_TYPE] %s: duration_owner=caster -> "
+                          "timing=DURABLE_SOURCE_MANEUVER_END", caster.name)
+            else:
+                timing = AuraUpdateTiming.DURABLE_TARGET_MANEUVER_END.value
         elif duration_type == 'attacker_action':
             timing = AuraUpdateTiming.DURABLE_WHEN_USED.value
         else:
@@ -10607,6 +10663,15 @@ class SkillService:
                 caster_alive=True,  # 施法者死亡时此debuff自动消失
                 just_applied=True,
             )
+            # source_death_remove标记：付与者死亡时此debuff自动消失
+            # 「各デバフは自身が倒れると解除される」（如210127/110082 双鏡の連理）
+            # 注意：caster_alive 仅被HOT(HEAL_OVER_TIME)路径读取，对 block_buff_by_type
+            # 不起作用；这里的实际清除由 _remove_source_death_buffs_from_dead 承担，
+            # 因此必须按配置读取 source_death_remove，不能只靠 caster_alive。
+            if bbf_flags.get('source_death_remove'):
+                aura.source_death_remove = True
+                _log.info("[AURA_APPLY] %s: source_death_remove flag set on BlockBuffByType (caster=%s)",
+                          caster.name, caster.name)
             self.aura_service.add_aura(target, aura)
             detail_list.append({"target_id": target.unit_id, "target": target.name})
             aura_details.append({
@@ -11578,24 +11643,34 @@ class SkillService:
         }
 
     def _has_debuff_immune(self, target: UnitState) -> bool:
+        """目标是否持有 debuff_immune。
+
+        实际判定已集中到 AuraService.has_debuff_immune（add_aura 内统一拦截所有
+        debuff 付与路径）；此处保留为薄封装，避免两处实现分叉。
+        """
+        if self.aura_service is not None:
+            return self.aura_service.has_debuff_immune(target)
         return any(
-            b.effect_type in ("debuff_immune", "DebuffImmune")
+            str(getattr(b, 'effect_type', '')).lower() == "debuff_immune"
             for b in (getattr(target, 'buffs', []) or [])
         )
 
     def _consume_debuff_immune(self, target: UnitState) -> None:
-        """消费debuff_immune buff的hit_limited，当hit_limited降为0时移除buff"""
-        immune_buffs = [b for b in target.buffs
-                        if b.effect_type in ("debuff_immune", "DebuffImmune")]
-        for buff in immune_buffs:
-            if hasattr(buff, 'hit_limited') and buff.hit_limited and buff.hit_limited > 0:
+        """消费 debuff_immune 的 hit_limited（委托 AuraService，保持单一实现）。"""
+        if self.aura_service is not None:
+            self.aura_service.consume_debuff_immune(target)
+            return
+        for buff in (getattr(target, 'buffs', []) or []):
+            if str(getattr(buff, 'effect_type', '')).lower() != "debuff_immune":
+                continue
+            if getattr(buff, 'hit_limited', 0) and buff.hit_limited > 0:
                 buff.hit_limited -= 1
                 _log.info("[DEBUFF_IMMUNE] %s: debuff_immune hit_limited %d->%d",
                           target.name, buff.hit_limited + 1, buff.hit_limited)
                 if buff.hit_limited <= 0:
                     target.buffs = [b for b in target.buffs if b.buff_id != buff.buff_id]
                     _log.info("[DEBUFF_IMMUNE] %s: debuff_immune buff EXPIRED", target.name)
-            break  # 只消费第一个debuff_immune buff
+            break
 
     def _check_target_condition(self, target: UnitState, effect_condition: dict) -> bool:
         if not effect_condition or not isinstance(effect_condition, dict):
