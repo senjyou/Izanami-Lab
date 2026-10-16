@@ -192,6 +192,7 @@ CIRCLE_PRESET_DIR = _USER_DATA / "circle_presets"
 COMPOSITE_PRESET_DIR = _USER_DATA / "composite_presets"
 GLOBAL_CONFIG_PATH = _USER_DATA / "global_config.json"
 CHAR_CONFIG_PATH = _USER_DATA / "char_config.json"
+FAVORITES_PATH = _USER_DATA / "favorites.json"   # 角色/回忆卡收藏（独立于 char_config）
 CRIT_SEQUENCE_DIR = _USER_DATA / "crit_sequences"
 # ui_config（主题/开发者模式）全局化：不随账号切换
 UI_CONFIG_PATH = APP_DATA_ROOT / "ui_config.json"

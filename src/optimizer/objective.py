@@ -38,7 +38,7 @@ OBJECTIVES = (OBJECTIVE_MEAN, OBJECTIVE_ROLL5, OBJECTIVE_FLOOR)
 OBJECTIVE_LABELS = {
     OBJECTIVE_MEAN: "均值（稳定）",
     OBJECTIVE_ROLL5: "当日最高 Roll5",
-    OBJECTIVE_FLOOR: "保底（最低分最高）",
+    OBJECTIVE_FLOOR: "保底（最差 10%）",
 }
 
 # Objectives whose value is NOT a per-sample quantity. The mean of a difference is
@@ -80,22 +80,60 @@ def roll5(samples):
     return statistics.mean(samples) + C5 * statistics.stdev(samples) / c4(len(samples))
 
 
+# The floor objective reads the 10th percentile rather than the sample minimum.
+# Measured estimator variance, relative to the mean, on n-seed cohorts (200k
+# cohorts, CV=10%):
+#
+#     n     min     10% quantile
+#     128   22.5x   2.81x
+#     256   39.5x   2.87x
+#     1024  126.5x  2.91x
+#
+# Two reasons the minimum is the wrong statistic:
+#   * its variance falls only like 1/ln(n) -- measured, var(128)/var(1024) = 1.42x
+#     where 1/n would give 8x -- so no reachable seed budget makes it precise;
+#   * it is not a consistent estimator of anything fixed: as n grows it estimates a
+#     more extreme quantile, so the estimate keeps drifting to the worst case ever.
+# The 10th percentile converges like 1/n (measured 7.41x over the same range) and is
+# only ~2.8x noisier than the mean, which a bounded seed ladder can actually supply.
+FLOOR_QUANTILE = 0.10
+
+
+def quantile(samples, p):
+    """Linear-interpolation quantile -- the numpy/type-7 definition.
+
+    Spelled out here rather than imported so the optimizer keeps its existing
+    dependency set (math/random/statistics only) and so the interpolation rule is
+    explicit: with n samples the position is ``p*(n-1)``, interpolated between the
+    two neighbours. At small n this sits near the minimum (conservative), and it
+    converges to the true p-quantile as n grows.
+    """
+    xs = sorted(float(s) for s in samples)
+    n = len(xs)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return xs[0]
+    position = p * (n - 1)
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return xs[lower]
+    fraction = position - lower
+    return xs[lower] + fraction * (xs[upper] - xs[lower])
+
+
 def floor(samples):
-    """The objective's value for a sample set: its lowest observed score.
+    """The floor objective: the 10th-percentile score of the sample set.
 
-    Used for modes where EVERY battle is real and counts -- a circle stage, unlike
-    the tactical exercise's five daily attempts -- so what matters is the worst case
-    the lineup can guarantee rather than the best of five. Maximising this raises the
-    floor: the damage the lineup is sure to achieve.
-
-    Deliberately the plain sample minimum: it is the quantity the user is asking to
-    raise, and it needs no distributional assumption. It sharpens as the review
-    escalates its seed count (8 -> 16 -> ... -> 128), which is exactly why that
-    escalation exists.
+    Used where EVERY battle is real and counts -- a circle stage, unlike the tactical
+    exercise's five daily attempts -- so the guarantee matters more than the upside.
+    Raising this raises the worst tenth of outcomes, which is a quantity more samples
+    genuinely sharpen (see ``FLOOR_QUANTILE``).
     """
     if not samples:
         return 0.0
-    return float(min(samples))
+    return quantile(samples, FLOOR_QUANTILE)
 
 
 def rank_key(samples, objective=OBJECTIVE_MEAN):
@@ -130,7 +168,7 @@ def summarise(samples, objective=OBJECTIVE_MEAN):
         min=min(samples),
         max=max(samples),
         roll5=roll5(samples) if n > 1 else mean,
-        floor=min(samples),
+        floor=quantile(samples, FLOOR_QUANTILE),
         rank=rank_key(samples, objective),
         objective=objective,
         samples=list(samples),
@@ -201,4 +239,5 @@ def resolution_seeds(samples_a, samples_b, objective=OBJECTIVE_MEAN,
     if gap == 0:
         return None
     return int(math.ceil((1.96 * se / abs(gap)) ** 2 * n))
+
 

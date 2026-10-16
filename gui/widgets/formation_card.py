@@ -22,10 +22,11 @@
                 「Lv.」≈23x14px 位于数字正上方；数值为等宽数字
 
 回忆卡按参考图（180x101，即胶片框 300x168 的 0.6 倍）：卡图铺满整框后叠加胶片框
-（上下 24/168 为遮罩），稀有度徽章贴左下角。
+（上下 24/168 为遮罩），稀有度徽章贴左下角；已收藏时右上角再叠金色星标。
 
 角色方卡按参考图 参考图-角色卡图.png(112x144)：正方形卡框(188x188)拉伸到 7:9，
-卡图铺满后叠加卡框，再叠加右上属性图标 + 其下定位图标、左下稀有度徽章、右下等级。
+卡图铺满后叠加卡框，再叠加右上属性图标 + 其下定位图标、左下稀有度徽章、右下等级；
+已收藏角色额外在左上角叠加金色星标（见 favorite_star.py）。
 """
 
 from pathlib import Path
@@ -71,6 +72,8 @@ _SQ_ROLE_SIZE = round(SQ_W * 22 / 112)      # 定位图标直径（属性图标�
 _SQ_ROLE_POS = (round(SQ_W * 103 / 112), round(SQ_H * 63 / 144))  # anchor="se"（底边对齐）
 _SQ_BADGE_SIZE = round(SQ_W * 36 / 112 * 72 / 64)   # 稀有度徽章整图（72x72 画布）
 _SQ_BADGE_POS = (0, SQ_H)                   # anchor="sw"（贴齐左下角）
+_SQ_FAV_SIZE = max(12, round(SQ_W * 28 / 112))      # 收藏星标（左上角空位，参考图无此元素）
+_SQ_FAV_POS = (3, 3)
 _SQ_FRAME_FILES = {                          # DefaultRarity 分组（见 图片素材映射.txt）
     1: "icon_frm_square_r_0.png",            # 1/2
     3: "icon_frm_square_sr_0.png",           # 3/4
@@ -114,6 +117,10 @@ _frame_files = {
 # 稀有度徽章贴左下角。
 MEM_W, MEM_H = 120, 67
 _MEM_BADGE_W_RATIO = 0.24   # 稀有度徽章整图宽 / 卡片宽（贴齐左下角）
+# 收藏星标（贴右上角）：左下角已被稀有度徽章占用，左上角被智能优化多选弹窗的
+# 「固定」角标占用，只有右上角在两种场景下都不打架（见 _analysis 探针图）。
+_MEM_FAV_W_RATIO = 20 / 150      # 星标宽 / 卡片宽（150x84 下实测 20px 观感最佳）
+_MEM_FAV_MARGIN_RATIO = 3 / 150
 _MEM_FRAME_FILES = {
     1: "icon_frm_memory_sr.png",
     2: "icon_frm_memory_ssr.png",
@@ -379,10 +386,15 @@ def _load_pil(path: Path, size: Tuple[int, int]):
 
 
 def load_memory_card_image(mid: int, rarity: int,
-                           size: Tuple[int, int] = (MEM_W, MEM_H)) -> Optional[tk.PhotoImage]:
-    """合成回忆卡图：卡图铺满 + 胶片卡框 + 左下角稀有度徽章（按「卡ID+稀有度+尺寸」缓存）。"""
+                           size: Tuple[int, int] = (MEM_W, MEM_H),
+                           favorite: bool = False) -> Optional[tk.PhotoImage]:
+    """合成回忆卡图：卡图铺满 + 胶片卡框 + 左下角稀有度徽章（按「卡ID+稀有度+尺寸」缓存）。
+
+    favorite=True 时在右上角叠加金色收藏星标（尺寸随卡片宽等比）。
+    """
     w, h = size
-    key = (mid, rarity, w, h)
+    favorite = bool(favorite)
+    key = (mid, rarity, w, h, favorite)
     cached = _memory_cache.get(key)
     if cached is not None:
         return cached
@@ -406,6 +418,12 @@ def load_memory_card_image(mid: int, rarity: int,
         if badge is not None:
             img.alpha_composite(badge, (0, h - badge.height))
 
+        if favorite:
+            from gui.widgets.favorite_star import compose_star
+            star_size = max(10, round(w * _MEM_FAV_W_RATIO))
+            margin = max(2, round(w * _MEM_FAV_MARGIN_RATIO))
+            compose_star(img, star_size, (w - star_size - margin, margin))
+
         _mask_by_silhouette(img, frame_path, (w, h))
 
         photo = ImageTk.PhotoImage(img)
@@ -415,9 +433,23 @@ def load_memory_card_image(mid: int, rarity: int,
         return None
 
 
-def render_memory_card(canvas: tk.Canvas, mid: int, rarity: int) -> bool:
+def purge_memory_card_cache(size: Tuple[int, int]) -> int:
+    """丢弃指定尺寸的回忆卡缓存，返回丢弃条数。
+
+    回忆图鉴的卡图尺寸随左侧面板宽度变化（见 memory_dex._layout_for_width），
+    不清理的话拖动面板会攒出几十种尺寸 × 164 张的 PhotoImage。
+    调用方应先销毁使用这些图的控件再清理。
+    """
+    w, h = int(size[0]), int(size[1])
+    keys = [k for k in _memory_cache if (k[2], k[3]) == (w, h)]
+    for k in keys:
+        _memory_cache.pop(k, None)
+    return len(keys)
+
+
+def render_memory_card(canvas: tk.Canvas, mid: int, rarity: int, favorite: bool = False) -> bool:
     """绘制回忆卡（卡图+胶片框+稀有度徽章）；无卡图时返回 False。"""
-    photo = load_memory_card_image(mid, rarity)
+    photo = load_memory_card_image(mid, rarity, favorite=favorite)
     if photo is None:
         return False
     canvas.create_image(0, 0, image=photo, anchor="nw")
@@ -449,12 +481,17 @@ def _square_frame_file(rarity: int) -> str:
 
 
 def load_square_card_image(cid: int, rarity: int, attribute: int,
-                           role: int, level: int) -> Optional[tk.PhotoImage]:
+                           role: int, level: int,
+                           favorite: bool = False) -> Optional[tk.PhotoImage]:
     """合成角色方卡（7:9）：头像 + 拉伸卡框 + 属性/定位小部件 + 稀有度徽章 + 等级（缓存）。
+
+    favorite=True 时在左上角叠加金色收藏星标（该处参考图无元素，不与属性/定位
+    /稀有度/等级冲突）。
 
     返回 None 表示该角色没有头像素材（如自定义木桩），调用方回退占位文本。
     """
-    key = (cid, rarity, attribute, role, level)
+    favorite = bool(favorite)
+    key = (cid, rarity, attribute, role, level, favorite)
     cached = _square_cache.get(key)
     if cached is not None:
         return cached
@@ -494,6 +531,11 @@ def load_square_card_image(cid: int, rarity: int, attribute: int,
             st = _LEVEL_STYLES["square"]
             img.alpha_composite(lv, (SQ_W - st["right_margin"] - lv.width,
                                      SQ_H - st["bottom_margin"] - lv.height))
+
+        # 收藏星标（左上角；先叠星标再按卡框轮廓裁切，星标本就在框内不受影响）
+        if favorite:
+            from gui.widgets.favorite_star import compose_star
+            compose_star(img, _SQ_FAV_SIZE, _SQ_FAV_POS)
 
         # 按卡框外轮廓裁掉圆角外露出的头像/徽章
         _mask_by_silhouette(img, frame_path, (SQ_W, SQ_H))

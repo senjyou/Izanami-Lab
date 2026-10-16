@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""角色选择弹窗：头像网格 + 属性筛选 + 搜索。
+"""角色选择弹窗：头像网格 + 属性筛选 + 搜索 + 收藏分页。
 
 从 gui_app.py 抽取。
+
+「分页」只做在弹窗内部（全部角色 / ★收藏），不占主界面 Notebook 的标签位；
+收藏页沿用与全部页完全一致的过滤链（白名单/属性/搜索），用户模式下不会
+因为走了收藏页就绕过己方可选白名单。
 """
 
 import tkinter as tk
@@ -13,13 +17,17 @@ from gui.constants import (
     ATTR_ICON_MAP,
     attribute_matches,
 )
+from gui.widgets.grid_layout import configure_uniform_columns
 from gui.widgets.modal import _bind_modal_minimize_restore
 
 _DEFAULT_COLS = 6   # 默认宽度下可容纳的列数（缩窄窗口时自动减少）
 
+_SCOPE_ALL = "all"
+_SCOPE_FAVORITE = "favorite"
+
 
 class CharacterPickerDialog(tk.Toplevel):
-    """角色选择二级弹窗：角色方卡网格 + 属性筛选 + 搜索"""
+    """角色选择二级弹窗：角色方卡网格 + 属性筛选 + 搜索 + 收藏分页"""
 
     def __init__(self, parent, app, title="选择角色", for_ally: bool = True):
         super().__init__(parent)
@@ -27,6 +35,8 @@ class CharacterPickerDialog(tk.Toplevel):
         self.result: Optional[int] = None  # 选中的角色ID
         self._current_filter = 0
         self._filtered_ids: List[int] = []
+        self._scope = _SCOPE_ALL   # 分页：全部角色 / 收藏
+        self._scope_buttons: List = []
         # for_ally=True 时在用户模式下应用己方白名单过滤；敌方场景传 False 不过滤
         self._for_ally = for_ally
 
@@ -52,9 +62,23 @@ class CharacterPickerDialog(tk.Toplevel):
         s = self.app._get_scheme()
         self.configure(bg=s["bg"])
 
-        # ── 顶部：搜索框 + 属性筛选 ──
+        # ── 顶部：分页（全部/收藏） + 搜索框 + 属性筛选 ──
         top_frame = ttk.Frame(self)
         top_frame.pack(fill="x", padx=10, pady=5)
+
+        # 分页切换（弹窗内分页，非主界面标签页）
+        scope_frame = ttk.Frame(top_frame)
+        scope_frame.pack(fill="x", pady=(0, 5))
+        fav_count = len(self.app.favorite_char_ids())
+        for key, text in ((_SCOPE_ALL, "全部角色"),
+                          (_SCOPE_FAVORITE, f"★ 收藏 ({fav_count})")):
+            btn = tk.Label(scope_frame, text=text, cursor="hand2", bd=2, relief="raised",
+                           bg=s["surface"], fg=s["fg"], font=("Microsoft YaHei UI", 9),
+                           padx=10, pady=2)
+            btn.pack(side=tk.LEFT, padx=(0, 4))
+            btn.bind("<Button-1>", lambda e, k=key: self._apply_scope(k))
+            self._scope_buttons.append((key, btn))
+        self._update_scope_highlight()
 
         # 搜索框
         search_frame = ttk.Frame(top_frame)
@@ -137,6 +161,21 @@ class CharacterPickerDialog(tk.Toplevel):
         from gui.widgets.formation_card import SQ_W
         return max(1, avail // (SQ_W + 2 * 2 + 2 * 2))
 
+    def _apply_scope(self, scope: str):
+        """切换分页（全部角色 / ★收藏）。"""
+        self._scope = scope
+        self._update_scope_highlight()
+        self._refresh_grid()
+        self._canvas.yview_moveto(0)
+
+    def _update_scope_highlight(self):
+        s = self.app._get_scheme()
+        for key, btn in self._scope_buttons:
+            if key == self._scope:
+                btn.config(relief="sunken", bg=s["accent"], fg=s["accent_fg"])
+            else:
+                btn.config(relief="raised", bg=s["surface"], fg=s["fg"])
+
     def _apply_filter(self, attr_id):
         self._current_filter = attr_id
         self._update_filter_highlight()
@@ -155,6 +194,8 @@ class CharacterPickerDialog(tk.Toplevel):
     def _get_filtered_ids(self):
         """获取过滤后的角色ID列表（包含自定义木桩）"""
         search_text = self._search_var.get().strip().lower()
+        # 收藏分页：只保留已收藏角色（其余过滤条件完全相同，避免绕过白名单）
+        favorite_ids = self.app.favorite_char_ids() if self._scope == _SCOPE_FAVORITE else None
         # 用户模式 + 己方场景：仅显示 SUPPORTED_CHARACTERS.md 白名单中的角色
         # 开发者模式 / 敌方场景：不做白名单限制；自定义木桩（cid<0）始终不受限
         restrict_to_supported = (
@@ -164,6 +205,8 @@ class CharacterPickerDialog(tk.Toplevel):
         )
         result = []
         for cid in self.app.char_ids:
+            if favorite_ids is not None and cid not in favorite_ids:
+                continue
             if restrict_to_supported and cid not in self.app.supported_ally_ids:
                 continue
             char = self.app.data_loader.get_character_by_id(cid)
@@ -178,6 +221,8 @@ class CharacterPickerDialog(tk.Toplevel):
             result.append(cid)
         # 追加自定义木桩（属性筛选为"全部"或木桩属性匹配时显示）
         for cid, char_data in self.app.data_loader.get_all_custom_dummies().items():
+            if favorite_ids is not None and cid not in favorite_ids:
+                continue
             if not attribute_matches(char_data.attribute, getattr(char_data, 'sub_attribute', 0), self._current_filter):
                 continue
             if search_text:
@@ -199,6 +244,16 @@ class CharacterPickerDialog(tk.Toplevel):
         from gui.widgets.formation_card import SQ_W, SQ_H, load_square_card_image
         s = self.app._get_scheme()
 
+        # 空结果提示（收藏页首次打开多半是空的，要说清在哪儿收藏）
+        if not self._filtered_ids:
+            hint = ("尚无收藏角色\n在「角色与回忆」Tab 的角色参数页选中角色，点名称栏上的 ☆ 即可收藏"
+                    if self._scope == _SCOPE_FAVORITE else "没有符合条件的角色")
+            tk.Label(self._grid_inner, text=hint, bg=s["surface"], fg=s["border"],
+                     font=("Microsoft YaHei UI", 10), justify="center").grid(
+                row=0, column=0, columnspan=max(1, COLS), pady=40)
+            configure_uniform_columns(self._grid_inner, COLS)
+            return
+
         for i, cid in enumerate(self._filtered_ids):
             char = self.app.data_loader.get_character_by_id(cid)
             if not char:
@@ -211,7 +266,8 @@ class CharacterPickerDialog(tk.Toplevel):
 
             info = self.app.get_effective_char_card_info(cid) or {}
             photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
-                                           getattr(char, "role_type", 0), info.get("level", 1))
+                                           getattr(char, "role_type", 0), info.get("level", 1),
+                                           favorite=self.app.is_favorite_char(cid))
             if photo:
                 avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
                 avatar_label.image = photo
@@ -243,9 +299,8 @@ class CharacterPickerDialog(tk.Toplevel):
             for widget in [card] + list(card.winfo_children()):
                 widget.bind("<Button-1>", lambda e, c=cid: self._on_select(c))
 
-        # 每列均分权重，使每行内容居中
-        for c in range(COLS):
-            self._grid_inner.grid_columnconfigure(c, weight=1, uniform="col")
+        # 每列均分权重，使每行内容居中（并清掉更早布局留下的列，见 grid_layout）
+        configure_uniform_columns(self._grid_inner, COLS)
 
     def _on_select(self, cid):
         self.result = cid

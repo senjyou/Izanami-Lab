@@ -59,6 +59,7 @@ from gui.constants import (
 )
 from gui.widgets.result_table import ResultTablePanel
 from gui.widgets.formation_card import render_memory_empty
+from gui.favorites import FavoritesStore
 # ── gui 包：弹窗 ──
 from gui.dialogs.account_dialog import AccountManagerDialog
 # ── gui 包：战斗 Tab（阶段4抽取） ──
@@ -148,6 +149,9 @@ class MGGBattleSimulatorGUI:
         self.char_config = {cid: {"override": False} for cid in self.char_ids}
         self._load_char_config()
 
+        # 收藏（角色/回忆卡）：独立于 char_config，重置参数不会丢失
+        self.favorites = FavoritesStore()
+
         # 用户模式下己方编队可选角色白名单（来自 SUPPORTED_CHARACTERS.md）
         self.supported_ally_ids = load_supported_ally_ids(self.data_loader, SUPPORTED_CHARACTERS_PATH)
 
@@ -164,7 +168,7 @@ class MGGBattleSimulatorGUI:
         self.composite_tab = CompositeTacticExerciseTab(self.notebook, self)
 
         self.notebook.add(self.global_tab, text="全局参数")
-        self.notebook.add(self.char_tab, text="角色参数")
+        self.notebook.add(self.char_tab, text="角色与回忆")
         self.notebook.add(self.dummy_tab, text="自定义木桩")
         self.notebook.add(self.team_tab, text="编队与战斗")
         self.notebook.add(self.step_crit_tab, text="逐步暴击")
@@ -255,6 +259,34 @@ class MGGBattleSimulatorGUI:
         rarity = max(getattr(char, "default_rarity", 1), min(rarity, max_rarity))
         return {"rarity": rarity, "level": level, "attribute": getattr(char, "attribute", 0)}
 
+    # ────────────────────────────── 收藏（角色/回忆卡） ──────────────────────────────
+    # 收藏标记存放在 user_data/favorites.json（见 gui/favorites.py），
+    # 与 char_config 解耦：重置角色参数不会连带清掉收藏。
+
+    def is_favorite_char(self, cid: int) -> bool:
+        """角色是否已收藏（自定义木桩等负 ID 同样支持）。"""
+        return self.favorites.is_char(cid)
+
+    def toggle_favorite_char(self, cid: int) -> bool:
+        """切换角色收藏状态，返回切换后的状态（True=已收藏）。"""
+        return self.favorites.toggle_char(cid)
+
+    def favorite_char_ids(self) -> set:
+        """已收藏角色 ID 集合（弹窗「收藏」分页用）。"""
+        return self.favorites.char_ids()
+
+    def is_favorite_memory(self, mid: int) -> bool:
+        """回忆卡是否已收藏。"""
+        return self.favorites.is_memory(mid)
+
+    def toggle_favorite_memory(self, mid: int) -> bool:
+        """切换回忆卡收藏状态，返回切换后的状态（True=已收藏）。"""
+        return self.favorites.toggle_memory(mid)
+
+    def favorite_memory_ids(self) -> set:
+        """已收藏回忆卡 ID 集合（弹窗「收藏」分页用）。"""
+        return self.favorites.memory_ids()
+
     def _on_theme_change(self, event=None):
         """主题下拉框切换回调"""
         theme_name = self._theme_var.get()
@@ -280,6 +312,13 @@ class MGGBattleSimulatorGUI:
             for btn in getattr(self.char_tab, '_filter_buttons', []):
                 try:
                     btn.config(bg=s["surface"])
+                except Exception:
+                    pass
+            # 回忆图鉴子视图：Canvas/内层 Frame 底色与卡图都随主题重建
+            dex = getattr(self.char_tab, 'memory_dex', None)
+            if dex is not None:
+                try:
+                    dex.refresh_grid()
                 except Exception:
                     pass
         # 编队与战斗Tab：刷新所有槽位显示和框架背景
@@ -606,6 +645,15 @@ class MGGBattleSimulatorGUI:
 
         style.configure("TFrame", background=s["bg"])
         style.configure("TLabel", background=s["bg"], foreground=s["fg"])
+        # 收藏星标（角色参数页名称栏 / 回忆图鉴详情）：只用 ttk 的 background，
+        # 这样主题切换时自动跟着 ttk 样式走，不必像 tk.Label 那样再手工刷一遍底色。
+        style.configure("Favorite.TLabel", background=s["bg"], foreground=s["fg"],
+                        borderwidth=0, relief="flat", padding=0)
+        # 分段切换（角色参数 / 回忆图鉴）：选中态用强调色，两种样式都在这里配置，
+        # 因此主题切换后自动生效
+        style.configure("Seg.TLabel", background=s["surface"], foreground=s["fg"], padding=(10, 3))
+        style.configure("SegActive.TLabel", background=s["accent"], foreground=s["accent_fg"],
+                        padding=(10, 3))
         style.configure("TButton", background=s["surface"], foreground=s["fg"],
                         padding=6, relief="flat", borderwidth=0)
         style.map("TButton",

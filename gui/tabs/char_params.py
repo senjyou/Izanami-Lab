@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""角色参数 Tab（个人覆盖优先于全局默认）。
+"""角色参数视图（个人覆盖优先于全局默认）。
 
 从 gui_app.py 抽取，通过 self.app 访问主类。
+
+所在 Notebook 标签名为「角色与回忆」：本文件承载「角色参数」视图，
+同一标签内的「回忆图鉴」视图见 gui/tabs/memory_dex.py，
+两者由本类的分段切换（`_switch_view`）切换。
 """
 
 import tkinter as tk
@@ -28,6 +32,9 @@ from gui.constants import (
     format_attributes,
 )
 from gui.utils import get_max_rarity_for, get_module_type_ids
+from gui.tabs.memory_dex import MemoryDexView
+from gui.widgets.favorite_star import star_photo as load_favorite_star
+from gui.widgets.grid_layout import configure_uniform_columns
 
 _DEFAULT_COLS = 6   # 角色网格默认列数（面板缩窄时自动减少）
 
@@ -43,8 +50,25 @@ class CharacterParamsTab(ttk.Frame):
         self._build()
 
     def _build(self):
-        paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        # ── 分段切换：角色参数 / 回忆图鉴（同一 Tab 内切换，不占 Notebook 标签位）──
+        switch_row = ttk.Frame(self)
+        switch_row.pack(fill="x", padx=8, pady=(6, 0))
+        self._view_chips: Dict[str, ttk.Label] = {}
+        for key, text in (("char", "角色参数"), ("memory", "回忆图鉴")):
+            chip = ttk.Label(switch_row, text=text, cursor="hand2", style="Seg.TLabel")
+            chip.pack(side=tk.LEFT, padx=(0, 4))
+            chip.bind("<Button-1>", lambda e, k=key: self._switch_view(k))
+            self._view_chips[key] = chip
+        self._active_view = "char"
+        self._update_view_chips()
+
+        # 子视图容器：角色参数页（paned）与回忆图鉴共处其中，按需 pack/pack_forget
+        self._view_container = ttk.Frame(self)
+        self._view_container.pack(fill=tk.BOTH, expand=True)
+
+        paned = ttk.PanedWindow(self._view_container, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
+        self._char_pane = paned
 
         left = ttk.Frame(paned)
         paned.add(left, weight=1)
@@ -173,6 +197,29 @@ class CharacterParamsTab(ttk.Frame):
 
         ttk.Label(self.detail_frame, text="选择左侧角色查看/编辑参数", font=("Microsoft YaHei UI", 10)).pack(pady=20)
 
+        # 回忆图鉴视图（同为只读浏览；首次切过去才合成 164 张卡图）
+        self.memory_dex = MemoryDexView(self._view_container, self.app)
+
+    # ─────────────────── 分段切换（角色参数 / 回忆图鉴） ───────────────────
+
+    def _switch_view(self, key: str):
+        """在角色参数页与回忆图鉴之间切换。"""
+        if key == self._active_view:
+            return
+        self._active_view = key
+        self._update_view_chips()
+        if key == "char":
+            self.memory_dex.pack_forget()
+            self._char_pane.pack(fill=tk.BOTH, expand=True)
+        else:
+            self._char_pane.pack_forget()
+            self.memory_dex.pack(fill=tk.BOTH, expand=True)
+            self.memory_dex.on_shown()
+
+    def _update_view_chips(self):
+        for key, chip in self._view_chips.items():
+            chip.configure(style="SegActive.TLabel" if key == self._active_view else "Seg.TLabel")
+
     def _on_char_select(self, event):
         sel = self.char_listbox.curselection()
         if not sel:
@@ -214,10 +261,11 @@ class CharacterParamsTab(ttk.Frame):
                 char = self.app.data_loader.get_character_by_id(cid)
                 is_locked = self.app.char_config.get(cid, {}).get("locked", False)
                 lock_mark = "🔒 " if is_locked else ""
+                fav_mark = "★" if self.app.is_favorite_char(cid) else ""
                 if self.app.is_developer_mode():
-                    self.char_listbox.insert(tk.END, f"{lock_mark}[{cid}] {self.app.format_char_name(char)}")
+                    self.char_listbox.insert(tk.END, f"{fav_mark}{lock_mark}[{cid}] {self.app.format_char_name(char)}")
                 else:
-                    self.char_listbox.insert(tk.END, f"{lock_mark}{self.app.format_char_name(char)}")
+                    self.char_listbox.insert(tk.END, f"{fav_mark}{lock_mark}{self.app.format_char_name(char)}")
         else:
             self._refresh_grid_view()
 
@@ -263,10 +311,11 @@ class CharacterParamsTab(ttk.Frame):
                             cursor="hand2")
             card.grid(row=row, column=col, padx=PAD, pady=PAD, sticky="ew")
 
-            # 角色方卡（卡框 + 属性/定位小部件 + 稀有度徽章 + 等级）
+            # 角色方卡（卡框 + 属性/定位小部件 + 稀有度徽章 + 等级 [+收藏星标]）
             info = self.app.get_effective_char_card_info(cid) or {}
             photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
-                                           getattr(char, "role_type", 0), info.get("level", 1))
+                                           getattr(char, "role_type", 0), info.get("level", 1),
+                                           favorite=self.app.is_favorite_char(cid))
             if photo:
                 avatar_label = tk.Label(card, image=photo, bg=s["surface"], bd=0)
                 avatar_label.image = photo
@@ -297,9 +346,8 @@ class CharacterParamsTab(ttk.Frame):
 
             self._grid_cards[cid] = card
 
-        # 每列均分权重，使每行内容居中
-        for c in range(COLS):
-            self._grid_inner.grid_columnconfigure(c, weight=1, uniform="col")
+        # 每列均分权重，使每行内容居中（并清掉更早布局留下的列，见 grid_layout）
+        configure_uniform_columns(self._grid_inner, COLS)
 
     def refresh_grid_cards(self):
         """外部触发（如全局参数保存/重置）：网格视图下重绘全部卡图。"""
@@ -319,7 +367,8 @@ class CharacterParamsTab(ttk.Frame):
         from gui.widgets.formation_card import load_square_card_image
         info = self.app.get_effective_char_card_info(cid) or {}
         photo = load_square_card_image(cid, info.get("rarity", 1), info.get("attribute", 0),
-                                       getattr(char, "role_type", 0), info.get("level", 1))
+                                       getattr(char, "role_type", 0), info.get("level", 1),
+                                       favorite=self.app.is_favorite_char(cid))
         if photo is None:
             return
         for w in card.winfo_children():
@@ -420,6 +469,9 @@ class CharacterParamsTab(ttk.Frame):
         lock_btn.pack(side="right", padx=(5, 0))
         lock_tooltip = "已锁定 - 点击解锁" if is_locked else "未锁定 - 点击锁定"
         self._create_tooltip(lock_btn, lock_tooltip)
+
+        # 收藏星标（金色实心=已收藏，灰空心=未收藏；点击切换）
+        self._build_favorite_toggle(name_row, cid, is_favorite=self.app.is_favorite_char(cid))
         ttk.Label(info_frame, text=f"类型: {type_name} | 属性: {attr_name} | 默认稀有度: {char.default_rarity}",
                   font=("Microsoft YaHei UI", 11), anchor="center").pack(fill="x", pady=1)
         ttk.Label(info_frame, text=f"定位: {role_name} | 位置适应性: {pos_name}",
@@ -1246,6 +1298,34 @@ class CharacterParamsTab(ttk.Frame):
         self._show_detail(cid)
         # 刷新列表/网格视图以更新锁定标识
         self._refresh_list()
+
+    def _build_favorite_toggle(self, parent, cid, is_favorite: bool):
+        """在角色面板区放置收藏星标（可点击切换，已收藏为金色实心）。
+
+        用 ttk.Label + Favorite.TLabel 样式：底色随主题样式表走，避免主题切换后
+        残留旧底色（本 Tab 里的 tk.Label 筛选按钮就得在切换时逐个补刷）。
+        """
+        photo = load_favorite_star(18, is_favorite)
+        if photo is None:
+            # PIL/图片不可用时退化为文字星标，收藏功能本身仍然可用
+            btn = ttk.Label(parent, text="★" if is_favorite else "☆", cursor="hand2",
+                            style="Favorite.TLabel",
+                            foreground="#ffb300" if is_favorite else self.app._get_scheme()["border"],
+                            font=("Microsoft YaHei UI", 14))
+        else:
+            btn = ttk.Label(parent, image=photo, cursor="hand2", style="Favorite.TLabel")
+            btn.image = photo
+        btn.pack(side="right", padx=(5, 0))
+        btn.bind("<Button-1>", lambda e, c=cid: self._toggle_favorite(c))
+        self._create_tooltip(btn, "已收藏 - 点击取消收藏" if is_favorite else "点击收藏该角色")
+
+    def _toggle_favorite(self, cid):
+        """切换角色收藏：刷新详情面板星标与网格/列表的角标。"""
+        self.app.toggle_favorite_char(cid)
+        self._show_detail(cid)
+        self._refresh_grid_card(cid)
+        if self._view_mode == "list":
+            self._refresh_list()
 
     def _create_tooltip(self, widget, text):
         """为控件创建简单的悬浮提示"""

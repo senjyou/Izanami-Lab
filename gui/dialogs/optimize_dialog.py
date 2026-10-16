@@ -38,6 +38,19 @@ from src.optimizer.search import SearchSettings
 # A lineup equips exactly this many shared memories.
 MEMORY_SLOTS = 6
 
+# How deep the quick-review ladder may climb, per objective. Derived, not picked:
+# the elimination rule (mean(D) > max(threshold*leader, 3*SE)) inverts to
+# n ~= 9*(sd(D)/(r*mean))^2, so an estimator with k times the variance of the mean
+# needs k times the seeds for the same resolution. Measured variance ratios:
+#
+#   mean   1.00x  -> 128 seeds (the ported ladder's own top rung; unchanged)
+#   roll5  1.68x  -> 128*1.68 = 216, so the ladder's next rung, 256
+#                 (analytic check: 1 + C5^2/2 = 1.676, matches the measurement)
+#   floor  2.81x  -> 128*2.81 = 360; the ladder stops at 256, so 256 is the deepest
+#                 available and the floor is still ~1.4x short of its ideal depth.
+#                 That shortfall is a real limitation, not a hidden assumption.
+REVIEW_DEPTH = {"mean": 128, "roll5": 256, "floor": 256}
+
 DEFAULT_SEED = 2026
 DEFAULT_MEAN_SEEDS = 2
 DEFAULT_ROLL5_SEEDS = 8
@@ -125,7 +138,7 @@ class OptimizeDialog(tk.Toplevel):
         #     matters more than the upside -- maximise the lowest score instead.
         if self._circle_mode:
             ttk.Radiobutton(
-                box, text="保底（最低分最高）—— 每次战斗都真实有效，追求最低分抬升",
+                box, text="保底（最差 10%）—— 每次战斗都真实有效，追求最差一成抬升",
                 variable=self._objective, value=obj.OBJECTIVE_FLOOR,
                 command=self._on_objective_change).pack(anchor="w")
         else:
@@ -250,26 +263,38 @@ class OptimizeDialog(tk.Toplevel):
             self._space_note.configure(text=f"无法估算：{exc}")
             return
         self._space_note.configure(text=self._describe_plan(plan))
-        self._budget_note.configure(text="预算与强度由算法自分配；无需设置。")
 
     def _describe_plan(self, plan):
-        """A short, wrapped summary of the ported algorithm's own cost model."""
+        """A short, wrapped summary of what the algorithm will actually do.
+
+        No budget figure appears here: the dialog has no budget field to feed, so a
+        suggested number would be text the user cannot act on.
+        """
         positions = plan.get("legal_positions")
         memories = plan.get("legal_memories")
         joint = plan.get("theoretical_joint_configurations")
-        budget = plan.get("budget") or plan.get("recommended_budget")
         parts = []
         if positions is not None and memories is not None:
             parts.append(f"空间 {positions} 站位 × {memories} 回忆"
                          f" = {joint:,} 种组合")
-        if budget is not None:
-            parts.append(f"建议预算约 {budget:,} 场")
         if plan.get("bare_basic_cost"):
             parts.append(f"含裸装站位预选 {plan['bare_basic_cost']:,} 场")
         if plan.get("filter_enabled"):
             parts.append("已启用裸装淘汰与无效回忆剪枝")
         if plan.get("review_strategy") == "quick":
-            parts.append("复评走 8→16→32→64→128 共同种子逐轮淘汰")
+            # The ladder shown is the one this objective will actually climb, not the
+            # ported default: Roll5 and the floor run one rung deeper (see
+            # REVIEW_DEPTH), and saying 128 for them would misdescribe the run.
+            depth = REVIEW_DEPTH.get(self._objective.get(), 128)
+            rungs = [n for n in (8, 16, 32, 64, 128, 256) if n <= depth]
+            ladder = "→".join(str(n) for n in rungs)
+            note = "共同种子逐轮淘汰"
+            if depth > 128:
+                note += "（本目标需更深种子组，比均值多一轮）"
+            if self._objective.get() == "floor":
+                # The docstring rationale, surfaced where the user can see it.
+                note += "；保底按最差 10% 分位评分"
+            parts.append(f"复评走 {ladder} {note}")
         return "\n".join(parts) if parts else "无法估算"
 
     def _plan(self):
@@ -320,20 +345,18 @@ class OptimizeDialog(tk.Toplevel):
         return {"characters": characters, "memories": memories}
 
     def _build_plan_note(self, parent):
-        """The budget/effort note: what the algorithm will spend, read-only.
+        """What the algorithm will spend and how deep it will review, read-only.
 
         The search strength, budget and review-seed controls are gone: this engine
         self-allocates (the bare preselection runs 2->4->8, the joint coverage deepens
         to four seeds when the budget allows, and the review climbs to its cap), so a
-        hand setting would only fight the algorithm. The note tells the user what the
-        plan will spend instead of asking them to choose.
+        hand setting would only fight the algorithm. The numbers shown are the ones
+        the run will actually use, so they cannot mislead.
         """
-        box = ttk.LabelFrame(parent, text="预算与强度（自动）", padding=8)
+        box = ttk.LabelFrame(parent, text="本次搜索规模（自动）", padding=8)
         box.pack(fill="x", pady=(0, 8))
         self._space_note = ttk.Label(box, text="", wraplength=380, justify="left")
         self._space_note.pack(anchor="w")
-        self._budget_note = ttk.Label(box, text="", wraplength=380, justify="left")
-        self._budget_note.pack(anchor="w", pady=(2, 0))
 
     def _build_actions(self, parent):
         row = ttk.Frame(parent)
@@ -458,7 +481,7 @@ class OptimizeDialog(tk.Toplevel):
             layered_review_percent=10,
             review_strategy="quick",
             layered_memory_pruning=True,
-            quick_max_seeds=128,
+            quick_max_seeds=REVIEW_DEPTH[self._objective.get()],
             validation_seeds=10,
         )
         settings.validate()
