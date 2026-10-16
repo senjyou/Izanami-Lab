@@ -583,13 +583,37 @@ class DataLoader:
         return self._memory_effects.get(str(skill_id))
 
     def load_character_teams(self) -> Optional[Dict[int, str]]:
+        """队伍ID → 队名。
+
+        数据来源按优先级：
+          1. data/character_teams.json（旧格式，若存在）
+          2. **data/character_team_mapping.json 的 teams 段** —— 随包发布的正式来源
+          3. split_data/CharacterTeamMaster.json —— 仅开发机有的解包 dump，打包版没有
+
+        曾经只走 1 和 3，于是打包版（没有 split_data）拿不到队名，界面上就会露出
+        「队伍#101」这种解包 ID（见 docs/gui_favorites_memory_dex_dev_doc.md）。
+        """
         if self._team_data is not None:
             return self._team_data
         try:
             team_data = self._load_json("character_teams.json")
             if team_data:
-                self._team_data = {t["team_id"]: t.get("name", "") for t in team_data}
+                self._team_data = {int(t["team_id"]): t.get("name", "") for t in team_data}
                 return self._team_data
+        except Exception:
+            pass
+        try:
+            mapping_data = self._load_json("character_team_mapping.json")
+            teams = (mapping_data or {}).get("teams") or {}
+            if teams:
+                self._team_data = {}
+                for team_id, name in teams.items():
+                    try:
+                        self._team_data[int(team_id)] = name
+                    except (TypeError, ValueError):
+                        continue
+                if self._team_data:
+                    return self._team_data
         except Exception:
             pass
         try:
@@ -629,9 +653,32 @@ class DataLoader:
         return self._character_team_mapping.get(character_base_id)
 
     def load_character_base_names(self) -> Dict[int, str]:
+        """角色基底ID → 角色名（如 100 → 桃園める）。
+
+        数据来源按优先级：
+          1. **data/character_team_mapping.json 的 character_base 段**（随包发布）
+          2. split_data/CharacterBaseMaster.json（仅开发机有的解包 dump）
+
+        同 load_character_teams：只依赖 dump 会让打包版拿不到名字，界面上就会
+        露出「角色基底#100」这类解包 ID。
+        """
         if self._character_base_names is not None:
             return self._character_base_names
         self._character_base_names = {}
+        try:
+            mapping_data = self._load_json("character_team_mapping.json")
+            char_base = (mapping_data or {}).get("character_base") or {}
+            for base_id_str, info in char_base.items():
+                try:
+                    name = (info or {}).get("name")
+                    if name:
+                        self._character_base_names[int(base_id_str)] = name
+                except (TypeError, ValueError):
+                    continue
+        except Exception:
+            pass
+        if self._character_base_names:
+            return self._character_base_names
         try:
             split_path = self._data_dir.parent / "split_data" / "CharacterBaseMaster.json"
             if split_path.exists():

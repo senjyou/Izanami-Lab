@@ -69,25 +69,47 @@ def format_position_mask(mask: int) -> str:
     return "/".join(names) if names else str(mask)
 
 
+def _variant_name_for_base(loader, base_id: int, app) -> Optional[str]:
+    """基底名查不到时的兜底：用该基底下一个角色变体的名字（同样来自随包数据）。
+
+    打包版没有 split_data，character_team_mapping.json 里可能缺少数个较新的
+    角色基底；这时宁可显示变体名（如「ドメスティックなリーダー」），也不能把
+    解包出来的 ID 漏到界面上。
+    """
+    try:
+        for char in (loader.load_characters() or {}).values():
+            if getattr(char, "character_base_id", None) == base_id:
+                return app.format_char_name(char)
+    except Exception:
+        pass
+    return None
+
+
 def format_highlight_condition(hl, app) -> str:
-    """把一条 highlight 的匹配条件渲染成一行中文；无任何条件时表示不限。"""
+    """把一条 highlight 的匹配条件渲染成一行中文；无任何条件时表示不限。
+
+    只输出名字：队伍/角色/形态一律映射成名称，任何查不到的情况都退化成不带
+    数字的描述（ID 属于解包内容，不进 GUI）。
+    """
     parts: List[str] = []
     loader = app.data_loader
 
     team_id = getattr(hl, "character_team_master_id", None)
     if team_id:
         team_name = (loader.load_character_teams() or {}).get(team_id)
-        parts.append(f"队伍「{team_name}」" if team_name else f"队伍#{team_id}")
+        parts.append(f"队伍「{team_name}」" if team_name else "所属队伍")
 
     base_id = getattr(hl, "character_base_master_id", None)
     if base_id:
         base_name = loader.get_character_base_name(base_id)
-        parts.append(f"角色「{base_name}」" if base_name else f"角色基底#{base_id}")
+        if not base_name:
+            base_name = _variant_name_for_base(loader, base_id, app)
+        parts.append(f"角色「{base_name}」" if base_name else "特定角色")
 
     char_id = getattr(hl, "character_master_id", None)
     if char_id:
         ch = loader.get_character_by_id(char_id)
-        parts.append(f"形态「{app.format_char_name(ch)}」" if ch else f"角色#{char_id}")
+        parts.append(f"形态「{app.format_char_name(ch)}」" if ch else "特定形态")
 
     attr = getattr(hl, "character_attribute", None)
     if attr:
@@ -200,6 +222,8 @@ class MemoryDexView(ttk.Frame):
         paned.add(right, weight=2)
         s = self.app._get_scheme()
         right_canvas = tk.Canvas(right, bg=s["bg"], highlightthickness=0)
+        self._detail_canvas = right_canvas
+        self._detail_width = 0
         right_scrollbar = ttk.Scrollbar(right, orient="vertical", command=right_canvas.yview)
         self.detail_frame = ttk.Frame(right_canvas)
         self.detail_frame.bind("<Configure>",
@@ -211,6 +235,7 @@ class MemoryDexView(ttk.Frame):
 
         def _on_right_resize(event):
             right_canvas.itemconfig(self._detail_window, width=event.width)
+            self._detail_width = event.width
             self._update_wraplength(event.width)
 
         right_canvas.bind("<Configure>", _on_right_resize)
@@ -474,12 +499,39 @@ class MemoryDexView(ttk.Frame):
         ttk.Label(self.detail_frame, text="选择左侧回忆卡查看卡面与效果",
                   font=("Microsoft YaHei UI", 10)).pack(pady=20)
 
+    def _detail_wrap(self) -> int:
+        """详情区文本换行宽度。
+
+        Label 不会自动重排文字，必须在**建标签时**就按当前实际宽度给出
+        wraplength —— 早期版本写死 400，于是明明还有横向宽度就提前换行了
+        （<Configure> 只改已存在的标签，详情是之后才重建的）。
+        """
+        width = self._detail_width
+        if width <= 1:
+            try:
+                width = self._detail_canvas.winfo_width()
+            except Exception:
+                width = 0
+        if width <= 1:
+            width = 640          # 还没布局时的兜底，_sync_wraplength 随后会纠正
+        return max(200, width - 40)
+
+    def _sync_wraplength(self):
+        """布局落定后按真实宽度再校正一次（首次渲染时可能还没拿到宽度）。"""
+        try:
+            width = self._detail_canvas.winfo_width()
+        except Exception:
+            return
+        if width > 1:
+            self._detail_width = width
+            self._update_wraplength(width)
+
     def _update_wraplength(self, canvas_width: int):
         """详情区宽度变化时同步换行宽度（Label 不会自动重排文字）。"""
         wrap = max(200, canvas_width - 40)
         for lbl in self._wrap_labels:
             try:
-                lbl.configure(wraplength=wrap)
+                lbl.configure(wraplength=wrap - getattr(lbl, "_wrap_inset", 0))
             except Exception:
                 pass
 
@@ -494,6 +546,9 @@ class MemoryDexView(ttk.Frame):
 
         f = self.detail_frame
         ttk.Label(f, text="").pack()
+
+        # 换行宽度按当前详情区实际宽度算（写死会提前换行；见 _detail_wrap）
+        wrap = self._detail_wrap()
 
         # 卡面大图
         photo = load_memory_card_image(mid, getattr(mem, "rarity", 1), (_DETAIL_W, _DETAIL_H),
@@ -521,7 +576,7 @@ class MemoryDexView(ttk.Frame):
             desc_frame = ttk.LabelFrame(f, text="卡面文本")
             desc_frame.pack(fill="x", padx=8, pady=4)
             lbl = ttk.Label(desc_frame, text=desc.replace("\\n", "\n"),
-                            font=("Microsoft YaHei UI", 10), justify="left", wraplength=400)
+                            font=("Microsoft YaHei UI", 10), justify="left", wraplength=wrap)
             lbl.pack(anchor="w", padx=8, pady=6)
             self._wrap_labels.append(lbl)
 
@@ -539,21 +594,28 @@ class MemoryDexView(ttk.Frame):
             effect = self.app.data_loader.get_memory_effect(sid) if sid else None
             cond_lbl = ttk.Label(block, text=f"{i}. 适用: {format_highlight_condition(hl, self.app)}",
                                  font=("Microsoft YaHei UI", 10, "bold"), justify="left",
-                                 wraplength=400)
+                                 wraplength=wrap)
             cond_lbl.pack(anchor="w")
             self._wrap_labels.append(cond_lbl)
             if effect:
                 skill_lbl = ttk.Label(block, text=effect.get("name", ""),
-                                      font=("Microsoft YaHei UI", 9), justify="left")
+                                      font=("Microsoft YaHei UI", 9), justify="left",
+                                      wraplength=wrap)
                 skill_lbl.pack(anchor="w")
+                # 缩进 12px 的说明行：换行宽度相应减 12
                 desc_lbl = ttk.Label(block, text=effect.get("description", ""),
-                                     font=("Microsoft YaHei UI", 9), justify="left", wraplength=400)
+                                     font=("Microsoft YaHei UI", 9), justify="left",
+                                     wraplength=max(160, wrap - 12))
+                desc_lbl._wrap_inset = 12
                 desc_lbl.pack(anchor="w", padx=(12, 0))
                 self._wrap_labels.extend([skill_lbl, desc_lbl])
             else:
                 ttk.Label(block, text="（缺少效果数据）",
                           font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         ttk.Label(f, text="").pack(pady=(0, 8))
+
+        # 首次渲染时详情画布可能还没量到宽度，布局落定后再校正一次换行宽度
+        self.after_idle(self._sync_wraplength)
 
     def _build_favorite_toggle(self, parent, mid: int, is_favorite: bool):
         """收藏星标（与角色参数页同一套 ttk 样式，主题切换自动跟随）。"""

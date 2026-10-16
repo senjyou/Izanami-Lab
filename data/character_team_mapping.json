@@ -11,7 +11,9 @@
     "701": "風紀委員会",
     "801": "STRANGERS Ⅰ",
     "803": "The Manor's Favor",
-    "601": "クラスナ"
+    "601": "クラスナ",
+    "802": "STRANGERS Ⅱ",
+    "1100": "双頭の斧"
   },
   "character_base": {
     "100": {
@@ -291,6 +293,48 @@
       "team_name": "クラスナ"
     },
     "147": {
+      "name": "ニーナ／ジーナ・ミーシナ",
+      "name_ruby": "にーな／じーなみーしな",
+      "team_id": 601,
+      "team_name": "クラスナ"
+    },
+    "135": {
+      "name": "榊千鶴",
+      "name_ruby": "さかきちづる",
+      "team_id": 802,
+      "team_name": "STRANGERS Ⅱ"
+    },
+    "136": {
+      "name": "鎧衣美琴",
+      "name_ruby": "よろいみこと",
+      "team_id": 802,
+      "team_name": "STRANGERS Ⅱ"
+    },
+    "137": {
+      "name": "彩峰慧",
+      "name_ruby": "あやみねけい",
+      "team_id": 802,
+      "team_name": "STRANGERS Ⅱ"
+    },
+    "141": {
+      "name": "カリナ・ジェンティーレ",
+      "name_ruby": "かりなじぇんてぃーれ",
+      "team_id": 701,
+      "team_name": "風紀委員会"
+    },
+    "144": {
+      "name": "ナージャ・ヴォルコワ",
+      "name_ruby": "なーじゃゔぉるこわ",
+      "team_id": 601,
+      "team_name": "クラスナ"
+    },
+    "154": {
+      "name": "コトハ",
+      "name_ruby": "ことは",
+      "team_id": 1100,
+      "team_name": "双頭の斧"
+    },
+    "155": {
       "name": "ニーナ／ジーナ・ミーシナ",
       "name_ruby": "にーな／じーなみーしな",
       "team_id": 601,
