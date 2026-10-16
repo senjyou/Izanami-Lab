@@ -1,1 +1,1 @@
-"""配装优化器模块"""
+"""Tactical exercise optimizer; the existing combat engine remains authoritative."""

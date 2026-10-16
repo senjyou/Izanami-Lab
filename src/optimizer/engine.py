@@ -1,70 +1,45 @@
-"""Headless battle evaluation for the optimizer.
-
-Two game modes are supported, both reusing the official engine unchanged:
-
-``tactical``  the five-turn tactical exercise, scored by the original
-              ``TacticalExerciseController`` total score
-``circle``    a circle-battle (对抗压制战) stage, season and stage supplied by
-              the caller, scored by the original ``CircleBattleController``
-
-The optimizer adds no combat rules of its own. It builds a battlefield exactly as
-``src.utils.batch_simulator`` does, runs one battle, and returns the engine's own
-score. That guarantees the optimizer optimizes the same number the player sees.
-
-Each evaluation reseeds the global RNG (the engine uses the ``random`` module
-directly), then restores the ambient RNG state so that a caller's own randomness
-is unaffected.
-
-Maps are deep-copied per battle through ``BattleDataView`` so that mutable parsed
-skill effects written during one battle cannot leak into the next candidate.
-"""
-
+"""Headless adapter: fresh battle state + original five-turn tactical controller."""
 import copy
 import random
 from collections.abc import Mapping
+from dataclasses import asdict
 
 from src.combat_v2.battle_flow_controller import BattleConfig
-from src.entities_v2.battlefield_state import BattlefieldState
-from src.entities_v2.enums import Position, Side
-from src.entities.memory_card import MemoryCard, MemoryHighlight
+from src.combat_v2.tactical_exercise_controller import TacticalExerciseController
 from src.data.data_loader import DataLoader
 from src.data.stat_calculator import StatCalculator
-from src.optimizer.snapshot import panel_from_dict, validate
+from src.entities.memory_card import MemoryCard, MemoryHighlight
+from src.entities_v2.battlefield_state import BattlefieldState
+from src.entities_v2.enums import Position, Side
+from src.optimizer.model import active_snapshot, panel_from_dict, validate_snapshot
 from src.utils.batch_simulator import (
-    _create_circle_battle_enemy_worker,
-    _create_tactical_enemy_worker,
-    _create_unit_worker,
-    _silence_worker_battle_logging,
-)
+    _create_circle_battle_enemy_worker, _create_tactical_enemy_worker,
+    _create_unit_worker)
 
 MODE_TACTICAL = "tactical"
 MODE_CIRCLE = "circle"
 MODES = (MODE_TACTICAL, MODE_CIRCLE)
 
-ALLY_POSITIONS = [Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
-                  Position.ALLY_RIGHT_FRONT, Position.ALLY_LEFT_BACK,
-                  Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK]
-ENEMY_POSITIONS = [Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT,
-                   Position.ENEMY_RIGHT_FRONT, Position.ENEMY_LEFT_BACK,
-                   Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK]
+ALLY_POSITIONS = [Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT, Position.ALLY_RIGHT_FRONT,
+                  Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK, Position.ALLY_RIGHT_BACK]
+ENEMY_POSITIONS = [Position.ENEMY_LEFT_FRONT, Position.ENEMY_CENTER_FRONT, Position.ENEMY_RIGHT_FRONT,
+                   Position.ENEMY_LEFT_BACK, Position.ENEMY_CENTER_BACK, Position.ENEMY_RIGHT_BACK]
 
 
-class EvaluationError(RuntimeError):
-    """A battle could not be built or run."""
+def speed_rank_signature(units):
+    """Inspectable initial equivalence groups, including enemies, positions and ties.
+
+    Deliberately excludes speed magnitudes; it is NOT sufficient for cache/pruning.
+    """
+    groups = {}
+    for unit in units:
+        groups.setdefault(unit.speed, []).append((unit.unit_id, unit.position.value))
+    return tuple(tuple(sorted(groups[speed])) for speed in sorted(groups, reverse=True))
 
 
 class IsolatedSkills(Mapping):
-    """Copy each parsed skill on first access.
-
-    The engine's parsed skill data carries mutable effect state (dynamic flags
-    written while a battle runs). Handing the same object to a second battle
-    would let that state bleed across candidates, so each skill is copied once
-    per battle view and reused within that battle only.
-    """
-
     def __init__(self, source):
-        self.source = source
-        self.copies = {}
+        self.source, self.copies = source, {}
 
     def __iter__(self):
         return iter(self.source)
@@ -79,12 +54,7 @@ class IsolatedSkills(Mapping):
 
 
 class BattleDataView:
-    """A per-battle view over the shared DataLoader.
-
-    Static tables are read straight through; only the mutable parsed skills are
-    isolated, so a battle gets a clean engine state without reloading all data.
-    """
-
+    """Copy mutable parsed effects on first access, without reloading all static data."""
     def __init__(self, loader):
         self.loader = loader
         self.parsed = IsolatedSkills(loader.load_parsed_skills())
@@ -96,8 +66,7 @@ class BattleDataView:
     def get_parsed_skill_data(self, skill_id):
         if skill_id < 0:
             if skill_id not in self.custom_parsed:
-                self.custom_parsed[skill_id] = copy.deepcopy(
-                    self.loader.get_parsed_skill_data(skill_id))
+                self.custom_parsed[skill_id] = copy.deepcopy(self.loader.get_parsed_skill_data(skill_id))
             return self.custom_parsed[skill_id]
         return self.parsed.get(str(skill_id))
 
@@ -105,136 +74,193 @@ class BattleDataView:
         return self.parsed
 
 
-class Evaluator:
-    """Runs one battle for one snapshot and returns the official score."""
-
-    def __init__(self, base_path, user_data_dir=None, mode=MODE_TACTICAL,
-                 circle_context=None):
-        if mode not in MODES:
-            raise EvaluationError(f"未知的模拟模式：{mode!r}")
-        self.mode = mode
-        self.circle_context = dict(circle_context or {})
-        self.loader = DataLoader(base_path=str(base_path),
-                                 user_data_dir=user_data_dir)
+class TacticalEvaluator:
+    def __init__(self, base_path, user_data_dir=None):
+        self.loader = DataLoader(base_path=str(base_path), user_data_dir=user_data_dir)
         self.loader.load_all()
-        if mode == MODE_TACTICAL:
-            self.loader.get_tactical_exercise_enemies()
-
-    # ------------------------------------------------------------------ build
-    @staticmethod
-    def _highlight(data):
-        """Copy one memory highlight into the engine's dataclass.
-
-        Fields are mapped explicitly rather than splatted, so a data-side field
-        that the engine does not know about cannot break battle construction.
-        """
-        return MemoryHighlight(
-            character_attribute=data.character_attribute,
-            character_base_master_id=data.character_base_master_id,
-            character_master_id=data.character_master_id,
-            character_role=data.character_role,
-            character_team_master_id=data.character_team_master_id,
-            character_type=data.character_type,
-            is_targeting_friendly_party=data.is_targeting_friendly_party,
-            party_position=data.party_position,
-            skill_master_id=data.skill_master_id,
-        )
-
-    def _memories(self, state, loader):
-        cards = []
-        for mid in state["memory_ids"]:
-            memory = loader.get_memory(mid)
-            if memory is None:
-                raise EvaluationError(f"未知回忆编号 {mid}")
-            cards.append(MemoryCard(
-                mid, memory.name, memory.description, memory.rarity,
-                [self._highlight(h) for h in memory.highlights]))
-        return cards
+        self.loader.get_tactical_exercise_enemies()
 
     def battlefield(self, state):
-        """Build a battlefield for one snapshot. Runs no battle."""
-        validate(state, self.loader, strict_affixes=False)
-        # Shared memories are a set: normalise the order so that two identical
-        # sets always produce an identical engine input.
+        # Empty list is the original engine's actual no-memory semantics. Public
+        # lineup input still requires six cards; only internal preselection uses it.
+        validate_snapshot(state, self.loader, affixes=False, allow_empty_memories=True)
+        # Optimizer boundary: the original engine consumes lists sequentially.
+        # Every shared-memory set must use the same deterministic engine input.
         state = dict(state, memory_ids=sorted(state["memory_ids"]))
-
-        loader = BattleDataView(self.loader)
-        panel = panel_from_dict(state["panel"])
+        dl = BattleDataView(self.loader)
+        # Unused candidates may have incomplete saved configuration. They are
+        # initialized only when eligible for search, never parsed into this battle.
+        panel = panel_from_dict(active_snapshot(state)["panel"])
         player = panel.get_player_config()
-        calculator = StatCalculator(loader.load_level_lerp_data(),
-                                    data_loader=loader)
-
+        calc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
         bf = BattlefieldState()
-        for index, cid in enumerate(state["friend_positions"]):
-            if cid is None:
-                continue
-            unit = _create_unit_worker(loader, panel, player, calculator, cid,
-                                       Side.ALLY, ALLY_POSITIONS[index])
-            if unit is None:
-                raise EvaluationError(f"无法创建角色 {cid}")
-            bf.add_unit(unit)
+        for i, cid in enumerate(state["friend_positions"]):
+            if cid is not None:
+                bf.add_unit(_create_unit_worker(dl, panel, player, calc, cid, Side.ALLY, ALLY_POSITIONS[i]))
+        enemy = copy.deepcopy(dl.get_tactical_exercise_enemies()[state["enemy_id"]])
+        pos = ENEMY_POSITIONS[enemy.get("position", 2) - 1]
+        bf.add_unit(_create_tactical_enemy_worker(dl, enemy, pos))
+        for mid in state["memory_ids"]:
+            m = dl.get_memory(mid)
+            bf.memory_cards.append(MemoryCard(mid, m.name, m.description, m.rarity,
+                                              [MemoryHighlight(**asdict(h)) for h in m.highlights]))
+        return bf, dl
 
-        self._add_enemies(bf, state, loader)
-        bf.memory_cards = self._memories(state, loader)
-        return bf, loader
+    def evaluate(self, state, seed, narrative=None):
+        # Worker owns RNG; isolated callers still get their ambient RNG restored.
+        saved_random = random.getstate()
+        try:
+            random.seed(seed)
+            bf, dl = self.battlefield(state)
+            controller = TacticalExerciseController(bf, BattleConfig(max_turns=5, enable_rdps=False),
+                                                     data_loader=dl, narrative=narrative)
+            result = controller.execute_battle()
+            return float(result["score"]["total_score"])
+        finally:
+            random.setstate(saved_random)
 
-    def _add_enemies(self, bf, state, loader):
-        if self.mode == MODE_TACTICAL:
-            enemy_id = state.get("enemy_id")
-            enemies = loader.get_tactical_exercise_enemies()
-            data = enemies.get(enemy_id)
-            if data is None:
-                raise EvaluationError(f"未知敌方单位 {enemy_id}")
-            data = copy.deepcopy(data)
-            slot = data.get("position", 2)
-            position = ENEMY_POSITIONS[max(0, min(5, int(slot) - 1))]
-            bf.add_unit(_create_tactical_enemy_worker(loader, data, position))
-            return
+    def speed_ranking(self, state):
+        return self.speed_preview(state)[0]
 
-        stage_data = self.circle_context.get("stage_data")
-        if not stage_data:
-            raise EvaluationError("对抗压制战缺少阶段数据")
-        for enemy in stage_data.get("enemies", []):
-            unit = _create_circle_battle_enemy_worker(loader, copy.deepcopy(enemy))
+    def speed_preview(self, state):
+        """Both display values from one construction; no dynamic-stat caching."""
+        bf, _ = self.battlefield(state)
+        # This is an inspectable initial ranking, not a proof of equivalence in later phases.
+        groups = {}
+        for unit in bf.friend_team + bf.enemy_team:
+            groups.setdefault(unit.speed, []).append(unit.name)
+        return (" > ".join(" = ".join(groups[speed]) + f" ({speed})"
+                           for speed in sorted(groups, reverse=True)),
+                speed_rank_signature(bf.friend_team + bf.enemy_team))
+
+    def speed_signature(self, state):
+        return self.speed_preview(state)[1]
+
+    def pruning_enemy(self, state):
+        """The enemy memory-validity pruning judges this lineup against.
+
+        The tactical exercise has exactly one enemy, so pruning compares against it.
+        """
+        return self.loader.get_tactical_exercise_enemies().get(state.get("enemy_id"))
+
+
+class CircleEvaluator(TacticalEvaluator):
+    """对抗压制战: the same battle, scored by the original circle controller.
+
+    A circle stage differs from the tactical exercise in exactly three ways, so this
+    subclass overrides only the two methods involved and leaves every other part of
+    the ported evaluator untouched:
+
+      * the enemy side is a whole stage lineup (`stage_data["enemies"]`, one or more
+        units at their own positions) rather than one tactical boss;
+      * scoring and win conditions come from ``CircleBattleController``, which is the
+        original implementation and remains the only judge of a battle;
+      * the turn budget comes from ``stage_data["max_turn"]`` instead of a fixed 5.
+
+    Everything shared -- ally construction from the panel, memory cards, RNG handling,
+    numerical output -- goes through the inherited code, so a circle search and a
+    tactical search cannot drift apart in how they build the player's side.
+    """
+
+    def __init__(self, base_path, user_data_dir=None, circle_context=None):
+        super().__init__(base_path, user_data_dir)
+        self.circle_context = dict(circle_context or {})
+        if not self.circle_context.get("stage_data"):
+            raise ValueError("对抗压制战缺少阶段数据")
+
+    def battlefield(self, state):
+        validate_snapshot(state, self.loader, affixes=False,
+                          allow_empty_memories=True, check_enemy=False)
+        state = dict(state, memory_ids=sorted(state["memory_ids"]))
+        dl = BattleDataView(self.loader)
+        panel = panel_from_dict(active_snapshot(state)["panel"])
+        player = panel.get_player_config()
+        calc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
+        bf = BattlefieldState()
+        for i, cid in enumerate(state["friend_positions"]):
+            if cid is not None:
+                bf.add_unit(_create_unit_worker(dl, panel, player, calc, cid,
+                                                Side.ALLY, ALLY_POSITIONS[i]))
+        for enemy in self.circle_context["stage_data"].get("enemies", []):
+            unit = _create_circle_battle_enemy_worker(dl, copy.deepcopy(enemy))
             if unit is not None:
                 bf.add_unit(unit)
+        for mid in state["memory_ids"]:
+            m = dl.get_memory(mid)
+            bf.memory_cards.append(MemoryCard(mid, m.name, m.description, m.rarity,
+                                              [MemoryHighlight(**asdict(h))
+                                               for h in m.highlights]))
+        return bf, dl
 
-    # ---------------------------------------------------------------- evaluate
-    def evaluate(self, state, seed):
-        """Run one battle and return the official total score."""
-        saved = random.getstate()
+    def pruning_enemy(self, state):
+        """The boss of this circle stage: the enemy with the most HP.
+
+        Chosen by HP rather than by slot. `position == 5` happens to hold the boss in
+        every stage this simulator ships, but the game has fielded bosses outside the
+        fifth slot in earlier seasons, so a positional rule would silently name a
+        regular enemy as the reference and prune against the wrong unit. HP is the
+        property that makes it a boss, so it is the property used here.
+
+        The margin is large enough to be unambiguous: in the shipped stages the boss
+        has orders of magnitude more HP than the escort (e.g. 7,299,270 against
+        roughly 40,000), so ties are not a practical concern -- and a tie still
+        resolves deterministically by the max() order.
+        """
+        enemies = self.circle_context["stage_data"].get("enemies") or []
+        if not enemies:
+            return None
+        return max(enemies, key=lambda e: e.get("hp", 0) or 0)
+
+    def evaluate(self, state, seed, narrative=None):
+        saved_random = random.getstate()
         try:
-            random.seed(int(seed))
-            bf, loader = self.battlefield(state)
-            controller = self._controller(bf, loader)
+            random.seed(seed)
+            bf, dl = self.battlefield(state)
+            from src.combat_v2.circle_battle_controller import CircleBattleController
+            stage_data = self.circle_context["stage_data"]
+            config = BattleConfig(max_turns=int(stage_data.get("max_turn", 5)),
+                                  enable_rdps=False)
+            controller = CircleBattleController(
+                bf, config, data_loader=dl, narrative=narrative,
+                season=int(self.circle_context.get("season", 1)),
+                stage=int(self.circle_context.get("stage", 1)),
+                enemy_state_overrides=self.circle_context.get("enemy_state_overrides"))
             result = controller.execute_battle()
-            score = result.get("score") or {}
-            total = score.get("total_score", result.get("score"))
-            if not isinstance(total, (int, float)):
-                raise EvaluationError(f"战斗未返回有效分数：{result.get('score')!r}")
-            return float(total)
+            return float(result["score"]["total_score"])
         finally:
-            random.setstate(saved)
-
-    def _controller(self, bf, loader):
-        if self.mode == MODE_TACTICAL:
-            from src.combat_v2.tactical_exercise_controller import (
-                TacticalExerciseController)
-            return TacticalExerciseController(
-                bf, BattleConfig(max_turns=5, enable_rdps=False),
-                data_loader=loader)
-
-        from src.combat_v2.circle_battle_controller import CircleBattleController
-        stage_data = self.circle_context["stage_data"]
-        config = BattleConfig(max_turns=stage_data.get("max_turn", 5),
-                              enable_rdps=False)
-        return CircleBattleController(
-            bf, config, data_loader=loader,
-            season=int(self.circle_context.get("season", 1)),
-            stage=int(self.circle_context.get("stage", 1)),
-            enemy_state_overrides=self.circle_context.get("enemy_state_overrides"))
+            random.setstate(saved_random)
 
 
-def silence_worker_logging():
-    """Suppress the engine's per-hit INFO logging inside a search worker."""
-    _silence_worker_battle_logging()
+def make_evaluator(mode=MODE_TACTICAL, base_path=None, user_data_dir=None,
+                   circle_context=None):
+    """Build the evaluator for a mode.
+
+    One factory so the worker never guesses: an unknown mode is rejected here rather
+    than silently falling through to the tactical engine and scoring the wrong battle.
+    """
+    if mode == MODE_CIRCLE:
+        return CircleEvaluator(base_path, user_data_dir, circle_context)
+    if mode == MODE_TACTICAL:
+        return TacticalEvaluator(base_path, user_data_dir)
+    raise ValueError(f"未知的战斗模式：{mode!r}（可选 {'、'.join(MODES)}）")
+
+
+class EvaluatorFactory:
+    """A picklable ``(base_path, user_data_dir) -> evaluator`` factory for BattlePool.
+
+    ``BattlePool`` hands this to each spawned worker process; without it the worker's
+    default builds a :class:`TacticalEvaluator`, which on a circle state (``enemy_id``
+    is None) crashes with ``KeyError: None`` in ``get_tactical_exercise_enemies``.
+
+    It must be a module-level object with plain-data attributes: a closure or
+    ``functools.partial`` over a nested function is NOT picklable across the spawn
+    boundary on Windows, which is the very failure this class exists to avoid.
+    """
+
+    def __init__(self, mode=MODE_TACTICAL, circle_context=None):
+        self.mode = mode
+        self.circle_context = circle_context
+
+    def __call__(self, base_path, user_data_dir):
+        return make_evaluator(self.mode, base_path, user_data_dir,
+                              self.circle_context)

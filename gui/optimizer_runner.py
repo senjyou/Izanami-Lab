@@ -54,9 +54,9 @@ class OptimizerRunner:
         # Target the algorithm-side entry point directly: it is a module-level
         # function, so spawn pickles it by qualified name and the child imports
         # only the optimizer package -- never this GUI module.
-        from src.optimizer.worker import optimizer_worker
+        from src.optimizer.worker import search_worker
         self.process = context.Process(
-            target=optimizer_worker,
+            target=search_worker,
             args=(request, self.stop_event, self.queue), daemon=False)
         self.process.start()
         self._poll()
@@ -96,7 +96,8 @@ class OptimizerRunner:
         self.poll_id = None
         if self.queue is None:
             return
-        latest_progress = None
+        latest_heartbeat = None
+        latest_full = None
         for _ in range(MAX_MESSAGES_PER_POLL):
             try:
                 message = self.queue.get_nowait()
@@ -104,16 +105,26 @@ class OptimizerRunner:
                 break
             kind = message.get("type")
             if kind == "progress":
-                latest_progress = message.get("info") or {}
-            elif kind == "done":
-                self.result = message.get("result")
+                # The ported worker publishes every report -- heartbeat and final
+                # alike -- as {"type": "progress", "result": payload}. The payload
+                # carries ``progress_only`` on interim beats; a payload WITHOUT it
+                # is the final result and replaces anything shown so far.
+                payload = message.get("result") or {}
+                if payload.get("progress_only"):
+                    latest_heartbeat = payload
+                else:
+                    latest_full = payload
+                    latest_heartbeat = None
             elif kind == "error":
-                self._report_error(message.get("message", "未知错误"))
+                self._report_error(message.get("summary")
+                                   or message.get("message", "未知错误"))
             elif kind == "exit":
                 self._finished = True
 
-        if latest_progress is not None:
-            self._show_progress(latest_progress)
+        if latest_full is not None:
+            self.result = latest_full
+        if latest_heartbeat is not None:
+            self._show_progress(latest_heartbeat)
 
         alive = self.process is not None and self.process.is_alive()
         if alive or not self._finished:
@@ -129,11 +140,14 @@ class OptimizerRunner:
         if panel is None:
             return
         phase = info.get("phase", "搜索中")
-        battles = info.get("battles", 0)
-        done = info.get("done")
-        total = info.get("total")
+        # The ported engine reports its battle count as ``simulations``; reading the
+        # old ``battles`` key would freeze the counter at 0 for the whole run.
+        battles = info.get("simulations", 0)
+        stage_progress = info.get("stage_progress") or {}
+        done = stage_progress.get("completed_candidates")
+        total = stage_progress.get("candidate_total")
         elapsed = info.get("elapsed", 0.0)
-        line = f"优化中 · {phase}：{battles} 场"
+        line = f"优化中 · {phase}：{battles:,} 场"
         if done is not None and total:
             line += f"（{done}/{total}）"
         if elapsed:

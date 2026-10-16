@@ -54,6 +54,46 @@ MAX_PAGES = 10
 ROW_SLOTS = 6
 
 
+def _normalized_candidates(result):
+    """The finalist lineup list the preview draws, from the real V3.2 result.
+
+    The ported engine's final shortlist lives in ``independent_validation.candidates``
+    (each with a ``state`` and the final ``mean``); the ``joint_candidate_records``/
+    ``joint`` keys are NOT present in the published result. Each finalist's lineup
+    comes from its ``state`` (``friend_positions``/``memory_ids``). Returns [] when
+    there is no shortlist.
+    """
+    iv = (result or {}).get("independent_validation") or {}
+    cands = list(iv.get("candidates") or [])
+    if not cands:
+        return []
+    objective = ((result or {}).get("settings") or {}).get("objective", "mean")
+
+    def _key(c):
+        m = c.get("mean")
+        return float(m) if isinstance(m, (int, float)) else float("-inf")
+    ordered = sorted(cands, key=_key, reverse=True)
+
+    orig = (result or {}).get("original") or {}
+    out = []
+    for rank, cand in enumerate(ordered, start=1):
+        state = cand.get("state") or {}
+        is_base = (tuple(state.get("friend_positions") or ())
+                   == tuple(orig.get("friend_positions") or ())
+                   and tuple(state.get("memory_ids") or ())
+                   == tuple(orig.get("memory_ids") or ()))
+        out.append(dict(
+            rank=rank,
+            is_baseline=is_base,
+            arrangement=list(state.get("friend_positions") or []),
+            memory_ids=list(state.get("memory_ids") or []),
+            summary={"rank": cand.get("mean"),
+                     "n": cand.get("seed_count") or 0},
+            objective=objective,
+        ))
+    return out
+
+
 class ResultPreview(ttk.Frame):
     """A paged strip of candidate thumbnails, for under the result panel.
 
@@ -99,7 +139,7 @@ class ResultPreview(ttk.Frame):
     def render(self, result, data_loader):
         """Draw the first page of ``result``."""
         self.clear()
-        candidates = (result or {}).get("candidates") or []
+        candidates = _normalized_candidates(result)
         if not candidates:
             return
         self._result = result
@@ -220,7 +260,7 @@ class ResultPreview(ttk.Frame):
         self._refs.clear()
         scheme = self._scheme()
 
-        candidates = (self._result or {}).get("candidates") or []
+        candidates = _normalized_candidates(self._result)
         start = self._page * self.page_size
         for offset, cand in enumerate(candidates[start:start + self.page_size]):
             # The index drives the "compared with current" line, which belongs on
@@ -362,9 +402,9 @@ class ResultPreview(ttk.Frame):
     def _caption(self, cand, index, result):
         """One line naming the candidate and its score, containing no ids."""
         summary = cand.get("summary") or {}
-        objective = (result.get("objective")
-                     or (result.get("best_summary") or {}).get("objective"))
-        label = "当日最高" if objective == "roll5" else "均值"
+        objective = cand.get("objective") or "mean"
+        from src.optimizer import objective as _obj
+        label = _obj.OBJECTIVE_LABELS.get(objective, "均值").split("（")[0]
         parts = [f"#{cand.get('rank', index + 1)}"]
         if cand.get("is_baseline"):
             parts.append("当前阵容")
@@ -374,12 +414,6 @@ class ResultPreview(ttk.Frame):
         cv = summary.get("cv")
         if isinstance(cv, (int, float)):
             parts.append(f"波动 {cv:.1f}%")
-        baseline = result.get("baseline_summary") or {}
-        if index == 0 and isinstance(score, (int, float)) \
-                and isinstance(baseline.get("rank"), (int, float)) \
-                and baseline["rank"]:
-            delta = score - baseline["rank"]
-            parts.append(f"较当前 {delta:+,.0f}（{delta / baseline['rank'] * 100:+.2f}%）")
         return "　".join(parts)
 
     def _level(self, cid):

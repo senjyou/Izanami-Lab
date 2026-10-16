@@ -20,8 +20,8 @@ from tkinter import messagebox, ttk
 
 from gui.dialogs.optimize_dialog import OptimizeDialog
 from gui.optimizer_runner import OptimizerRunner
+from src.optimizer import model as model_mod
 from src.optimizer import objective as obj
-from src.optimizer.snapshot import SnapshotError, build_snapshot, validate
 
 
 class OptimizeTabMixin:
@@ -125,16 +125,23 @@ class OptimizeTabMixin:
                 return None, None, None
 
         try:
-            template = build_snapshot(selection, panel, enemy_id=enemy_id)
-            validate(template, self.app.data_loader, strict_affixes=False)
-        except SnapshotError as exc:
+            # The ported optimizer's own snapshot builder, so the state it receives
+            # is exactly the shape its model validates and prepares. A circle stage
+            # has no tactical boss, so its enemy check is skipped -- the circle
+            # evaluator builds the enemy side from the stage lineup instead.
+            template = model_mod.snapshot(selection, panel)
+            circle = self._OPTIMIZE_MODE == "circle"
+            model_mod.validate_snapshot(template, self.app.data_loader, affixes=False,
+                                        check_enemy=not circle)
+        except ValueError as exc:
             messagebox.showwarning("阵容无效", str(exc), parent=self)
             return None, None, None
 
-        required = {str(m): "必选" for m in template["memory_ids"]}
-        # Unpinned memories form the candidate pool; the dialog decides which are
-        # pinned, so start from "everything the lineup already carries".
-        constraints = {"memories": dict(required)}
+        # Start from the optimizer's own default constraints (the equipped memories
+        # required, everything else excluded), then let the dialog widen the pool.
+        # The characters axis is always present: validate_constraints requires all
+        # five lineup members be listed or the axis cannot be filled.
+        constraints = model_mod.default_constraints(template)
         return template, constraints, context
 
     def _optimize_pinned_memories(self):
@@ -165,6 +172,7 @@ class OptimizeTabMixin:
         pool = sorted(choice.get("pool") or ()) or pinned
 
         constraints = {
+            "characters": dict(template and model_mod.default_constraints(template).get("characters", {})),
             "memories": {**{str(m): "必选" for m in pinned},
                          **{str(m): "候选" for m in pool if m not in set(pinned)}}}
 
@@ -179,18 +187,23 @@ class OptimizeTabMixin:
                     parent=self)
                 return
 
+        # Memory pruning stays ON for circle as well: the evaluator supplies the
+        # boss-position enemy as the reference unit, so pruning judges against the
+        # unit this lineup actually fights rather than a tactical boss it never sees.
+
+        from dataclasses import asdict
         request = {
             "base_path": self._optimize_base_path(),
             "user_data_dir": self._optimize_user_dir(),
-            "mode": self._OPTIMIZE_MODE,
             "state": template,
             "constraints": constraints,
-            "settings": settings.as_dict(),
+            # The ported worker takes the settings as a plain mapping.
+            "settings": asdict(settings),
+            "output": None,
+            # Circle-battle needs its own controller and stage lineup; the worker
+            # builds the matching evaluator from these.
+            "mode": self._OPTIMIZE_MODE,
             "circle": context or None,
-            # Battle processes: 0 = one per logical CPU, matching the official
-            # batch simulator. This is what makes a search finish in minutes
-            # rather than hours.
-            "workers": settings.workers,
         }
 
         self._optimize_set_controls(False)

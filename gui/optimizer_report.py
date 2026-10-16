@@ -187,7 +187,7 @@ def _headline(summary, objective):
     The label and its number are joined by a non-breaking space so the wrapper
     never separates them.
     """
-    label = "当日最高" if objective == obj.OBJECTIVE_ROLL5 else "均值"
+    label = {"roll5": "当日最高", "floor": "保底"}.get(objective, "均值")
     return f"{label}\u00a0{summary.get('rank', 0):,.0f}"
 
 
@@ -204,40 +204,138 @@ def _spread_text(summary):
             f"{summary.get('n', 0)}{nb}场")
 
 
+def _coverage(result, total):
+    """How much of the space was actually screened, parsed from the run detail.
+
+    Returns ``(screened, percent)`` or None when the count cannot be read. The
+    detail line is written by the search, so this keeps one source of truth.
+    """
+    detail = result.get("detail") or ""
+    if "粗筛" not in detail or not total:
+        return None
+    try:
+        text = detail.split("粗筛", 1)[1]
+        screened = int(text.split("个", 1)[0].strip().replace(",", ""))
+    except (IndexError, ValueError):
+        return None
+    return screened, screened / total * 100.0
+
+
+def _candidate_states(result):
+    """Ranked finalist states, best first, from the real V3.2 result.
+
+    The ported engine's final shortlist lives in ``independent_validation.candidates``
+    (each with a ``state`` and the final ``mean``), NOT in a ``joint`` or
+    ``candidates`` key -- those are absent from the published result. This reads the
+    shortlist and sorts it by ``mean`` descending. Returns [] when there is none.
+    """
+    iv = result.get("independent_validation") or {}
+    cands = list(iv.get("candidates") or [])
+    if not cands:
+        return []
+    def _key(c):
+        m = c.get("mean")
+        return float(m) if isinstance(m, (int, float)) else float("-inf")
+    return sorted(cands, key=_key, reverse=True)
+
+
+def _champion_scores(result):
+    """Champion and baseline (score, spread) from the finalists + joint_seed_scores."""
+    import statistics as _st
+    finalists = _candidate_states(result)
+    flat = result.get("joint_seed_scores") or []
+
+    def _spread_for(key, seeds):
+        seedset = set(seeds or [])
+        scores = [float(r["score"]) for r in flat
+                  if r.get("configuration_key") == key
+                  and isinstance(r.get("score"), (int, float))
+                  and (not seedset or r.get("seed") in seedset)]
+        n = len(scores)
+        if n < 2:
+            return dict(sd=0.0, cv=0.0, n=n)
+        sd = _st.stdev(scores)
+        mean = _st.mean(scores)
+        return dict(sd=sd, cv=(sd / mean * 100.0) if mean else 0.0, n=n)
+
+    best = None
+    if finalists:
+        top = finalists[0]
+        m = top.get("mean")
+        if isinstance(m, (int, float)):
+            best = dict(rank=float(m),
+                        **_spread_for(top.get("configuration_key"), top.get("seeds")))
+    # Baseline = the finalist matching the original lineup, else the lowest finalist.
+    baseline = None
+    orig = result.get("original") or {}
+    okey = (tuple(orig.get("friend_positions") or ()),
+            tuple(orig.get("memory_ids") or ()))
+    base_row = None
+    for c in finalists:
+        st = c.get("state") or {}
+        if (tuple(st.get("friend_positions") or ()),
+                tuple(st.get("memory_ids") or ())) == okey:
+            base_row = c
+            break
+    if base_row is None and finalists:
+        base_row = finalists[-1]
+    if base_row is not None:
+        m = base_row.get("mean")
+        if isinstance(m, (int, float)):
+            baseline = dict(rank=float(m),
+                            **_spread_for(base_row.get("configuration_key"),
+                                          base_row.get("seeds")))
+    return best, baseline
+
+
+def _ranked_joint(result):
+    """Finalist rows (value, {configuration_key, state, mean}) for the leaderboard."""
+    out = []
+    for c in _candidate_states(result):
+        m = c.get("mean")
+        if isinstance(m, (int, float)):
+            out.append((float(m), c))
+    return out
+
+
 def format_report(result, resolver=None):
     """The run summary as text, with no ids and no table.
 
-    The lineup itself is NOT repeated here: ``gui.optimizer_preview`` draws the
-    same candidates as real card thumbnails directly under the panel, and card art
-    identifies a character far better than a name. So the text carries what a
-    picture cannot -- the numbers, the ranking and the comparison -- and stays
-    compact enough to read without scrolling.
-
-    ``resolver`` is accepted for callers that still want names in the text, but is
-    only used to label anything the preview cannot show.
+    Built for the ported V3.2 result format: the champion/baseline are the
+    independent-validation scores, the space is the layered joint total, and the
+    leaderboard is the layered review ranking.
     """
     settings = result.get("settings") or {}
-    objective = result.get("objective", obj.OBJECTIVE_MEAN)
-    label = "当日最高 Roll5" if objective == obj.OBJECTIVE_ROLL5 else "均值"
-    space = result.get("space") or {}
+    objective = settings.get("objective", obj.OBJECTIVE_MEAN)
+    label = obj.OBJECTIVE_LABELS.get(objective, "均值")
+    layered = result.get("layered") or {}
+    simulations = result.get("simulations", 0)
+    workers = settings.get("battle_workers", "?")
+    if workers == 0:
+        workers = "自动"
 
     lines = [
         f"【智能优化 · {label}】",
-        f"预算 {settings.get('budget', 0):,} 场　实际 "
-        f"{result.get('battles', 0):,} 场　{result.get('elapsed', 0):.1f} 秒　"
-        f"{result.get('workers', '?')} 进程",
-        f"空间 {space.get('positions', '?')} 站位 × "
-        f"{space.get('memories', '?')} 回忆 = {space.get('combined', 0):,}",
-        f"结果：{result.get('termination')}",
+        f"预算 {settings.get('budget', 0):,} 场　实际 {simulations:,} 场",
+        f"用时 {result.get('elapsed', 0):.1f} 秒　{workers} 进程",
     ]
-    detail = result.get("detail", "")
-    if detail:
+    positions = layered.get("position_total")
+    memories = layered.get("legal_memory_combinations")
+    joint = layered.get("joint_total")
+    if positions is not None:
+        lines.append(f"空间 {positions} 站位 × {memories or '?'} 回忆"
+                     + (f" = {joint:,}" if joint else ""))
+    reason = result.get("termination_reason") or result.get("phase") or ""
+    lines.append(f"结果：{reason}")
+    detail = result.get("termination_detail") or ""
+    if detail and detail not in reason:
         lines.extend(_wrap_plain(detail, indent="  "))
+    stage = layered.get("stage")
+    if stage and stage not in (reason, detail):
+        lines.append(f"阶段：{stage}")
     lines.append("")
 
-    best = result.get("best_summary")
-    baseline = result.get("baseline_summary")
-
+    best, baseline = _champion_scores(result)
     if best:
         lines.append("═══ 冠军 ═══")
         lines.append(f"  {_headline(best, objective)}")
@@ -255,23 +353,42 @@ def format_report(result, resolver=None):
         lines.append(f"  {verdict} {delta:+,.0f}（{pct:+.2f}%）")
         lines.append("")
 
-    candidates = result.get("candidates") or []
-    if not candidates:
-        lines.append("没有候选完成完整的精评种子组。")
-        lines.append("可提高预算，或缩小回忆卡池后重试。")
+    joint_scored = _ranked_joint(result)
+    if not joint_scored:
+        lines.append("没有候选进入复评名单；可提高预算或缩小卡池。")
+        lines.extend(_wrap_plain("提示：点击「应用最优站位」可写回当前页面。", indent=""))
         return "\n".join(lines) + "\n"
 
-    shown = candidates[:LEADERBOARD_LIMIT]
-    ranks = [c.get("summary", {}).get("rank", 0.0) for c in shown]
-    top, bottom = max(ranks), min(ranks)
-    lines.append(f"═══ 候选排行（前 {len(shown)} / 共 {len(candidates)}）═══")
+    shown = joint_scored[:LEADERBOARD_LIMIT]
+    values = [v for v, _ in shown]
+    top, bottom = (max(values), min(values)) if values else (0, 0)
+    lines.append(f"═══ 候选排行（前 {len(shown)} / 共 {len(joint_scored)}）═══")
     lines.append("")
-    for cand in shown:
-        lines.extend(format_candidate_block(cand, top, bottom, resolver,
-                                            objective))
-    limited = min(len(candidates), PREVIEW_LIMIT)
-    pages = (limited + 2) // 3
-    lines.append(f"（前 {limited} 名的阵容见图，共 {pages} 页，可翻页查看）")
+    for rank, (value, cand) in enumerate(shown, start=1):
+        state = cand.get("state") or {}
+        n = cand.get("seed_count") or 0
+        # is_baseline: the candidate whose lineup equals the original (current) page.
+        orig = result.get("original") or {}
+        is_base = (tuple(state.get("friend_positions") or ())
+                   == tuple(orig.get("friend_positions") or ())
+                   and tuple(state.get("memory_ids") or ())
+                   == tuple(orig.get("memory_ids") or ()))
+        summary = {"rank": value, "n": n}
+        # Real spread for this finalist, from its joint_seed_scores.
+        import statistics as _st
+        flat = result.get("joint_seed_scores") or []
+        seedset = set(cand.get("seeds") or [])
+        sscores = [float(r["score"]) for r in flat
+                   if r.get("configuration_key") == cand.get("configuration_key")
+                   and isinstance(r.get("score"), (int, float))
+                   and (not seedset or r.get("seed") in seedset)]
+        if len(sscores) > 1:
+            sd = _st.stdev(sscores)
+            mn = _st.mean(sscores)
+            summary.update(sd=sd, cv=(sd / mn * 100.0) if mn else 0.0)
+        lines.extend(format_candidate_block(
+            {"rank": rank, "is_baseline": is_base, "summary": summary},
+            top, bottom, resolver, objective))
     lines.append("")
     lines.extend(_wrap_plain("提示：点击「应用最优站位」可写回当前页面。"))
     return "\n".join(lines) + "\n"

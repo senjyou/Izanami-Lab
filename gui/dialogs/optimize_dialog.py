@@ -33,9 +33,6 @@ from tkinter import messagebox, ttk
 from gui.dialogs.optimize_memory_picker import MemoryMultiPicker, MAX_PINNED
 from gui.widgets.modal import _bind_modal_minimize_restore
 from src.optimizer import objective as obj
-from src.optimizer.budget import (
-    EFFORT_FAST, EFFORT_LABELS, EFFORT_STANDARD, EFFORT_THOROUGH,
-    minimum_budget, plan_search, seeds_for)
 from src.optimizer.search import SearchSettings
 
 # A lineup equips exactly this many shared memories.
@@ -47,20 +44,12 @@ DEFAULT_ROLL5_SEEDS = 8
 
 # "自动" resolves to one battle process per logical CPU, the same default the
 # official batch simulator uses.
+# official batch simulator uses.
 AUTO_WORKERS_LABEL = "自动"
 
 
 def _cpu_count():
     return max(1, os.cpu_count() or 1)
-
-
-class _PlanSettings:
-    """Minimal settings object so ``space_size`` can size the search."""
-
-    def __init__(self, positions, memories):
-        self.change_positions = bool(positions)
-        self.change_memories = bool(memories)
-        self.seed = 0
 
 
 class OptimizeDialog(tk.Toplevel):
@@ -77,14 +66,17 @@ class OptimizeDialog(tk.Toplevel):
         self.app = app
         self.mode_label = mode_label
         self._template = template
+        # 对抗压制战 battles are all real and all count, which changes both the
+        # objective offered and its sensible seed depth.
+        self._circle_mode = "对抗" in str(mode_label)
+        # The ported algorithm's own model validates against the real catalogue, so
+        # the dialog needs the loader the app already holds.
+        self._data_loader = getattr(app, "data_loader", None)
         self.result = None
 
         self._objective = tk.StringVar(value=objective or obj.OBJECTIVE_MEAN)
         self._positions = tk.BooleanVar(value=True)
         self._memories = tk.BooleanVar(value=True)
-        self._budget = tk.StringVar(value="")
-        self._manual_budget = tk.BooleanVar(value=False)
-        self._effort = tk.StringVar(value=EFFORT_STANDARD)
         self._seed = tk.StringVar(value=str(DEFAULT_SEED))
         self._advanced = tk.BooleanVar(value=False)
 
@@ -114,10 +106,8 @@ class OptimizeDialog(tk.Toplevel):
 
         self._build_objective(body)
         self._build_scope(body)
-        self._build_effort(body)
         self._build_memories(body)
-        self._build_budget(body)
-        self._build_advanced(body)
+        self._build_plan_note(body)
         self._build_actions(body)
 
     def _build_objective(self, parent):
@@ -127,10 +117,22 @@ class OptimizeDialog(tk.Toplevel):
             box, text="均值（稳定）—— 追求平均得分最高",
             variable=self._objective, value=obj.OBJECTIVE_MEAN,
             command=self._on_objective_change).pack(anchor="w")
-        ttk.Radiobutton(
-            box, text="当日最高 Roll5 —— 追求每日 5 次中的最好一次",
-            variable=self._objective, value=obj.OBJECTIVE_ROLL5,
-            command=self._on_objective_change).pack(anchor="w")
+        # The second objective depends on the mode, and offering the wrong one would
+        # be misleading rather than merely useless:
+        #   * tactical exercise gives five daily attempts and only the best counts,
+        #     so best-of-five (Roll5) is the objective that matters there;
+        #   * a circle stage's battles are all real and all count, so the guarantee
+        #     matters more than the upside -- maximise the lowest score instead.
+        if self._circle_mode:
+            ttk.Radiobutton(
+                box, text="保底（最低分最高）—— 每次战斗都真实有效，追求最低分抬升",
+                variable=self._objective, value=obj.OBJECTIVE_FLOOR,
+                command=self._on_objective_change).pack(anchor="w")
+        else:
+            ttk.Radiobutton(
+                box, text="当日最高 Roll5 —— 追求每日 5 次中的最好一次",
+                variable=self._objective, value=obj.OBJECTIVE_ROLL5,
+                command=self._on_objective_change).pack(anchor="w")
 
     def _build_scope(self, parent):
         box = ttk.LabelFrame(parent, text="搜索维度", padding=8)
@@ -247,127 +249,91 @@ class OptimizeDialog(tk.Toplevel):
         except Exception as exc:
             self._space_note.configure(text=f"无法估算：{exc}")
             return
-        from src.optimizer.budget import describe_plan
-        self._space_note.configure(text=describe_plan(plan))
-        # The estimate becomes the budget unless the user has taken it over.
-        if not self._manual_budget.get():
-            self._budget.set(str(plan["budget"]))
+        self._space_note.configure(text=self._describe_plan(plan))
+        self._budget_note.configure(text="预算与强度由算法自分配；无需设置。")
+
+    def _describe_plan(self, plan):
+        """A short, wrapped summary of the ported algorithm's own cost model."""
+        positions = plan.get("legal_positions")
+        memories = plan.get("legal_memories")
+        joint = plan.get("theoretical_joint_configurations")
+        budget = plan.get("budget") or plan.get("recommended_budget")
+        parts = []
+        if positions is not None and memories is not None:
+            parts.append(f"空间 {positions} 站位 × {memories} 回忆"
+                         f" = {joint:,} 种组合")
+        if budget is not None:
+            parts.append(f"建议预算约 {budget:,} 场")
+        if plan.get("bare_basic_cost"):
+            parts.append(f"含裸装站位预选 {plan['bare_basic_cost']:,} 场")
+        if plan.get("filter_enabled"):
+            parts.append("已启用裸装淘汰与无效回忆剪枝")
+        if plan.get("review_strategy") == "quick":
+            parts.append("复评走 8→16→32→64→128 共同种子逐轮淘汰")
+        return "\n".join(parts) if parts else "无法估算"
 
     def _plan(self):
-        """Compute the search plan for the current objective, pool and seeds.
+        """The ported V3.2 cost model for the current pool, objective and seeds.
 
-        The seed count comes from the same control the run will use, so the
-        estimate cannot promise an 8-seed refinement while the search performs a
-        2-seed one.
+        Uses `layered_recommendation` -- the algorithm's own planner -- rather than a
+        local re-derivation, so the number shown here cannot drift from the number
+        the search will actually spend.
         """
-        from src.optimizer import budget as budget_mod
-        from src.optimizer import space as space_mod
-        constraints = self._constraints()
+        from src.optimizer import model as model_mod
+        from src.optimizer.layered_search import layered_recommendation
         template = self._template
         if template is None:
             raise ValueError("没有可用的阵容")
-        positions, memories, combined = space_mod.space_size(
-            template, constraints, _PlanSettings(self._positions.get(),
-                                                 self._memories.get()))
-        # Only the position axis matters when memories are fixed, so the smaller
-        # figure is the honest one to plan against.
-        space = combined if self._memories.get() else positions
-        try:
-            seeds = int(self._review_seeds.get())
-        except (AttributeError, TypeError, ValueError):
-            seeds = None
-        return budget_mod.plan_search(space, self._objective.get(),
-                                      effort=self._effort.get(),
-                                      review_seeds=seeds)
+        constraints = self._constraints()
+        model_mod.validate_constraints(template, constraints, self._data_loader,
+                                       require_current=False)
+        settings = self._build_settings(budget=1)   # budget is irrelevant to planning
+        plan = layered_recommendation(template, constraints, settings,
+                                      loader=self._data_loader)
+        plan = dict(plan)
+        plan["budget"] = plan.get("recommended_budget")
+        return plan
 
     def _constraints(self):
-        """The memory constraints implied by the current pin/pool selection."""
+        """The constraints implied by the current pin/pool selection.
+
+        Both axes are always present. `validate_constraints` requires at least five
+        characters and six memories to be listed, because anything unlisted is
+        auto-excluded -- omitting the characters axis would leave it unfillable
+        rather than unrestricted. The five lineup members are pinned because the V3.2
+        layered mode fixes the characters and searches only positions and memories.
+        """
         pinned = {str(m): "必选" for m in sorted(self._pinned)}
         pool = {str(m): "候选" for m in sorted(self._pool - self._pinned)}
-        return {"memories": {**pinned, **pool}}
+        memories = {**pinned, **pool}
+        characters = {}
+        template = self._template or {}
+        for cid in template.get("friend_positions", []):
+            if cid is not None:
+                characters[str(cid)] = "必选"
+        # If the template is unavailable or short, fall back to whatever the pool
+        # covers so the axis is never left empty.
+        if len(characters) < 5:
+            for cid in (template.get("friend_positions") or []):
+                if cid is not None:
+                    characters[str(cid)] = "必选"
+        return {"characters": characters, "memories": memories}
 
-    def _build_budget(self, parent):
-        box = ttk.LabelFrame(parent, text="战斗预算", padding=8)
+    def _build_plan_note(self, parent):
+        """The budget/effort note: what the algorithm will spend, read-only.
+
+        The search strength, budget and review-seed controls are gone: this engine
+        self-allocates (the bare preselection runs 2->4->8, the joint coverage deepens
+        to four seeds when the budget allows, and the review climbs to its cap), so a
+        hand setting would only fight the algorithm. The note tells the user what the
+        plan will spend instead of asking them to choose.
+        """
+        box = ttk.LabelFrame(parent, text="预算与强度（自动）", padding=8)
         box.pack(fill="x", pady=(0, 8))
-
-        row = ttk.Frame(box)
-        row.pack(fill="x")
-        ttk.Checkbutton(row, text="手动指定",
-                        variable=self._manual_budget,
-                        command=self._on_budget_mode).pack(side="left")
-        self._budget_entry = ttk.Entry(row, textvariable=self._budget, width=10,
-                                       state="readonly")
-        self._budget_entry.pack(side="left", padx=6)
-        ttk.Label(row, text="场").pack(side="left")
-
-        self._space_note = ttk.Label(box, text="", wraplength=380,
-                                     justify="left")
-        self._space_note.pack(anchor="w", pady=(4, 0))
-        self._budget_note = ttk.Label(box, text="", wraplength=380,
-                                      justify="left")
-        self._budget_note.pack(anchor="w")
-
-    def _on_budget_mode(self):
-        """Switch between the estimate and a hand-set budget."""
-        manual = self._manual_budget.get()
-        self._budget_entry.configure(state="normal" if manual else "readonly")
-        if not manual:
-            self._refresh_space_note()
-        else:
-            self._budget_note.configure(
-                text="手动预算：低于下限时会拒绝运行，以免白跑一场。")
-
-    def _build_effort(self, parent):
-        box = ttk.LabelFrame(parent, text="搜索强度", padding=8)
-        box.pack(fill="x", pady=(0, 8))
-        row = ttk.Frame(box)
-        row.pack(fill="x")
-        for value in (EFFORT_FAST, EFFORT_STANDARD, EFFORT_THOROUGH):
-            ttk.Radiobutton(row, text=EFFORT_LABELS[value], value=value,
-                            variable=self._effort,
-                            command=self._refresh_space_note).pack(side="left", padx=4)
-
-    def _build_advanced(self, parent):
-        ttk.Checkbutton(parent, text="高级选项（精评种子数 / 随机种子）",
-                        variable=self._advanced,
-                        command=self._toggle_advanced).pack(anchor="w")
-        self._advanced_box = ttk.LabelFrame(parent, text="高级", padding=8)
-
-        self._review_seeds = tk.StringVar(value=str(DEFAULT_MEAN_SEEDS))
-        row = ttk.Frame(self._advanced_box)
-        row.pack(fill="x")
-        ttk.Label(row, text="精评种子数").pack(side="left")
-        self._seeds_combo = ttk.Combobox(
-            row, textvariable=self._review_seeds, width=6, state="readonly",
-            values=("1", "2", "4", "8", "16", "32"))
-        self._seeds_combo.pack(side="left", padx=4)
-        # Changing the cohort changes the cost, so the estimate must follow it.
-        self._seeds_combo.bind("<<ComboboxSelected>>",
-                              lambda _event: self._refresh_space_note())
-        ttk.Label(row, text="（越多越稳，消耗预算）").pack(side="left")
-
-        row2 = ttk.Frame(self._advanced_box)
-        row2.pack(fill="x", pady=(4, 0))
-        ttk.Label(row2, text="随机种子").pack(side="left")
-        ttk.Entry(row2, textvariable=self._seed, width=10).pack(side="left", padx=4)
-        ttk.Label(row2, text="（相同种子可复现）").pack(side="left")
-
-        # Battle processes. "自动" matches the official batch simulator, which uses
-        # one process per logical CPU; that parallelism is the single biggest
-        # factor in how fast a search finishes.
-        row3 = ttk.Frame(self._advanced_box)
-        row3.pack(fill="x", pady=(4, 0))
-        ttk.Label(row3, text="战斗进程数").pack(side="left")
-        self._workers = tk.StringVar(value=AUTO_WORKERS_LABEL)
-        ttk.Combobox(row3, textvariable=self._workers, width=10, state="readonly",
-                     values=(AUTO_WORKERS_LABEL, "1", "2", "4", "6", "8", "12", "16")
-                     ).pack(side="left", padx=4)
-        ttk.Label(row3, text=f"（自动 = {_cpu_count()} 核）").pack(side="left")
-
-        self._seed_note = ttk.Label(self._advanced_box, text="", wraplength=380,
-                                    justify="left")
-        self._seed_note.pack(anchor="w", pady=(4, 0))
-        self._on_objective_change()
+        self._space_note = ttk.Label(box, text="", wraplength=380, justify="left")
+        self._space_note.pack(anchor="w")
+        self._budget_note = ttk.Label(box, text="", wraplength=380, justify="left")
+        self._budget_note.pack(anchor="w", pady=(2, 0))
 
     def _build_actions(self, parent):
         row = ttk.Frame(parent)
@@ -377,56 +343,31 @@ class OptimizeDialog(tk.Toplevel):
 
     # --------------------------------------------------------------- behaviour
     def _toggle_advanced(self):
-        if self._advanced.get():
-            self._advanced_box.pack(fill="x", pady=(4, 8), before=self._actions_anchor())
-        else:
-            self._advanced_box.pack_forget()
+        """There is no longer an advanced section to toggle."""
+        pass
 
     def _actions_anchor(self):
-        """The widget the advanced box should be inserted before."""
+        """The widget the (removed) advanced box should be inserted before."""
         children = self.winfo_children()[0].winfo_children()
         return children[-1]
 
     def _on_objective_change(self):
-        """Align the seed cohort and the estimate with the chosen objective.
+        """Objective changes only refresh the cost note -- no seeds to realign.
 
-        The cohort is taken from the budget planner, which is the same source the
-        estimate uses. That matters: the previous version only raised the seed
-        count when it was exactly 1, so switching to Roll5 while the field held 2
-        left a **two-sample** cohort in place. A two-sample spread is far too
-        noisy for a best-of-five, and the estimate (which assumed 8) then
-        disagreed with the run -- the reported budget asked for 8 seeds while the
-        search used 2, producing 1068 "refined" candidates that were each only
-        two battles deep.
+        The review depth, cohort and budget are all decided by the engine itself,
+        so there is nothing on this side of the dialog for an objective switch to
+        touch. Only the estimate label updates.
         """
-        if not hasattr(self, "_seed_note"):
-            return
-        coarse, review = seeds_for(self._objective.get())
-        if self._objective.get() == obj.OBJECTIVE_ROLL5:
-            # Only raise, never lower: a user who deliberately chose 16 keeps it.
-            if int(self._review_seeds.get() or 0) < review:
-                self._review_seeds.set(str(review))
-            self._seed_note.configure(
-                text=f"Roll5 需要估计上尾，精评需 {review} 个种子；"
-                     f"少于 2 个种子时结果基本是噪声。")
-            self._seeds_combo.configure(values=("2", "4", "8", "16", "32"))
-        else:
-            if int(self._review_seeds.get() or 0) > review:
-                self._review_seeds.set(str(review))
-            self._seed_note.configure(
-                text=f"均值目标下 {review} 个精评种子已足够。")
-            self._seeds_combo.configure(values=("1", "2", "4", "8", "16", "32"))
         self._refresh_space_note()
 
     def _selected_workers(self):
-        """Translate the worker choice into a SearchSettings value (0 = auto)."""
-        text = (self._workers.get() or "").strip()
-        if not text or text == AUTO_WORKERS_LABEL:
-            return 0
-        try:
-            return max(1, int(text))
-        except (TypeError, ValueError):
-            return 0
+        """Battle processes are always auto (one per core). No dialog control.
+
+        The advanced section that held the worker picker was removed along with the
+        strength/budget controls -- the algorithm self-allocates everything that
+        mattered -- so "auto" is the only sensible answer now.
+        """
+        return 0
 
     def _on_start(self):
         """Validate, then hand back the settings and the chosen constraint set."""
@@ -451,49 +392,19 @@ class OptimizeDialog(tk.Toplevel):
         except Exception as exc:
             messagebox.showwarning("无法估算预算", str(exc), parent=self)
             return
-
-        try:
-            seeds = int(self._review_seeds.get())
-        except (TypeError, ValueError):
-            seeds = DEFAULT_MEAN_SEEDS
         try:
             seed = int(self._seed.get())
         except (TypeError, ValueError):
             messagebox.showwarning("随机种子", "随机种子必须是整数", parent=self)
             return
 
-        # The budget: the estimate, or the user's number -- but never below the
-        # floor at which the search could rank anything, because a run that
-        # cannot produce a candidate is worse than a refusal.
-        floor = minimum_budget(plan["space_total"], objective)
+        # Budget and cohort depth are decided by the engine: the bare preselection
+        # runs 2->4->8, the joint coverage deepens to four seeds when the budget
+        # allows, and the review climbs to its cap. The plan's recommended budget is
+        # the value the run actually uses.
+        budget = int(plan.get("budget") or plan.get("recommended_budget") or 1)
         try:
-            budget = int(self._budget.get())
-        except (TypeError, ValueError):
-            messagebox.showwarning("战斗预算", "预算必须是正整数", parent=self)
-            return
-        if budget < floor:
-            messagebox.showwarning(
-                "预算过低",
-                f"当前空间下至少需要 {floor:,} 场才能完成一次可排序的精评"
-                f"（当前 {budget:,} 场）。提高预算，或缩小卡池。",
-                parent=self)
-            return
-
-        if objective == obj.OBJECTIVE_ROLL5 and seeds < 2:
-            messagebox.showwarning(
-                "精评种子数", "Roll5 目标至少需要 2 个精评种子才能估计波动",
-                parent=self)
-            return
-        try:
-            settings = SearchSettings(
-                objective=objective, budget=budget, seed=seed,
-                change_positions=self._positions.get(),
-                change_memories=self._memories.get(),
-                review_seeds=seeds,
-                workers=self._selected_workers(),
-                # A volatile candidate cannot be judged from one draw, so Roll5
-                # screens with a two-seed cohort.
-                coarse_seeds=2 if objective == obj.OBJECTIVE_ROLL5 else 1)
+            settings = self._build_settings(budget=budget, seed=seed)
         except ValueError as exc:
             messagebox.showwarning("设置无效", str(exc), parent=self)
             return
@@ -501,6 +412,57 @@ class OptimizeDialog(tk.Toplevel):
         self.result = dict(settings=settings, pinned=sorted(self._pinned),
                            pool=sorted(self._pool), plan=plan)
         self.destroy()
+
+    def _build_settings(self, budget, seed=DEFAULT_SEED):
+        """Build the ported algorithm's settings from this dialog's controls.
+
+        The ported engine splits the work by ``search_kind``, and each kind fixes the
+        dimensions it is allowed to move:
+
+          * ``layered``   -- positions AND memories together (the V3.2 pipeline)
+          * ``positions`` -- positions only, other dimensions pinned
+          * ``memory``    -- memories only, other dimensions pinned
+
+        So the dialog's two checkboxes select the kind rather than being passed
+        through as loose flags, which is what the algorithm's own validation expects.
+        """
+        positions = bool(self._positions.get())
+        memories = bool(self._memories.get())
+        if positions and memories:
+            kind = "layered"
+        elif positions:
+            kind = "positions"
+        elif memories:
+            kind = "memory"
+        else:
+            raise ValueError("请至少选择一个搜索维度")
+        settings = SearchSettings(
+            objective=self._objective.get(),
+            budget=int(budget),
+            seed=int(seed),
+            search_kind=kind,
+            # The V3.2 layered path requires the characters and affixes pinned and
+            # both search axes live; that is exactly the (False, True, True, False)
+            # combination its validation demands for `layered`.
+            change_fifth=False,
+            change_positions=positions,
+            change_memories=memories,
+            change_affixes=False,
+            automatic=True,
+            battle_workers=self._selected_workers(),
+            # Everything else -- seed depth, the review ladder, the coverage cohort
+            # count -- is decided by the algorithm itself, so none is set here.
+            layered_filter=True,
+            layered_base_seeds=2,
+            layered_max_seeds=4,
+            layered_review_percent=10,
+            review_strategy="quick",
+            layered_memory_pruning=True,
+            quick_max_seeds=128,
+            validation_seeds=10,
+        )
+        settings.validate()
+        return settings
 
     def _on_cancel(self):
         self.result = None
@@ -514,3 +476,4 @@ class OptimizeDialog(tk.Toplevel):
             self.geometry(f"+{px + max(0, (pw - w) // 2)}+{py + max(0, (ph - h) // 3)}")
         except tk.TclError:
             pass
+
