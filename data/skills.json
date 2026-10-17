@@ -66892,16 +66892,25 @@
     "skill_type": 2,
     "skill_kind": 2,
     "resource_cost": 0,
-    "cooldown": null,
+    "cooldown": 0,
     "cooldown_update_timing": null,
     "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
     "descriptions": [
       {
         "min_level": 1,
         "template": "戦闘開始時に発動。味方全体の会心率を1%上昇させる"
       }
     ],
-    "template_tags": {}
+    "template_tags": {},
+    "display_info": {}
   },
   "400060": {
     "skill_id": 400060,
@@ -85847,7 +85856,7 @@
     "descriptions": [
       {
         "min_level": 1,
-        "template": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを{ap}増加させる"
+        "template": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを{ap}増加させる\n※既に所持APが6である場合、この効果は無効となる"
       }
     ],
     "template_tags": {

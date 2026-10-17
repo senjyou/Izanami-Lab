@@ -908,9 +908,13 @@ class RDPSTracker:
         其余（p_base/p_final固有部分）归提供者direct。
 
         公式对照（skill_service._process_enchant_damage_for_target）:
-        - enchant:   base = max(0, src_live_atk + min(0, holder_live_atk - def))
-        - add_dmg:   base = max(0, snap + min(0, snap - def))
-        - sub_unit:  base = max(0, snap + min(0, src_live_atk - def))
+        - enchant:   base = max(0, src_live_atk×威力% + min(0, holder_live_atk - def))
+        - add_dmg:   base = max(0, snap×威力% + min(0, snap - def))
+        - sub_unit:  base = max(0, snap×威力% + min(0, src_live_atk - def))
+
+        （实测修正 11.53：三条路径的威力%都只作用于「付与侧攻击力」，攻防差缺项在威力之外按1:1计入）
+
+        注意: 三类的 calc_detail["base_diff"] 均为「已含威力%的基础值」，故本方法不再乘威力%。
 
         返回 dict(baseline_nc/bonus_nc/rate_share/inherent/base_b/baseline_dealt/
         baseline_received/...)；无法分解时返回 None（退化为100%归提供者）。
@@ -954,26 +958,26 @@ class RDPSTracker:
         snap = getattr(enchant_buff, 'caster_attack', 0) if enchant_buff else 0
         snap_b = getattr(enchant_buff, 'caster_attack_baseline', 0) if enchant_buff else 0
 
-        def _baseline_base() -> int:
+        def _baseline_base() -> float:
             def_b = _baseline_def()
             if extra_type == "enchant":
-                # 源单位实时ATK（结算时L5921重算）+ 持有者实时ATK（min项）
+                # 源单位实时ATK（结算时重算）×威力% + 持有者实时ATK的攻防差缺项（威力之外）
                 src_b = self._baseline_stat_value(provider_unit, "attack", caster, damage_service)
                 holder_b = self._baseline_stat_value(caster, "attack", caster, damage_service)
-                return max(0, src_b + min(0, holder_b - def_b))
+                return max(0.0, src_b * (power_pct / 100.0) + min(0, holder_b - def_b))
             if extra_type == "sub_unit":
-                # 快照 + 源单位实时ATK（min项）
+                # 快照×威力% + 源单位实时ATK的攻防差缺项（威力之外）
                 sb = snap_b if snap_b > 0 else self._baseline_stat_value(
                     provider_unit, "attack", caster, damage_service)
                 a_b = self._baseline_stat_value(provider_unit, "attack", caster, damage_service)
-                return max(0, sb + min(0, a_b - def_b))
-            # add_dmg: 快照（caster_attack=0时结算回退持有者实时ATK）
+                return max(0.0, sb * (power_pct / 100.0) + min(0, a_b - def_b))
+            # add_dmg: 快照×威力% + 攻防差缺项（威力之外；caster_attack=0时结算回退持有者实时ATK）
             if snap > 0:
                 sb = snap_b if snap_b > 0 else self._baseline_stat_value(
                     provider_unit, "attack", caster, damage_service)
-                return max(0, sb + min(0, sb - def_b))
+                return max(0.0, sb * (power_pct / 100.0) + min(0, sb - def_b))
             holder_b = self._baseline_stat_value(caster, "attack", caster, damage_service)
-            return max(0, holder_b + min(0, holder_b - def_b))
+            return max(0.0, holder_b * (power_pct / 100.0) + min(0, holder_b - def_b))
 
         base_b = _baseline_base()
 
@@ -986,7 +990,8 @@ class RDPSTracker:
             damage_element=damage_element, unit=target, attacker=caster)
         baseline_received = max(0.0, 1.0 - enemy_received)
 
-        baseline_nc = base_b * (power_pct / 100.0) * baseline_dealt * baseline_received * attr * guard
+        # 三类的 base_b 均已含威力%（实测修正 11.53），基线不再乘威力
+        baseline_nc = base_b * baseline_dealt * baseline_received * attr * guard
         bonus_nc = d_nc - baseline_nc
 
         # === 暴击收益（固定1.5x；暴伤buff不进入这些路径） ===

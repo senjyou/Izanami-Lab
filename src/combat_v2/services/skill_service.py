@@ -5802,7 +5802,8 @@ class SkillService:
                     _log.info("[SUB_UNIT_DMG] %s: skipping sub_unit '%s' (just created this turn)", caster.name, sub_buff.name)
                     continue
                 # Sub-unit damage formula:
-                # max(0, snapshot_atk + min(0, a_atk - b_def)) * power% * 1.5(crit) * a_dealt * b_received
+                # max(0, snapshot_atk × 威力% + min(0, a_atk - b_def)) * 1.5(crit) * a_dealt * b_received
+                # （实测修正，见 11.53：威力%只作用于 snapshot_atk，攻防差缺项在威力之外）
                 # where a = source unit (main unit), b = target (enemy)
                 source_unit_id = sub_buff.source_unit_id
                 snapshot_atk = sub_buff.caster_attack  # ATK snapshotted when SubUnit was created
@@ -5831,10 +5832,15 @@ class SkillService:
 
                 b_def = self.damage_service._calculate_final_stat(target, "defense")
 
-                # 子单位伤害公式: max(0, snapshot_atk + min(0, a_atk - b_def)) * power%
-                base = max(0, snapshot_atk + min(0, a_atk - b_def))
+                # 子单位伤害公式: max(0, snapshot_atk × 威力% + min(0, a_atk - b_def))
+                # ★实测修正（同 11.53 附魔伤害）: 威力% 只作用于子单位自身攻击力(snapshot_atk)；
+                #   攻防差缺项 min(0, a_atk - b_def) 在威力之外按 1:1 计入，不被威力缩放。
+                #   旧式 base = max(0, snapshot_atk + min(0, a_atk - b_def)) 后整体乘威力，会多算
+                #   (1 - 威力%) × |缺项| × 乘区。
+                def_deficit = min(0, a_atk - b_def)
+                base = max(0.0, snapshot_atk * power_pct + def_deficit)
 
-                dmg = base * power_pct
+                dmg = base
 
                 # 暴击共享: force_crit = any(hit_crits)，暴伤固定1.5倍
                 self.damage_service._crit_context = {
@@ -5920,10 +5926,12 @@ class SkillService:
                     )
 
                 # RDPS 归因：子单位伤害（基线分解归因）
+                # 注意：base_diff 为「已含威力%的基础值」（与附魔路径一致，见 11.53）
                 sub_calc_detail = {
                     "snapshot_atk": snapshot_atk,
                     "a_atk": a_atk,
                     "b_def": b_def,
+                    "def_deficit": def_deficit,
                     "base_diff": base,
                     "power_pct": power_pct * 100,
                     "crit_factor": 1.5 if is_sub_crit else 1.0,
@@ -5959,8 +5967,9 @@ class SkillService:
                     "calc_detail": sub_calc_detail,
                 })
 
-                _log.info("[SUB_UNIT_DMG] %s sub_unit '%s' -> %s: extra=%d shield=%d (snapshot_atk=%d a_atk=%d b_def=%d power=%.1f%% elem=%d crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f) hp: %d->%d",
+                _log.info("[SUB_UNIT_DMG] %s sub_unit '%s' -> %s: extra=%d shield=%d (snapshot_atk=%d a_atk=%d b_def=%d def_deficit=%d base=%.1f power=%.1f%% elem=%d crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f) hp: %d->%d",
                           caster.name, sub_buff.name, target.name, extra_dmg, shield_absorbed, snapshot_atk, a_atk, b_def,
+                          def_deficit, base,
                           power_pct * 100, sub_damage_element, is_sub_crit, advantage, a_dealt_mult, b_received_mult,
                           hp_before, target.current_hp)
 
@@ -5998,7 +6007,7 @@ class SkillService:
                                   caster.name, sub_buff.name, status_name, status_value, target.name, status_duration)
             # 追加伤害 (ADD_DAMAGE): ATK使用buff来源施法时的快照攻击力(ab.caster_attack)
             # 暴击率/给予伤害倍率/属性克制仍使用被附魔者(holder)的实时属性
-            # 公式: max(0, source_atk + min(0, source_atk - c_def)) * power%
+            # 公式: max(0, source_atk × 威力% + min(0, source_atk - c_def))（实测修正，见 11.53）
             elif _ord_kind == "add":
                 ab = _ord_buff
                 source_atk = ab.caster_attack if ab.caster_attack > 0 else self.damage_service._calculate_final_stat(caster, "attack")
@@ -6013,9 +6022,15 @@ class SkillService:
 
                 c_def = self.damage_service._calculate_final_stat(target, "defense")
 
-                # 追加伤害公式: max(0, source_atk + min(0, source_atk - c_def)) * power%
-                base = max(0, source_atk + min(0, source_atk - c_def))
-                dmg = base * power_pct
+                # 追加伤害公式: max(0, source_atk × 威力% + min(0, source_atk - c_def))
+                # ★实测修正（同 11.53 附魔伤害）: 威力% 只作用于快照攻击力(source_atk)；
+                #   攻防差缺项 min(0, source_atk - c_def) 在威力之外按 1:1 计入，不被威力缩放。
+                #   旧式 base = max(0, source_atk + min(0, source_atk - c_def)) 后整体乘威力，会多算
+                #   (1 - 威力%) × |缺项| × 乘区。
+                def_deficit = min(0, source_atk - c_def)
+                base = max(0.0, source_atk * power_pct + def_deficit)
+
+                dmg = base
 
                 # 暴击共享: force_crit = any(hit_crits)，暴伤固定1.5倍
                 self.damage_service._crit_context = {
@@ -6145,9 +6160,11 @@ class SkillService:
                     )
 
                 # RDPS 归因：追加伤害（基线分解归因）
+                # 注意：base_diff 为「已含威力%的基础值」（与附魔/子单位路径一致，见 11.53）
                 add_calc_detail = {
                     "source_atk": source_atk,
                     "c_def": c_def,
+                    "def_deficit": def_deficit,
                     "base_diff": base,
                     "power_pct": power_pct * 100,
                     "crit_factor": 1.5 if is_add_crit else 1.0,
@@ -6183,8 +6200,9 @@ class SkillService:
                     "calc_detail": add_calc_detail,
                 })
 
-                _log.info("[ADD_DMG] %s add_damage -> %s: extra=%d shield=%d (source_atk=%d c_def=%d power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f elem=%d) hp: %d->%d",
+                _log.info("[ADD_DMG] %s add_damage -> %s: extra=%d shield=%d (source_atk=%d c_def=%d def_deficit=%d base=%.1f power=%.1f%% crit=%s advantage=%.2f a_dealt=%.4f b_received=%.4f elem=%d) hp: %d->%d",
                           caster.name, target.name, extra_dmg, shield_absorbed, source_atk, c_def,
+                          def_deficit, base,
                           power_pct * 100, is_add_crit, a_advantage, a_dealt_mult, b_received_mult, add_damage_element,
                           hp_before, target.current_hp)
             elif _ord_kind == "ench":
@@ -6217,10 +6235,17 @@ class SkillService:
                     b_crit_rate = self.damage_service._calculate_crit_rate(caster)
                     c_def = self.damage_service._calculate_final_stat(target, "defense")
 
-                    # 附魔伤害公式: max(0, (a攻 + min(0, b攻 - c防))) * 威力% * 1.5(套b暴击率, 暴伤固定1.5倍) * a增减伤区 * c增减伤区 * b有利伤害区
-                    base = max(0, source_atk + min(0, b_atk - c_def))
+                    # 附魔伤害公式: max(0, a攻 × 威力% + min(0, b攻 - c防)) * 1.5(套b暴击率, 暴伤固定1.5倍) * b增减伤区 * c增减伤区 * b有利伤害区
+                    # ★实测修正（step_crit_tactical_20261016_010606 第三回合，实测28875 / 旧模拟30155）:
+                    #   威力% 只作用于附魔源攻击力(a攻)；攻防差缺项 min(0, b攻 - c防) 在威力之外按 1:1 计入，
+                    #   不被威力缩放。旧式 base = max(0, a攻 + min(0, b攻 - c防)) 后整体乘威力，多算了
+                    #   (1 - 威力%) × |缺项| × 乘区 —— 本例 a攻=b攻=61151, c防=63945, 威力53%, c_received0.975:
+                    #   多算 0.47 × 2794 × 0.975 = 1280 → 旧30155，修正后 28875（与实测一致）。
+                    #   对照：无缺项(b攻>c防)时两者同值，故实测91339等既有对照不受影响。
+                    def_deficit = min(0, b_atk - c_def)
+                    base = max(0.0, source_atk * power_pct + def_deficit)
 
-                    dmg = base * power_pct
+                    dmg = base
 
                     # 暴击共享: force_crit = any(hit_crits)，暴伤固定1.5倍
                     self.damage_service._crit_context = {
@@ -6302,10 +6327,14 @@ class SkillService:
                         )
 
                     # RDPS 归因：附魔伤害（基线分解归因）
+                    # 注意：base_diff 为「已含威力%的攻防基础值」(= a攻×威力% + min(0, b攻-c防))，
+                    # 与追加/子单位路径的「威力前基础值」语义不同 —— rdps_tracker 按 extra_type
+                    # == "enchant" 分支处理（不再二次乘威力）。def_deficit 单独记录攻防差缺项。
                     ench_calc_detail = {
                         "source_atk": source_atk,
                         "b_atk": b_atk,
                         "c_def": c_def,
+                        "def_deficit": def_deficit,
                         "base_diff": base,
                         "power_pct": power_pct * 100,
                         "crit_factor": 1.5 if is_enchant_crit else 1.0,
@@ -6341,8 +6370,9 @@ class SkillService:
                         "calc_detail": ench_calc_detail,
                     })
 
-                    _log.info("[ENCHANT_DMG] %s enchant -> %s: extra=%d shield=%d (source_atk=%d b_atk=%d c_def=%d power=%.1f%% crit=%s advantage=%.2f b_dealt=%.4f c_received=%.4f) hp: %d->%d",
+                    _log.info("[ENCHANT_DMG] %s enchant -> %s: extra=%d shield=%d (source_atk=%d b_atk=%d c_def=%d def_deficit=%d base=%.1f power=%.1f%% crit=%s advantage=%.2f b_dealt=%.4f c_received=%.4f) hp: %d->%d",
                               caster.name, target.name, extra_dmg, shield_absorbed, source_atk, b_atk, c_def,
+                              def_deficit, base,
                               power_pct * 100, is_enchant_crit, b_advantage, b_dealt_mult, c_received_mult,
                               hp_before, target.current_hp)
 

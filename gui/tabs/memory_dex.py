@@ -85,52 +85,107 @@ def _variant_name_for_base(loader, base_id: int, app) -> Optional[str]:
     return None
 
 
-def format_highlight_condition(hl, app) -> str:
-    """把一条 highlight 的匹配条件渲染成一行中文；无任何条件时表示不限。
+# 参与合并/渲染的条件字段（skill_master_id / is_targeting_friendly_party 单独处理）
+_CONDITION_FIELDS = ("character_team_master_id", "character_base_master_id",
+                     "character_master_id", "character_attribute",
+                     "character_role", "character_type", "party_position")
 
-    只输出名字：队伍/角色/形态一律映射成名称，任何查不到的情况都退化成不带
-    数字的描述（ID 属于解包内容，不进 GUI）。
+
+def group_highlights(highlights) -> List[Dict]:
+    """把同一技能的 highlight 合并成一条展示项。
+
+    为什么必须合并：`scripts/import_memory.py` 会把原始 highlight 的**位掩码**
+    （属性/职能）拆成多条 highlight —— 引擎按单值比较 unit.role_type / element，
+    存掩码会永不匹配（见该文件 `_ROLE_FLAG_TO_TYPE` 的注释，那里就点名了 30046）。
+    拆分出来的条目携带**同一个 skill_master_id**，逐条展示就会看到「同一段效果
+    文本重复出现」：30046 被拆成 物理/EN 两条、30035 被拆成 光/暗两条。
+
+    合并语义：同一个技能对「各条条件的并集」生效，所以展示成一条是准确的。
+    规则：
+      * skill_master_id 相同、且 is_targeting_friendly_party 相同才合并
+        （一条己方一条敌方时不能并进同一行）；
+      * 普通字段取并集（去重、保持首次出现顺序）；
+      * party_position 是位掩码，并集按位或；
+      * 保持首次出现的顺序；skill_master_id 为空的条目各自单独成组。
     """
-    parts: List[str] = []
+    groups: List[Dict] = []
+    index: Dict[tuple, Dict] = {}
+    for hl in highlights or []:
+        skill_id = getattr(hl, "skill_master_id", None)
+        friendly = getattr(hl, "is_targeting_friendly_party", True) is not False
+        key = (skill_id, friendly, None if skill_id else id(hl))
+        group = index.get(key)
+        if group is None:
+            group = {"skill_master_id": skill_id, "friendly": friendly,
+                     "values": {f: [] for f in _CONDITION_FIELDS}, "position_mask": 0}
+            index[key] = group
+            groups.append(group)
+        for field in _CONDITION_FIELDS:
+            value = getattr(hl, field, None)
+            if not value:
+                continue
+            if field == "party_position":
+                group["position_mask"] |= int(value)
+            elif value not in group["values"][field]:
+                group["values"][field].append(value)
+    return groups
+
+
+def format_condition_group(group: Dict, app) -> str:
+    """渲染一组（可能由多条 highlight 合并而来）的条件；不含任何解包 ID。"""
     loader = app.data_loader
+    values = group.get("values") or {}
+    parts: List[str] = []
 
-    team_id = getattr(hl, "character_team_master_id", None)
-    if team_id:
-        team_name = (loader.load_character_teams() or {}).get(team_id)
-        parts.append(f"队伍「{team_name}」" if team_name else "所属队伍")
+    team_ids = values.get("character_team_master_id") or []
+    if team_ids:
+        teams = loader.load_character_teams() or {}
+        parts.append("队伍「" + "/".join(teams.get(t) or "所属队伍" for t in team_ids) + "」")
 
-    base_id = getattr(hl, "character_base_master_id", None)
-    if base_id:
-        base_name = loader.get_character_base_name(base_id)
-        if not base_name:
-            base_name = _variant_name_for_base(loader, base_id, app)
-        parts.append(f"角色「{base_name}」" if base_name else "特定角色")
+    base_ids = values.get("character_base_master_id") or []
+    if base_ids:
+        names = []
+        for base_id in base_ids:
+            name = loader.get_character_base_name(base_id) or _variant_name_for_base(loader, base_id, app)
+            names.append(name or "特定角色")
+        parts.append("角色「" + "/".join(names) + "」")
 
-    char_id = getattr(hl, "character_master_id", None)
-    if char_id:
-        ch = loader.get_character_by_id(char_id)
-        parts.append(f"形态「{app.format_char_name(ch)}」" if ch else "特定形态")
+    char_ids = values.get("character_master_id") or []
+    if char_ids:
+        names = []
+        for char_id in char_ids:
+            ch = loader.get_character_by_id(char_id)
+            names.append(app.format_char_name(ch) if ch else "特定形态")
+        parts.append("形态「" + "/".join(names) + "」")
 
-    attr = getattr(hl, "character_attribute", None)
-    if attr:
-        parts.append(f"{ELEMENT_NAMES.get(attr, attr)}属性")
+    attrs = values.get("character_attribute") or []
+    if attrs:
+        parts.append("/".join(f"{ELEMENT_NAMES.get(a, a)}属性" for a in attrs))
 
-    role = getattr(hl, "character_role", None)
-    if role:
-        parts.append(f"定位:{ROLE_TYPE_NAMES.get(role, role)}")
+    roles = values.get("character_role") or []
+    if roles:
+        parts.append("定位:" + "/".join(str(ROLE_TYPE_NAMES.get(r, r)) for r in roles))
 
-    ctype = getattr(hl, "character_type", None)
-    if ctype:
-        parts.append(f"类型:{CHAR_TYPE_NAMES.get(ctype, ctype)}")
+    types = values.get("character_type") or []
+    if types:
+        parts.append("类型:" + "/".join(str(CHAR_TYPE_NAMES.get(t, t)) for t in types))
 
-    pos = getattr(hl, "party_position", None)
-    if pos:
-        parts.append(f"位置:{format_position_mask(pos)}")
+    if group.get("position_mask"):
+        parts.append("位置:" + format_position_mask(group["position_mask"]))
 
-    side = "敌方" if getattr(hl, "is_targeting_friendly_party", True) is False else "己方"
+    side = "己方" if group.get("friendly", True) else "敌方"
     if parts:
         return f"{side} · " + " · ".join(parts)
     return f"{side}全体（不限条件）"
+
+
+def format_highlight_condition(hl, app) -> str:
+    """单条 highlight 的条件行。
+
+    「只输出名字、绝不输出解包 ID」的保证统一在 format_condition_group 里，
+    图鉴展示与测试都走同一套逻辑。
+    """
+    return format_condition_group(group_highlights([hl])[0], app)
 
 
 class MemoryDexView(ttk.Frame):
@@ -580,19 +635,21 @@ class MemoryDexView(ttk.Frame):
             lbl.pack(anchor="w", padx=8, pady=6)
             self._wrap_labels.append(lbl)
 
-        # 结构化效果（每条 highlight：适用条件 + 技能名 + 技能描述）
+        # 结构化效果：同一技能的多条 highlight（位掩码拆分的产物）合并成一条，
+        # 否则会看到「同一段效果文本重复出现」（见 group_highlights 的说明）
         eff_frame = ttk.LabelFrame(f, text="效果")
         eff_frame.pack(fill="x", padx=8, pady=4)
         highlights = list(getattr(mem, "highlights", []) or [])
-        if not highlights:
+        groups = group_highlights(highlights)
+        if not groups:
             ttk.Label(eff_frame, text="（无效果数据）", font=("Microsoft YaHei UI", 10)).pack(
                 anchor="w", padx=8, pady=6)
-        for i, hl in enumerate(highlights, start=1):
+        for i, group in enumerate(groups, start=1):
             block = ttk.Frame(eff_frame)
             block.pack(fill="x", padx=6, pady=(6, 2))
-            sid = getattr(hl, "skill_master_id", None)
+            sid = group.get("skill_master_id")
             effect = self.app.data_loader.get_memory_effect(sid) if sid else None
-            cond_lbl = ttk.Label(block, text=f"{i}. 适用: {format_highlight_condition(hl, self.app)}",
+            cond_lbl = ttk.Label(block, text=f"{i}. 适用: {format_condition_group(group, self.app)}",
                                  font=("Microsoft YaHei UI", 10, "bold"), justify="left",
                                  wraplength=wrap)
             cond_lbl.pack(anchor="w")

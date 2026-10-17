@@ -4562,9 +4562,9 @@
       }
     ]
   },
-  "30039": {
-    "memory_id": 30039,
-    "name": "かえってきた学園生活",
+  "30030": {
+    "memory_id": 30030,
+    "name": "取り返した学園生活",
     "description": "もう、そろってからかわないでください～！",
     "rarity": 3,
     "highlights": [
@@ -4619,6 +4619,17 @@
         "is_targeting_friendly_party": true,
         "party_position": null,
         "skill_master_id": 400260
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400059
       }
     ]
   }

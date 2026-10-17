@@ -6990,7 +6990,7 @@
   "400262": {
     "skill_id": 400262,
     "name": "最大AP増加2T開始【シリウスシュガー】",
-    "description": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを1増加させる",
+    "description": "2の倍数ターンのターン開始時に発動。1ターンの間、シリウスシュガーに所属するキャラクターの最大APを1増加させる\n※既に所持APが6である場合、この効果は無効となる",
     "trigger": {
       "type": "periodic_start",
       "periodic_turn": 2
@@ -7008,7 +7008,8 @@
             "duration": 1,
             "duration_type": "turn",
             "timing_type": 3,
-            "is_memory_buff": true
+            "is_memory_buff": true,
+            "skip_if_current_ap_at_least": 6
           }
         ]
       }

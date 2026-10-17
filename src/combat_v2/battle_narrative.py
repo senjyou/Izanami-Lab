@@ -341,9 +341,12 @@ class BattleNarrativeWriter:
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
+            # base 为「已含威力%的攻防基础值」= a攻×威力% + min(0, b攻-c防)（实测修正：威力只作用于a攻）
             calc_info = (f" [src_atk:{cd.get('source_atk',0)} b_atk:{cd.get('b_atk',0)}"
-                        f" c_def:{cd.get('c_def',0)} base:{cd.get('base_diff',0)}"
+                        f" c_def:{cd.get('c_def',0)}"
                         f" power:{cd.get('power_pct',0):.1f}%"
+                        f" def:{cd.get('def_deficit',0)}"
+                        f" base:{cd.get('base_diff',0):.1f}"
                         f" crit:{cd.get('crit_factor',1.0):.1f}"
                         f" dealt:{cd.get('b_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('c_received_mult',1.0):.4f}"
@@ -359,9 +362,12 @@ class BattleNarrativeWriter:
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
+            # base 为「已含威力%的基础值」= source_atk×威力% + min(0, source_atk-c_def)（实测修正 11.53）
             calc_info = (f" [source_atk:{cd.get('source_atk',0)}"
-                        f" c_def:{cd.get('c_def',0)} base:{cd.get('base_diff',0)}"
+                        f" c_def:{cd.get('c_def',0)}"
                         f" power:{cd.get('power_pct',0):.1f}%"
+                        f" def:{cd.get('def_deficit',0)}"
+                        f" base:{cd.get('base_diff',0):.1f}"
                         f" crit:{cd.get('crit_factor',1.0):.1f}"
                         f" dealt:{cd.get('a_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('b_received_mult',1.0):.4f}"
@@ -537,9 +543,12 @@ class BattleNarrativeWriter:
         calc_info = ""
         if calc_detail and damage > 0:
             cd = calc_detail
+            # base 为「已含威力%的基础值」= snapshot_atk×威力% + min(0, a_atk-b_def)（实测修正 11.53）
             calc_info = (f" [snap_atk:{cd.get('snapshot_atk',0)} a_atk:{cd.get('a_atk',0)}"
-                        f" b_def:{cd.get('b_def',0)} base:{cd.get('base_diff',0)}"
+                        f" b_def:{cd.get('b_def',0)}"
                         f" power:{cd.get('power_pct',0):.1f}%"
+                        f" def:{cd.get('def_deficit',0)}"
+                        f" base:{cd.get('base_diff',0):.1f}"
                         f" crit:{cd.get('crit_factor',1.0):.1f}"
                         f" dealt:{cd.get('a_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('b_received_mult',1.0):.4f}"

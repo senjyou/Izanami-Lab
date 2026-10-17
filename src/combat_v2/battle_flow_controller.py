@@ -4138,6 +4138,20 @@ class BattleFlowController:
         value_source = effect.get("value_source", "")
         attack_limited = effect.get("attack_limited", 0)
 
+        # 目标条件 skip_if_current_ap_at_least：目标「已持有」的 AP 达到该值时整条效果无效。
+        # 依据：回忆卡 400262（卡 30030「取り返した学園生活」，原 30039）描述新增
+        #   「※既に所持APが6である場合、この効果は無効となる」——
+        # 该效果同时提升上限并补发等量当前 AP，若目标当前 AP 已经是 6（游戏内 AP 上限），
+        # 再提升上限也没有意义，故整条效果（含补发 AP）都不施加。
+        skip_ap = effect.get("skip_if_current_ap_at_least")
+        if skip_ap is not None and target_unit.current_ap >= int(skip_ap):
+            _log.info("[MEMORY]       skip: %s current_ap=%d >= %s（效果无效）",
+                      target_unit.name, target_unit.current_ap, skip_ap)
+            if self.narrative:
+                self.narrative.memory_effect(card_name, self._get_display_name(target_unit),
+                                             "AP已满，效果无效")
+            return
+
         # duration_type="turn"（回合制）必须改走回合结束递减，否则永不生效：
         #   - timing_type=DURABLE_WHEN_USED(6)：让 process_maneuver_end 跳过（不在行动结束递减）
         #   - original_duration_type="turn"：让 aura_service.process_turn_end 在回合结束递减
