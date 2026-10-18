@@ -38,8 +38,20 @@ class GlobalParamsTab(ttk.Frame):
         left_col = ttk.Frame(f)
         left_col.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
 
+        # ── 游戏数据（左上角，导入后自动填写下方各项） ──
+        ttk.Label(left_col, text="游戏数据", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 2))
+        import_frame = ttk.LabelFrame(left_col, text="从游戏导入（自动填写学园/装备/角色/模块/词条）")
+        import_frame.pack(fill="x", pady=2)
+        import_row = ttk.Frame(import_frame)
+        import_row.pack(fill="x", padx=4, pady=6)
+        ttk.Button(import_row, text="从游戏导入…", command=self._open_game_import).pack(side="left")
+        self._import_status_var = tk.StringVar(value="")
+        ttk.Label(import_row, textvariable=self._import_status_var,
+                  foreground=self.app._get_scheme()["accent"]).pack(side="left", padx=10)
+        self.refresh_import_status()
+
         # ── 角色等级 ──
-        ttk.Label(left_col, text="角色等级", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 2))
+        ttk.Label(left_col, text="角色等级", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(10, 2))
         lf = ttk.LabelFrame(left_col, text="等级设置")
         lf.pack(fill="x", pady=2)
         ttk.Label(lf, text="角色等级:").grid(row=0, column=0, padx=5, pady=5)
@@ -161,6 +173,29 @@ class GlobalParamsTab(ttk.Frame):
         ttk.Button(btn_frame, text="重置全局设置", command=self._reset_global_config).pack(side=tk.LEFT, padx=5)
 
         self._load_global_config()
+
+    def _open_game_import(self):
+        """打开导入弹窗（延迟导入，避免启动期引入 src/importer 依赖）。"""
+        from gui.dialogs.game_data_import import GameDataImportDialog
+        GameDataImportDialog(self, self.app)
+
+    def refresh_import_status(self):
+        """刷新「最近一次导入」摘要（数据来自账号目录的 game_import.json）。"""
+        try:
+            from gui.utils import get_user_data_path
+            from src.importer.apply import read_audit
+            last = read_audit(get_user_data_path()).get("last_import") or {}
+        except Exception:  # noqa: BLE001 - 摘要失败不能影响主界面
+            last = {}
+        if not last:
+            text = "尚未导入过游戏数据"
+        else:
+            account = last.get("account") or {}
+            stats = last.get("stats") or {}
+            at = str(last.get("at") or "")[:16].replace("T", " ")
+            text = (f"最近：{at}　{account.get('name') or '未知账号'}　"
+                    f"角色 {stats.get('characters_updated', 0)}")
+        self._import_status_var.set(text)
 
     def _on_rarity_change(self):
         r = self.var_rarity.get()

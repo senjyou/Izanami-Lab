@@ -32,6 +32,11 @@ references/
 data/*.bak
 data/*.bak*
 
+# === 抓包工具（仅私下分发，严禁入库/进发布包）===
+# userscript/ 存放游戏用户态抓取的油猴脚本：它会读取账号完整数据，
+# 属于敏感工具，只私下传播；也不随 release zip 分发（build.py 不再打包）。
+userscript/
+
 # _analysis/ 是本地分析用的临时脚本/报告/图表目录（pytest 探针、方差分析、
 # 各种 *_probe.png / *.log / *.md 报告等），不属于项目源码，严禁入库。
 # 注意：本目录曾被 `git add .` 扫入并提交（113个文件），
