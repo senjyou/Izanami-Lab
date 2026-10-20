@@ -268,6 +268,12 @@ class SkillEffectType(Enum):
     EP_GAIN_DOWN = "EpGainDown"                       # EP获取量减少debuff
     EP_GAIN_UP = "EpGainUp"                           # EP获取量增加buff (如141301 包囲かんりょ～)
 
+    # 有利属性ダメージ修正（130191 開戦時戦況判定）
+    # 仅作用于「属性克制成立」的攻击：直接加算到克制倍率 1.25(主属性)/1.15(副属性) 上，
+    # 与装备词条「有利属性ダメージ」(unit.advantage_damage) 同一口径。
+    ADVANTAGE_DAMAGE_UP = "AdvantageDamageUp"         # 有利属性ダメージ上昇 (buff)
+    ADVANTAGE_DAMAGE_DOWN = "AdvantageDamageDown"     # 有利属性ダメージ減少 (debuff)
+
     @property
     def is_static_debuff(self) -> bool:
         """是否为固定的负面效果（不依赖数值）"""

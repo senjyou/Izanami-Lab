@@ -4632,5 +4632,35 @@
         "skill_master_id": 400059
       }
     ]
+  },
+  "20095": {
+    "memory_id": 20095,
+    "name": "このひと時を、３人で",
+    "description": "イーニァ「ユウヤ、クリスカ……きょう、すごくたのしかった。」\nクリスカ「そうだね。イーニァが楽しかったのなら、良かったわ。」",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": 501301,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400265
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 12,
+        "skill_master_id": 400266
+      }
+    ]
   }
 }

@@ -13,7 +13,8 @@
     "803": "The Manor's Favor",
     "601": "クラスナ",
     "802": "STRANGERS Ⅱ",
-    "1100": "双頭の斧"
+    "1100": "双頭の斧",
+    "804": "New World, New Dawn"
   },
   "character_base": {
     "100": {
@@ -339,6 +340,12 @@
       "name_ruby": "にーな／じーなみーしな",
       "team_id": 601,
       "team_name": "クラスナ"
+    },
+    "501": {
+      "name": "イーニァ＆クリスカ",
+      "name_ruby": "いーにぁ&くりすか",
+      "team_id": 804,
+      "team_name": "New World, New Dawn"
     }
   },
   "character_variants": {
@@ -717,6 +724,12 @@
     "147": [
       {
         "character_id": 147301,
+        "rarity": "N/A"
+      }
+    ],
+    "501": [
+      {
+        "character_id": 501301,
         "rarity": "N/A"
       }
     ]

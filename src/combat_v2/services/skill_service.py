@@ -15,7 +15,7 @@ import random
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from ...entities_v2.unit_state import UnitState, BuffState, DamageLinkEntry
 from ...entities_v2.battlefield_state import BattlefieldState
-from ...entities_v2.enums import SkillEffectType, AuraUpdateTiming, Position, SkillType
+from ...entities_v2.enums import SkillEffectType, AuraUpdateTiming, Position, SkillType, Side
 from ..skill_data_resolver import ResolvedSkillData, SkillDataResolver
 from ..battle_logger import battle_logger
 from .damage_service import DamageResult
@@ -88,6 +88,8 @@ _JSON_EFFECT_TO_ENUM: Dict[str, str] = {
     "ep_gain_down": SkillEffectType.EP_GAIN_DOWN.value,
     "ep_gain_up": SkillEffectType.EP_GAIN_UP.value,
     "modify_pp": SkillEffectType.MODIFY_PP.value,
+    "advantage_damage_up": SkillEffectType.ADVANTAGE_DAMAGE_UP.value,
+    "advantage_damage_down": SkillEffectType.ADVANTAGE_DAMAGE_DOWN.value,
 }
 
 
@@ -620,6 +622,29 @@ class SkillService:
                 _log.info("[SKILL_GC] %s: [%s] round_number %d %s %d not met",
                           caster.name, skill_name, cur_round, gc_op, gc_val)
                 return False
+        elif gc_type in ('furthest_enemy_element_in', 'furthest_enemy_element_not_in'):
+            # 130191 開戦時戦況判定: 最も遠い敵の属性が指定リストに含まれるか
+            _vals = gc.get('values') or [gc.get('value')]
+            _vals = {int(v) for v in _vals if v is not None}
+            _enemy_team = (battlefield.enemy_team if caster.side == Side.ALLY
+                           else battlefield.friend_team)
+            _cands = [u for u in _enemy_team if u.is_alive]
+            if not _cands:
+                _log.info("[SKILL_GC] %s: [%s] %s -> no enemy, not met",
+                          caster.name, skill_name, gc_type)
+                return False
+            _furthest = min(_cands, key=lambda u: self._get_farthest_key(caster.position, u))
+            _elems = {getattr(_furthest, 'element', 0)}
+            _fs = getattr(_furthest, 'sub_element', 0)
+            if _fs:
+                _elems.add(_fs)
+            _hit = bool(_elems & _vals)
+            _ok = _hit if gc_type == 'furthest_enemy_element_in' else (not _hit)
+            _log.info("[SKILL_GC] %s: [%s] %s furthest=%s elems=%s values=%s => %s",
+                      caster.name, skill_name, gc_type, _furthest.name,
+                      sorted(_elems), sorted(_vals), _ok)
+            if not _ok:
+                return False
         elif gc_type == 'self_lacks_mark':
             gc_mark_name = gc.get('mark_name', '')
             has_mark = any(
@@ -894,6 +919,21 @@ class SkillService:
         elif mapped_effect_type == SkillEffectType.STATUS_CRITICAL_CHANCE.value:
             total = self.damage_service._calculate_crit_rate(unit)
             return ("暴击率", f"{total * 100:.1f}%")
+        elif mapped_effect_type in (SkillEffectType.ADVANTAGE_DAMAGE_UP.value,
+                                    SkillEffectType.ADVANTAGE_DAMAGE_DOWN.value):
+            # 有利属性ダメージ（克制倍率加点）：buff 加算 / debuff 减算
+            total = 0.0
+            for b in unit.buffs:
+                if b.effect_type in (SkillEffectType.ADVANTAGE_DAMAGE_UP.value,
+                                     SkillEffectType.ADVANTAGE_DAMAGE_DOWN.value):
+                    total += self.damage_service._normalize_buff_value(b)
+            for b in unit.debuffs:
+                if b.effect_type in (SkillEffectType.ADVANTAGE_DAMAGE_UP.value,
+                                     SkillEffectType.ADVANTAGE_DAMAGE_DOWN.value):
+                    total -= self.damage_service._normalize_buff_value(b)
+            pct = int(total * 100)
+            sign = "+" if pct >= 0 else ""
+            return ("有利属性ダメージ", f"{sign}{pct}%")
         elif mapped_effect_type == SkillEffectType.CRITICAL_BONUS_MODIFICATION.value:
             total = 1.5 + self.damage_service._get_crit_damage_bonus(unit)
             return ("暴击伤害", f"{total * 100:.2f}%")
@@ -1606,13 +1646,15 @@ class SkillService:
                         _log.info("[SKILL_EXEC] %s: skipping block %d (prev_target_element_advantage: no prev target)",
                                   caster.name, block.block_id)
                         continue
-                    # 属性克制表与 battle_flow_controller._is_element_advantage 一致（1火>3风 2水>1火 3风>4土 4土>2水 5光>6暗 6暗>5光）
-                    _advantages = {1: 3, 2: 1, 3: 4, 4: 2, 5: 6, 6: 5}
-                    _adv_ok = _advantages.get(getattr(caster, 'element', 0)) == getattr(_adv_target, 'element', 0)
+                    # 属性有利判定（双属性対応）：伤害计算 _get_attribute_factor 与同一口径
+                    # 主属性 1.25 / 副属性 1.15 任一成立即为「有利属性」
+                    _adv_ok = self._is_element_advantage_vs(caster, _adv_target)
                     if not _adv_ok:
-                        _log.info("[SKILL_EXEC] %s: skipping block %d (prev_target_element_advantage: elem %d vs %s elem %d no advantage)",
-                                  caster.name, block.block_id, getattr(caster, 'element', 0),
-                                  _adv_target.name, getattr(_adv_target, 'element', 0))
+                        _log.info("[SKILL_EXEC] %s: skipping block %d (prev_target_element_advantage: elem %d(sub %d) vs %s elem %d(sub %d) no advantage)",
+                                  caster.name, block.block_id,
+                                  getattr(caster, 'element', 0), getattr(caster, 'sub_element', 0),
+                                  _adv_target.name, getattr(_adv_target, 'element', 0),
+                                  getattr(_adv_target, 'sub_element', 0))
                         continue
                     _log.info("[SKILL_EXEC] %s: block %d prev_target_element_advantage PASS (%s elem %d advantage)",
                               caster.name, block.block_id, _adv_target.name, getattr(_adv_target, 'element', 0))
@@ -4063,8 +4105,8 @@ class SkillService:
             _adv_pt = getattr(self, '_prescan_primary_target', None)
             if _adv_pt is None:
                 return False
-            _advantages = {1: 3, 2: 1, 3: 4, 4: 2, 5: 6, 6: 5}
-            return _advantages.get(getattr(caster, 'element', 0)) != getattr(_adv_pt, 'element', 0)
+            # 执行期分支（~L1607）と同じく双属性を含む克制判定を使う
+            return not self._is_element_advantage_vs(caster, _adv_pt)
         if cond_type == 'and':
             return any(
                 self._is_block_definitely_skipped(caster, sub, skill_id)
@@ -11751,6 +11793,8 @@ class SkillService:
             "block_specific_aura",
             "block_auras",
             "ep_gain_up",
+            # 130191 開戦時戦況判定: 有利属性ダメージ上昇 buff
+            "advantage_damage_up",
             # guard作为buff类型保留，但通过不同的机制触发
             # - 旧版guard（如130009）：通过buff系统生效
             # - 新版cover附带的guard：通过unit.guard_active生效
@@ -11774,6 +11818,8 @@ class SkillService:
             "critical_forbidden",
             "ep_gain_down",
             "heal_efficacy_down",
+            # 130191 開戦時戦況判定: 有利属性ダメージ減少 debuff
+            "advantage_damage_down",
         }
 
     def _has_debuff_immune(self, target: UnitState) -> bool:
@@ -12310,6 +12356,36 @@ class SkillService:
         tr, tc = _POS_RC[unit.position]
         dist_sq = (tr - 0) ** 2 + (tc - cc) ** 2
         return (-dist_sq, tr, tc)
+
+    def _is_element_advantage_vs(self, caster: UnitState, target: UnitState) -> bool:
+        """「自身が対象に対して有利属性」判定（双属性対応）。
+
+        与伤害计算 `DamageService._get_attribute_factor` 完全同一口径：
+        主属性 1.25 / 副属性 1.15 任一成立即视为「有利属性」，
+        且防守方的主/副属性都算（任一被克制即成立）。
+        """
+        if target is None:
+            return False
+        if self.damage_service is not None:
+            try:
+                factor = self.damage_service._get_attribute_factor(
+                    getattr(caster, 'element', 0), getattr(target, 'element', 0),
+                    caster, target)
+                return factor > 1.0
+            except Exception:
+                pass
+        _advantages = {1: 3, 2: 1, 3: 4, 4: 2, 5: 6, 6: 5}
+        _def_attrs = [getattr(target, 'element', 0)]
+        _d_sub = getattr(target, 'sub_element', 0)
+        if _d_sub:
+            _def_attrs.append(_d_sub)
+        _atk_main = getattr(caster, 'element', 0)
+        _atk_sub = getattr(caster, 'sub_element', 0)
+        if any(_advantages.get(_atk_main) == d for d in _def_attrs if d):
+            return True
+        if _atk_sub and any(_advantages.get(_atk_sub) == d for d in _def_attrs if d):
+            return True
+        return False
 
     def deduct_skill_cost(self, unit: UnitState, skill_id: int) -> bool:
         """公开方法：在技能准备阶段扣除资源"""

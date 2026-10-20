@@ -105,6 +105,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 繋がり合う母娘の絆      | オルガ＆ナージャ     |
 | 双翼のフロントランナー    | ニーナジーナ・ミーシナ  |
 | 隣歩む想い          | 桃園める         |
+| スカーレット・ツイン     | イーニァ＆クリスカ    |
 
 ## Tactical Exercise Enemies
 

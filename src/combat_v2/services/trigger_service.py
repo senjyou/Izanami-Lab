@@ -1337,55 +1337,50 @@ class TriggerService:
             # Otherwise it fires when the owner receives a debuff.
             if trigger_type == "on_debuff_applied":
                 gc = parsed.get('global_condition')
-                if gc and isinstance(gc, dict) and gc.get('type') == 'debuff_type':
-                    # Only trigger when debuff is applied to units on the opposite side
-                    # AND only for NEW knockouts (not refreshes on already-stunned targets)
-                    debuff_val = str(gc.get('value', '')).lower()
-                    if debuff_val == 'knockout' and context.new_knockout_target_ids:
+                _flat = self._flatten_global_conditions(gc)
+                _ally_sub = next((c for c in _flat if c.get('type') == 'target_is_ally'), None)
+                _self_sub = any(c.get('type') == 'target_is_self' for c in _flat)
+                _ailment_sub = next((c for c in _flat if c.get('type') == 'is_status_ailment'), None)
+                _debuff_subs = [c for c in _flat if c.get('type') in ('debuff_type', 'debuff_type_in')]
+
+                def _wants_ally(c):
+                    return str(c.get('ally_filter', '')).lower() == 'ally'
+
+                # 1) 友方（同阵营）侧：target_is_ally / debuff_type(ally_filter=ally)
+                #    支持 condition_list/and 组合（如 130189 僚機救援：
+                #    其他味方被付与気絶或凍結 + 存活味方≥3）
+                if _ally_sub is not None or any(_wants_ally(c) for c in _debuff_subs):
+                    if _ally_sub is not None:
+                        _exclude_self = bool(_ally_sub.get('exclude_self', 0))
+                    else:
+                        _exclude_self = any(bool(c.get('exclude_self', 0)) for c in _debuff_subs)
+                    return any(t.side == owner.side
+                               and (not _exclude_self or t.unit_id != owner.unit_id)
+                               for t in context.targets)
+                # 2) 自身侧
+                if _self_sub:
+                    return owner.unit_id in [t.unit_id for t in context.targets]
+                if _ailment_sub is not None and not (
+                        str(_ailment_sub.get('ally_filter', 'ally')).lower() == 'enemy'):
+                    return owner.unit_id in [t.unit_id for t in context.targets]
+                # 3) 敌方侧（debuff_type / is_status_ailment(enemy) / 默认）
+                #    仅对「新规気絶」触发，避免已眩晕目标被刷新时重复触发
+                _wanted_vals = set()
+                for c in _debuff_subs:
+                    _v = c.get('values') if isinstance(c, dict) else None
+                    if _v is None:
+                        _v = c.get('value')
+                    if isinstance(_v, (list, tuple, set)):
+                        _wanted_vals.update(str(x).lower() for x in _v)
+                    elif _v is not None:
+                        _wanted_vals.add(str(_v).lower())
+                if _wanted_vals == {'knockout'}:
+                    if context.new_knockout_target_ids:
                         return any(t.side != owner.side and t.unit_id in context.new_knockout_target_ids
                                    for t in context.targets)
-                    elif debuff_val == 'knockout':
-                        # No new knockout targets, don't trigger
-                        return False
-                    return any(t.side != owner.side for t in context.targets)
-                else:
-                    # on_debuff_applied without debuff_type condition
-                    gc = parsed.get('global_condition')
-                    if gc and isinstance(gc, dict) and gc.get('type') == 'target_is_self':
-                        # triggers when a debuff is applied to SELF (e.g. 明鏡止水)
-                        return owner.unit_id in [t.unit_id for t in context.targets]
-                    elif gc and isinstance(gc, dict) and gc.get('type') == 'and':
-                        # 'and' type global_condition: 检查是否含target_is_self子条件
-                        # 如 130164 おたすけもとむ: target_is_self + exclude_timing
-                        sub_conds = gc.get('conditions', [])
-                        has_target_is_self = any(
-                            isinstance(sc, dict) and sc.get('type') == 'target_is_self'
-                            for sc in sub_conds
-                        )
-                        if has_target_is_self:
-                            return owner.unit_id in [t.unit_id for t in context.targets]
-                        # 不含target_is_self的and类型，回退到默认ENEMY判断
-                        return any(t.side != owner.side for t in context.targets)
-                    elif gc and isinstance(gc, dict) and gc.get('type') == 'is_status_ailment':
-                        ally_filter = gc.get('ally_filter', 'ally')
-                        if ally_filter == 'enemy':
-                            # triggers when ENEMY receives a status ailment (e.g. コン・フオーコ)
-                            return any(t.side != owner.side for t in context.targets)
-                        else:
-                            # triggers when SELF receives a status ailment (e.g. ヴォルコワの血脈Ω)
-                            return owner.unit_id in [t.unit_id for t in context.targets]
-                    elif gc and isinstance(gc, dict) and gc.get('type') == 'target_is_ally':
-                        # triggers when an ALLY (same side) receives a debuff
-                        # (e.g. 130125 気合い入れていこー！: 味方にデバフが付与された時)
-                        # exclude_self=1: 只在其他友方（排除自身）被上debuff时触发
-                        exclude_self = bool(gc.get('exclude_self', 0))
-                        if exclude_self:
-                            return any(t.side == owner.side and t.unit_id != owner.unit_id
-                                       for t in context.targets)
-                        return any(t.side == owner.side for t in context.targets)
-                    else:
-                        # triggers when ANY debuff is applied to an ENEMY unit
-                        return any(t.side != owner.side for t in context.targets)
+                    return False
+                # triggers when ANY debuff is applied to an ENEMY unit
+                return any(t.side != owner.side for t in context.targets)
             return owner.unit_id in [t.unit_id for t in context.targets]
 
         if timing == TriggerTiming.SKILL_USE_COUNT:
@@ -1467,6 +1462,50 @@ class TriggerService:
         if is_self_targeted:
             return False
         return True
+
+    def _flatten_global_conditions(self, cond, out: Optional[List[Dict]] = None) -> List[Dict]:
+        """将 and / or / condition_list 组合条件展开为扁平列表（用于触发时机侧的阵营判定）。"""
+        if out is None:
+            out = []
+        if not isinstance(cond, dict):
+            return out
+        ctype = cond.get('type')
+        if ctype in ('and', 'or', 'condition_list'):
+            subs = cond.get('conditions') or []
+            if not subs:
+                out.append(cond)
+                return out
+            for sub in subs:
+                self._flatten_global_conditions(sub, out)
+        else:
+            out.append(cond)
+        return out
+
+    def _find_furthest_enemy(self, owner: UnitState, battlefield: BattlefieldState) -> Optional[UnitState]:
+        """最远敌（与技能索敌 enemy_single_furthest 使用同一排序键）。
+
+        用于 130191 開戦時戦況判定「最も遠い敵を対象とし、対象が…属性だった場合」判定。
+        """
+        if battlefield is None:
+            return None
+        enemy_team = battlefield.enemy_team if owner.side == Side.ALLY else battlefield.friend_team
+        candidates = [u for u in enemy_team if u.is_alive]
+        if not candidates:
+            return None
+        ss = getattr(self, 'skill_service', None)
+        if ss is not None and hasattr(ss, '_get_farthest_key'):
+            try:
+                return min(candidates, key=lambda u: ss._get_farthest_key(owner.position, u))
+            except Exception:
+                pass
+        anchor = _POS_RC_TRIG.get(owner.position, (0, 1))
+
+        def _key(unit: UnitState):
+            rc = _POS_RC_TRIG.get(unit.position, (0, 0))
+            dist_sq = (rc[0] - 0) ** 2 + (rc[1] - anchor[1]) ** 2
+            return (-dist_sq, rc[0], rc[1])
+
+        return min(candidates, key=_key)
 
     def _check_condition(self, parsed: Dict, owner: UnitState,
                           timing: TriggerTiming, context: TriggerContext) -> bool:
@@ -1567,7 +1606,10 @@ class TriggerService:
             return has_link
 
         if cond_type == "ally_alive_count":
-            allies = [u for u in context.battlefield.friend_team if u.is_alive]
+            # 按 PS 持有者自身阵营统计（原实现固定 friend_team，敌方 PS 会误判）
+            _ally_team = (context.battlefield.friend_team if owner.side == Side.ALLY
+                          else context.battlefield.enemy_team)
+            allies = [u for u in _ally_team if u.is_alive]
             count = len(allies)
             result = _eval_condition(count, op, val)
             _log.info("[TRIGGER_COND] %s: ally_alive_count %d %s %d => %s",
@@ -1679,6 +1721,20 @@ class TriggerService:
             if exclude_self and target.unit_id == owner.unit_id:
                 is_ally = False
             result = (is_ally == bool(val))
+            # debuff_types: 「其他味方が気絶/凍結を付与された際」等，
+            # 追加限定本次实际付与的 debuff 类型（130189 僚機救援）
+            _dbg_types = condition.get('debuff_types') if isinstance(condition, dict) else None
+            if result and _dbg_types:
+                _wanted = {str(v).lower() for v in _dbg_types}
+                _applied = {str(dt).lower() for dt in (context.applied_debuff_types or set())}
+                if _applied:
+                    result = bool(_applied & _wanted)
+                else:
+                    result = any(
+                        (d.effect_type or '').lower() in _wanted
+                        for t in context.targets for d in t.debuffs)
+                _log.info("[TRIGGER_COND] %s: target_is_ally debuff_types=%s applied=%s => %s",
+                          owner.name, sorted(_wanted), sorted(_applied), result)
             _log.info("[TRIGGER_COND] %s: target_is_ally=%s expect=%s exclude_self=%s target=%s => %s",
                       owner.name, is_ally, bool(val), exclude_self, target.name, result)
             return result
@@ -2109,28 +2165,56 @@ class TriggerService:
                       owner.name)
             return False
 
-        if cond_type == "debuff_type":
-            # Check if the specified debuff type was applied in this trigger event
+        if cond_type in ("debuff_type", "debuff_type_in"):
+            # Check if the specified debuff type(s) were applied in this trigger event
             # Priority: use applied_debuff_types (records what was actually applied)
             # over checking target's current debuffs (which may have been cleared by revival)
-            debuff_type_name = str(val).lower()
+            # 支持单值与列表：debuff_type_in / values 列表（130189 僚機救援：気絶または凍結）
+            _raw_val = condition.get('values') if isinstance(condition, dict) else None
+            if _raw_val is None:
+                _raw_val = val
+            if isinstance(_raw_val, (list, tuple, set)):
+                wanted = {str(v).lower() for v in _raw_val}
+            else:
+                wanted = {str(_raw_val).lower()}
             if context.applied_debuff_types:
-                if any(dt.lower() == debuff_type_name for dt in context.applied_debuff_types):
+                if any(dt.lower() in wanted for dt in context.applied_debuff_types):
                     _log.info("[TRIGGER_COND] %s: debuff_type=%s found in applied_debuff_types %s => True",
-                              owner.name, debuff_type_name, context.applied_debuff_types)
+                              owner.name, sorted(wanted), context.applied_debuff_types)
                     return True
                 _log.info("[TRIGGER_COND] %s: debuff_type=%s not found in applied_debuff_types %s => False",
-                          owner.name, debuff_type_name, context.applied_debuff_types)
+                          owner.name, sorted(wanted), context.applied_debuff_types)
                 return False
             # Fallback: check target's current debuffs when no applied_debuff_types info
             for t in context.targets:
-                if any(d.effect_type.lower() == debuff_type_name or d.name.lower() == debuff_type_name for d in t.debuffs):
+                if any(d.effect_type.lower() in wanted or (getattr(d, 'name', '') or '').lower() in wanted
+                       for d in t.debuffs):
                     _log.info("[TRIGGER_COND] %s: debuff_type=%s found on %s => True",
-                              owner.name, debuff_type_name, t.name)
+                              owner.name, sorted(wanted), t.name)
                     return True
             _log.info("[TRIGGER_COND] %s: debuff_type=%s not found on any target => False",
-                      owner.name, debuff_type_name)
+                      owner.name, sorted(wanted))
             return False
+
+        # 130191 開戦時戦況判定: 最も遠い敵の属性が指定リストに含まれるか
+        if cond_type in ("furthest_enemy_element_in", "furthest_enemy_element_not_in"):
+            vals = condition.get('values') or [condition.get('value')]
+            vals = {int(v) for v in vals if v is not None}
+            furthest = self._find_furthest_enemy(owner, context.battlefield)
+            if furthest is None:
+                _log.info("[TRIGGER_COND] %s: furthest_enemy_element_in -> no enemy => False",
+                          owner.name)
+                return False
+            elems = {getattr(furthest, 'element', 0)}
+            _fe_sub = getattr(furthest, 'sub_element', 0)
+            if _fe_sub:
+                elems.add(_fe_sub)
+            hit = bool(elems & vals)
+            result = hit if cond_type == "furthest_enemy_element_in" else (not hit)
+            _log.info("[TRIGGER_COND] %s: %s furthest=%s elems=%s values=%s => %s",
+                      owner.name, cond_type, furthest.name, sorted(elems), sorted(vals), result)
+            return result
+
 
         # 130158 ヒートアップ・ラブ: 检查triggered_by当次行动中受到的伤害是否>=max_hp的value%
         if cond_type == "damage_taken_in_action_percent":
@@ -2462,6 +2546,17 @@ _FRONT_POSITION_MAP: Dict[Position, Position] = {
 
 def _get_front_position(pos: Position) -> Optional[Position]:
     return _FRONT_POSITION_MAP.get(pos)
+
+
+# 位置 → (row, col)。与 target_service._POS_RC 保持一致（row0=前排）。
+_POS_RC_TRIG = {
+    Position.ALLY_LEFT_FRONT: (0, 0), Position.ALLY_CENTER_FRONT: (0, 1),
+    Position.ALLY_RIGHT_FRONT: (0, 2), Position.ALLY_LEFT_BACK: (1, 0),
+    Position.ALLY_CENTER_BACK: (1, 1), Position.ALLY_RIGHT_BACK: (1, 2),
+    Position.ENEMY_LEFT_FRONT: (0, 0), Position.ENEMY_CENTER_FRONT: (0, 1),
+    Position.ENEMY_RIGHT_FRONT: (0, 2), Position.ENEMY_LEFT_BACK: (1, 0),
+    Position.ENEMY_CENTER_BACK: (1, 1), Position.ENEMY_RIGHT_BACK: (1, 2),
+}
 
 
 def _eval_condition(value: float, op: str, target: float) -> bool:

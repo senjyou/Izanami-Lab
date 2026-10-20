@@ -85943,5 +85943,470 @@
       }
     },
     "display_info": {}
+  },
+  "110086": {
+    "skill_id": 110086,
+    "name": "プラーフカ・全面制圧",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵全体に威力{威力}で攻撃し、自身に2行動の間「プラーフカ」を付与する。「プラーフカ」は攻撃時に攻撃力×{atk}%のダメージを追加する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 3,
+            "value": 79.66000366210938
+          },
+          {
+            "level": 4,
+            "value": 88.98999786376953
+          },
+          {
+            "level": 6,
+            "value": 93.66000366210938
+          },
+          {
+            "level": 7,
+            "value": 102.98999786376953
+          },
+          {
+            "level": 9,
+            "value": 107.66000366210938
+          },
+          {
+            "level": 10,
+            "value": 117.0
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 12.5
+          }
+        ]
+      }
+    }
+  },
+  "120185": {
+    "skill_id": 120185,
+    "name": "近接制圧",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も近い位置にいる敵単体、および対象に隣接する敵に対して威力{威力}で攻撃する。\n「プラーフカ」状態の場合、対象全てに対し次の攻撃での被ダメージを25%増加させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.47999954223633
+          },
+          {
+            "level": 4,
+            "value": 47.459999084472656
+          },
+          {
+            "level": 6,
+            "value": 49.95000076293945
+          },
+          {
+            "level": 7,
+            "value": 54.93000030517578
+          },
+          {
+            "level": 9,
+            "value": 57.41999816894531
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 15,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "130189": {
+    "skill_id": 130189,
+    "name": "僚機救援",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が気絶または凍結を付与された際に発動。敵全体に威力{威力}で攻撃する。生存している味方が3体未満の場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "他の味方が気絶または凍結を付与された際に発動。敵全体に威力{威力}で攻撃する。\nさらに気絶または凍結を受けた味方単体に対し、同確率で下記のいずれかの効果を発動する。\n・デバフを全て解除する\n・最大HP×{shield}%のシールドを付与する。シールドは1回攻撃を受けると消滅する。\n生存している味方が3体未満の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 22.5
+          },
+          {
+            "level": 3,
+            "value": 23.899999618530273
+          },
+          {
+            "level": 4,
+            "value": 26.700000762939453
+          },
+          {
+            "level": 6,
+            "value": 28.100000381469727
+          },
+          {
+            "level": 7,
+            "value": 30.899999618530273
+          },
+          {
+            "level": 9,
+            "value": 32.290000915527344
+          },
+          {
+            "level": 10,
+            "value": 35.099998474121094
+          }
+        ]
+      },
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 30.0
+          }
+        ]
+      }
+    }
+  },
+  "130190": {
+    "skill_id": 130190,
+    "name": "連続制圧",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "アクティブスキルを3回使用するたびに発動。敵単体に威力{威力}で攻撃する"
+      },
+      {
+        "min_level": 11,
+        "template": "アクティブスキルを3回使用するたびに発動。敵単体に威力{威力}で攻撃する。自身が対象に対して有利属性だった場合、さらに威力{威力2}で追加攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 37.16999816894531
+          },
+          {
+            "level": 4,
+            "value": 41.529998779296875
+          },
+          {
+            "level": 6,
+            "value": 43.709999084472656
+          },
+          {
+            "level": 7,
+            "value": 48.060001373291016
+          },
+          {
+            "level": 9,
+            "value": 50.2400016784668
+          },
+          {
+            "level": 10,
+            "value": 54.599998474121094
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 31.200000762939453
+          }
+        ]
+      }
+    }
+  },
+  "130191": {
+    "skill_id": 130191,
+    "name": "開戦時戦況判定",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。最も遠い敵を対象とし、対象がアグレッシブまたはキュート属性だった場合、味方全体の有利属性ダメージを{buff}%上昇させ、敵全体の有利属性ダメージを{debuff}%減少させる。\n対象がアグレッシブまたはキュート属性ではない場合、このスキルは発動しない。\nこのスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。最も遠い敵を対象とし、対象がアグレッシブまたはキュート属性だった場合、味方全体の有利属性ダメージを{buff}%上昇させ、敵全体の有利属性ダメージを{debuff}%減少させる。さらに敵全体の次の攻撃での被ダメージを{dmg}%増加させる（重複可）。\n対象がアグレッシブまたはキュート属性ではない場合、このスキルは発動しない。\nこのスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "buff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 8.319999694824219
+          },
+          {
+            "level": 4,
+            "value": 9.960000038146973
+          },
+          {
+            "level": 6,
+            "value": 10.779999732971191
+          },
+          {
+            "level": 7,
+            "value": 12.420000076293945
+          },
+          {
+            "level": 9,
+            "value": 13.239999771118164
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 10.0
+          }
+        ]
+      },
+      "debuff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.75
+          },
+          {
+            "level": 3,
+            "value": 4.150000095367432
+          },
+          {
+            "level": 4,
+            "value": 4.949999809265137
+          },
+          {
+            "level": 6,
+            "value": 5.349999904632568
+          },
+          {
+            "level": 7,
+            "value": 6.150000095367432
+          },
+          {
+            "level": 9,
+            "value": 6.550000190734863
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          }
+        ]
+      }
+    }
+  },
+  "400265": {
+    "skill_id": 400265,
+    "name": "HP・防御上昇【イーニァ＆クリスカ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。イーニァ＆クリスカ[スカーレット・ツイン]のHPを{hp}、防御力を{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2000.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400266": {
+    "skill_id": 400266,
+    "name": "物理ダメージ上昇【右列前衛・左列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列前衛と左列後衛の味方に対し、物理攻撃で与えるダメージを{dmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 4.199999809265137
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

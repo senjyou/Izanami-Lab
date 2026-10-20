@@ -890,8 +890,19 @@ class DamageService:
                           两者都克制时取最大值（主属性优先）。
         防守方同样支持双属性: 防守方主/副属性任一被克制即构成克制。
         副属性只在攻击使用角色自身属性（skill_element == attacker.element）时参与。
+
+        有利属性ダメージ修正（130191 開戦時戦況判定）：
+        攻击者持有的 advantage_damage_up buff / advantage_damage_down debuff 会以
+        百分点形式加算到同一个 bonus 上（与装备词条「有利属性ダメージ」口径一致），
+        因此只在克制成立时生效（非克制攻击仍为 1.0）。
         """
         bonus = getattr(attacker, "advantage_damage", 0.0)
+        # 有利属性ダメージ増減 buff/debuff（仅作用于克制成立的攻击）
+        _adv_up = self._aggregate_buff_value_signed(
+            attacker.buffs, attacker.debuffs, "AdvantageDamageUp", unit=attacker)
+        _adv_down = self._aggregate_buff_value_signed(
+            attacker.buffs, attacker.debuffs, "AdvantageDamageDown", unit=attacker)
+        bonus += _adv_up + _adv_down   # down 侧为 debuff → signed 值为负
         # 攻击方主/副属性
         atk_main = atk_attr
         atk_sub = getattr(attacker, "sub_element", 0)
@@ -913,6 +924,7 @@ class DamageService:
         if atk_sub and any(self._check_element_advantage(atk_sub, d) for d in defender_attrs if d):
             factor = max(factor, 1.15 + bonus)
         return factor
+
 
     def _check_element_advantage(self, atk_element: int, def_element: int) -> bool:
         """

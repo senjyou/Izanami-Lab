@@ -3471,6 +3471,93 @@
    "EX: 前列優先で敵横一列に攻撃 + spd_down(1action, stackable, fixed) + Lv11+ crit_rate_down(1action, stackable, percent)"
   ]
  },
+ "110086": {
+  "skill_id": 110086,
+  "name": "プラーフカ・全面制圧",
+  "skill_type": 3,
+  "resource_cost": 7,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "add_status",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "プラーフカ",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_damage",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "atk",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "buff_name": "プラーフカ"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 5,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: Block1 enemy_all 威力(物理)；Block2 self add_status「プラーフカ」2行动 + add_damage(atk% 攻击追加伤害,2行动)",
+   "「プラーフカ」为命名状态(add_status → effect_type=プラーフカ)，供 AS 120185 self_has_status 判定"
+  ]
+ },
  "120001": {
   "skill_id": 120001,
   "name": "リペアバレル",
@@ -10104,6 +10191,98 @@
   "parse_status": "manual",
   "parse_notes": [
    "AS3: enemy_single damage power={威力}, 無冷却"
+  ]
+ },
+ "120185": {
+  "skill_id": 120185,
+  "name": "近接制圧",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "damage",
+      "target_type": "adjacent_enemies",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "self_has_status",
+     "value": "プラーフカ"
+    },
+    "effects": [
+     {
+      "effect_type": "dmg_taken_up",
+      "target_type": "attacked_targets",
+      "target_identifier": null,
+      "value": 25,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "hit",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: Block1 最近敌单体+邻接敌(全部) 威力(物理)；Block2 条件 self_has_status=プラーフカ → attacked_targets(对象全部) dmg_taken_up 25% (1hit/attack_limited1/重複可)",
+   "原自动解析为2个enemy_single且缺少プラーフカ条件debuff（已修正）"
   ]
  },
  "130097": {
@@ -17256,6 +17435,308 @@
   "display_target_type": 2,
   "parse_status": "success",
   "parse_notes": []
+ },
+ "130189": {
+  "skill_id": 130189,
+  "name": "僚機救援",
+  "skill_type": 2,
+  "resource_cost": 2,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_debuff_applied",
+  "global_condition": {
+   "type": "condition_list",
+   "mode": "all",
+   "conditions": [
+    {
+     "type": "target_is_ally",
+     "value": 1,
+     "exclude_self": 1,
+     "debuff_types": [
+      "knockout",
+      "freeze"
+     ]
+    },
+    {
+     "type": "ally_alive_count",
+     "operator": ">=",
+     "value": 3
+    }
+   ]
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "random_choice",
+     "group_id": 1,
+     "weight": 50,
+     "level_min": 11
+    },
+    "effects": [
+     {
+      "effect_type": "remove_debuff",
+      "target_type": "debuff_applied_target",
+      "target_identifier": null,
+      "value": -1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 3,
+    "condition": {
+     "type": "random_choice",
+     "group_id": 1,
+     "weight": 50,
+     "level_min": 11
+    },
+    "effects": [
+     {
+      "effect_type": "shield",
+      "target_type": "debuff_applied_target",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "shield",
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "shield_base": "max_hp",
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 5,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: on_debuff_applied + condition_list[其他味方(exclude_self)被付与knockout/freeze, 存活味方>=3]；Block1 enemy_all 威力(物理)",
+   "Block2/3 Lv11+ random_choice 50/50: remove_debuff(全部) / shield(最大HP×shield%, attack_limited=1) @debuff_applied_target",
+   "原自动解析为 on_battle_start + stun enemy_all（完全错误，已重写）"
+  ]
+ },
+ "130190": {
+  "skill_id": 130190,
+  "name": "連続制圧",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_skill_use_count",
+  "global_condition": {
+   "type": "skill_use_count_modulo",
+   "value": 3
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "prev_target_element_advantage"
+    },
+    "level_min": 11,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "attacked_targets",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力2",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: on_skill_use_count + skill_use_count_modulo 3(仅计AS)；Block1 enemy_single 威力(物理)",
+   "Block2 Lv11+ prev_target_element_advantage → attacked_targets 威力2(追加攻击同一目标，含副属性判定)"
+  ]
+ },
+ "130191": {
+  "skill_id": 130191,
+  "name": "開戦時戦況判定",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_turn_start",
+  "global_condition": {
+   "type": "furthest_enemy_element_in",
+   "values": [
+    1,
+    4
+   ]
+  },
+  "once_per_battle": true,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "advantage_damage_up",
+      "target_type": "ally_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "buff",
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "advantage_damage_down",
+      "target_type": "enemy_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "debuff",
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": null,
+    "level_min": 11,
+    "effects": [
+     {
+      "effect_type": "dmg_taken_up",
+      "target_type": "enemy_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "hit",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 5,
+  "display_target_type": 2,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: on_turn_start + once_per_battle + gc furthest_enemy_element_in[1(火/アグレッシブ),4(土/キュート)]",
+   "Block1 ally_all advantage_damage_up(buff%) + enemy_all advantage_damage_down(debuff%)，永续(duration=-1)",
+   "Block2 Lv11+ enemy_all dmg_taken_up(dmg%) 1hit/attack_limited1/重複可"
+  ]
  },
  "200000": {
   "skill_id": 200000,
