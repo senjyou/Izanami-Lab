@@ -338,6 +338,18 @@ class SkillService:
             else:
                 self._trigger_total_damage = 0
 
+            # 仅用于**叙事**的目标：cover 类 PS（如 130088「ネガティブヘイト」
+            # = 他の味方が攻撃される前に発動して肩代わり）的 primary_target 恒为 None，
+            # 但触发上下文里的 targets[0] 就是「被掩护的队友」，游戏把
+            # PawnUsesSkillEvent.TargetPawnId 记成它。
+            # 注意：**不能写回 self._primary_target**（会改变 lowest_hp_row_only /
+            # adjacent_enemies 等依赖它的技能的目标选择，进而改坏伤害）。这里只做局部变量。
+            narrate_target = primary_target
+            if narrate_target is None and damaged_targets:
+                _first = damaged_targets[0] if isinstance(damaged_targets, (list, tuple)) else None
+                if _first is not None:
+                    narrate_target = getattr(_first, 'unit_id', _first)
+
             # 保存外层技能的_current_skill_id，防止内层execute_skill覆盖
             saved_current_skill_id = self._current_skill_id
 
@@ -510,7 +522,16 @@ class SkillService:
                     # 叙事分组：before_*窗口及其嵌套链执行的PS在伤害前输出；seq保证按执行顺序
                     "narrate_early": self._in_before_inline_window,
                     "seq": _action_seq,
+                    # 叙事用的主目标（如 cover 类 PS 的「被掩护者」）。
+                    # 游戏把 PawnUsesSkillEvent.TargetPawnId 记成它，而不是施法者自己。
+                    # 用 narrate_target（局部量），不写回 self._primary_target。
+                    "primary_target": narrate_target,
                 })
+            # 注意：**执行失败（如资源不足）的 PS 不产出任何叙事**。
+            # 依据（quest 400270 实测）：遊戲側 PawnPreparesSkillEvent 与 PawnUsesSkillEvent
+            # 数量恒等（均为 270），且「ネガティブヘイト」sim 成功 7 次 / 失败 12 次，
+            # 游戏侧恰好只记录 7 次 —— 失败时既无 prepare 也无 use。
+            # 曾在此处为失败补发 skill_use，导致 sim 多出 12 条事件、整条时序错位。
 
             # append完成后恢复窗口标记（嵌套调用继承外层值，见循环开头说明）
             self._in_before_inline_window = saved_in_before_window
@@ -3567,6 +3588,12 @@ class SkillService:
             caster, effect, effect_flags, targets
         )
 
+        # 注意：`hit_count_per_mark` **不在命中次数里展开**。
+        # 曾按「1 + 目标身上刻痕数」改写 hit_count，导致伤害整体偏高。
+        # 依据 dist/Izanami Lab/.../step_crit_console_tactical_20261019_180332.txt
+        # （该版本伤害与实战完全吻合）：DMG_CALC 里 hits 只有 1 和 4，
+        # hits=4 全部来自 レバッ！ 的 hit_count=4；「断罪の時だ！」用了 16 次全是 hits=1。
+        # 该 flag 仍保留在 dmg_skill_obj 上供后续 reference 使用，但不参与命中展开。
         dmg_skill_obj = type('obj', (object,), {
             'power': effect.value or 100.0,
             'hit_count': effect.hit_count or 1,
@@ -5873,8 +5900,12 @@ class SkillService:
                 # b增减伤区 (被攻击对象的受击增减伤倍率，攻击时即时套用，按伤害类型过滤)
                 b_received_mult = self.damage_service._get_damage_received_multiplier(
                     target, damage_element=sub_damage_element, attacker=caster)
-                # 属性克制因子：子单位是否克制看「持有者(caster)」的属性，而非子单位的赋予来源(source_unit)。
-                # 与 ADD_DAMAGE / ENCHANT 追加伤害路径一致（属性克制使用被附魔者/持有者的实时属性）。
+                # 属性克制因子：子单位是否克制看「持有者(caster)」的属性，而非赋予来源(source_unit)。
+                # 与 ADD_DAMAGE / ENCHANT 追加伤害路径一致。
+                # 依据（dist/Izanami Lab/.../step_crit_console_tactical_20261019_180332.txt，
+                # 该版本伤害与实战完全吻合）：同一个 source_id(F_100303) 施加的 願い星，
+                # 在不同持有者上克制系数各异（心色=1.25 / 繋がり合う母娘の絆=1.41 / 唯一無二=1.33），
+                # 说明克制按**持有者**判定。曾误改为 source_unit，使子单位伤害整体偏移。
                 advantage = self.damage_service._get_attribute_factor(caster.element, target.element, caster)
 
                 dmg *= a_dealt_mult * b_received_mult * advantage
@@ -5964,6 +5995,9 @@ class SkillService:
                     "hits": [extra_dmg],
                     "hit_crits": [is_sub_crit],
                     "sub_unit_name": sub_buff.name,
+                    # 持有者 = caster（子单位挂在 caster 身上）。游戏侧把子单位伤害的
+                    # SourcePawn 记成持有者，叙事缺这一项时对比器无法还原 (src,dst)。
+                    "sub_unit_owner": caster.name,
                     "calc_detail": sub_calc_detail,
                 })
 

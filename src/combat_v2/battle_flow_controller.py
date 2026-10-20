@@ -1184,6 +1184,68 @@ class BattleFlowController:
         unit.action_count_total += 1
         self.skill_service.update_action_cooldowns(unit, pre_action_cooldowns)
 
+    def _reset_skill_use_count_after_as(self, phase1b_actions: List) -> None:
+        """AS技能执行完 Phase1b（技能使用次数）触发器后，清理贡献计数的 skill_use_count。
+
+        仅当 PS 实际执行成功（PP 减少）时清理；PP 不足/幻惑阻止时保留计数，
+        下次技能使用后仍满足 `count >= val` 会再次触发。
+
+        清理粒度由 PS 的 global_condition 决定：
+        - `skill_use_count_modulo` + count_skill_types：只清除这些技能类型的计数
+          （如 130119 清除 AS 计数，避免累加后每次 AS 都触发）
+        - 其他（无 global_condition，全量模式）：清空整个 skill_use_count
+
+        PS计数型触发器（count_skill_types=[2]，如 130135）不在此处清理，
+        由 `_check_and_execute_ps_skill_count_triggers` 在执行后处理。
+
+        伤害型与非伤害型 AS 路径都必须调用本方法：104302 的 AS 技能
+        （120111 幸運のデコイ / 120112 仲間想いのリカバリー）均为非伤害型，
+        缺少清理会导致 AS 计数只增不减，PS 从第2次AS起每次AS都触发。
+        """
+        if not phase1b_actions:
+            return
+
+        any_executed = False
+        pp_snap = getattr(self, '_pp_snapshot_before_as_triggers', {})
+        for action in phase1b_actions:
+            owner = action.instance.owner
+            pp_before = pp_snap.get(owner.unit_id, owner.current_pp)
+            if owner.current_pp < pp_before:
+                any_executed = True
+                break
+        if not any_executed:
+            _log.info("[SKILL_COUNT] no PS executed successfully in Phase1b, preserving skill_use_count")
+            return
+
+        for action in phase1b_actions:
+            owner = action.instance.owner
+            if not owner.skill_use_count:
+                continue
+            parsed = (self.data_loader.get_parsed_skill_data(action.skill_id)
+                      if hasattr(self.data_loader, 'get_parsed_skill_data') else None)
+            gc = parsed.get('global_condition') if parsed else None
+            if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
+                count_skill_types = gc.get('count_skill_types', [1])
+                if count_skill_types == [2]:
+                    _log.info("[SKILL_COUNT] %s is PS-modulo trigger, NOT clearing counts "
+                              "(handled in PS execution)", owner.name)
+                    continue
+                exclude_skill_ids = gc.get('exclude_skill_ids', [])
+                cleared_ids = []
+                for sid in list(owner.skill_use_count.keys()):
+                    if sid in exclude_skill_ids:
+                        continue
+                    sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
+                    if sd and sd.skill_type in count_skill_types:
+                        del owner.skill_use_count[sid]
+                        cleared_ids.append(sid)
+                _log.info("[SKILL_COUNT] %s skill_use_count selective reset: cleared=%s, remaining=%s",
+                          owner.name, cleared_ids, dict(owner.skill_use_count))
+            else:
+                _log.info("[SKILL_COUNT] %s skill_use_count full reset: %s -> {}",
+                          owner.name, dict(owner.skill_use_count))
+                owner.skill_use_count.clear()
+
     def _collect_and_run_post_as_triggers(
         self,
         unit: UnitState,
@@ -1353,40 +1415,7 @@ class BattleFlowController:
                           _log_prefix, len(phase1b_actions))
             self._execute_trigger_actions(phase1b_actions, unit)
             # 处理skill_use_count清理（与regular AS path一致）
-            if phase1b_actions:
-                any_executed = False
-                pp_snap = getattr(self, '_pp_snapshot_before_as_triggers', {})
-                for action in phase1b_actions:
-                    owner = action.instance.owner
-                    pp_before = pp_snap.get(owner.unit_id, owner.current_pp)
-                    if owner.current_pp < pp_before:
-                        any_executed = True
-                        break
-                if any_executed:
-                    for action in phase1b_actions:
-                        owner = action.instance.owner
-                        if owner.skill_use_count:
-                            parsed = (self.data_loader.get_parsed_skill_data(action.skill_id)
-                                      if hasattr(self.data_loader, 'get_parsed_skill_data') else None)
-                            gc = parsed.get('global_condition') if parsed else None
-                            if gc and isinstance(gc, dict) and gc.get('type') == 'skill_use_count_modulo':
-                                count_skill_types = gc.get('count_skill_types', [1])
-                                is_ps_modulo_trigger = (count_skill_types == [2])
-                                if is_ps_modulo_trigger:
-                                    continue
-                                exclude_skill_ids = gc.get('exclude_skill_ids', [])
-                                cleared_ids = []
-                                for sid in list(owner.skill_use_count.keys()):
-                                    if sid in exclude_skill_ids:
-                                        continue
-                                    sd = self.data_loader.get_skill_by_id(sid) if self.data_loader else None
-                                    if sd and sd.skill_type in count_skill_types:
-                                        del owner.skill_use_count[sid]
-                                        cleared_ids.append(sid)
-                                _log.info("[SKILL_COUNT] %s skill_use_count selective reset: cleared=%s, remaining=%s",
-                                          owner.name, cleared_ids, dict(owner.skill_use_count))
-                            else:
-                                owner.skill_use_count.clear()
+            self._reset_skill_use_count_after_as(phase1b_actions)
             self._flush_deferred_crit_triggers(unit)
 
             # ===== 执行 Phase 2: AS攻撃後追撃 =====
@@ -1490,7 +1519,11 @@ class BattleFlowController:
                 phase1b_actions.sort(
                     key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                 )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1b (non-damage AS): %d actions",
+                          _log_prefix, len(phase1b_actions))
             self._execute_trigger_actions(phase1b_actions, unit)
+            # 处理skill_use_count清理（与伤害型路径一致：PS执行成功后清除计数）
+            self._reset_skill_use_count_after_as(phase1b_actions)
             self._flush_deferred_crit_triggers(unit)
 
             self._execute_trigger_actions(phase2_actions, unit)
@@ -2225,6 +2258,7 @@ class BattleFlowController:
                 self.narrative.ps_trigger(self._get_display_name(owner), skill_name, self._get_display_name(source_unit))
                 self.narrative.skill_prepare(owner, skill_name, 2, self._get_display_name(owner))
 
+
             self.skill_service.deduct_skill_cost(owner, action.skill_id)
 
             if self.narrative:
@@ -2408,6 +2442,8 @@ class BattleFlowController:
                             self._execute_trigger_actions(cumulative_dmg_actions, owner)
             else:
                 _log.info("[PS_EXEC] PS[%s] execution failed: %s", skill_name, skill_result.get("error", "unknown"))
+                # 执行失败（资源不足等）**不产出任何叙事**：游戏侧 prepare 与 use 数量恒等，
+                # 失败时不发 PawnUsesSkillEvent（见 docs/GAME_BUGS.md 与 skill_service 同处注释）。
 
     def _check_and_execute_ps_skill_count_triggers(self, ps_owner: UnitState) -> None:
         """PS技能执行后，立即检查skill_use_count_modulo触发器。
@@ -2540,6 +2576,7 @@ class BattleFlowController:
             self._mark_simultaneous_limit_triggered(action.skill_id)
             self._log_narrative_effects(owner, skill_result, skill_name, 2, action.skill_id)
             self.skill_service.update_cooldown_after_skill_use(owner, action.skill_id)
+        # 执行失败（资源不足等）不产出叙事：游戏侧 prepare 与 use 数量恒等。
 
     def _execute_global_trigger_actions(self, actions: list) -> None:
         if not actions:
@@ -2764,6 +2801,7 @@ class BattleFlowController:
                             self._execute_trigger_actions(cumulative_dmg_actions, owner)
             else:
                 _log.info("[PS_EXEC] PS[%s] execution failed: %s", skill_name, skill_result.get("error", "unknown"))
+                # 执行失败（资源不足等）不产出叙事：游戏侧 prepare 与 use 数量恒等。
 
     def _log_narrative_effects(self, caster: UnitState, skill_result: dict,
                                 skill_name: str, skill_type: int, skill_id: int = 0) -> List[str]:
@@ -2799,33 +2837,74 @@ class BattleFlowController:
             "block_buff_by_type": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
             "stealth": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
             "heal_link": lambda a: [x.get('target_id', x['target']) for x in a.get("auras", [])],
+            # mark / perfect_evasion / sure_hit：带显式目标的增益类效果。
+            # 缺这几个提取器时 primary_target 会退化到前面的 self 类效果
+            # （如 120181「献身的な愛」的 atk_down[self]），叙事就把技能目标记成施法者本人，
+            # 而游戏侧记的是 ally_single_highest_damage_dealt 那一位。
+            "mark": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "perfect_evasion": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
+            "sure_hit": lambda a: [x.get('target_id', x['target']) for x in (a.get("auras", []) or a.get("statuses", []))],
         }
+        # 　需要按**效果级**区分，所以循环里同时记录每组目标来自哪个 target_type。
+        _target_groups = []   # [(target_type, [dname...]), ...]
         for applied in skill_result.get("effects_applied", []):
             etype = applied.get("effect_type")
             extractor = _target_name_extractors.get(etype)
+            _names_here = []
             if extractor:
                 for raw_name in extractor(applied):
                     dname = self._get_display_name(raw_name)
                     if primary_target is None:
                         primary_target = dname
                     all_target_names.append(dname)
+                    _names_here.append(dname)
             elif etype == "consume_hp":
                 dname = self._get_display_name(applied.get('target_id', caster.unit_id))
                 if primary_target is None:
                     primary_target = dname
                 all_target_names.append(dname)
+                _names_here.append(dname)
+            if _names_here:
+                _target_groups.append((etype, applied.get("target_type"),
+                                       bool(applied.get("is_debuff")), _names_here))
 
-        if not primary_target:
-            primary_target = self._get_display_name(caster)
+        # 规则：只看**第一个有目标的效果组**（空组跳过，如「募る想い」的 grp0 是 add_ep、无目标）：
+        #   - 该组只含自己 且 is_debuff=True（自身代价）→ 跳过它，取后续首个他人目标
+        #   - 否则若该组只含自己 → 记自己
+        #   - 否则 → 记该组首个他人目标（攻击类技能）
+        caster_dname = self._get_display_name(caster)
+        # cover 类机制会把 effects_applied 里的实际受击目标改写成「掩护者」，
+        # 但游戏侧 PawnUsesSkillEvent.TargetPawnId 记的是**原始声明目标**（cover 替换前）。
+        # skill_service 在结算时已把它存进 _original_primary_target，优先用它。
+        _orig_pt = getattr(self.skill_service, '_original_primary_target', None)
+        if _orig_pt is not None:
+            primary_target = self._get_display_name(_orig_pt)
+        elif _target_groups:
+            _filled = [g for g in _target_groups if g[3]]
+            if _filled:
+                _g_etype, _g_ttype, _g_debuff, _g_names = _filled[0]
+                _g_self_only = all(n == caster_dname for n in _g_names)
+                _g_is_cost = (_g_self_only and _g_debuff)
+                primary_target = caster_dname
+                if not _g_self_only:
+                    _others = [n for n in _g_names if n and n != caster_dname]
+                    primary_target = _others[0] if _others else caster_dname
+                elif _g_is_cost:
+                    for _etype, _ttype, _deb, _names in _filled[1:]:
+                        _others = [n for n in _names if n and n != caster_dname]
+                        if _others:
+                            primary_target = _others[0]
+                            break
+        elif primary_target is None:
+            primary_target = caster_dname
+
+        if not all_target_names:
             all_target_names = [primary_target]
 
-        caster_dname = self._get_display_name(caster)
-        self.narrative.skill_use(caster_dname, primary_target, skill_name, skill_type)
-        self.narrative.skill_targets(caster_dname, skill_name, list(dict.fromkeys(all_target_names)))
-
         # inline PS 叙事分组：narrate_early=True（before_*窗口及其嵌套链，如after_ps_use链）
-        # 的PS在伤害行之前输出；否则在伤害行之后输出。两组均按执行起始seq排序，
-        # 保证嵌套链（内层结果先append、外层结果后append）仍按实际执行顺序显示。
+        # 的PS在**本技能 skill_use 之前**输出（游戏侧正是如此：掩护/反击类 before_* PS
+        # 的 PawnUsesSkillEvent 先于被反应的攻击）；否则在伤害行之后输出。
+        # 两组均按执行起始seq排序，保证嵌套链仍按实际执行顺序显示。
         _inline_ps = list(skill_result.get("inline_ps_results", []))
         _early_ps = []
         _late_ps = []
@@ -2844,9 +2923,17 @@ class BattleFlowController:
             if self.narrative:
                 self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
                 self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
+                # 目标取触发上下文里的 primary_target（如 cover 类 PS 的「被掩护者」），
+                # 游戏把 PawnUsesSkillEvent.TargetPawnId 记成它而非施法者自己。
+                _pt = ps_result.get("primary_target")
+                _ps_tgt = self._get_display_name(_pt) if _pt else ps_dname
+                self.narrative.skill_use(ps_dname, _ps_tgt, ps_name, 2)
             _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
             for applied in ps_result["result"].get("effects_applied", []):
                 self._log_narrative_applied_effect(ps_owner, ps_dname, _ps_dmg_type, applied)
+
+        self.narrative.skill_use(caster_dname, primary_target, skill_name, skill_type)
+        self.narrative.skill_targets(caster_dname, skill_name, list(dict.fromkeys(all_target_names)))
 
         for applied in skill_result.get("effects_applied", []):
             self._log_narrative_applied_effect(caster, caster_dname, dmg_type, applied)
@@ -2858,6 +2945,9 @@ class BattleFlowController:
             if self.narrative:
                 self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
                 self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
+                _pt = ps_result.get("primary_target")
+                _ps_tgt = self._get_display_name(_pt) if _pt else ps_dname
+                self.narrative.skill_use(ps_dname, _ps_tgt, ps_name, 2)
             _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
             for applied in ps_result["result"].get("effects_applied", []):
                 self._log_narrative_applied_effect(ps_owner, ps_dname, _ps_dmg_type, applied)
@@ -2978,7 +3068,8 @@ class BattleFlowController:
                     _sub_hp_dmg,
                     t['hp_after'], max_hp, t.get('crit', False),
                     shield_absorbed=shield_abs,
-                    calc_detail=t.get('calc_detail'))
+                    calc_detail=t.get('calc_detail'),
+                    owner_name=t.get('sub_unit_owner'))
                 continue
 
             # 附魔伤害使用专门的叙事方法

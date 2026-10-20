@@ -319,13 +319,13 @@ def build_payload(
                     payload.warning(
                         f"角色 {cid} 的词条道具 ModuleGearItemMasterId={item_master_id} 不在 LUT 中，按无损耗处理"
                     )
-                mapped = index.gear_sim_effect(effect_master_id, item_master_id)
+                mapped = index.gear_sim_effect_pair(effect_master_id, item_master_id)
                 if mapped is None:
                     payload.warning(
                         f"角色 {cid} 的词条 ModuleGearEffectMasterId={effect_master_id} 不在 LUT 中，已跳过"
                     )
                     continue
-                effect_type, value = mapped
+                effect_type, value, display_value = mapped
                 if effect_type == 0:  # 効果なし
                     continue
                 slot = _as_int(entry.get("Order"), 0) or 0
@@ -335,9 +335,11 @@ def build_payload(
                     )
                     continue
                 seen_group_types.add((group, effect_type))
+                # value = 战斗口径（参与属性/伤害计算），display_value = 显示口径（角色参数页）
                 gear.append({
                     "effect_type": effect_type,
                     "value": value,
+                    "display_value": display_value,
                     "group": group,
                     "slot": slot,
                 })

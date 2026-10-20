@@ -537,7 +537,15 @@ class BattleNarrativeWriter:
 
     def sub_unit_damage(self, sub_unit_name: str, target_name: str, damage: int,
                         hp_after: int, max_hp: int, crit: bool = False,
-                        shield_absorbed: int = 0, calc_detail: dict = None):
+                        shield_absorbed: int = 0, calc_detail: dict = None,
+                        owner_name: str = None):
+        """子单位追击伤害。
+
+        owner_name 是「持有该子单位的单位」——游戏侧正是把子单位伤害记在持有者名下
+        （`PawnReceivedDamageEvent.SourcePawn` = holder，而非召唤者）。缺了它，
+        结构化记录无法还原 (src,dst) 归属，对比器只能把它当成一个独立的攻击者，
+        导致件数与时序全错位。
+        """
         crit_str = "【Critical】" if crit else ""
         shield_str = f" (护盾吸收:{shield_absorbed})" if shield_absorbed > 0 else ""
         calc_info = ""
@@ -553,7 +561,8 @@ class BattleNarrativeWriter:
                         f" dealt:{cd.get('a_dealt_mult',1.0):.4f}"
                         f" rcvd:{cd.get('b_received_mult',1.0):.4f}"
                         f" attr:{cd.get('advantage',1.0):.4f}]")
-        self._add(f"  [子单位伤害] 「{sub_unit_name}」→ {target_name} (HP:{hp_after}/{max_hp}): {damage} 点物理伤害{crit_str}{shield_str}{calc_info}")
+        owner_info = f" [持有者:{owner_name}]" if owner_name else ""
+        self._add(f"  [子单位伤害] 「{sub_unit_name}」→ {target_name} (HP:{hp_after}/{max_hp}): {damage} 点物理伤害{crit_str}{shield_str}{owner_info}{calc_info}")
 
     def sub_unit_absorb(self, holder_name: str, sub_unit_name: str, absorbed: int,
                         sub_unit_hp_after: int, sub_unit_max_hp: int):

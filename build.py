@@ -52,6 +52,7 @@ PYINSTALLER_ARGS = [
     "--hidden-import", "src.importer.snapshot",
     "--hidden-import", "src.importer.schema",
     "--hidden-import", "src.importer.lut",
+    "--hidden-import", "src.importer.gear_math",
     "--hidden-import", "src.importer.map_user",
     "--hidden-import", "src.importer.apply",
     "--hidden-import", "src.importer.cli",

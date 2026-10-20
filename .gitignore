@@ -65,6 +65,11 @@ db/
 .vscode/
 .idea/
 
+# === DeepSeek Harness 项目 Skills ===
+# .dsh/skills/ 下的条目是指向工作区 ..\.trae\skills\<name> 的 junction（不算链接文件，
+# Windows 下 git 会当成普通目录跟踪，把技能原文复制进仓库）。与 .trae/ 一样属 AI 工具配置，不入库。
+.dsh/
+
 # === AI 工具运行时产物 ===
 # .mimosa/ 是 AI 编码工具的会话状态/hook-state/报告目录（约30MB、1100+文件，
 # 文件名多为随机ID），纯运行时产物，不属于项目源码，严禁入库。

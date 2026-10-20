@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from .gear_math import gear_display_percent, gear_value_percent
+
 __all__ = ["DataIndex", "DEFAULT_DATA_DIR", "LutError", "max_rarity_for"]
 
 
@@ -197,17 +199,30 @@ class DataIndex:
             totals[ct]["defense"] += int(row.get("Defense") or 0)
         return totals
 
-    def gear_sim_effect(
+    def gear_sim_effect_pair(
         self,
         effect_master_id: int,
         item_master_id: Optional[int] = None,
-    ) -> Optional[Tuple[int, float]]:
-        """ModuleGearEffectMasterId → (模拟器 effect_type, 百分比数值)。
+    ) -> Optional[Tuple[int, float, float]]:
+        """ModuleGearEffectMasterId → (模拟器 effect_type, 战斗口径值, 显示口径值)。
 
         词条的数值必须再乘上"道具损耗率"（``ModuleGearItemMaster.LossRate``）：
         低阶道具（如 70001/70002）分别损耗 50% / 25%，高阶道具损耗 0。
         游戏中 ModuleGear 行记录的 ``ModuleGearItemMasterId`` 就是当初洗词条用的道具，
         所以同一 EffectMasterId + Rank 在不同道具下实际数值不同。
+
+        **游戏内部有两套口径**：
+
+        * A = ``GetActualGearCustomEffectValue``：``f32 链 → Math.Round(,4) → ×100``
+          游戏**属性面板**用它（速度彩S → 7.2）。
+        * B = ``GetGearCustomEffectValue(Percentage)``：``f32 链 → ×10000 → floor → /100``
+          游戏**词条显示**用它（速度彩S → 7.19）。
+
+        2026-10-20 用户决定**战斗采用 B 口径**（服务端结算，客户端两个方法都不必然代表
+        服务端口径；B 是玩家可核对的唯一口径）。因此这里返回的两个值当前相同，
+        保留两个字段是为了将来若确认服务端用 A，可以只改战斗口径不动界面。
+
+        详见 ``src/importer/gear_math.py``。
 
         ``effect_type == 0`` 表示"効果なし"（调用方应跳过）。未知 id 返回 ``None``。
         """
@@ -219,14 +234,29 @@ class DataIndex:
         if game_type is None:
             return None
         if game_type == 1:
-            return (0, 0.0)
+            return (0, 0.0, 0.0)
 
-        value = effect_value * 100.0
+        loss_rate = 0.0
         if item_master_id is not None:
             item = self.gear_items.get(int(item_master_id))
             if item is not None:
-                value *= (1.0 - item[1])
-        return (_GEAR_EFFECT_TYPE_MAP[game_type], round(value, 4))
+                loss_rate = item[1]
+        return (
+            _GEAR_EFFECT_TYPE_MAP[game_type],
+            gear_value_percent(effect_value, loss_rate),
+            gear_display_percent(effect_value, loss_rate),
+        )
+
+    def gear_sim_effect(
+        self,
+        effect_master_id: int,
+        item_master_id: Optional[int] = None,
+    ) -> Optional[Tuple[int, float]]:
+        """``gear_sim_effect_pair`` 的简版：只取 (effect_type, 战斗口径值)。"""
+        pair = self.gear_sim_effect_pair(effect_master_id, item_master_id)
+        if pair is None:
+            return None
+        return (pair[0], pair[1])
 
     def skill_ids_for(self, character_id: int) -> List[int]:
         return list(self.character_skills.get(int(character_id), []))

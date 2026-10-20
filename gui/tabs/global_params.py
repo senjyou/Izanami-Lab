@@ -236,7 +236,8 @@ class GlobalParamsTab(ttk.Frame):
                 pct_frame = ttk.Frame(slot_frame)
                 pct_frame.pack()
                 v_var = tk.DoubleVar(value=0.0)
-                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.5, textvariable=v_var, width=5).pack(side=tk.LEFT)
+                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.01, textvariable=v_var,
+                            width=5).pack(side=tk.LEFT)
                 ttk.Label(pct_frame, text="%", font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
 
                 self.gear_vars.append({"et": et_var, "val": v_var, "group": grp_idx, "slot": slot_idx})
@@ -316,7 +317,8 @@ class GlobalParamsTab(ttk.Frame):
             for gv in self.gear_vars:
                 sg = saved_gear_map.get((gv["group"], gv["slot"]), {})
                 gv["et"].set(GEAR_EFFECT_DISPLAY.get(sg.get("effect_type", 0), "无效果"))
-                gv["val"].set(sg.get("value", 0.0))
+                # 显示口径优先（与游戏内一致）；旧配置没有该字段时回落到战斗口径
+                gv["val"].set(sg.get("display_value", sg.get("value", 0.0)))
             self.var_runs.set(values.get("runs", 1))
             self.var_max_turns.set(values.get("max_turns", 30))
             self.var_enable_rdps.set(values.get("enable_rdps", True))

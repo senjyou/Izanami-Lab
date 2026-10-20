@@ -952,6 +952,9 @@ class CharacterParamsTab(ttk.Frame):
                 saved = saved_map.get((grp_idx, slot_idx), {})
                 init_et = GEAR_EFFECT_DISPLAY.get(saved.get("effect_type", 0), "无效果")
                 init_val = saved.get("value", 0.0)
+                # 游戏存在两套口径：value = 战斗实际值（引擎用），display_value = UI 显示值。
+                # 角色参数页展示的是显示口径（与游戏内一致），保存时仍保留战斗口径。
+                init_display = saved.get("display_value", init_val)
 
                 et_var = tk.StringVar(value=init_et)
                 cb = ttk.Combobox(slot_frame, textvariable=et_var, values=GEAR_EFFECT_OPTIONS_DISPLAY,
@@ -965,12 +968,14 @@ class CharacterParamsTab(ttk.Frame):
 
                 pct_frame = ttk.Frame(slot_frame)
                 pct_frame.pack()
-                v_var = tk.DoubleVar(value=init_val)
-                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.5, textvariable=v_var, width=5).pack(side=tk.LEFT)
+                v_var = tk.DoubleVar(value=init_display)
+                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.01, textvariable=v_var,
+                            width=5).pack(side=tk.LEFT)
                 ttk.Label(pct_frame, text="%", font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
 
                 self.detail_gear_vars.append(
-                    {"et": et_var, "val": v_var, "group": grp_idx, "slot": slot_idx})
+                    {"et": et_var, "val": v_var, "group": grp_idx, "slot": slot_idx,
+                     "orig_value": init_val, "orig_display": init_display})
 
     def _build_detail_gears(self, parent, cid, cfg):
         ttk.Label(parent, text="模块词条 (每角色共9槽，分3组，同组不可复选相同类型):", font=("Microsoft YaHei UI", 8)).grid(
@@ -997,6 +1002,9 @@ class CharacterParamsTab(ttk.Frame):
                 saved = saved_map.get((grp_idx, slot_idx), {})
                 init_et = GEAR_EFFECT_DISPLAY.get(saved.get("effect_type", 0), "无效果")
                 init_val = saved.get("value", 0.0)
+                # 游戏存在两套口径：value = 战斗实际值（引擎用），display_value = UI 显示值。
+                # 角色参数页展示的是显示口径（与游戏内一致），保存时仍保留战斗口径。
+                init_display = saved.get("display_value", init_val)
 
                 et_var = tk.StringVar(value=init_et)
                 cb = ttk.Combobox(slot_frame, textvariable=et_var, values=GEAR_EFFECT_OPTIONS_DISPLAY,
@@ -1010,12 +1018,14 @@ class CharacterParamsTab(ttk.Frame):
 
                 pct_frame = ttk.Frame(slot_frame)
                 pct_frame.pack()
-                v_var = tk.DoubleVar(value=init_val)
-                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.5, textvariable=v_var, width=5).pack(side=tk.LEFT)
+                v_var = tk.DoubleVar(value=init_display)
+                ttk.Spinbox(pct_frame, from_=0, to=100, increment=0.01, textvariable=v_var,
+                            width=5).pack(side=tk.LEFT)
                 ttk.Label(pct_frame, text="%", font=("Microsoft YaHei UI", 7)).pack(side=tk.LEFT)
 
                 self.detail_gear_vars.append(
-                    {"et": et_var, "val": v_var, "group": grp_idx, "slot": slot_idx})
+                    {"et": et_var, "val": v_var, "group": grp_idx, "slot": slot_idx,
+                     "orig_value": init_val, "orig_display": init_display})
 
     def _validate_detail_gear_group(self, group_idx, changed_slot):
         group_slots = [gv for gv in self.detail_gear_vars if gv["group"] == group_idx]
@@ -1032,9 +1042,31 @@ class CharacterParamsTab(ttk.Frame):
                     used_types[et_val] = True
 
     def _get_detail_gears(self) -> list:
-        return [{"effect_type": GEAR_EFFECT_REVERSE[gv["et"].get()], "value": gv["val"].get(),
-                 "group": gv["group"], "slot": gv["slot"]}
-                for gv in self.detail_gear_vars if gv["et"].get() != "无效果"]
+        """把 9 个词条槽位导出成配置项。
+
+        两套口径（仿游戏）：
+        - ``display_value`` = 界面上填的值（游戏 UI 口径）
+        - ``value`` = 战斗口径；若界面值没被改过，沿用导入时算好的 ``value``，
+          避免用户只是点开看一下就把 7.2 改成 7.19。
+        """
+        out = []
+        for gv in self.detail_gear_vars:
+            if gv["et"].get() == "无效果":
+                continue
+            display = gv["val"].get()
+            orig_display = gv.get("orig_display", display)
+            if abs(display - orig_display) < 1e-9:
+                value = gv.get("orig_value", display)
+            else:
+                value = display
+            out.append({
+                "effect_type": GEAR_EFFECT_REVERSE[gv["et"].get()],
+                "value": value,
+                "display_value": display,
+                "group": gv["group"],
+                "slot": gv["slot"],
+            })
+        return out
 
     def _apply_detail(self, cid, char, v):
         config = self.app.char_config.setdefault(cid, {"override": False})
