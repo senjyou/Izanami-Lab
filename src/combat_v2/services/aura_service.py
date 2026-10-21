@@ -587,12 +587,22 @@ class AuraService:
             return unit.debuffs
         return unit.buffs
 
-    def _update_duration(self, unit: UnitState, timings: List[AuraUpdateTiming]):
-        """减少指定 Timing 的 Aura 持续时间"""
+    def _update_duration(self, unit: UnitState, timings: List[AuraUpdateTiming],
+                         source_unit_id: Optional[str] = None):
+        """减少指定 Timing 的 Aura 持续时间。
+
+        source_unit_id: 可选归属过滤。仅递减「由该单位赋予」的 aura。
+        用于技能结束清理：嵌套执行的PS（如 before_any_attacked 的格挡）
+        只能清掉它自己赋予的 skill 级效果，不能消费外层仍在执行中的技能
+        刚施加的 buff（实例：130184 ストレラ 加攻35% 被内层 230500 结束时清掉，
+        导致本次伤害用了加攻前的 ATK）。
+        """
         target_timings = {t.value for t in timings}
 
         for b in unit.buffs:
             if b.timing_type in target_timings:
+                if source_unit_id is not None and getattr(b, 'source_unit_id', None) != source_unit_id:
+                    continue
                 # EPHEMERAL类型：无论duration值如何、是否just_applied，直接设为0移除
                 # 这是"技能/行动结束时立即消失"的语义，不能被just_applied保护
                 if b.timing_type in [
@@ -611,6 +621,8 @@ class AuraService:
 
         for b in unit.debuffs:
             if b.timing_type in target_timings:
+                if source_unit_id is not None and getattr(b, 'source_unit_id', None) != source_unit_id:
+                    continue
                 # EPHEMERAL类型：无论duration值如何、是否just_applied，直接设为0移除
                 if b.timing_type in [
                     AuraUpdateTiming.EPHEMERAL_SKILL_END.value,

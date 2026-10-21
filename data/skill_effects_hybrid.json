@@ -12887,8 +12887,11 @@
   "display_target_range": 1,
   "display_target_type": 2,
   "parse_status": "success",
-  "parse_notes": [],
-  "simultaneous_limit": true
+  "parse_notes": [
+   "once_per_action: 同一行动内只发动一次（行动单位不变期间，其他单位追击再命中也不再发动/不重复生效格挡）"
+  ],
+  "simultaneous_limit": true,
+  "once_per_action": true
  },
  "130035": {
   "skill_id": 130035,
@@ -87279,9 +87282,11 @@
   "display_target_type": 2,
   "parse_status": "success",
   "parse_notes": [
-   "manual: 130034同款cover+guard+HP>=50%条件+同時発動制限"
+   "manual: 130034同款cover+guard+HP>=50%条件+同時発動制限",
+   "once_per_action: 同一行动内只发动一次（行动单位不变期间，其他单位追击再命中也不再发动/不重复生效格挡）"
   ],
-  "simultaneous_limit": true
+  "simultaneous_limit": true,
+  "once_per_action": true
  },
  "130173": {
   "skill_id": 130173,
@@ -95365,9 +95370,11 @@
   "display_target_type": 2,
   "parse_status": "success",
   "parse_notes": [
-   "manual: 自身被攻击前(同時発動制限)→guard格挡（敌方版：无嘲讽cover，仅自身被攻击时发动；HP>=50%）"
+   "manual: 自身被攻击前(同時発動制限)→guard格挡（敌方版：无嘲讽cover，仅自身被攻击时发动；HP>=50%）",
+   "once_per_action: 同一行动内只发动一次（行动单位不变期间，其他单位追击再命中也不再发动/不重复生效格挡）"
   ],
-  "simultaneous_limit": true
+  "simultaneous_limit": true,
+  "once_per_action": true
  },
  "230501": {
   "skill_id": 230501,

@@ -448,6 +448,12 @@ class SkillService:
                         _log.info("[ONCE_PER_BATTLE] %s: PS[%s](id=%d) marked as triggered, will not trigger again this battle",
                                   owner.name, skill_name, action.skill_id)
 
+                    # once_per_action: PS成功执行后标记，确保本次行动内不再触发（如230500 ランパートシャッター+）
+                    if parsed.get('once_per_action'):
+                        owner.once_per_action_triggered.add(action.skill_id)
+                        _log.info("[ONCE_PER_ACTION] %s: PS[%s](id=%d) marked as triggered, will not trigger again this action",
+                                  owner.name, skill_name, action.skill_id)
+
                 # after_ps_use钩子（101302 セントリフレイン130173）:
                 # 自身PS执行成功后收集并执行「パッシブスキルを使用した後に発動」类PS
                 self._run_after_ps_use_hook(owner, action.skill_id, battlefield)
@@ -940,6 +946,24 @@ class SkillService:
         return ("", "")
 
     def execute_skill(self, caster: UnitState, skill_id: int,
+                      battlefield: BattlefieldState, skip_cost: bool = False,
+                      defer_crit_triggers: bool = False) -> Dict[str, Any]:
+        """技能执行入口：维护嵌套深度后转发给 _execute_skill_impl。
+
+        嵌套深度用于技能结束清理的归属判定：PS在执行中被触发（如 before_any_attacked
+        的格挡）属于嵌套执行，其技能结束只能清掉它自己赋予的 skill 级效果，
+        不能消费外层仍在执行中的技能刚施加的 buff（实例：130184 ストレラ 的加攻35%
+        被内层 230500 结束时清掉 → 本次伤害用了加攻前的 ATK）。
+        """
+        self._skill_exec_depth = getattr(self, '_skill_exec_depth', 0) + 1
+        try:
+            return self._execute_skill_impl(caster, skill_id, battlefield,
+                                            skip_cost=skip_cost,
+                                            defer_crit_triggers=defer_crit_triggers)
+        finally:
+            self._skill_exec_depth -= 1
+
+    def _execute_skill_impl(self, caster: UnitState, skill_id: int,
                       battlefield: BattlefieldState, skip_cost: bool = False,
                       defer_crit_triggers: bool = False) -> Dict[str, Any]:
         result = {
@@ -3368,12 +3392,19 @@ class SkillService:
         # Clear newly created SubUnit IDs (they can attack from next turn)
         self._newly_created_sub_unit_ids.clear()
         # 清理EPHEMERAL_SKILL_END类型的buff（技能内临时效果，如破衝Lv11+暴击率提升）
+        # 嵌套执行（PS被外层技能触发）时按归属过滤：只清本施法者赋予的 skill 级效果，
+        # 避免内层 PS 结束时把外层技能刚施加的 buff 一并消耗掉（外层仍在使用中）。
+        # 最外层（深度=1）行为不变（source_unit_id=None → 全清）。
         if self.aura_service:
             try:
                 from src.entities_v2.enums import AuraUpdateTiming
                 all_units = battlefield.get_all_units() if battlefield else []
+                _nested = getattr(self, '_skill_exec_depth', 1) > 1
+                _owner = caster.unit_id if _nested else None
                 for unit in all_units:
-                    self.aura_service._update_duration(unit, [AuraUpdateTiming.EPHEMERAL_SKILL_END])
+                    self.aura_service._update_duration(
+                        unit, [AuraUpdateTiming.EPHEMERAL_SKILL_END],
+                        source_unit_id=_owner)
                     self.aura_service.check_expiration(unit, all_units)
             except (AttributeError, TypeError):
                 pass
@@ -4239,6 +4270,26 @@ class SkillService:
                     before_enemy_actions = _drop_slower(before_enemy_actions, "before_enemy_as_attack")
                     before_any_actions = _drop_slower(before_any_actions, "before_any_attacked")
                     before_as_actions = _drop_slower(before_as_actions, "before_as_attacked")
+
+                # 合并 before_any_attacked 与 before_as_attacked 两个守方反应窗口：
+                # 游戏里两者属于同一时机，发动先后取决于**速度**（快者先），
+                # 而不是固定的窗口先后。实测 battle_001_20261021_024413：
+                #   代助一避(混沌 speed1204, before_as_attacked) 先于
+                #   鉄壁の母娘(繋がり speed1183, before_any_attacked)，
+                #   而固定窗口顺序（any → as）会把两者次序弄反。
+                # 注：before_enemy_as_attack 仍是更早的独立窗口，不参与合并。
+                _merged_defense = list(before_any_actions) + list(before_as_actions)
+                if _merged_defense:
+                    _merged_defense.sort(key=lambda _a: (
+                        _a.instance.priority if hasattr(_a, 'instance') and _a.instance else 0))
+                    _log.info("[DEFENSE_WINDOW_ORDER] merged before_any_attacked+before_as_attacked, "
+                              "ordered by speed: %s",
+                              [(getattr(getattr(_a, 'instance', None), 'owner', None).name
+                                if hasattr(_a, 'instance') and _a.instance else "?",
+                                _a.instance.priority if hasattr(_a, 'instance') and _a.instance else 0)
+                               for _a in _merged_defense])
+                before_any_actions = _merged_defense
+                before_as_actions = []
 
                 self._execute_trigger_actions_inline(before_enemy_actions, battlefield, trigger_timing="before_enemy_as_attack")
                 self._execute_trigger_actions_inline(before_any_actions, battlefield, trigger_timing="before_any_attacked")
@@ -11301,7 +11352,16 @@ class SkillService:
                     targets = [t for t in targets if getattr(t, 'element', 0) == element_filter]
                     _log.info("[RESOURCE_EFFECT] %s: add_ep target_element filter=%d, filtered targets=%d",
                               caster.name, element_filter, len(targets))
-                exclude_self = effect.target_type not in ("self_and_friends", "ally_back", "ally_front", "ally_front_row")
+                # exclude_self 口径必须与 _resolve_target_type 的文档一致：
+                #   ally_highest_atk → SELF_AND_FRIENDS（含自己）
+                # 实战判据（battle_001_20261021_024413, 130187 募る想い 开局触发）：
+                #   友方 spawn ATK 隣歩む想い=111479（最高，且为施法者）/ 唯一無二=109490（第二），
+                #   游戏把 add_ep +1 给了施法者本人；此处若排除自身会错给第二名的唯一無二，
+                #   导致该角色 EP 少 1 点、EX 延后一个行动。
+                exclude_self = effect.target_type not in (
+                    "self_and_friends", "ally_back", "ally_front", "ally_front_row",
+                    "ally_highest_atk",
+                )
                 alive_targets = [t for t in targets if t.is_alive and not (exclude_self and t.unit_id == caster.unit_id)]
 
                 # nearest_ally: 先获取所有友方（排除自身），再从中选距离最近的

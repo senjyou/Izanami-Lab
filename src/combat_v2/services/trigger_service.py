@@ -913,6 +913,15 @@ class TriggerService:
                               unit.name, skill.name, skill.skill_id)
                     continue
 
+                # once_per_action: 同一「行动」内只发动一次的PS（如230500 ランパートシャッター+）。
+                # 「一次行动」= 行动单位不变（该单位开始行动 → 下一个单位开始行动），
+                # 因此同一行动内其他单位追击再次命中时不得重复发动、也不得重复生效格挡。
+                # 计数在 _execute_unit_action 开始时清空；仅成功执行后标记。
+                if parsed.get('once_per_action') and skill.skill_id in unit.once_per_action_triggered:
+                    _log.info("[TRIGGER_ONCE_PER_ACTION] %s PS[%s](id=%d) already triggered this action, skip",
+                              unit.name, skill.name, skill.skill_id)
+                    continue
+
                 if not self._match_trigger_timing(parsed, timing, context, unit):
                     continue
 

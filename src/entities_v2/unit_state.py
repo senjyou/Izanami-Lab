@@ -212,6 +212,14 @@ class UnitState:
     # 记录已成功触发的once_per_battle PS skill_id，确保整个战斗中只触发一次
     once_per_battle_triggered: Set[int] = field(default_factory=set)
 
+    # ========== once_per_action PS触发记录 ==========
+    # 记录已在本「行动」中成功触发的once_per_action PS skill_id，确保同一行动内只触发一次。
+    # 「一次行动」= 行动单位不变的整段流程（从该单位开始行动到下一个单位开始行动），
+    # 因此同一行动内由其他单位追击（如 after_ally_as_attack 追撃）再次命中也算同一行动。
+    # 每次 _execute_unit_action 开始时对全体单位清空（见 battle_flow_controller）。
+    # 用于「ランパートシャッター+」(230500) 这类同一行动内不得重复发动/重复生效格挡的PS。
+    once_per_action_triggered: Set[int] = field(default_factory=set)
+
     # ========== 最近受到的伤害（用于反撃系PS，如ストイックリコイル）==========
     last_received_damage: int = 0  # 最近一次受到的伤害（包括被盾吸收的部分，不含溢出）
 

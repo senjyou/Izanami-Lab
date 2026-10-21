@@ -532,6 +532,12 @@ class BattleFlowController:
         for _u in self.battlefield.get_all_units():
             _u._damage_taken_in_action = 0
 
+        # once_per_action: 「一次行动」的边界 = 行动单位变化。
+        # 行动单位自本行起不变，直到下一个单位进入 _execute_unit_action，
+        # 因此同一行动内其他单位的追击（如 after_ally_as_attack 追撃）仍属同一行动，
+        # 其 once_per_action PS 会被拦截；进入下一个单位行动时才清空并重新允许触发。
+        self._reset_once_per_action_records(unit)
+
         # 220466 断罪の時だ！等 hit_count_per_mark：快照「行動開始時」的mark层数。
         # 必须在下方 before_skill_use / before_ally_as_attack 窗口（PS可对攻击目标追加mark）
         # 之前取快照，使「対象に付与されている刻痕1つにつき1ヒット」按攻击宣言时的持有数计，
@@ -2178,6 +2184,25 @@ class BattleFlowController:
         # self_ps_lower_priority_than 条件通过此集合检查高优先级PS是否已触发
         self.trigger_service._triggered_ps_ids_in_phase = set()
 
+    def _reset_once_per_action_records(self, acting_unit: UnitState) -> None:
+        """once_per_action：行动单位变化时清空全体单位的本行动触发记录。
+
+        「一次行动」定义为**行动单位不变**：从行动轴上的单位开始行动，
+        到下一个单位开始行动为止。因此同一行动内由其他单位发起的追击
+        （after_ally_as_attack 追撃等）仍属于同一行动，其 once_per_action PS
+        不得重复发动（如 230500 ランパートシャッター+ 不得重复生效格挡）。
+
+        与 `_reset_simultaneous_limit_phase_flags` 的区别：后者按「时机(phase)」
+        重置（5类时机各一次），本方法按「行动」重置——追击处于不同 phase，
+        故 phase 级标志无法阻止同一行动内的重复发动。
+        """
+        self._once_per_action_acting_unit = acting_unit.unit_id
+        for _u in self.battlefield.get_all_units():
+            if _u.once_per_action_triggered:
+                _log.info("[ONCE_PER_ACTION] %s: clearing once_per_action record for new action (acting unit: %s)",
+                          _u.name, acting_unit.name)
+                _u.once_per_action_triggered.clear()
+
     def _mark_simultaneous_limit_triggered(self, skill_id: int) -> None:
         """同時発動制限新机制：PS成功执行后设置标志位
         - simultaneous_limit PS: 设置全局标志位，该时机内其他simultaneous_limit PS不可触发
@@ -2345,6 +2370,12 @@ class BattleFlowController:
                     if parsed.get('once_per_battle'):
                         owner.once_per_battle_triggered.add(action.skill_id)
                         _log.info("[ONCE_PER_BATTLE] %s: PS[%s](id=%d) marked as triggered, will not trigger again this battle",
+                                  owner.name, skill_name, action.skill_id)
+
+                    # once_per_action: PS成功执行后标记，确保本次行动内不再触发（如230500 ランパートシャッター+）
+                    if parsed.get('once_per_action'):
+                        owner.once_per_action_triggered.add(action.skill_id)
+                        _log.info("[ONCE_PER_ACTION] %s: PS[%s](id=%d) marked as triggered, will not trigger again this action",
                                   owner.name, skill_name, action.skill_id)
 
                 # Update skill_use_count for PS skills (needed for skill_use_count_modulo triggers)
@@ -2713,6 +2744,12 @@ class BattleFlowController:
                         _log.info("[ONCE_PER_BATTLE] %s: global PS[%s](id=%d) marked as triggered, will not trigger again this battle",
                                   owner.name, skill_name, action.skill_id)
 
+                    # once_per_action: 全局PS同样标记（与_execute_trigger_actions保持一致）
+                    if parsed.get('once_per_action'):
+                        owner.once_per_action_triggered.add(action.skill_id)
+                        _log.info("[ONCE_PER_ACTION] %s: global PS[%s](id=%d) marked as triggered, will not trigger again this action",
+                                  owner.name, skill_name, action.skill_id)
+
                 # Update skill_use_count for PS skills (needed for skill_use_count_modulo triggers)
                 owner.skill_use_count[action.skill_id] = owner.skill_use_count.get(action.skill_id, 0) + 1
 
@@ -2924,8 +2961,9 @@ class BattleFlowController:
                 self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
                 self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
                 # 目标取触发上下文里的 primary_target（如 cover 类 PS 的「被掩护者」），
-                # 游戏把 PawnUsesSkillEvent.TargetPawnId 记成它而非施法者自己。
-                _pt = ps_result.get("primary_target")
+                # 游戏把 PawnUsesSkillEvent.TargetPawnId 记成它而非施法者自己；
+                # target_is_self 型PS例外，见 _ps_narrative_target。
+                _pt = self._ps_narrative_target(ps_result, ps_owner)
                 _ps_tgt = self._get_display_name(_pt) if _pt else ps_dname
                 self.narrative.skill_use(ps_dname, _ps_tgt, ps_name, 2)
             _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
@@ -2945,7 +2983,7 @@ class BattleFlowController:
             if self.narrative:
                 self.narrative.ps_trigger(ps_dname, ps_name, caster_dname)
                 self.narrative.skill_prepare(ps_owner, ps_name, 2, ps_dname)
-                _pt = ps_result.get("primary_target")
+                _pt = self._ps_narrative_target(ps_result, ps_owner)
                 _ps_tgt = self._get_display_name(_pt) if _pt else ps_dname
                 self.narrative.skill_use(ps_dname, _ps_tgt, ps_name, 2)
             _ps_dmg_type = _DMG_TYPE_MAP.get(ps_owner.character_type, "物理")
@@ -2955,6 +2993,32 @@ class BattleFlowController:
         self.narrative.skill_cast(caster_dname, primary_target, skill_name, skill_type)
 
         return damaged_targets
+
+    def _ps_narrative_target(self, ps_result: dict, ps_owner: UnitState):
+        """inline PS 的叙事目标（对应游戏的 PawnUsesSkillEvent.TargetPawnId）。
+
+        默认取触发上下文里的 primary_target（如 cover 类 PS 的「被掩护者」）。
+        但 `target_is_self` 型 PS（如 130185 鉄壁の母娘「自身が攻撃される直前に発動」）
+        是「自己被攻击」才发动的，触发上下文的主目标会是本次被攻击的**其他**友方；
+        游戏把 TargetPawnId 记为 PS 持有者自身，故此类PS改取自身。
+        """
+        parsed = (self.data_loader.get_parsed_skill_data(ps_result.get("skill_id"))
+                  if self.data_loader else None)
+        if parsed and self._ps_global_condition_is_self_targeted(parsed.get('global_condition')):
+            return ps_owner
+        return ps_result.get("primary_target")
+
+    @staticmethod
+    def _ps_global_condition_is_self_targeted(gc) -> bool:
+        """global_condition（含 condition_list/and 组合）是否含 target_is_self。"""
+        if not isinstance(gc, dict):
+            return False
+        if gc.get('type') == 'target_is_self':
+            return True
+        for sub in (gc.get('conditions') or []):
+            if isinstance(sub, dict) and sub.get('type') == 'target_is_self':
+                return True
+        return False
 
     def _log_narrative_applied_effect(self, caster: UnitState, caster_dname: str,
                                       dmg_type: str, applied: dict) -> None:
@@ -3041,6 +3105,28 @@ class BattleFlowController:
                 else:
                     self.narrative.buff_applied(target_dname, s['effect'], source_dname,
                                                s.get('duration', 0), s.get('dur_type', 'turn'), detail)
+    def _narrative_ordered_targets(self, targets: list) -> list:
+        """叙事显示顺序：按目标 (Line, Position) 升序，与游戏 UI 的行顺序一致。
+
+        **只影响叙事输出顺序，不改内部结算**：引擎的命中/结算顺序仍按
+        「距施法者距离」（见 target_service._NEAREST_PRIORITY_MAP），
+        游戏 UI 只是把这些结果按队伍站位行优先的顺序列出来。
+        实测（battle_001_20261021_024413，210129 新しき一歩を enemy_all）：
+          内部/结算：唯一無二(L1P1) → 隣歩む想い(L1P3) → 心色(L2P2) → 混沌(L2P1) → 繋がり(L2P3)
+          游戏显示：唯一無二(L1P1) → 隣歩む想い(L1P3) → 混沌(L2P1) → 心色(L2P2) → 繋がり(L2P3)
+        sorted 为稳定排序，同一目标的多个 hit 相对顺序保持不变。
+        """
+        from src.combat_v2.services.target_service import _POS_RC
+
+        def _key(t):
+            u = self._find_unit(t)
+            if u is None:
+                return (99, 99)
+            rc = _POS_RC.get(getattr(u, 'position', None))
+            return rc if rc is not None else (99, 99)
+
+        return sorted(list(targets or []), key=_key)
+
     def _log_narrative_damage(self, caster: UnitState, caster_dname: str, dmg_type: str, applied: dict) -> None:
         """输出 damage 效果的叙事日志（含sub_unit/enchant/add_damage/genwaku/常规伤害/damage_link/reflect）"""
         # 使用伤害发生时的caster HP（而非叙事输出时的current_hp，避免后续consume_hp等效果导致HP不一致）
@@ -3051,7 +3137,7 @@ class BattleFlowController:
         bonus_crit = applied.get("bonus_crit_applied", 0)
         if bonus_crit > 0:
             self.narrative.bonus_crit(caster_dname, bonus_crit)
-        for t in applied.get("targets", []):
+        for t in self._narrative_ordered_targets(applied.get("targets", [])):
             # SubUnit追加伤害使用专门的叙事方法
             sub_unit_name = t.get("sub_unit_name")
             if sub_unit_name:
