@@ -86408,5 +86408,356 @@
       }
     },
     "display_info": {}
+  },
+  "110085": {
+    "skill_id": 110085,
+    "name": "無粋への制裁",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵横一列に威力{威力}で5ヒットEN攻撃してEXゲージを1ずつ削り、自身が1回行動を終えるまでの間得られるEXゲージが-100%されるデバフを付与する。EX減速デバフは自身が倒れると解除される"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 17.5
+          },
+          {
+            "level": 3,
+            "value": 18.579999923706055
+          },
+          {
+            "level": 4,
+            "value": 20.760000228881836
+          },
+          {
+            "level": 6,
+            "value": 21.850000381469727
+          },
+          {
+            "level": 7,
+            "value": 24.030000686645508
+          },
+          {
+            "level": 9,
+            "value": 25.1200008392334
+          },
+          {
+            "level": 10,
+            "value": 27.299999237060547
+          },
+          {
+            "level": 15,
+            "value": 37.099998474121094
+          }
+        ]
+      }
+    }
+  },
+  "120182": {
+    "skill_id": 120182,
+    "name": "お姉ちゃん、見てて",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}でEN攻撃し、次の攻撃での与ダメージを20%減少させるデバフを付与する（重複可）"
+      },
+      {
+        "min_level": 11,
+        "template": "敵単体に威力{威力}でEN攻撃し、次の攻撃での与ダメージを20%減少させるデバフを付与する（重複可）。対象がシャイ属性の場合、この攻撃は対象の防御力を{debuff}％無視する"
+      }
+    ],
+    "template_tags": {
+      "debuff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 25.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "120183": {
+    "skill_id": 120183,
+    "name": "静かな日々の邪魔をしないで",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も累計与ダメージが多い敵が含まれる敵前後列に威力{威力}でEN攻撃し、3行動の間攻撃力×10%の継続ENダメージを付与する"
+      },
+      {
+        "min_level": 11,
+        "template": "最も累計与ダメージが多い敵が含まれる敵前後列に威力{威力}でEN攻撃し、3行動の間攻撃力×10%の継続ENダメージを付与する。\n対象のロールがアタッカーだった場合、さらに1行動の混乱を付与する。混乱はアクティブスキルで攻撃する際、本来の対象の逆陣営に攻撃を行う。この際のダメージは{konran}%減少する。混乱中の攻撃者の攻撃力が被攻撃者の防御力以下だった場合、攻撃力と防御力の差分値の代わりに攻撃力×10%の値を使用し、その後のダメージ計算を行う"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      },
+      "konran": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 70.0
+          },
+          {
+            "level": 15,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "120184": {
+    "skill_id": 120184,
+    "name": "制服の下の負けん気",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に対し2行動の間、攻撃時に攻撃力×{dmg}%のダメージを追加するバフを付与する"
+      },
+      {
+        "min_level": 11,
+        "template": "自身に対し2行動の間、攻撃時に攻撃力×{dmg}%のダメージを追加するバフを付与する。\nさらにアグレッシブ属性の他の味方に対しても、2行動の間、攻撃時に攻撃力×{dmg2}%のダメージを追加するバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 7.960000038146973
+          },
+          {
+            "level": 4,
+            "value": 8.880000114440918
+          },
+          {
+            "level": 6,
+            "value": 9.34000015258789
+          },
+          {
+            "level": 7,
+            "value": 10.260000228881836
+          },
+          {
+            "level": 9,
+            "value": 10.720000267028809
+          },
+          {
+            "level": 10,
+            "value": 11.699999809265137
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 11.699999809265137
+          }
+        ]
+      }
+    }
+  },
+  "130188": {
+    "skill_id": 130188,
+    "name": "仲間想いは変わらず",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他のアグレッシブ属性の味方が敵からアクティブスキルで攻撃された後に発動。対象の敵単体に威力{威力}でEN反撃し、1行動の凍結を付与する。凍結状態中は全ての行動を行うことができない。ダメージを受けると凍結状態は解除されるが、その際の被ダメージが{touketsu}%増加する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      },
+      "touketsu": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 75.0
+          }
+        ]
+      }
+    }
   }
 }

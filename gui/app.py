@@ -1049,50 +1049,10 @@ class MGGBattleSimulatorGUI:
         pt = getattr(char, 'position_type', 0)
 
         if char_id < 0:
-            dummy_cfg = self.data_loader.get_custom_dummy_config(char_id)
-            if not dummy_cfg:
-                return None
-            skill_ids = self.data_loader._custom_character_skills.get(char_id, [])
-            max_extra_point = self._compute_max_extra_point(skill_ids)
-            side_prefix = "D" if side == Side.ALLY else "E"
-            hp = dummy_cfg.hp
-            atk = dummy_cfg.attack
-            defense = dummy_cfg.defense
-            phys_shield = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 1 else 0
-            en_shld = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 2 else 0
-            all_shield = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 3 else 0
-            return UnitState(
-                unit_id=f"{side_prefix}_{char_id}",
-                name=char.name,
-                side=side,
-                position=pos,
-                character_id=char_id,
-                level=1,
-                element=char.attribute,
-                character_type=char.character_type,
-                max_hp=hp,
-                current_hp=hp,
-                attack=atk,
-                defense=defense,
-                speed=dummy_cfg.speed,
-                crit_rate=dummy_cfg.crit_rate,
-                crit_damage=dummy_cfg.crit_damage - 1.5,
-                advantage_damage=dummy_cfg.advantage_damage,
-                initial_active_point=dummy_cfg.ap,
-                initial_passive_point=dummy_cfg.pp,
-                max_extra_point=max_extra_point,
-                current_ap=dummy_cfg.ap,
-                current_pp=dummy_cfg.pp,
-                current_ep=0,
-                shield=all_shield,
-                physical_shield=phys_shield,
-                en_shield=en_shld,
-                skills=skill_ids,
-                skill_levels={sid: 15 for sid in skill_ids},
-                skill_cooldowns={},
-                role_type=getattr(char, 'role_type', 0),
-                position_type=pt,
-            )
+            # 木桩单位构建统一走 src/entities_v2/dummy_factory（与批量模拟器共用同一实现，
+            # 避免双份代码漂移；v2 起支持等级/副属性/初始EP/EP上限/追加技能）
+            from src.entities_v2.dummy_factory import build_dummy_unit_state
+            return build_dummy_unit_state(self.data_loader, char_id, side, pos)
 
         char_config = panel_config.get_character_config(char_id, char.default_rarity)
         stats = stat_calculator.calculate_stats(char_config, player_config)

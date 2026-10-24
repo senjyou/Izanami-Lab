@@ -3471,6 +3471,97 @@
    "EX: 前列優先で敵横一列に攻撃 + spd_down(1action, stackable, fixed) + Lv11+ crit_rate_down(1action, stackable, percent)"
   ]
  },
+ "110085": {
+  "skill_id": 110085,
+  "name": "無粋への制裁",
+  "skill_type": 3,
+  "resource_cost": 7,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 5,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "remove_ep",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "target_count": 3
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "ep_gain_down",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": 100,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "duration_owner": "caster",
+       "source_death_remove": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "手动配置: Block1 enemy_row 威力 5hit EN + remove_ep 1(每目标) + ep_gain_down 100%(duration=1/action + duration_owner=caster 到施法者下次行动结束 + source_death_remove)",
+   "原自动解析多出 remove_buff/remove_debuff（误解析 EXゲージ），已重写"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 6,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: Block1 enemy_row 威力 5hit EN + remove_ep 1(每目标) + ep_gain_down 100%(duration=1/action + duration_owner=caster 到施法者下次行动结束 + source_death_remove)",
+   "原自动解析多出 remove_buff/remove_debuff（误解析 EXゲージ），已重写"
+  ]
+ },
  "110086": {
   "skill_id": 110086,
   "name": "プラーフカ・全面制圧",
@@ -10191,6 +10282,272 @@
   "parse_status": "manual",
   "parse_notes": [
    "AS3: enemy_single damage power={威力}, 無冷却"
+  ]
+ },
+ "120182": {
+  "skill_id": 120182,
+  "name": "お姉ちゃん、見てて",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true,
+       "ignore_defense_tag": "debuff",
+       "ignore_condition": {
+        "type": "target_element",
+        "value": 3
+       }
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "dmg_dealt_down",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": 20,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "手动配置: Block1 enemy_single 威力 EN；dmg_dealt_down 20%(次の攻撃/attack_limited=1/重複可)",
+   "Lv11+ 条件穿防: flags.ignore_defense_tag=\"debuff\" + ignore_condition{target_element:3(シャイ)}"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: Block1 enemy_single 威力 EN；dmg_dealt_down 20%(次の攻撃/attack_limited=1/重複可)",
+   "Lv11+ 条件穿防: flags.ignore_defense_tag=\"debuff\" + ignore_condition{target_element:3(シャイ)}"
+  ]
+ },
+ "120183": {
+  "skill_id": 120183,
+  "name": "静かな日々の邪魔をしないで",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": 10,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 3,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "status_type": "action_damage",
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "active_level_min",
+     "value": 11
+    },
+    "effects": [
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": {
+       "type": "target_role_in",
+       "values": [
+        1,
+        2
+       ]
+      },
+      "flags": {
+       "status_type": "confusion",
+       "confusion_dmg_reduction_tag": "konran",
+       "confusion_proxy_atk_pct": 10.0
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "手动配置: Block1 enemy_column_highest_damage_dealt(累計与ダメージ最多敌所在前後列) 威力 EN + add_status(action_damage 10% 3行动 EN)",
+   "Block2 Lv11+: add_status(confusion 1行动) 仅对 role_type∈{1,2} 目标，confusion_dmg_reduction_tag=\"konran\""
+  ],
+  "display_target_priority": null,
+  "display_target_range": 7,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: Block1 enemy_column_highest_damage_dealt(累計与ダメージ最多敌所在前後列) 威力 EN + add_status(action_damage 10% 3行动 EN)",
+   "Block2 Lv11+: add_status(confusion 1行动) 仅对 role_type∈{1,2} 目标，confusion_dmg_reduction_tag=\"konran\""
+  ]
+ },
+ "120184": {
+  "skill_id": 120184,
+  "name": "制服の下の負けん気",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "add_damage",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "and",
+     "conditions": [
+      {
+       "type": "active_level_min",
+       "value": 11
+      },
+      {
+       "type": "target_element",
+       "value": 1
+      }
+     ]
+    },
+    "effects": [
+     {
+      "effect_type": "add_damage",
+      "target_type": "friends",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg2",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "手动配置(原parse failed): Block1 self add_damage(dmg% 2行动)；Block2 Lv11+ friends(不含自身)+target_element=1(アグレッシブ) add_damage(dmg2% 2行动)"
+  ],
+  "display_target_priority": null,
+  "display_target_range": null,
+  "display_target_type": 1,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置(原parse failed): Block1 self add_damage(dmg% 2行动)；Block2 Lv11+ friends(不含自身)+target_element=1(アグレッシブ) add_damage(dmg2% 2行动)"
   ]
  },
  "120185": {
@@ -17438,6 +17795,79 @@
   "display_target_type": 2,
   "parse_status": "success",
   "parse_notes": []
+ },
+ "130188": {
+  "skill_id": 130188,
+  "name": "仲間想いは変わらず",
+  "skill_type": 2,
+  "resource_cost": 2,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "after_as_attacked_ally",
+  "global_condition": {
+   "type": "target_is_other_ally",
+   "element": 1
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "touketsu",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "status_type": "freeze"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "手动配置: after_as_attacked_ally + gc target_is_other_ally(element=1) → 对 trigger_attacker 威力 EN反击 + add_status(freeze, touketsu% 为解除时被伤害增加)",
+   "原自动解析为 counter_stance（错误，已重写）"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "手动配置: after_as_attacked_ally + gc target_is_other_ally(element=1) → 对 trigger_attacker 威力 EN反击 + add_status(freeze, touketsu% 为解除时被伤害增加)",
+   "原自动解析为 counter_stance（错误，已重写）"
+  ]
  },
  "130189": {
   "skill_id": 130189,

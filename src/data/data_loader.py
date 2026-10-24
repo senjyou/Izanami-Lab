@@ -249,7 +249,19 @@ class DataLoader:
     def get_character_skills(self, character_id: int) -> List[SkillData]:
         if character_id < 0:
             skill_ids = self._custom_character_skills.get(character_id, [])
-            return [self._custom_skills[sid] for sid in skill_ids if sid in self._custom_skills]
+            # 木桩的自建技能在 _custom_skills（负ID），而 extra_skill_ids 引用的是
+            # 技能表中的真实技能（正ID）。旧实现只查 _custom_skills，导致追加的真实
+            # PS 永远不会被触发器系统看到（演习敌方复刻的 PS 全部失效）。
+            if self._skills is None:
+                self.load_skills()
+            resolved: List[SkillData] = []
+            for sid in skill_ids:
+                sd = self._custom_skills.get(sid)
+                if sd is None:
+                    sd = self._skills.get(sid)
+                if sd is not None:
+                    resolved.append(sd)
+            return resolved
         if self._character_skills is None:
             self.load_character_skills()
         if self._skills is None:
@@ -848,6 +860,11 @@ class DataLoader:
         return self.load_level_lerp_data()
 
     def register_custom_dummy(self, cfg: CustomDummyConfig, dummy_index: Optional[int] = None) -> int:
+        # 统一校验入口：GUI 之外的调用（预设/脚本/JSON 导入）也不能写入非法配置
+        from ..entities_v2.custom_dummy import config_errors
+        errors = config_errors(cfg)
+        if errors:
+            raise ValueError("木桩配置非法：" + "；".join(errors))
         if dummy_index is None:
             dummy_index = self._custom_dummy_count
             self._custom_dummy_count += 1
@@ -897,6 +914,20 @@ class DataLoader:
             skill_ids.append(sd.skill_id)
 
         self._custom_character_skills[char_id] = skill_ids
+        # 追加技能：直接引用真实技能表中的技能（用于复刻演习敌方技能组等）
+        extra_ids: List[int] = []
+        for sid in cfg.extra_skill_ids:
+            try:
+                sid = int(sid)
+            except (TypeError, ValueError):
+                continue
+            if sid in skill_ids or sid in extra_ids:
+                continue
+            if self.get_skill_by_id(sid) is not None:
+                extra_ids.append(sid)
+        if extra_ids:
+            skill_ids = skill_ids + extra_ids
+            self._custom_character_skills[char_id] = skill_ids
         self._custom_dummy_configs[char_id] = cfg
         return char_id
 
@@ -918,37 +949,25 @@ class DataLoader:
         self._custom_dummy_count = 0
 
     def save_custom_dummies(self):
+        """保存木桩配置（schema v2，由 CustomDummyConfig.to_dict 统一序列化）。"""
         import json
-        from dataclasses import asdict
+        from src.entities_v2.custom_dummy import DUMMY_SCHEMA_VERSION
         configs = []
         for char_id, cfg in self._custom_dummy_configs.items():
-            configs.append({
-                "char_id": char_id,
-                "name": cfg.name,
-                "element": cfg.element,
-                "character_type": cfg.character_type,
-                "position_type": cfg.position_type,
-                "role_type": cfg.role_type,
-                "hp": cfg.hp,
-                "attack": cfg.attack,
-                "defense": cfg.defense,
-                "crit_rate": cfg.crit_rate,
-                "crit_damage": cfg.crit_damage,
-                "speed": cfg.speed,
-                "advantage_damage": cfg.advantage_damage,
-                "ap": cfg.ap,
-                "pp": cfg.pp,
-                "permanent_shield_type": cfg.permanent_shield_type,
-                "permanent_shield_value": cfg.permanent_shield_value,
-                "as_skills": [asdict(s) for s in cfg.as_skills],
-                "ps_skills": [asdict(s) for s in cfg.ps_skills],
-            })
+            item = cfg.to_dict()
+            item["char_id"] = char_id
+            configs.append(item)
         path = self._user_data_dir / "custom_dummies.json" if self._user_data_dir else self._data_dir / "custom_dummies.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"dummies": configs, "dummy_count": self._custom_dummy_count}, f, ensure_ascii=False, indent=2)
+            json.dump({
+                "schema_version": DUMMY_SCHEMA_VERSION,
+                "dummies": configs,
+                "dummy_count": self._custom_dummy_count,
+            }, f, ensure_ascii=False, indent=2)
 
     def load_custom_dummies(self):
+        """加载木桩配置；兼容 v1（缺字段走默认值，命中旧 hit_count 键做迁移）。"""
         # 优先从用户数据目录加载，否则从数据目录加载
         path = self._user_data_dir / "custom_dummies.json" if self._user_data_dir else self._data_dir / "custom_dummies.json"
         if not path.exists():
@@ -961,57 +980,13 @@ class DataLoader:
         self.clear_custom_dummies()
         self._custom_dummy_count = data.get("dummy_count", 0)
         for item in data.get("dummies", []):
-            # 解析技能效果列表
-            as_skills = []
-            for s in item.get("as_skills", []):
-                effects = [CustomEffectConfig(**e) for e in s.get("effects", [])]
-                as_skills.append(CustomASConfig(
-                    name=s.get("name", "自定义AS"),
-                    effects=effects,
-                    cooldown=s.get("cooldown", 0),
-                    cooldown_update_timing=s.get("cooldown_update_timing", 1),
-                    target_type=s.get("target_type", 3),
-                    target_range=s.get("target_range", 1),
-                    target_priority=s.get("target_priority", 0),
-                    resource_cost=s.get("resource_cost", 1),
-                    power=s.get("power", 0),
-                    hit_count_legacy=s.get("hit_count", 0) if not effects else 0,
-                ))
-            ps_skills = []
-            for s in item.get("ps_skills", []):
-                effects = [CustomEffectConfig(**e) for e in s.get("effects", [])]
-                ps_skills.append(CustomPSConfig(
-                    name=s.get("name", "自定义PS"),
-                    effects=effects,
-                    cooldown=s.get("cooldown", 0),
-                    cooldown_update_timing=s.get("cooldown_update_timing", 1),
-                    target_type=s.get("target_type", 3),
-                    target_range=s.get("target_range", 1),
-                    target_priority=s.get("target_priority", 0),
-                    resource_cost=s.get("resource_cost", 1),
-                    trigger_timing=s.get("trigger_timing", "BeforeAsAttacked"),
-                    power=s.get("power", 0),
-                    hit_count_legacy=s.get("hit_count", 0) if not effects else 0,
-                ))
-            cfg = CustomDummyConfig(
-                name=item["name"],
-                element=item["element"],
-                character_type=item["character_type"],
-                position_type=item.get("position_type", 3),
-                role_type=item.get("role_type", 1),
-                hp=item["hp"],
-                attack=item["attack"],
-                defense=item["defense"],
-                crit_rate=item["crit_rate"],
-                crit_damage=item["crit_damage"],
-                speed=item["speed"],
-                advantage_damage=item["advantage_damage"],
-                ap=item["ap"],
-                pp=item["pp"],
-                permanent_shield_type=item.get("permanent_shield_type", 0),
-                permanent_shield_value=item.get("permanent_shield_value", 0),
-                as_skills=as_skills,
-                ps_skills=ps_skills,
-            )
-            dummy_index = abs(item["char_id"]) - 1
-            self.register_custom_dummy(cfg, dummy_index)
+            cfg = CustomDummyConfig.from_dict(item)
+            char_id = item.get("char_id")
+            dummy_index = (abs(int(char_id)) - 1) if char_id is not None else None
+            if dummy_index is not None and dummy_index < 0:
+                dummy_index = None
+            try:
+                self.register_custom_dummy(cfg, dummy_index)
+            except ValueError as exc:
+                # 单条损坏的存档不应阻断整个加载：跳过并记录
+                print(f"[WARN] 跳过非法木桩配置 {cfg.name!r}: {exc}")

@@ -3,7 +3,10 @@ from dataclasses import dataclass, field
 
 from ...entities_v2.unit_state import UnitState
 from ...entities_v2.battlefield_state import BattlefieldState
-from ...entities_v2.enums import TriggerTiming, SkillType, Position, SkillEffectType, Side
+from ...entities_v2.enums import (
+    TriggerTiming, SkillType, Position, SkillEffectType, Side,
+    ATTACK_DAMAGE_EFFECT_TYPES,
+)
 from ..battle_logger import battle_logger
 
 _log = battle_logger()
@@ -1029,7 +1032,7 @@ class TriggerService:
                     and context.skill is not None and self.data_loader):
                 trigger_skill_parsed = self.data_loader.get_parsed_skill_data(context.skill)
                 has_damage_effect = any(
-                    e.get('effect_type') in ('damage', 'hp_ratio_damage', 'damage_special')
+                    e.get('effect_type') in ATTACK_DAMAGE_EFFECT_TYPES
                     for block in (trigger_skill_parsed or {}).get('effect_blocks', [])
                     for e in block.get('effects', [])
                 )
@@ -1130,9 +1133,12 @@ class TriggerService:
                 resolved = resolver.resolve(skill_id, 1)
                 if resolved is None:
                     return False
-                has_damage = any(e.effect_type == "damage" for block in resolved.effect_blocks for e in block.effects)
+                has_damage = any(e.effect_type in ATTACK_DAMAGE_EFFECT_TYPES
+                                 for block in resolved.effect_blocks for e in block.effects)
             else:
-                has_damage = any(e.get("effect_type") == "damage" for block in parsed.get("effect_blocks", []) for e in block.get("effects", []))
+                has_damage = any(e.get("effect_type") in ATTACK_DAMAGE_EFFECT_TYPES
+                                 for block in parsed.get("effect_blocks", [])
+                                 for e in block.get("effects", []))
             if not has_damage:
                 _log.info("[TRIGGER_MATCH] %s: BEFORE_ENEMY_AS_ATTACK blocked (skill %d has no damage)", owner.name, skill_id)
                 return False
@@ -1156,7 +1162,7 @@ class TriggerService:
                 if parsed_skill:
                     effect_blocks = parsed_skill.get('effect_blocks', [])
                     has_damage_effect = any(
-                        e.get('effect_type') == 'damage'
+                        e.get('effect_type') in ATTACK_DAMAGE_EFFECT_TYPES
                         for block in effect_blocks
                         for e in block.get('effects', [])
                     )
@@ -1814,9 +1820,32 @@ class TriggerService:
             # 攻击目标中必须存在 PS 持有者以外的同阵营单位
             if not context.targets:
                 return False
-            result = any(t.unit_id != owner.unit_id and t.side == owner.side
-                         for t in context.targets)
-            _log.info("[TRIGGER_COND] %s: target_is_other_ally => %s", owner.name, result)
+            # element / elements: 进一步限定该「其他味方」的属性
+            # （130188 仲間想いは変わらず「他のアグレッシブ属性の味方が…攻撃された後に発動」）
+            _ota_raw = None
+            if isinstance(condition, dict):
+                _ota_raw = condition.get('elements')
+                if _ota_raw is None:
+                    _ota_raw = condition.get('element')
+            _ota_vals = None
+            if _ota_raw is not None:
+                _seq = _ota_raw if isinstance(_ota_raw, (list, tuple, set)) else [_ota_raw]
+                _ota_vals = {int(v) for v in _seq if v is not None}
+
+            def _ota_matched(t) -> bool:
+                if t.unit_id == owner.unit_id or t.side != owner.side:
+                    return False
+                if _ota_vals is None:
+                    return True
+                _els = {getattr(t, 'element', 0)}
+                _sub = getattr(t, 'sub_element', 0)
+                if _sub:
+                    _els.add(_sub)
+                return bool(_els & _ota_vals)
+
+            result = any(_ota_matched(t) for t in context.targets)
+            _log.info("[TRIGGER_COND] %s: target_is_other_ally (elems=%s) => %s",
+                      owner.name, sorted(_ota_vals) if _ota_vals else None, result)
             return result
 
         if cond_type == "enemy_has_evade_buff":

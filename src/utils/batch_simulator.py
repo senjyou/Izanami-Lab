@@ -56,8 +56,13 @@ def _worker_init(data_dir: str,
                  positions_ally: List[Any],
                  positions_enemy: List[Any],
                  mem_cards_data: list = None,
-        enable_rdps: bool = True):
-    """Worker进程初始化——每个worker调用一次"""
+        enable_rdps: bool = True,
+                 user_data_dir: str = None):
+    """Worker进程初始化——每个worker调用一次
+
+    `user_data_dir` 与主进程 DataLoader 保持一致，否则多账号/打包布局下
+    worker 读不到 <user_data_dir>/custom_dummies.json（自定义木桩会静默缺失）。
+    """
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
 
@@ -66,9 +71,10 @@ def _worker_init(data_dir: str,
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg, _worker_mem_cards
 
-    dl = DataLoader()
+    dl = DataLoader(user_data_dir=user_data_dir or None)
     dl._data_dir = Path(data_dir)
     dl.load_all()
+    dl.load_custom_dummies()   # 幂等；覆盖 user_data_dir 为空的历史布局
 
     sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
 
@@ -206,44 +212,10 @@ def _create_unit_worker(dl, panel_config, player_config, stat_calculator,
 
     pt = getattr(char, 'position_type', 0)
 
-    # 自定义假人
+    # 自定义假人（与 gui/app.py 共用同一构建实现，避免口径漂移）
     if char_id < 0:
-        dummy_cfg = dl.get_custom_dummy_config(char_id)
-        if not dummy_cfg:
-            return None
-        skill_ids = dl._custom_character_skills.get(char_id, [])
-        max_ep = _compute_max_ep_worker(dl, skill_ids)
-        side_prefix = "D" if side == _Side.ALLY else "E"
-        hp = dummy_cfg.hp
-        atk = dummy_cfg.attack
-        defense = dummy_cfg.defense
-        phys_shield = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 1 else 0
-        en_shld = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 2 else 0
-        all_shield = dummy_cfg.permanent_shield_value if dummy_cfg.permanent_shield_type == 3 else 0
-        return UnitState(
-            unit_id=f"{side_prefix}_{char_id}",
-            name=char.name, side=side, position=pos,
-            character_id=char_id, level=1,
-            element=char.attribute, character_type=char.character_type,
-            max_hp=hp, current_hp=hp,
-            attack=atk, defense=defense,
-            speed=dummy_cfg.speed,
-            crit_rate=dummy_cfg.crit_rate,
-            crit_damage=dummy_cfg.crit_damage - 1.5,
-            advantage_damage=dummy_cfg.advantage_damage,
-            initial_active_point=dummy_cfg.ap,
-            initial_passive_point=dummy_cfg.pp,
-            max_extra_point=max_ep,
-            current_ap=dummy_cfg.ap, current_pp=dummy_cfg.pp,
-            current_ep=0,
-            shield=all_shield, physical_shield=phys_shield,
-            en_shield=en_shld,
-            skills=skill_ids,
-            skill_levels={sid: 15 for sid in skill_ids},
-            skill_cooldowns={},
-            role_type=getattr(char, 'role_type', 0),
-            position_type=pt,
-        )
+        from src.entities_v2.dummy_factory import build_dummy_unit_state
+        return build_dummy_unit_state(dl, char_id, side, pos)
 
     # 正常角色
     char_config = panel_config.get_character_config(char_id, char.default_rarity)
@@ -301,8 +273,15 @@ def _worker_init_tactical(data_dir: str,
                           enemy_pos: Any,
                           positions_ally: List[Any],
                           mem_cards_data: list = None,
-                          enable_rdps: bool = True):
-    """战术演习 worker 初始化——每个 worker 调用一次"""
+                          enable_rdps: bool = True,
+                          user_data_dir: str = None):
+    """战术演习 worker 初始化——每个 worker 调用一次
+
+    `user_data_dir` 必须与主进程 DataLoader 的同名参数一致：自定义木桩
+    （负 ID 合成单位）配置落盘在 `<user_data_dir>/custom_dummies.json`，
+    而 worker 是独立进程、只能重新从磁盘加载（主进程会先 save_custom_dummies）。
+    缺省 None 时回退到 `<data_dir>/custom_dummies.json`（旧行为）。
+    """
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
 
@@ -311,9 +290,12 @@ def _worker_init_tactical(data_dir: str,
     global _worker_dl, _worker_panel_config, _worker_player_config
     global _worker_stat_calculator, _worker_cfg, _worker_tactical_cfg, _worker_mem_cards
 
-    dl = DataLoader()
+    dl = DataLoader(user_data_dir=user_data_dir or None)
     dl._data_dir = Path(data_dir)
     dl.load_all()
+    # load_all() 已包含 load_custom_dummies()；这里再幂等调用一次，
+    # 覆盖「user_data_dir 为空 + 木桩只在 data 目录」的历史布局。
+    dl.load_custom_dummies()
 
     sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
 
@@ -416,9 +398,23 @@ def _worker_run_batch_tactical(seeds: List[int]) -> List[Dict[str, Any]]:
 
 
 def _create_tactical_enemy_worker(dl, enemy_data: Dict[str, Any], enemy_pos):
-    """Worker内创建战术演习敌方单位"""
+    """Worker内创建战术演习敌方单位（真实演习敌方 或 自定义木桩负 ID）"""
     from src.entities_v2.unit_state import UnitState
     from src.entities_v2.enums import Side
+
+    # 自定义木桩：统一走 dummy_factory，口径与单场 GUI 完全一致（enemy_style=True）
+    if enemy_data.get("is_dummy") or int(enemy_data.get("enemy_id", 0)) < 0:
+        from src.entities_v2.dummy_factory import build_dummy_unit_state
+
+        cid = int(enemy_data["enemy_id"])
+        unit = build_dummy_unit_state(dl, cid, Side.ENEMY, enemy_pos, enemy_style=True)
+        if unit is None:
+            # 静默返回 None 会让这场战斗「无敌方」→ 分数为 0 但看不出原因，故显式失败
+            raise RuntimeError(
+                f"worker 未加载到木桩 [{cid}] 的配置（{enemy_data.get('character_name')}）。"
+                "请确认主进程已 save_custom_dummies() 且 worker 使用同一 user_data_dir。"
+            )
+        return unit
 
     skill_ids = enemy_data.get("skill_ids", [])
     # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
@@ -550,7 +546,8 @@ def _worker_init_circle(data_dir: str,
                         stage: int,
                         mem_cards_data: list = None,
                         enemy_state_overrides: dict = None,
-                        enable_rdps: bool = True):
+                        enable_rdps: bool = True,
+                        user_data_dir: str = None):
     """对抗压制战 worker 初始化"""
     from src.data.data_loader import DataLoader
     from src.data.stat_calculator import StatCalculator
@@ -561,9 +558,10 @@ def _worker_init_circle(data_dir: str,
     global _worker_stat_calculator, _worker_cfg, _worker_mem_cards
     global _worker_circle_cfg
 
-    dl = DataLoader()
+    dl = DataLoader(user_data_dir=user_data_dir or None)
     dl._data_dir = Path(data_dir)
     dl.load_all()
+    dl.load_custom_dummies()
 
     sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
 
@@ -756,6 +754,44 @@ class BatchSimulator:
         else:
             self.max_workers = max(1, (os.cpu_count() or 4))
         self._data_dir = str(data_loader._data_dir)
+        # 自定义木桩配置落盘在 user_data_dir（打包/多账号布局下与 data_dir 不同），
+        # 必须传给 worker，否则 worker 进程读不到木桩配置
+        self._user_data_dir = (
+            str(data_loader._user_data_dir)
+            if getattr(data_loader, "_user_data_dir", None) else None
+        )
+
+    def _ensure_dummy_persisted(self, chars: list = None, enemy_data: Optional[Dict[str, Any]] = None) -> None:
+        """用到自定义木桩时先把配置落盘，保证 worker 进程能加载到。
+
+        木桩是负 ID 合成单位，只存在于主进程内存 + `<user_data_dir>/custom_dummies.json`；
+        worker 是独立进程，必须能从磁盘读到同一份配置。
+        """
+        if not self._uses_custom_dummy(chars or [], enemy_data):
+            return
+        try:
+            self.data_loader.save_custom_dummies()
+        except Exception:  # noqa: BLE001 - 落盘失败不应阻断模拟（单进程回退仍可用）
+            pass
+
+    @staticmethod
+    def _uses_custom_dummy(chars: list, enemy_data: Optional[Dict[str, Any]]) -> bool:
+        """判断本次模拟是否用到自定义木桩（负 ID 友方或木桩敌方）。
+
+        用于决定是否需要在派发 worker 之前把木桩配置落盘。
+        """
+        for cid in chars or []:
+            if isinstance(cid, int) and cid < 0:
+                return True
+        if enemy_data:
+            if enemy_data.get("is_dummy"):
+                return True
+            try:
+                if int(enemy_data.get("enemy_id", 0)) < 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        return False
 
     @staticmethod
     def _aggregate_rdps(per_battle_results: list) -> dict:
@@ -939,6 +975,7 @@ class BatchSimulator:
         enable_rdps: bool = True,
     ) -> BatchResult:
         """多进程模式执行"""
+        self._ensure_dummy_persisted(list(friends_chars or []) + list(enemies_chars or []))
         n_workers = min(self.max_workers, len(seed_batches))
 
         init_args = (
@@ -953,6 +990,7 @@ class BatchSimulator:
             positions_enemy,
             memory_cards if memory_cards else [],
             enable_rdps,
+            self._user_data_dir,
         )
 
         # 使用spawn上下文（Windows兼容）
@@ -1231,6 +1269,17 @@ class BatchSimulator:
         seeds = [(base_seed + i) % (2**31) for i in range(total_runs)]
         seed_batches = [seeds[i:i + batch_size] for i in range(0, len(seeds), batch_size)]
 
+        # 木桩（负 ID）配置在内存里，worker 是独立进程 → 必须先落盘再由 worker 重新加载。
+        # 只在真的用到木桩时才写盘，避免无谓改动用户存档。
+        if self._uses_custom_dummy(list(friends_chars or []) + list(friend_positions or []),
+                                   enemy_data):
+            try:
+                self.data_loader.save_custom_dummies()
+                print(f"  [木桩] 已将木桩配置落盘供 worker 加载 "
+                      f"({getattr(self.data_loader, '_user_data_dir', None) or self._data_dir})")
+            except Exception as exc:  # 落盘失败不阻断单进程回退路径
+                print(f"  [WARN] 木桩配置落盘失败（worker 可能读不到木桩）: {exc}")
+
         print(f"\n  [多进程战术演习] 总场数={total_runs} 批次={len(seed_batches)} "
               f"每批={batch_size} Workers={min(self.max_workers, len(seed_batches))}")
 
@@ -1272,6 +1321,7 @@ class BatchSimulator:
             positions_ally,
             memory_cards if memory_cards else [],
             enable_rdps,
+            self._user_data_dir,   # 木桩配置所在目录（与主进程一致）
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1556,6 +1606,7 @@ class BatchSimulator:
         season=5, stage=100, memory_cards=None, enemy_state_overrides=None,
         enable_rdps: bool = True,
     ):
+        self._ensure_dummy_persisted(list(friends_chars or []))
         n_workers = min(self.max_workers, len(seed_batches))
 
         init_args = (
@@ -1571,6 +1622,7 @@ class BatchSimulator:
             memory_cards if memory_cards else [],
             enemy_state_overrides if enemy_state_overrides else {},
             enable_rdps,
+            self._user_data_dir,
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -1870,6 +1922,8 @@ class BatchSimulator:
         teams_mem_cards=None,
         enable_rdps: bool = True,
     ):
+        _dummy_ids = [cid for team in (teams_positions or []) for cid in (team or []) if isinstance(cid, int)]
+        self._ensure_dummy_persisted(_dummy_ids)
         n_workers = min(self.max_workers, len(seed_batches))
 
         init_args = (
@@ -1881,6 +1935,7 @@ class BatchSimulator:
             positions_ally,
             teams_mem_cards if teams_mem_cards else [[], [], []],
             enable_rdps,
+            self._user_data_dir,
         )
 
         mp_ctx = mp.get_context('spawn')
@@ -2250,7 +2305,8 @@ def _worker_init_composite(data_dir: str,
         max_turns: int,
         positions_ally: List[Any],
         mem_cards_data: List[List[Any]] = None,
-        enable_rdps: bool = True):
+        enable_rdps: bool = True,
+        user_data_dir: str = None):
     """联合战术演习 worker 初始化
 
     Args:
@@ -2266,9 +2322,10 @@ def _worker_init_composite(data_dir: str,
     global _worker_stat_calculator, _worker_cfg
     global _worker_composite_cfg, _worker_mem_cards
 
-    dl = DataLoader()
+    dl = DataLoader(user_data_dir=user_data_dir or None)
     dl._data_dir = Path(data_dir)
     dl.load_all()
+    dl.load_custom_dummies()
 
     sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
 

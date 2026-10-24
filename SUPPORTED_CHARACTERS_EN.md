@@ -106,6 +106,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 双翼のフロントランナー    | ニーナジーナ・ミーシナ  |
 | 隣歩む想い          | 桃園める         |
 | スカーレット・ツイン     | イーニァ＆クリスカ    |
+| 歩む先に新たな日常を     | コトハ          |
 
 ## Tactical Exercise Enemies
 

@@ -179,6 +179,32 @@ class DamageType(Enum):
     FIXED = 3         # 固定伤害 (Fixed Damage)
     REFLECTION = 4    # 反射伤害 (Reflection Damage)
 
+# 攻击伤害效果类型（进攻性伤害：技能自身对敌方造成伤害）
+#
+# 判定「该技能是否是一次攻击」时使用此集合，不要只判 'damage'。
+# 三者的区别仅在于伤害的结算基础：
+#   damage          — 通常的 ATK/DEF 结算
+#   hp_ratio_damage — 以目标当前/已损HP比例为基准结算（如 120155 苦手なのはそこだね！）
+#   damage_special  — 特殊基准结算（如 120121 消耗HP基准）
+# 三者在战斗语义上都是「本技能对敌方发起的一次攻击」，因此都必须：
+#   - 满足 before_ally_as_attack / before_enemy_as_attack 的攻击技能前提
+#   - 触发 before_any_attacked / before_as_attacked 等被攻击反应PS
+#   - 作为 cover（援护）候选的被攻击目标
+# 不属于攻击的伤害相关类型（修饰/反应/既有攻击的延伸，不能单独构成一次攻击）：
+#   add_damage / add_damage_to_attack / enchant_damage / reflect_damage /
+#   damage_link / lifesteal / shield_from_damage / consume_hp
+ATTACK_DAMAGE_EFFECT_TYPES = frozenset({
+    'damage',
+    'hp_ratio_damage',
+    'damage_special',
+})
+
+# 是否存在「可执行攻击效果」的通用判定（供 trigger/skill 服务复用）
+def is_attack_damage_effect(effect_type) -> bool:
+    """effect_type 是否属于本技能发起的攻击伤害。"""
+    return effect_type in ATTACK_DAMAGE_EFFECT_TYPES
+
+
 class AuraType(Enum):
     """
     Aura类型

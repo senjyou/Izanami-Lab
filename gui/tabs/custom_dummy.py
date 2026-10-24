@@ -14,7 +14,10 @@ from src.entities_v2.custom_dummy import (
     STATUS_TYPE_DISPLAY, STATUS_DISPLAY_REVERSE,
     DURATION_TYPE_DISPLAY, DURATION_DISPLAY_REVERSE,
     EFFECT_CATEGORIES,
+    validate_dummy_config,
+    filter_trigger_timings,
 )
+from src.entities_v2.dummy_presets import builtin_presets
 
 from gui.constants import (
     CHAR_TYPE_NAMES,
@@ -66,6 +69,7 @@ class CustomDummyTab(ttk.Frame):
         btn_f = ttk.Frame(reg_lf)
         btn_f.pack(side=tk.RIGHT, padx=5, pady=5)
         ttk.Button(btn_f, text="编辑", command=self._edit_selected).pack(fill="x", pady=2)
+        ttk.Button(btn_f, text="复制", command=self._duplicate_selected).pack(fill="x", pady=2)
         ttk.Button(btn_f, text="删除", command=self._delete_selected).pack(fill="x", pady=2)
         ttk.Button(btn_f, text="清空", command=self._clear_all).pack(fill="x", pady=2)
         row += 1
@@ -93,6 +97,14 @@ class CustomDummyTab(ttk.Frame):
         self._var_pp = tk.IntVar(value=5)
         self._var_shield_type = tk.StringVar(value="无")
         self._var_shield_value = tk.IntVar(value=0)
+        # ── v2 新增字段 ──
+        self._var_level = tk.IntVar(value=280)
+        self._var_sub_element = tk.StringVar(value="无")
+        self._var_init_ep = tk.DoubleVar(value=0.0)
+        self._var_max_ep = tk.IntVar(value=0)
+        self._var_note = tk.StringVar(value="")
+        self._var_extra_skills = tk.StringVar(value="")
+        self._var_preset = tk.StringVar(value="")
 
         r = 0
         # 第一列：名称、属性、类型、定位、位置、永久盾类型
@@ -150,6 +162,44 @@ class CustomDummyTab(ttk.Frame):
         cb_shield.grid(row=r, column=1, padx=5, sticky="w")
         ttk.Label(basic_lf, text="永久盾值:").grid(row=r, column=2, padx=5, pady=3, sticky="e")
         ttk.Entry(basic_lf, textvariable=self._var_shield_value, width=10).grid(row=r, column=3, padx=5, sticky="w")
+        r += 1
+
+        # ── v2 新增：等级 / 副属性 / EP ──
+        ttk.Label(basic_lf, text="等级(仅记录):").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_level, width=10).grid(row=r, column=1, padx=5, sticky="w")
+        ttk.Label(basic_lf, text="副属性:").grid(row=r, column=2, padx=5, pady=3, sticky="e")
+        cb_sub = ttk.Combobox(basic_lf, textvariable=self._var_sub_element,
+                               values=["无"] + list(ELEMENT_NAMES.values()), state="readonly", width=8)
+        cb_sub.grid(row=r, column=3, padx=5, sticky="w")
+        ttk.Label(basic_lf, text="初始EP:").grid(row=r, column=4, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_init_ep, width=10).grid(row=r, column=5, padx=5, sticky="w")
+        r += 1
+
+        ttk.Label(basic_lf, text="EP上限:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_max_ep, width=10).grid(row=r, column=1, padx=5, sticky="w")
+        ttk.Label(basic_lf, text="追加技能ID:").grid(row=r, column=2, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_extra_skills, width=16).grid(
+            row=r, column=3, columnspan=3, padx=5, sticky="w")
+        r += 1
+
+        ttk.Label(basic_lf, text="备注:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_note, width=64).grid(
+            row=r, column=1, columnspan=5, padx=5, sticky="w")
+        r += 1
+
+        # ── 预设 ──
+        ttk.Label(basic_lf, text="预设:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        self._preset_combo = ttk.Combobox(basic_lf, textvariable=self._var_preset,
+                                          values=[], state="readonly", width=28)
+        self._preset_combo.grid(row=r, column=1, columnspan=2, padx=5, sticky="w")
+        ttk.Button(basic_lf, text="应用预设", command=self._apply_preset, width=10).grid(
+            row=r, column=3, padx=5, sticky="w")
+        self._refresh_presets()
+        r += 1
+
+        ttk.Label(basic_lf,
+                  text="说明：暴击伤害填倍率（1.5=无额外）；有利加成填额外值（0.255=3条彩S=克制1.505）；EP上限0=按EX技能自动推断",
+                  foreground="#888888").grid(row=r, column=0, columnspan=6, padx=5, pady=(0, 4), sticky="w")
         r += 1
 
         row += 1
@@ -253,9 +303,10 @@ class CustomDummyTab(ttk.Frame):
             ps_extra = ttk.Frame(frame)
             ps_extra.pack(fill="x", padx=3, pady=2)
             ttk.Label(ps_extra, text="触发时机:").pack(side=tk.LEFT)
-            row_data["trigger_timing"] = tk.StringVar(value=TRIGGER_TIMING_OPTIONS[0][0])
+            _trig_opts = filter_trigger_timings(TRIGGER_TIMING_OPTIONS)
+            row_data["trigger_timing"] = tk.StringVar(value=_trig_opts[0][0])
             cb = ttk.Combobox(ps_extra, textvariable=row_data["trigger_timing"],
-                              values=[t[0] for t in TRIGGER_TIMING_OPTIONS], state="readonly", width=16)
+                              values=[t[0] for t in _trig_opts], state="readonly", width=16)
             cb.pack(side=tk.LEFT, padx=(2, 8))
 
         # ── 效果列表区域 ──
@@ -418,11 +469,73 @@ class CustomDummyTab(ttk.Frame):
 
         effects_list.append(ef_data)
 
+    def _next_free_index(self) -> int:
+        """返回一个未被占用的木桩序号（负ID = -(index+1)）。
+
+        旧实现用递增计数器，删除后再新增可能与既有ID冲突；
+        v2 改为「扫描已注册ID取最小空位」，保证 ID 稳定且不重复。
+        """
+        used = {abs(cid) - 1 for cid in self.app.data_loader.get_custom_dummy_ids()}
+        idx = 0
+        while idx in used:
+            idx += 1
+        return idx
+
+    def _refresh_presets(self):
+        try:
+            presets = builtin_presets(self.app.data_loader)
+        except Exception:
+            presets = builtin_presets(None)
+        self._preset_map = {p.label: p.key for p in presets}
+        self._preset_combo.configure(values=[p.label for p in presets])
+        if presets and not self._var_preset.get():
+            self._var_preset.set(presets[0].label)
+
+    def _apply_preset(self):
+        label = self._var_preset.get()
+        key = getattr(self, "_preset_map", {}).get(label)
+        if not key:
+            messagebox.showwarning("未选择预设", "请先选择一个预设")
+            return
+        try:
+            preset = next(p for p in builtin_presets(self.app.data_loader) if p.key == key)
+            cfg = preset.build()
+        except Exception as exc:  # noqa: BLE001 - 预设构建失败不应让 Tab 崩溃
+            messagebox.showerror("预设应用失败", f"{label}：{exc}")
+            return
+        if messagebox.askyesno("应用预设", f"将用预设「{label}」覆盖当前编辑区的属性与技能，继续？"):
+            self._load_config_to_gui(cfg, self._next_free_index())
+
+    def _parse_extra_skills(self) -> List[int]:
+        raw = (self._var_extra_skills.get() or "").replace("，", ",")
+        ids: List[int] = []
+        for part in raw.replace(";", ",").replace(" ", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                ids.append(int(part))
+            except ValueError:
+                raise ValueError(f"追加技能ID 必须是整数：{part}")
+        return ids
+
     def _register_dummy(self):
-        cfg = self._build_config_from_gui()
-        char_id = self.app.data_loader.register_custom_dummy(cfg, self._dummy_index)
+        try:
+            cfg = self._build_config_from_gui()
+        except ValueError as exc:
+            messagebox.showerror("配置有误", str(exc))
+            return
+        issues = validate_dummy_config(cfg)
+        errors = [m for lv, m in issues if lv == "error"]
+        if errors:
+            messagebox.showerror("配置有误", "无法注册：\n- " + "\n- ".join(errors))
+            return
+        warnings = [m for lv, m in issues if lv == "warning"]
+        if warnings and not messagebox.askyesno(
+                "配置警告", "存在以下警告，仍要注册吗？\n- " + "\n- ".join(warnings)):
+            return
+        char_id = self.app.data_loader.register_custom_dummy(cfg, self._next_free_index())
         self._refresh_list()
-        self._dummy_index += 1
         self.app.team_tab._refresh_char_options()
         messagebox.showinfo("注册成功", f"木桩 [{char_id}] {cfg.name} 已注册，可在编队Tab中选择")
 
@@ -435,7 +548,7 @@ class CustomDummyTab(ttk.Frame):
         trange_rev = {v: k for k, v in TARGET_RANGE_NAMES.items()}
         tprio_rev = {v: k for k, v in TARGET_PRIORITY_NAMES.items()}
         cdtiming_rev = {v: k for k, v in COOLDOWN_TIMING_NAMES.items()}
-        trig_rev = {t[0]: t[1] for t in TRIGGER_TIMING_OPTIONS}
+        trig_rev = {t[0]: t[1] for t in filter_trigger_timings(TRIGGER_TIMING_OPTIONS)}
 
         def _parse_effect_type(display_val: str) -> str:
             """从显示名解析效果类型key"""
@@ -520,6 +633,12 @@ class CustomDummyTab(ttk.Frame):
             pp=self._var_pp.get(),
             permanent_shield_type=SHIELD_TYPE_REV.get(self._var_shield_type.get(), 0),
             permanent_shield_value=self._var_shield_value.get(),
+            level=self._var_level.get(),
+            sub_element=elem_rev.get(self._var_sub_element.get(), 0),
+            initial_ep=float(self._var_init_ep.get()),
+            max_extra_point=self._var_max_ep.get(),
+            note=self._var_note.get(),
+            extra_skill_ids=self._parse_extra_skills(),
             as_skills=as_skills,
             ps_skills=ps_skills,
         )
@@ -542,6 +661,13 @@ class CustomDummyTab(ttk.Frame):
         self._var_pp.set(cfg.pp)
         self._var_shield_type.set(SHIELD_TYPE_NAMES.get(cfg.permanent_shield_type, "无"))
         self._var_shield_value.set(cfg.permanent_shield_value)
+        # v2 字段
+        self._var_level.set(cfg.level)
+        self._var_sub_element.set(ELEMENT_NAMES.get(cfg.sub_element, "无"))
+        self._var_init_ep.set(cfg.initial_ep)
+        self._var_max_ep.set(cfg.max_extra_point)
+        self._var_note.set(cfg.note)
+        self._var_extra_skills.set(", ".join(str(x) for x in cfg.extra_skill_ids))
 
         self._clear_skill_rows()
         for as_cfg in cfg.as_skills:
@@ -566,7 +692,7 @@ class CustomDummyTab(ttk.Frame):
                 row["target_range"].set(TARGET_RANGE_NAMES.get(ps_cfg.target_range, TARGET_RANGE_NAMES[1]))
                 row["target_priority"].set(TARGET_PRIORITY_NAMES.get(ps_cfg.target_priority, TARGET_PRIORITY_NAMES[0]))
                 row["resource_cost"].set(ps_cfg.resource_cost)
-                trig_display = next((t[0] for t in TRIGGER_TIMING_OPTIONS if t[1] == ps_cfg.trigger_timing), "被攻击前")
+                trig_display = next((t[0] for t in filter_trigger_timings(TRIGGER_TIMING_OPTIONS) if t[1] == ps_cfg.trigger_timing), "被攻击前")
                 row["trigger_timing"].set(trig_display)
                 # 加载效果列表
                 self._load_effects_to_row(row, ps_cfg.get_effects())
@@ -626,26 +752,41 @@ class CustomDummyTab(ttk.Frame):
             return
         idx = sel[0]
         cid = self._registered_ids[idx]
-        old_cfg = self.app.data_loader.get_custom_dummy_config(cid)
-        if not old_cfg:
+        if self.app.data_loader.get_custom_dummy_config(cid) is None:
             return
 
-        new_cfg = self._build_config_from_gui()
-        saved_configs = []
-        for old_id in self._registered_ids:
-            saved = self.app.data_loader.get_custom_dummy_config(old_id)
-            saved_configs.append((old_id, saved))
-
-        self.app.data_loader.clear_custom_dummies()
-        for (old_id, saved) in saved_configs:
-            if saved is None:
-                continue
-            target_cfg = new_cfg if old_id == cid else saved
-            self.app.data_loader.register_custom_dummy(target_cfg, abs(old_id) - 1)
-        self._registered_ids = self.app.data_loader.get_custom_dummy_ids()
+        try:
+            new_cfg = self._build_config_from_gui()
+        except ValueError as exc:
+            messagebox.showerror("配置有误", str(exc))
+            return
+        issues = validate_dummy_config(new_cfg)
+        errors = [m for lv, m in issues if lv == "error"]
+        if errors:
+            messagebox.showerror("配置有误", "无法更新：\n- " + "\n- ".join(errors))
+            return
+        # 保持原 ID 不变（ID 稳定性是编队/预设引用的前提）
+        self.app.data_loader.register_custom_dummy(new_cfg, abs(cid) - 1)
         self._refresh_list()
         self.app.team_tab._refresh_char_options()
         messagebox.showinfo("更新成功", f"木桩 [{cid}] 已更新")
+
+    def _duplicate_selected(self):
+        sel = self._dummy_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("未选择", "请先在列表中选中一个木桩")
+            return
+        idx = sel[0]
+        cid = self._registered_ids[idx]
+        src = self.app.data_loader.get_custom_dummy_config(cid)
+        if src is None:
+            return
+        cfg = CustomDummyConfig.from_dict(src.to_dict())
+        cfg.name = f"{cfg.name} 副本"
+        new_id = self.app.data_loader.register_custom_dummy(cfg, self._next_free_index())
+        self._refresh_list()
+        self.app.team_tab._refresh_char_options()
+        messagebox.showinfo("复制成功", f"已复制为 [{new_id}] {cfg.name}")
 
     def _delete_selected(self):
         sel = self._dummy_listbox.curselection()
@@ -653,22 +794,20 @@ class CustomDummyTab(ttk.Frame):
             return
         idx = sel[0]
         cid = self._registered_ids[idx]
+        if not messagebox.askyesno("确认删除", f"删除木桩 [{cid}]？此操作不可撤销。"):
+            return
 
-        saved_configs = []
+        # v2：删除后不再重排其余木桩的 ID（旧实现会把后续木桩全部重新编号，
+        # 导致已保存的编队/预设引用指向错误对象）。
+        kept = []
         for old_id in self._registered_ids:
             saved = self.app.data_loader.get_custom_dummy_config(old_id)
-            saved_configs.append(saved)
+            if saved is not None and old_id != cid:
+                kept.append((abs(old_id) - 1, saved))
 
         self.app.data_loader.clear_custom_dummies()
-        new_index = 0
-        for i, saved in enumerate(saved_configs):
-            if i == idx:
-                continue
-            if saved is None:
-                continue
-            self.app.data_loader.register_custom_dummy(saved, new_index)
-            new_index += 1
-        self._registered_ids = self.app.data_loader.get_custom_dummy_ids()
+        for dummy_index, saved in kept:
+            self.app.data_loader.register_custom_dummy(saved, dummy_index)
         self._refresh_list()
         self.app.team_tab._refresh_char_options()
 

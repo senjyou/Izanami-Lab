@@ -48,6 +48,118 @@ from gui.optimizer_tab_mixin import OptimizeTabMixin
 from gui.tabs.base import BattleTabMixin
 
 
+class _TacticalEnemyPickerDialog(EnemyPickerDialog):
+    """敌方选择弹窗（战术演习版）：在真实演习敌方之外追加「自定义木桩」分组。
+
+    木桩是负 ID 的合成单位（`src/entities_v2/dummy_factory.py::build_dummy_unit_state`），
+    不在 `data/tactical_exercise_enemies.json` 里，因此这里只**追加**一个独立分组，
+    不参与原有「当期/往期」分组与白名单过滤逻辑。
+    """
+
+    def __init__(self, parent, app, dummy_entries: Optional[Dict[int, Dict]] = None,
+                 title: str = "选择敌方单位"):
+        self._dummy_entries: Dict[int, Dict] = dict(dummy_entries or {})
+        super().__init__(parent, app, title=title)
+
+    def _refresh_grid(self):
+        super()._refresh_grid()
+        if not self._dummy_entries:
+            return
+        s = self.app._get_scheme()
+        dev_mode = self.app.is_developer_mode()
+        COLS, PAD, THUMB_W, THUMB_H = 4, 4, 70, 90
+
+        rows = [int(w.grid_info().get("row", 0))
+                for w in self._grid_inner.grid_slaves() if w.grid_info()]
+        row = (max(rows) + 1) if rows else 0
+
+        header = tk.Label(self._grid_inner, text="自定义木桩（负 ID 合成单位，可作演习敌方）",
+                          bg=s["bg"], fg=s["fg"],
+                          font=("Microsoft YaHei UI", 9, "bold"), anchor="w")
+        header.grid(row=row, column=0, columnspan=COLS, sticky="ew", padx=PAD, pady=(10, 4))
+        row += 1
+
+        items = sorted(self._dummy_entries.items(), key=lambda x: x[1]["character_name"])
+        for i, (eid, data) in enumerate(items):
+            r, c = divmod(i, COLS)
+            self._render_dummy_card(eid, data, row + r, c, s, THUMB_W, THUMB_H, PAD, dev_mode)
+
+    def _render_dummy_card(self, eid, data, row, col, s, THUMB_W, THUMB_H, PAD, dev_mode):
+        """渲染单张木桩卡片（无头像，显示「木桩」占位 + [木桩] 名称）。"""
+        card = tk.Frame(self._grid_inner, bg=s["surface"], bd=0,
+                        highlightbackground=s["border"], highlightthickness=2,
+                        cursor="hand2")
+        card.grid(row=row, column=col, padx=PAD, pady=PAD)
+
+        placeholder = tk.Label(card, text="木桩", bg=s["surface"], fg=s["border"],
+                              width=THUMB_W // 8, height=THUMB_H // 16,
+                              font=("Microsoft YaHei UI", 9, "bold"))
+        placeholder.pack()
+
+        name_text = f"[木桩] {data['character_name']}"
+        if dev_mode:
+            name_text = f"[木桩][{eid}] {data['character_name']}"
+        tk.Label(card, text=name_text, bg=s["surface"], fg=s["fg"],
+                 font=("Microsoft YaHei UI", 8), wraplength=THUMB_W + 10,
+                 height=2, justify="center").pack(pady=(2, 0))
+
+        pos_name = ["", "左前", "中前", "右前", "左后", "中后", "右后"][data.get("position", 2)]
+        tk.Label(card, text=f"({pos_name})", bg=s["surface"], fg=s["border"],
+                 font=("Microsoft YaHei UI", 7)).pack()
+
+        for widget in [card] + list(card.winfo_children()):
+            widget.bind("<Button-1>", lambda e, eid=eid: self._on_select(eid))
+
+
+# ── 自定义木桩 → 演习敌方条目 ────────────────────────────────────────
+
+def build_dummy_enemy_entry(data_loader: Any, char_id: int) -> Optional[Dict[str, Any]]:
+    """把「自定义木桩」（负 ID）转成与 `tactical_exercise_enemies.json` 同结构的条目。
+
+    这样敌方选择按钮、阶段属性预览、批量模拟器都能复用真实敌方的数据形状；
+    `is_dummy=True` + 负 `enemy_id` 用于在创建单位时分流到 `dummy_factory`。
+    """
+    cid = int(char_id)
+    cfg = data_loader.get_custom_dummy_config(cid)
+    char = data_loader.get_character_by_id(cid)
+    if cfg is None or char is None:
+        return None
+    return {
+        "enemy_id": cid,
+        "character_name": cfg.name or getattr(char, "name", f"木桩{cid}"),
+        "hp": int(cfg.hp),
+        "attack": int(cfg.attack),
+        "defense": int(cfg.defense),
+        "speed": int(cfg.speed),
+        "critical_rate": float(cfg.crit_rate),
+        "attribute": int(getattr(char, "attribute", cfg.element)),
+        "type": int(getattr(char, "character_type", cfg.character_type)),
+        "role_type": int(getattr(char, "role_type", cfg.role_type)),
+        "action_point": int(cfg.ap),
+        "passive_point": int(cfg.pp),
+        "skill_ids": list(getattr(data_loader, "_custom_character_skills", {}).get(cid, [])),
+        "skill_levels": {},
+        "position": 2,
+        "is_dummy": True,
+    }
+
+
+def build_dummy_enemy_entries(data_loader: Any) -> Dict[int, Dict[str, Any]]:
+    """当前已注册的全部木桩 → {负ID: 敌方条目}。"""
+    try:
+        dummies = data_loader.get_all_custom_dummies()
+    except Exception:
+        dummies = {}
+    entries: Dict[int, Dict[str, Any]] = {}
+    for cid in (dummies or {}):
+        entry = build_dummy_enemy_entry(data_loader, cid)
+        if entry is not None:
+            entries[int(cid)] = entry
+    return entries
+
+
+
+
 class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
     """战术演习模式 - 单体敌方无限复活，阶段递增"""
 
@@ -55,12 +167,40 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
         super().__init__(parent)
         self.app = app
         self._enemy_data: Dict[int, Dict] = self.app.data_loader.get_tactical_exercise_enemies()
+        # 自定义木桩（负 ID）也可作为演习敌方；数据在每次使用前重建（见 _refresh_dummy_enemy_data）
+        self._dummy_enemy_data: Dict[int, Dict] = {}
+        self._refresh_dummy_enemy_data()
         self.friend_slots: List[Dict[str, Any]] = []
         self.mem_friend_slots: List[Dict[str, Any]] = []
         self._drag_source = None
         self._drag_preview = None
         self._rdps_tracking_log: List[str] = []
         self._build()
+
+    # ── 自定义木桩作为演习敌方（负 ID） ─────────────────────────────────
+
+    def _refresh_dummy_enemy_data(self) -> None:
+        """重建「可作演习敌方的自定义木桩」列表。
+
+        木桩可能在「自定义木桩」Tab 里新建/改名/改面板，因此每次使用前重建，
+        避免把过期快照带进战斗。
+        """
+        self._dummy_enemy_data = build_dummy_enemy_entries(self.app.data_loader)
+
+    def _get_enemy_entry(self, eid) -> Optional[Dict]:
+        """取敌方条目：真实演习敌方优先，其次自定义木桩（负 ID）。"""
+        if eid is None:
+            return None
+        data = self._enemy_data.get(eid)
+        if data:
+            return data
+        self._refresh_dummy_enemy_data()
+        return self._dummy_enemy_data.get(eid)
+
+    def _enemy_pos_of(self, enemy_data: Optional[Dict]) -> Position:
+        """敌方 dict → 站位枚举（木桩与真实敌方共用）。"""
+        pos = (enemy_data or {}).get("position", 2)
+        return ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_CENTER_FRONT)
 
     def _build(self):
         s = self.app._get_scheme()
@@ -286,13 +426,17 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
         eid = self._selected_enemy_id
         if eid is None:
             return
-        data = self._enemy_data.get(eid)
+        data = self._get_enemy_entry(eid)
         if not data:
             return
 
         # 更新按钮文字
         pos_name = ["", "左前", "中前", "右前", "左后", "中后", "右后"][data.get("position", 2)]
-        if self.app.is_developer_mode():
+        is_dummy = bool(data.get("is_dummy")) or (isinstance(eid, int) and eid < 0)
+        if is_dummy:
+            prefix = f"[木桩][{eid}] " if self.app.is_developer_mode() else "[木桩] "
+            self._enemy_select_btn.config(text=f"{prefix}{data['character_name']} ({pos_name})")
+        elif self.app.is_developer_mode():
             self._enemy_select_btn.config(text=f"[{eid}] {data['character_name']} ({pos_name})")
         else:
             self._enemy_select_btn.config(text=f"{data['character_name']} ({pos_name})")
@@ -316,6 +460,14 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
         ch = canvas.winfo_height()
         if cw < 2 or ch < 2:
             cw, ch = 110, 140  # fallback
+
+        # 自定义木桩（负 ID）没有敌方头像素材：显示「木桩」占位，避免显示成「无头像」
+        if data and (data.get("is_dummy") or (isinstance(eid, int) and eid < 0)):
+            canvas.create_text(cw // 2, ch // 2 - 8, text="木桩", fill=s["fg"],
+                               font=("Microsoft YaHei UI", 14, "bold"))
+            canvas.create_text(cw // 2, ch // 2 + 18, text="负 ID 合成单位", fill=s["border"],
+                               font=("Microsoft YaHei UI", 8))
+            return
 
         avatar_cid = ENEMY_AVATAR_MAP.get(eid)
         if avatar_cid:
@@ -348,8 +500,13 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             return None
 
     def _open_enemy_picker(self):
-        """打开敌方选择二级弹窗"""
-        dialog = EnemyPickerDialog(self, self.app, title="选择敌方单位")
+        """打开敌方选择二级弹窗（真实演习敌方 + 自定义木桩分组）"""
+        self._refresh_dummy_enemy_data()
+        dialog = _TacticalEnemyPickerDialog(
+            self, self.app,
+            dummy_entries=self._dummy_enemy_data,
+            title="选择敌方单位",
+        )
         self.wait_window(dialog)
         if dialog.result is not None:
             self._on_enemy_select(dialog.result)
@@ -364,6 +521,12 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
                 continue
             first_eid = eid
             break
+        # 没有可用真实敌方时，退回到第一个自定义木桩（负 ID）
+        if first_eid is None:
+            self._refresh_dummy_enemy_data()
+            if self._dummy_enemy_data:
+                first_eid = sorted(self._dummy_enemy_data.items(),
+                                   key=lambda x: x[1]["character_name"])[0][0]
         if first_eid is not None:
             self._on_enemy_select(first_eid)
 
@@ -372,7 +535,7 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
         eid = self._selected_enemy_id
         if eid is None:
             return
-        data = self._enemy_data.get(eid)
+        data = self._get_enemy_entry(eid)
         if not data:
             return
 
@@ -458,10 +621,8 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             panel_config = self.app._build_panel_config_from_gui(global_vals)
 
             friend_positions = sel.get("friend_positions", sel.get("friends", []))
-            enemy_data = self._enemy_data.get(sel["enemy_id"])
-            enemy_pos = ENEMY_SLOT_POSITION_MAP.get(
-                enemy_data.get("position", 2), Position.ENEMY_CENTER_FRONT
-            ) if enemy_data else Position.ENEMY_CENTER_FRONT
+            enemy_data = self._get_enemy_entry(sel["enemy_id"])
+            enemy_pos = self._enemy_pos_of(enemy_data)
 
             from src.utils.batch_simulator import BatchSimulator
 
@@ -529,7 +690,15 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
 
     def _create_tactical_enemy(self, enemy_data: Dict, bf: BattlefieldState) -> Optional[UnitState]:
-        """创建战术演习敌方单位"""
+        """创建战术演习敌方单位。
+
+        `enemy_data` 有两种来源：
+        - 真实演习敌方：`data/tactical_exercise_enemies.json` 的条目（正 ID）
+        - 自定义木桩：负 ID 合成单位（`is_dummy=True`，见 `_refresh_dummy_enemy_data`）
+        """
+        if enemy_data.get("is_dummy") or int(enemy_data.get("enemy_id", 0)) < 0:
+            return self._create_tactical_dummy_enemy(enemy_data)
+
         pos = enemy_data.get("position", 2)
         enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_CENTER_FRONT)
 
@@ -580,6 +749,26 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             role_type=enemy_data.get("role_type", 0),
             position_type=3,
         )
+
+    def _create_tactical_dummy_enemy(self, enemy_data: Dict) -> Optional[UnitState]:
+        """创建「自定义木桩」敌方单位（负 ID）。
+
+        统一走 `dummy_factory.build_dummy_unit_state(..., enemy_style=True)`，
+        与真实演习敌方单位口径对齐：level=1、EP 上限=最大 EX 消耗、
+        技能等级 15、crit_damage 由 cfg 决定（预设给 1.5 → 0.0 额外暴伤）。
+        """
+        from src.entities_v2.dummy_factory import build_dummy_unit_state
+
+        cid = int(enemy_data["enemy_id"])
+        enemy_pos = self._enemy_pos_of(enemy_data)
+        unit = build_dummy_unit_state(
+            self.app.data_loader, cid, Side.ENEMY, enemy_pos, enemy_style=True,
+        )
+        if unit is None:
+            raise ValueError(
+                f"木桩 [{cid}] 的配置缺失（未注册或已被删除），无法作为演习敌方上场"
+            )
+        return unit
 
     def _display_results(self, sim_count, total_stages, total_turns, max_stages, losses, timeouts, score_stats=None):
         self._start_btn.config(state="normal")
@@ -693,7 +882,7 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
                     if u:
                         bf.add_unit(u)
 
-            enemy_data = self._enemy_data.get(sel["enemy_id"])
+            enemy_data = self._get_enemy_entry(sel["enemy_id"])
             if enemy_data:
                 enemy_unit = self._create_tactical_enemy(enemy_data, bf)
                 if enemy_unit:
@@ -1147,7 +1336,7 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
                         if u:
                             bf.add_unit(u)
 
-                enemy_data = self._enemy_data.get(sel["enemy_id"])
+                enemy_data = self._get_enemy_entry(sel["enemy_id"])
                 if enemy_data:
                     enemy_unit = self._create_tactical_enemy(enemy_data, bf)
                     if enemy_unit:
@@ -1280,9 +1469,9 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             for i in range(len(data.get("friends", [])), len(self.friend_slots)):
                 self._clear_slot(self.friend_slots[i])
 
-        # 加载敌方选择
+        # 加载敌方选择（真实敌方或自定义木桩负 ID）
         enemy_id = data.get("enemy_id")
-        if enemy_id is not None and enemy_id in self._enemy_data:
+        if enemy_id is not None and self._get_enemy_entry(enemy_id) is not None:
             self._on_enemy_select(enemy_id)
 
         # 加载回忆卡

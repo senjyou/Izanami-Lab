@@ -28847,5 +28847,264 @@
         }
       ]
     }
+  },
+  "110085": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 17.5
+        },
+        {
+          "level": 3,
+          "value": 18.579999923706055
+        },
+        {
+          "level": 4,
+          "value": 20.760000228881836
+        },
+        {
+          "level": 6,
+          "value": 21.850000381469727
+        },
+        {
+          "level": 7,
+          "value": 24.030000686645508
+        },
+        {
+          "level": 9,
+          "value": 25.1200008392334
+        },
+        {
+          "level": 10,
+          "value": 27.299999237060547
+        },
+        {
+          "level": 15,
+          "value": 37.099998474121094
+        }
+      ]
+    }
+  },
+  "120182": {
+    "debuff": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 25.0
+        },
+        {
+          "level": 15,
+          "value": 50.0
+        }
+      ]
+    },
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 80.0
+        },
+        {
+          "level": 3,
+          "value": 84.97000122070312
+        },
+        {
+          "level": 4,
+          "value": 94.93000030517578
+        },
+        {
+          "level": 6,
+          "value": 99.91000366210938
+        },
+        {
+          "level": 7,
+          "value": 109.86000061035156
+        },
+        {
+          "level": 9,
+          "value": 114.83999633789062
+        },
+        {
+          "level": 10,
+          "value": 124.80000305175781
+        }
+      ]
+    }
+  },
+  "120183": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 80.0
+        },
+        {
+          "level": 3,
+          "value": 84.97000122070312
+        },
+        {
+          "level": 4,
+          "value": 94.93000030517578
+        },
+        {
+          "level": 6,
+          "value": 99.91000366210938
+        },
+        {
+          "level": 7,
+          "value": 109.86000061035156
+        },
+        {
+          "level": 9,
+          "value": 114.83999633789062
+        },
+        {
+          "level": 10,
+          "value": 124.80000305175781
+        }
+      ]
+    },
+    "konran": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 70.0
+        },
+        {
+          "level": 15,
+          "value": 50.0
+        }
+      ]
+    }
+  },
+  "120184": {
+    "dmg": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 7.5
+        },
+        {
+          "level": 3,
+          "value": 7.960000038146973
+        },
+        {
+          "level": 4,
+          "value": 8.880000114440918
+        },
+        {
+          "level": 6,
+          "value": 9.34000015258789
+        },
+        {
+          "level": 7,
+          "value": 10.260000228881836
+        },
+        {
+          "level": 9,
+          "value": 10.720000267028809
+        },
+        {
+          "level": 10,
+          "value": 11.699999809265137
+        }
+      ]
+    },
+    "dmg2": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 0.0
+        },
+        {
+          "level": 10,
+          "value": 0.0
+        },
+        {
+          "level": 11,
+          "value": 7.5
+        },
+        {
+          "level": 15,
+          "value": 11.699999809265137
+        }
+      ]
+    }
+  },
+  "130188": {
+    "威力": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 80.0
+        },
+        {
+          "level": 3,
+          "value": 84.97000122070312
+        },
+        {
+          "level": 4,
+          "value": 94.93000030517578
+        },
+        {
+          "level": 6,
+          "value": 99.91000366210938
+        },
+        {
+          "level": 7,
+          "value": 109.86000061035156
+        },
+        {
+          "level": 9,
+          "value": 114.83999633789062
+        },
+        {
+          "level": 10,
+          "value": 124.80000305175781
+        }
+      ]
+    },
+    "touketsu": {
+      "interpolation_mode": 2,
+      "values": [
+        {
+          "level": 1,
+          "value": 50.0
+        },
+        {
+          "level": 10,
+          "value": 50.0
+        },
+        {
+          "level": 15,
+          "value": 75.0
+        }
+      ]
+    }
   }
 }

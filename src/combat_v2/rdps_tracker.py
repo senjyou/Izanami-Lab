@@ -134,6 +134,10 @@ class RDPSTracker:
     4. 每个乘区内按 buff 值比例归因到具体施加者
     """
 
+    # 自身施加的 buff 造成的伤害是否并入 direct_damage（True）还是留在 buff_contribution（False，历史行为）。
+    # 评估模型需要把「自我强化」算进自身输出、把「友方增益」算进净增益，故分析脚本会置 True。
+    self_buff_as_direct: bool = False
+
     def __init__(self, damage_service: 'DamageService' = None):
         self._unit_stats: Dict[str, UnitRDPSStats] = {}
         self._memory_card_stats: Dict[int, MemoryCardRDPSStats] = {}
@@ -235,25 +239,95 @@ class RDPSTracker:
         self._total_damage_to_enemies += actual_damage
         self.ensure_unit(caster.unit_id, caster.name, caster.side.value)
 
+        # ── 事件级归因钳制（D13）─────────────────────────────────────────
+        # 单次伤害事件的归因必须在物理上自洽：任何单位从「这一击」中分到的贡献，
+        # 绝对值不得超过这一击的实际伤害。子机/附魔路径在 baseline 被高估时会产生
+        # 巨额负 share，并按权重摊给某个来源（实测 123201 单场 −29M、140302 +42M，
+        # 而团队总分只有 31M）。这里在事件级做一次钳制：
+        #   缩放因子 f = min(1, actual / max|Δcontribution|)
+        #   各字段增量按 f 缩放；不足的部分记到施法者 direct（保证 Σ=actual 守恒）
+        _snap = {
+            uid: (s.direct_damage, s.buff_contribution, s.debuff_contribution, s.enchant_contribution)
+            for uid, s in self._unit_stats.items()
+        }
+
         self._track_event_header(damage_type, caster, target, actual_damage)
 
         if damage_type in ("enchant", "add_dmg", "sub_unit"):
             self._record_enchant_damage(caster, target, actual_damage, enchant_source_id, bf,
                                         ds, enchant_buff=enchant_buff,
                                         extra_type=damage_type, calc_detail=calc_detail)
+            self._clamp_event_attribution(caster, actual_damage, _snap)
             return
 
         if damage_type in ("hp_ratio", "special"):
             self._record_special_damage(caster, target, actual_damage, damage_type,
                                         calc_detail, bf, ds)
+            self._clamp_event_attribution(caster, actual_damage, _snap)
             return
 
         # 主伤害归因
         if dmg_result is None or dmg_result.calc_detail is None:
             self._add_contribution(caster.unit_id, "direct_damage", float(actual_damage))
+            self._clamp_event_attribution(caster, actual_damage, _snap)
             return
 
         self._record_main_damage(caster, target, actual_damage, dmg_result, bf, ds)
+        self._clamp_event_attribution(caster, actual_damage, _snap)
+
+    _FIELDS = ("direct_damage", "buff_contribution", "debuff_contribution", "enchant_contribution")
+
+    def _clamp_event_attribution(self, caster: 'UnitState', actual_damage: float, snap: dict) -> None:
+        """事件级归因钳制（D13）。
+
+        问题：子机/附魔路径在 baseline 被高估时会产生巨额正/负 share（实测单事件最大
+        增量 = 26× 本次伤害），按权重摊给来源后出现「某单位从一次伤害分到超过该次伤害」
+        （140302 buff +42M、队友 −29M，而团队总分 31M）。
+
+        规则（保证 Σ 各字段增量 = 本次实际伤害，且每个单位增量 ∈ [0, 本次伤害]）：
+          1) 负增量归零（负贡献不发布，避免"某角色负输出"的伪影）；
+          2) 正增量按比例缩放，使总和 = 本次实际伤害；
+          3) 若缩放后总和仍不足（正增量不足抵消失去的负值），缺口记到施法者 direct。
+        """
+        deltas = {}
+        for uid, st in self._unit_stats.items():
+            old = snap.get(uid, (0.0, 0.0, 0.0, 0.0))
+            d = [st.direct_damage - old[0], st.buff_contribution - old[1],
+                 st.debuff_contribution - old[2], st.enchant_contribution - old[3]]
+            deltas[uid] = [old, d, sum(d)]
+
+        # 1) 负增量归零
+        for uid, (old, d, total) in deltas.items():
+            if total < 0:
+                st = self._unit_stats[uid]
+                st.direct_damage, st.buff_contribution = old[0], old[1]
+                st.debuff_contribution, st.enchant_contribution = old[2], old[3]
+                deltas[uid] = [old, [0.0, 0.0, 0.0, 0.0], 0.0]
+
+        pos_total = sum(x[2] for x in deltas.values())
+        limit = float(actual_damage)
+        if pos_total <= 0:
+            # 全被削掉：整笔归施法者 direct（守恒）
+            self.ensure_unit(caster.unit_id, caster.name, caster.side.value)
+            self._unit_stats[caster.unit_id].direct_damage += limit
+            return
+
+        # 2) 只在「越界」时下缩放；未越界时把缺口记到施法者 direct（保持原分配不动）
+        if pos_total <= limit * 1.0001:
+            deficit = limit - pos_total
+            if abs(deficit) > 0.5:
+                self.ensure_unit(caster.unit_id, caster.name, caster.side.value)
+                self._unit_stats[caster.unit_id].direct_damage += deficit
+            return
+        f = limit / pos_total
+        for uid, (old, d, total) in deltas.items():
+            if total <= 0:
+                continue
+            st = self._unit_stats[uid]
+            st.direct_damage = old[0] + d[0] * f
+            st.buff_contribution = old[1] + d[1] * f
+            st.debuff_contribution = old[2] + d[2] * f
+            st.enchant_contribution = old[3] + d[3] * f
 
     # ========== 主伤害归因（方案A-精确） ==========
 
@@ -772,14 +846,38 @@ class RDPSTracker:
                 self._add_contribution(caster.unit_id, "direct_damage", share)
             return
 
+        # ── 数值保护：混合符号池的「份额爆炸」 ──────────────────────────
+        # 归因份额 = share × wᵢ / Σw。若池中同时存在正权（buff）与负权（debuff），
+        # Σw 可能接近 0，单源份额会放大到远超本次伤害（实测 140302 的 buff 归因
+        # 44M > 团队总分 30M，同时队友出现 −29M 的负值）。
+        # 处理：当 |Σw| < 25% × Σ|w|（符号严重抵消）时，退化为「整单归 |w| 最大的来源」。
+        # 该退化保持 Σ=share 守恒，且单源份额 ≤ |share|（本次伤害的 bonus 上限）。
+        _abs_total = sum(abs(v) for _, v, _ in all_sources) + abs(mark_total)
+        if _abs_total > 0 and abs(total_val) < 0.25 * _abs_total:
+            dominant = max(all_sources, key=lambda t: abs(t[1])) if all_sources else None
+            if dominant is not None and abs(share) > 0.5:
+                buff, val, kind = dominant
+                source_id = buff.source_unit_id or caster.unit_id
+                self.ensure_unit(source_id, self._get_unit_name(source_id, battlefield),
+                                 caster.side.value)
+                if self.self_buff_as_direct and kind == "buff" and source_id == caster.unit_id:
+                    self._add_contribution(caster.unit_id, "direct_damage", share)
+                else:
+                    field = contribution_field if kind == "buff" \
+                        else (debuff_contribution_field or contribution_field)
+                    self._add_contribution(source_id, field, share, detail_field, share)
+                self._track(f"    [guard] Σw={total_val:.2f} vs Σ|w|={_abs_total:.2f} → "
+                            f"整单归主源 {source_id} ({share:.1f})")
+                return
+
         for buff, val, kind in all_sources:
             contribution = share * val / total_val
             if abs(contribution) < 0.01:
                 continue
 
             # 记忆卡独立统计：只归因到回忆卡，不归因到角色（避免双重计算）
-            if buff.is_memory_buff and buff.source_skill_id:
-                card_ids = self._skill_to_card.get(buff.source_skill_id)
+            if buff.is_memory_buff:
+                card_ids = self._skill_to_card.get(buff.source_skill_id) if buff.source_skill_id else None
                 if card_ids:
                     card_field = "buff_contribution" if kind == "buff" else "debuff_contribution"
                     per_card = contribution / len(card_ids)
@@ -787,10 +885,22 @@ class RDPSTracker:
                         self._track(f"    -> card {cid} += {per_card:.1f} ({card_field})")
                         self._add_memory_card_contribution(cid, card_field, per_card)
                     continue
+                # 回忆卡 buff 但找不到 skill→card 映射：绝不能回落到"被 buff 的单位"，
+                # 否则卡片增益会被算成该角色的拐力（实测把 純夏/空っぽのアクター 的净增益抬高）。
+                # 归到合成卡 0（非角色桶），保持 Σ 守恒。
+                card_field = "buff_contribution" if kind == "buff" else "debuff_contribution"
+                self._add_memory_card_contribution(0, card_field, contribution)
+                self._track(f"    -> card 0 (unmapped) += {contribution:.1f} ({card_field})")
+                continue
 
             source_id = buff.source_unit_id or caster.unit_id
             self.ensure_unit(source_id, self._get_unit_name(source_id, battlefield),
                              caster.side.value)
+            if self.self_buff_as_direct and kind == "buff" and source_id == caster.unit_id:
+                # 自我强化：这份伤害归「自身输出」，而不是「对友方的净增益」
+                self._track(f"    -> self-buff {source_id} += {contribution:.1f} (direct_damage)")
+                self._add_contribution(caster.unit_id, "direct_damage", contribution)
+                continue
             unit_field = contribution_field if kind == "buff" \
                 else (debuff_contribution_field or contribution_field)
             self._track(f"    -> unit {source_id} += {contribution:.1f} ({unit_field})")

@@ -9135,5 +9135,106 @@
       "additional_action_point": 2,
       "additional_passive_point": 2
     }
+  },
+  "154302": {
+    "6": {
+      "character_id": 154302,
+      "rarity": 6,
+      "additional_hp": 542,
+      "additional_attack": 392,
+      "additional_defense": 216,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.0,
+      "additional_action_point": 1,
+      "additional_passive_point": 0
+    },
+    "7": {
+      "character_id": 154302,
+      "rarity": 7,
+      "additional_hp": 1084,
+      "additional_attack": 784,
+      "additional_defense": 432,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.0,
+      "additional_action_point": 1,
+      "additional_passive_point": 1
+    },
+    "8": {
+      "character_id": 154302,
+      "rarity": 8,
+      "additional_hp": 1626,
+      "additional_attack": 1176,
+      "additional_defense": 648,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.0,
+      "additional_action_point": 1,
+      "additional_passive_point": 1
+    },
+    "9": {
+      "character_id": 154302,
+      "rarity": 9,
+      "additional_hp": 2168,
+      "additional_attack": 1568,
+      "additional_defense": 864,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.0,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    },
+    "10": {
+      "character_id": 154302,
+      "rarity": 10,
+      "additional_hp": 2602,
+      "additional_attack": 1882,
+      "additional_defense": 1037,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.009999999776482582,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    },
+    "11": {
+      "character_id": 154302,
+      "rarity": 11,
+      "additional_hp": 3036,
+      "additional_attack": 2196,
+      "additional_defense": 1210,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.019999999552965164,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    },
+    "12": {
+      "character_id": 154302,
+      "rarity": 12,
+      "additional_hp": 3470,
+      "additional_attack": 2510,
+      "additional_defense": 1383,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.029999999329447746,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    },
+    "13": {
+      "character_id": 154302,
+      "rarity": 13,
+      "additional_hp": 3904,
+      "additional_attack": 2824,
+      "additional_defense": 1556,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.03999999910593033,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    },
+    "14": {
+      "character_id": 154302,
+      "rarity": 14,
+      "additional_hp": 4338,
+      "additional_attack": 3138,
+      "additional_defense": 1729,
+      "additional_speed": 0,
+      "additional_crit_rate": 0.05000000074505806,
+      "additional_action_point": 2,
+      "additional_passive_point": 2
+    }
   }
 }
