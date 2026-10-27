@@ -4,6 +4,17 @@ from ...entities_v2.unit_state import UnitState, BuffState
 from ...entities_v2.enums import SkillEffectType, AuraUpdateTiming, AuraType
 from ..battle_logger import battle_logger
 
+def _expiry_buff_key(buff) -> str:
+    """返回用于联动判定的 buff key：effect_type 或 name（小写不敏感）。
+
+    153301 AS2 120189 的盾在数据里 effect_type 已是 "Shield"，但既有配置可能用
+    name 承载联动标记，两处都取以确保命中。
+    """
+    et = str(getattr(buff, 'effect_type', '') or '')
+    nm = str(getattr(buff, 'name', '') or '')
+    return et or nm
+
+
 _log = battle_logger()
 
 class AuraService:
@@ -473,6 +484,16 @@ class AuraService:
         unit.debuffs = [b for b in unit.debuffs if b.duration != 0]
         self._sync_stun_freeze_flags(unit)
 
+        # ダメージリンクの「buff と同時に消滅」联动（153301 AS2 120189）
+        # 「ダメージリンクとデフ無効バッフは解除不可だが、シールドと同時に消滅する」：
+        # DamageLinkEntry 独立于 buff/debuff 存储，不参与 _update_damage_link_durations 之外的清理，
+        # 因此这里按 linked_buff_id 显式联动：
+        #   - 持有者上与之同源（source_skill_id + source_unit_id）的同名 buff 全部消失时，
+        #     清除该持有者上同名 link，并按 link_id 同步清除 partner 侧成对条目。
+        # linked_buff_id 为空 = 不联动（既有 damage_link 全部维持原行为）。
+        if (expired_buffs or expired_debuffs) and unit.damage_links:
+            self._cascade_linked_damage_links(unit, expired_buffs + expired_debuffs, all_units)
+
         # 检查联动buff消失
         for removed_buff in expired_buffs + expired_debuffs:
             if removed_buff.linked_buff_id:
@@ -573,6 +594,77 @@ class AuraService:
         return total
 
     # ========== 内部逻辑 ==========
+
+    def _cascade_linked_damage_links(self, unit: UnitState, expired_auras: List[BuffState],
+                                     all_units: Optional[List[UnitState]] = None) -> None:
+        """当指定 buff/debuff 消失时，联动清除持有者上 linked_buff_id 匹配的 damage_link。
+
+        用于 153301 AS2 120189：「ダメージリンクとデフ無効バッフは解除不可だが、シールドと同時に消滅する」。
+        DamageLinkEntry 是独立存储（不在 buffs/debuffs 里），原先只能靠 duration 递减或单位死亡清除，
+        无法表达「随盾消失」。
+
+        判定口径（**按同一技能来源精确级联**，用户裁定）：
+          - 仅当该持有者身上**已不存在**任何同源（source_skill_id + source_unit_id）且
+            effect_type/name 命中 linked_buff_id 的 buff 时才清除 link，
+            避免消除「同名但来自其他技能」的盾时误清本 link。
+          - 双向成对：outgoing 在受保护味方身上，incoming 在施法者身上，
+            双方共享同一 link_id。施法者侧盾消失时，本方法会按 link_id 同步清除
+            partner 侧条目（只清一侧会残留断链，见 153301 测试用例）。
+        """
+        # 本批过期里，与需要联动清除的 link 对应的 (source_skill_id, source_unit_id) 与 buff key
+        expiry_sources = set()
+        for e in expired_auras:
+            _ek = _expiry_buff_key(e)
+            if _ek:
+                expiry_sources.add((_ek, e.source_skill_id, e.source_unit_id))
+        if not expiry_sources:
+            return
+
+        def _pending_for(holder):
+            """持有者上 linked_buff_id 命中且对应 buff 已不在场的 link。"""
+            out = set()
+            for dl in getattr(holder, 'damage_links', []) or []:
+                lk = getattr(dl, 'linked_buff_id', '') or ''
+                if not lk:
+                    continue
+                if (lk, dl.source_skill_id, dl.source_unit_id) not in expiry_sources:
+                    continue
+                # 持有者上仍存在同源同名 buff → 不清（其他技能的同名盾还在）
+                still = any(
+                    _expiry_buff_key(b) == lk
+                    and b.source_skill_id == dl.source_skill_id
+                    and b.source_unit_id == dl.source_unit_id
+                    for b in holder.buffs + holder.debuffs
+                )
+                if still:
+                    continue
+                out.add(dl.link_id)
+            return out
+
+        # 施法者（持盾方）自身
+        removed_ids = _pending_for(unit)
+        # 双向成对：另一侧（被保护味方）身上同 link_id 的 outgoing 条目也要清
+        partners = {dl.partner_unit_id for dl in unit.damage_links}
+        for other in (all_units or []):
+            if other.unit_id == unit.unit_id:
+                continue
+            if other.unit_id not in partners:
+                continue
+            other_ids = _pending_for(other)
+            if not other_ids:
+                continue
+            keep = [d for d in other.damage_links if d.link_id not in other_ids]
+            if len(keep) != len(other.damage_links):
+                other.damage_links = keep
+                removed_ids |= other_ids
+                _log.info("[DAMAGE_LINK_EXPIRE] %s: %d paired damage_link(s) cleared "
+                          "(partner of %s)", other.name, len(other_ids), unit.name)
+
+        if removed_ids:
+            unit.damage_links = [d for d in unit.damage_links if d.link_id not in removed_ids]
+            _log.info("[DAMAGE_LINK_EXPIRE] %s: %d linked damage_link(s) cleared (with %s)",
+                      unit.name, len(removed_ids),
+                      ", ".join(sorted(s0 for s0, _, _ in expiry_sources)))
 
     def _sync_stun_freeze_flags(self, unit: UnitState):
         """根据当前debuffs同步眩晕/冻结/混乱/幻惑/暗闇标志位"""

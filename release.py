@@ -18,6 +18,7 @@ import os
 import json
 import hashlib
 import zipfile
+import time
 from pathlib import Path
 from datetime import datetime
 from collections import OrderedDict
@@ -26,6 +27,88 @@ SCRIPT_DIR = Path(__file__).parent
 DIST_DIR = SCRIPT_DIR / "dist"
 APP_NAME = "Izanami Lab"
 REPOSITORY = "senjyou/Izanami-Lab"
+GH_EXE = r'C:\Program Files\GitHub CLI\gh.exe'
+
+# ── 网络重试 ──────────────────────────────────────────────
+# 实测事故（v1.1.2.3）：`gh release create` 报
+#   "error checking for existing release: Head https://api.github.com/
+#    repos/.../releases/tags/vX: net/http: TLS handshake timeout"
+# 该步直接 sys.exit，release 从未被创建（tag/资产全无），只能手工重传。
+# 这类失败是瞬时网络问题，重试即可成功，故在**网络命令**上加重试。
+NETWORK_ATTEMPTS = 4         # 总尝试次数（含首次）
+NETWORK_BACKOFF = 5          # 首次退避秒数，之后每次翻倍：5/10/20
+
+# 判定为「瞬时网络故障」的关键字（小写匹配）。
+# 只对这些做重试：语义性错误（参数错/权限不足/tag 已存在）重试没有意义，
+# 且盲目重试可能造成重复副作用。
+NETWORK_ERROR_MARKERS = (
+    'tls handshake timeout',
+    'net/http',
+    'timeout',
+    'timed out',
+    'connection reset',
+    'connection refused',
+    'connection aborted',
+    'connection attempt failed',
+    'could not resolve host',
+    'failed to connect',
+    'temporary failure in name resolution',
+    'unexpected eof',
+    'eof occurred',
+    'broken pipe',
+    'server error',
+    '502 bad gateway',
+    '503 service unavailable',
+    '504 gateway timeout',
+    'the read operation timed out',
+    'ssl',
+)
+
+
+def is_network_error(text: str) -> bool:
+    """判断命令输出是否是瞬时网络故障（可安全重试）。"""
+    if not text:
+        return False
+    low = text.lower()
+    return any(m in low for m in NETWORK_ERROR_MARKERS)
+
+
+def run_with_retry(cmd, cwd=None, attempts=None, backoff=None, label=None):
+    """运行命令；仅对**瞬时网络故障**自动重试。
+
+    返回 CompletedProcess（stdout/stderr 已按 utf-8 解码，失败为 ''）。
+    非网络错误立即返回，由调用方决定如何处理（避免掩盖真实错误）。
+    """
+    attempts = attempts or NETWORK_ATTEMPTS
+    backoff = NETWORK_BACKOFF if backoff is None else backoff
+    name = label or (cmd if isinstance(cmd, str) else ' '.join(cmd))
+    # git 命令以字符串形式传入（含 shell 语法），列表形式（gh）不能走 shell
+    use_shell = isinstance(cmd, str)
+    last = None
+    for i in range(1, attempts + 1):
+        res = subprocess.run(cmd, shell=use_shell, cwd=cwd, capture_output=True,
+                             text=True, encoding='utf-8', errors='replace')
+        if res.returncode == 0:
+            if i > 1:
+                print(f"  [重试成功] 第 {i}/{attempts} 次尝试成功")
+            return res
+        last = res
+        blob = f"{res.stderr or ''}\n{res.stdout or ''}"
+        if not is_network_error(blob):
+            return res                      # 非网络问题：立即返回，不重试
+        if i < attempts:
+            wait = backoff * (2 ** (i - 1))
+            print(f"  [网络重试] 第 {i}/{attempts} 次失败：{_short(blob)}")
+            print(f"  等待 {wait}s 后重试...")
+            time.sleep(wait)
+    print(f"  [网络重试] 已尝试 {attempts} 次仍失败：{_short(name)}")
+    return last
+
+
+def _short(text: str, limit: int = 160) -> str:
+    """压缩成一行短摘要，用于进度提示。"""
+    one = ' '.join((text or '').split())
+    return one[:limit] + ('...' if len(one) > limit else '')
 
 # Feature 分类
 FEATURE_CATEGORIES = OrderedDict([
@@ -70,13 +153,16 @@ def find_forbidden_tracked_dirs(tracked_text: str) -> list:
     })
 
 
-def run_cmd(cmd, cwd=None):
+def run_cmd(cmd, cwd=None, retry_network=False):
     """运行命令并返回结果
 
     encoding='utf-8' 是必需的，原因见下方注释。
     另外这里**不再只依赖 returncode**：若子进程的 reader 线程仍然解码失败
     （例如未来换用别的 encoding 又被绕过），stdout/stderr 会变成 None，
     此时显式报错退出，避免"命令失败却被当成成功"继续往下发布。
+
+    retry_network=True 时仅对瞬时网络故障重试（用于 git pull / git push 等
+    联网命令）；本地命令保持原样，避免对非幂等操作做无意义重试。
     """
     print(f"  执行: {cmd}")
     # 注意: 必须显式指定 encoding='utf-8'。
@@ -88,8 +174,11 @@ def run_cmd(cmd, cwd=None):
     # 使得 returncode 检查形同虚设。典型触发点：core.autocrlf=true 时
     # `git add` 对含中文文件名的工作区文件打印
     # "LF will be replaced by CRLF" 警告，警告里的路径是原样 UTF-8。
-    result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True,
-                            text=True, encoding='utf-8', errors='replace')
+    if retry_network:
+        result = run_with_retry(cmd, cwd=cwd, label=cmd)
+    else:
+        result = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True,
+                                text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
         print(f"  错误: {result.stderr}")
         sys.exit(result.returncode)
@@ -437,10 +526,10 @@ def main():
         run_cmd(f'git commit -m "{commit_msg.replace(chr(34), chr(34)+chr(34))}"', cwd=SCRIPT_DIR)
 
     print("  拉取远程更新...")
-    run_cmd("git pull --rebase", cwd=SCRIPT_DIR)
+    run_cmd("git pull --rebase", cwd=SCRIPT_DIR, retry_network=True)
 
     print("  推送到 GitHub...")
-    run_cmd("git push", cwd=SCRIPT_DIR)
+    run_cmd("git push", cwd=SCRIPT_DIR, retry_network=True)
 
     # 7. 打包构建
     print("\n[4/7] 打包构建...")
@@ -488,21 +577,7 @@ def main():
     assets = [str(zip_path), str(manifest_path)]
     print(f"  上传资产: {len(assets)} 个文件")
 
-    # 使用 gh CLI 创建 Release
-    gh_cmd = [
-        'C:\\Program Files\\GitHub CLI\\gh.exe', 'release', 'create',
-        version,
-        *assets,
-        '--title', version,
-        '--notes-file', str(notes_file),
-        '--repo', REPOSITORY,
-    ]
-    result = subprocess.run(gh_cmd, capture_output=True, text=True,
-                            encoding='utf-8', errors='replace')
-    if result.returncode != 0:
-        print(f"  错误: {result.stderr}")
-        sys.exit(result.returncode)
-    print(f"  Release: {result.stdout.strip()}")
+    create_release_with_retry(version, assets, notes_file)
 
     print(f"\n{'='*60}")
     print(f"  发布完成!")
@@ -510,6 +585,70 @@ def main():
     print(f"  Release: https://github.com/{REPOSITORY}/releases/tag/{version}")
     print(f"  热更新文件: {file_count} 个")
     print(f"{'='*60}")
+
+
+def _gh(args, attempts=None):
+    """调用 gh CLI（UTF-8 解码，网络故障自动重试）。"""
+    return run_with_retry([GH_EXE, *args], attempts=attempts,
+                          label='gh ' + ' '.join(args[:2]))
+
+
+def release_exists(version: str) -> bool:
+    """Release 是否已存在（查询失败时保守返回 False，让 create 自己报错）。"""
+    res = _gh(['release', 'view', version, '--repo', REPOSITORY], attempts=3)
+    return res.returncode == 0
+
+
+def create_release_with_retry(version: str, assets: list, notes_file: Path):
+    """创建 Release 并上传资产，对瞬时网络故障自动重试。
+
+    为什么不能简单重跑 `gh release create`：
+      `gh release create` **不是幂等** 的。若上一次尝试其实已把 release 建好、
+      只是在上传资产/查 tag 阶段断网，直接再 create 会报
+      "release already exists" 而中止，资产仍然缺失。
+    因此这里：先查 Release 是否存在 ——
+      不存在 -> `gh release create`（带资产）
+      已存在 -> `gh release upload --clobber` 补齐/覆盖资产（幂等）
+    两者内部都靠 run_with_retry 扛住 TLS 握手超时这类瞬时故障。
+    """
+    create_args = ['release', 'create', version, *assets,
+                   '--title', version,
+                   '--notes-file', str(notes_file),
+                   '--repo', REPOSITORY]
+
+    if release_exists(version):
+        print(f"  Release {version} 已存在，改为补齐/覆盖资产（upload --clobber）")
+        res = _gh(['release', 'upload', version, *assets,
+                   '--repo', REPOSITORY, '--clobber'])
+        if res.returncode != 0:
+            print(f"  错误: {res.stderr}")
+            print(f"  提示: Release 已创建，仅资产上传失败。可手工补齐：")
+            print(f'    gh release upload {version} {" ".join(assets)} '
+                  f'--repo {REPOSITORY} --clobber')
+            sys.exit(res.returncode)
+        print(f"  Release: https://github.com/{REPOSITORY}/releases/tag/{version}")
+        return
+
+    res = _gh(create_args)
+
+    # create 期间若恰好被别处抢先创建，退回 upload 补齐
+    if res.returncode != 0 and 'already exists' in (res.stderr or '').lower():
+        print(f"  Release {version} 已被创建，改为补齐/覆盖资产")
+        res = _gh(['release', 'upload', version, *assets,
+                   '--repo', REPOSITORY, '--clobber'])
+        if res.returncode == 0:
+            print(f"  Release: https://github.com/{REPOSITORY}/releases/tag/{version}")
+            return
+
+    if res.returncode != 0:
+        print(f"  错误: {res.stderr}")
+        # 关键提示：让用户不必重跑整个发布（build 很慢）
+        print(f"  提示: 代码已推送，仅 Release 创建/上传失败（网络问题）。")
+        print(f"  可直接重跑本脚本同版本号来补齐，或手工执行：")
+        print(f'    gh release create {version} {" ".join(assets)} '
+              f'--title {version} --notes-file "{notes_file}" --repo {REPOSITORY}')
+        sys.exit(res.returncode)
+    print(f"  Release: {res.stdout.strip()}")
 
 
 if __name__ == "__main__":

@@ -72,6 +72,11 @@ class BuffState:
     confusion_proxy_atk_pct: float = 0.0  # 混乱专用: 代理数值百分比（如10表示ATK×10%替代ATK-DEF）
     sub_unit_link_group: str = ""  # [GAME_BUG_SIMULATION] 跨目标联动失效: 同一次技能(如110050)创建的多个子機共享同一link_group，任一失效时其余同步失效
     source_death_remove: bool = False  # 付与者死亡时清除: 施法者被击败时此buff/debuff自动消失（如130161 PS1 def_down「防御デバフは付与者が倒れると解除される」）
+    # 层数盾(layer shield)专用: 同一次施放产生的「盾层 + 联动buff」共享同一个 layer_group。
+    # 一次施放 = 1层；受到攻击时只消耗 1 个 layer_group（剩余层保留）。
+    # 如 152301 AS2 120187「シールドは1回攻撃を受けると消滅する」+「会心率/会心ダメージbuffは
+    # シールドと同時に消滅する」→ 盾buff与crt/crtdmg buff共享 layer_group，同组一起消失。
+    layer_group: str = ""
 
 
 @dataclass
@@ -97,6 +102,10 @@ class DamageLinkEntry:
     duration: int = -1  # 持续时间，-1=永久
     duration_type: str = ""  # "action"/"turn"/""，空=永久
     just_applied: bool = False  # 当次行动新施加标记，process_maneuver_end跳过递减
+    # 联动消失：当持有者身上「同名/同 effect_type」的 buff 消失时，此 link 一并清除。
+    # 用于 153301 AS2 120189「ダメージリンクとデフ無効バッフは解除不可だが、シールドと同時に消滅する」
+    # （= "Shield"）。空字符串表示不联动。
+    linked_buff_id: str = ""
 
 
 from .enums import UnitActionPhase

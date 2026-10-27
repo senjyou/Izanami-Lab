@@ -346,6 +346,18 @@
       "name_ruby": "いーにぁ&くりすか",
       "team_id": 804,
       "team_name": "New World, New Dawn"
+    },
+    "153": {
+      "name": "フィカーツィア・ラトロワ",
+      "name_ruby": "ふぃかーつぃあらとろわ",
+      "team_id": 804,
+      "team_name": "New World, New Dawn"
+    },
+    "152": {
+      "name": "崔亦菲",
+      "name_ruby": "ついいーふぇい",
+      "team_id": 804,
+      "team_name": "New World, New Dawn"
     }
   },
   "character_variants": {
@@ -736,6 +748,18 @@
     "154": [
       {
         "character_id": 154302,
+        "rarity": "N/A"
+      }
+    ],
+    "153": [
+      {
+        "character_id": 153301,
+        "rarity": "N/A"
+      }
+    ],
+    "152": [
+      {
+        "character_id": 152301,
         "rarity": "N/A"
       }
     ]

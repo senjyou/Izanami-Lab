@@ -35,6 +35,9 @@ TRIGGER_TYPE_MAP: Dict[str, TriggerTiming] = {
     "on_kill": TriggerTiming.PAWN_KILLED,
     "on_any_kill": TriggerTiming.PAWN_ANY_KILL,
     "on_critical": TriggerTiming.PAWN_CAUSED_CRITICAL,
+    # 「味方（同陣営、自身を含む）の攻撃が会心攻撃になるたびに発動」
+    # （152301 PS1 130192「ご指名」状態の敵への味方の攻撃が会心攻撃になるたびに発動）
+    "on_ally_critical": TriggerTiming.PAWN_CAUSED_CRITICAL,
     "on_debuff_applied": TriggerTiming.PAWN_RECEIVED_AURA,
     "on_hp_below": TriggerTiming.HP_BELOW,
     "on_skill_use_count": TriggerTiming.SKILL_USE_COUNT,
@@ -1342,6 +1345,11 @@ class TriggerService:
         if timing == TriggerTiming.PAWN_CAUSED_CRITICAL:
             if context.actor is None:
                 return False
+            # on_ally_critical: 「味方の攻撃が会心になった」事象。同陣営（自身を含む）の
+            # 暴击者なら発動する（152301 PS1 130192「ご指名」）。
+            # 自身の暴击も「味方の攻撃」に含む（AS1 自身の暴击で直接 PS1 が発動する）。
+            if trigger_type == "on_ally_critical":
+                return owner.side == context.actor.side
             return owner.unit_id == context.actor.unit_id
 
         if timing == TriggerTiming.PAWN_RECEIVED_AURA:

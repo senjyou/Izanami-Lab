@@ -107,6 +107,8 @@ The simulator currently supports a limited set of characters. More will be added
 | 隣歩む想い          | 桃園める         |
 | スカーレット・ツイン     | イーニァ＆クリスカ    |
 | 歩む先に新たな日常を     | コトハ          |
+| 氷の魔女           | フィカーツィア・ラトロワ |
+| 暴風小隊長          | 崔亦菲          |
 
 ## Tactical Exercise Enemies
 

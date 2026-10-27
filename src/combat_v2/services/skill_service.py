@@ -150,6 +150,7 @@ class SkillService:
         self._current_block_id: int = 0  # 当前正在执行的 block_id
         self._current_attack_targets: List[UnitState] = []  # 当前AS技能攻击的所有目标（用于PS cover效果选择）
         self._current_skill_id: int = 0
+        self._current_layer_group: str = ""  # 层数盾: 当前施放中の盾层组id（同组buff一起消失）
         self._trigger_total_damage: int = 0  # 触发PS的技能总伤害（用于total_damage_le条件）
         self._current_skill_priority: Optional[int] = None
         self._last_damage_hp_before: Dict[str, int] = {}
@@ -358,6 +359,9 @@ class SkillService:
             # 保存外层技能的_current_skill_id，防止内层execute_skill覆盖
             saved_current_skill_id = self._current_skill_id
 
+            # 保存外层技能的_current_layer_group（层数盾），防止内层execute_skill清空
+            saved_layer_group = getattr(self, '_current_layer_group', '')
+
             # 保存外层技能的_before_attack_triggers_fired，防止内层execute_skill重置
             saved_before_attack_fired = self._before_attack_triggers_fired
 
@@ -463,6 +467,9 @@ class SkillService:
 
             # 恢复外层技能的_current_skill_id
             self._current_skill_id = saved_current_skill_id
+
+            # 恢复外层技能的_current_layer_group（层数盾）
+            self._current_layer_group = saved_layer_group
 
             # 恢复外层技能的_before_attack_triggers_fired
             self._before_attack_triggers_fired = saved_before_attack_fired
@@ -775,6 +782,22 @@ class SkillService:
                 return False
             _log.info("[SKILL_GC] %s: [%s] targets_exist: target_type=%s has %d candidates, allow",
                       caster.name, skill_name, first_damage_target_type, len(_candidates))
+        elif gc_type == 'ally_alive_count':
+            # 按施法者自身阵营统计存活数（153301 AS1 120188「生存している味方が5人以上の場合、
+            # このスキルは発動しない」→ {type, operator: "<=", value: 4}）。
+            # 与 trigger_service._check_condition 的同名分支口径一致（按 owner 自身阵营，非固定 friend_team）。
+            from src.entities_v2.enums import Side as _SideGC3
+            _ally_team_gc = (battlefield.friend_team if caster.side == _SideGC3.ALLY
+                             else battlefield.enemy_team)
+            _alive_ally_gc = sum(1 for u in _ally_team_gc if u.is_alive)
+            _gc_op3 = gc.get('operator', '>=')
+            _gc_val3 = gc.get('value', 0)
+            if not _eval_block_condition(_alive_ally_gc, _gc_op3, _gc_val3):
+                _log.info("[SKILL_GC] %s: [%s] ally_alive_count %d %s %s not met, blocked",
+                          caster.name, skill_name, _alive_ally_gc, _gc_op3, _gc_val3)
+                return False
+            _log.info("[SKILL_GC] %s: [%s] ally_alive_count %d %s %s, allow",
+                      caster.name, skill_name, _alive_ally_gc, _gc_op3, _gc_val3)
         elif gc_type == 'enemy_alive_count':
             # 生存している敵がN体未満の場合、このスキルは発動しない
             # （102303 コンクルージョン・ブラスト120169: 敵存活>=3才可发动）
@@ -987,6 +1010,7 @@ class SkillService:
         self._on_crit_effects = []  # 收集on_crit块的效果结果
         self._deferred_on_crit_targets = []  # 延迟执行的on_crit目标列表
         self._current_skill_id = skill_id
+        self._current_layer_group = ""  # 层数盾: 本次技能施放产生的盾层组id（空=未开启新层）
         self._pending_crit_triggers = []
         self._before_attack_triggers_fired = False  # 每个技能重置：只在第一个伤害效果前触发before_attack
         self._skill_evaded_targets = set()  # 技能级别：所有block中完全闪避的目标集合
@@ -1173,6 +1197,8 @@ class SkillService:
                                     "enemy_single_lowest_def",
                                     "enemy_single_highest_mark_count",
                                     "enemy_single_lowest_mark_count",
+                                    # 「最も会心率の高い敵単体」（152301 EX 110087）
+                                    "enemy_single_highest_crit_rate",
                                     "enemy_column_furthest", "enemy_column_mark_priority", "enemy_column_highest_atk",
                                     "enemy_column_highest_hp_ratio",
                                     "enemy_column_highest_damage_dealt",
@@ -2643,7 +2669,7 @@ class SkillService:
                         else:
                             # 默认索敌逻辑
                             # For highest_atk/highest_spd/furthest, get ALL candidates first then filter
-                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_en_priority" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_single_lowest_mark_count" or effect.target_type == "enemy_single_lowest_def" or effect.target_type == "enemy_single_lowest_hp" or effect.target_type == "enemy_single_highest_hp" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_highest_hp_ratio" or effect.target_type == "enemy_column_highest_damage_dealt" or effect.target_type == "enemy_column_lowest_mark_count"):
+                            if effect.target_type and (effect.target_type == "enemy_single_highest_atk" or effect.target_type == "enemy_single_highest_spd" or effect.target_type == "enemy_single_lowest_spd" or effect.target_type == "enemy_single_furthest" or effect.target_type == "enemy_single_highest_ep" or effect.target_type == "enemy_single_highest_hp_ratio" or effect.target_type == "enemy_single_highest_hp_ratio_en_priority" or effect.target_type == "enemy_single_highest_current_hp" or effect.target_type == "enemy_single_highest_max_hp" or effect.target_type == "enemy_single_highest_hp_ratio_back_priority" or effect.target_type == "enemy_single_lowest_hp_ratio" or effect.target_type == "enemy_single_lowest_max_hp" or effect.target_type == "enemy_single_highest_mark_count" or effect.target_type == "enemy_single_lowest_mark_count" or effect.target_type == "enemy_single_lowest_def" or effect.target_type == "enemy_single_lowest_hp" or effect.target_type == "enemy_single_highest_hp" or effect.target_type == "enemy_single_highest_crit_rate" or effect.target_type == "enemy_column_furthest" or effect.target_type == "enemy_column_mark_priority" or effect.target_type == "enemy_column_highest_atk" or effect.target_type == "enemy_column_highest_hp_ratio" or effect.target_type == "enemy_column_highest_damage_dealt" or effect.target_type == "enemy_column_lowest_mark_count"):
                                 all_candidates_skill_obj = type('obj', (object,), {
                                     'display_target_type': self._resolve_target_type(effect.target_type),
                                     'display_target_range': self._resolve_target_range("enemies"),  # get all enemies
@@ -2754,6 +2780,21 @@ class SkillService:
                         best_spd = self.damage_service._calculate_final_stat(best, "speed") if self.damage_service else best.speed
                         _log.info("[SKILL_EXEC] %s: highest_spd filter -> %s (spd=%d)",
                                   caster.name, best.name, best_spd)
+                    elif effect.target_type == "enemy_single_highest_crit_rate" and dmg_targets:
+                        # 「最も会心率の高い敵単体」（152301 EX 110087
+                        # 「滾らせてちょうだい！」）。会心率はbuff込みの即時値。
+                        best = self.target_service.select_max_with_stealth(
+                            dmg_targets,
+                            key_func=lambda u: (self.damage_service._calculate_crit_rate(u)
+                                                if self.damage_service else u.crit_rate),
+                            consume=True
+                        )
+                        dmg_targets = [best] if best else []
+                        self._block_damage_targets[effect.target_type] = dmg_targets
+                        _best_crit = (self.damage_service._calculate_crit_rate(best)
+                                      if self.damage_service else best.crit_rate)
+                        _log.info("[SKILL_EXEC] %s: highest_crit_rate filter -> %s (crit=%.4f)",
+                                  caster.name, best.name, _best_crit)
                     elif effect.target_type and "lowest_spd" in effect.target_type and dmg_targets:
                         best = self.target_service.select_min_with_stealth(
                             dmg_targets,
@@ -3369,6 +3410,20 @@ class SkillService:
                                         if debuff.attack_limited <= 0:
                                             unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
                                             _log.info("[ATTACK_LIMITED] %s: caster debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
+
+        # 層数盾(layer shield): 1回の攻撃につき1层だけ消費する。
+        # 「シールドは1回攻撃を受けると消滅する」を「多层时也仅掉1层、剩余层保留」で実装。
+        # 完全闪避された場合は「攻撃を受けていない」ため消費しない（attack_limited と同口径）。
+        if attacked_unit_ids:
+            for unit in battlefield.get_all_units():
+                if not unit.is_alive:
+                    continue
+                if unit.unit_id not in attacked_unit_ids:
+                    continue
+                if unit.unit_id in fully_evaded_unit_ids:
+                    _log.info("[SHIELD_LAYER] %s fully evaded, shield layer will NOT be consumed", unit.name)
+                    continue
+                self._consume_one_shield_layer(unit)
 
         # 延迟阵亡判定：技能完整结算后，统一设置 is_alive=False
         if self._pending_deaths:
@@ -4671,6 +4726,7 @@ class SkillService:
                     target.physical_shield = 0
 
             if shield_portion > 0 and target.shield > 0:
+                _layer_gen_before = target.shield
                 if shield_portion <= target.shield:
                     shield_absorbed += shield_portion
                     target.shield -= shield_portion
@@ -4679,6 +4735,8 @@ class SkillService:
                     shield_absorbed += target.shield
                     shield_portion -= target.shield
                     target.shield = 0
+                # 层数盾: 各层残留盾量同步扣减（多层共存时按层计账）
+                self._deduct_shield_layer_amount(target, _layer_gen_before - target.shield)
 
             # Sub-unit HP consumption: after normal shields, before HP damage
             # Only for non-piercing damage (poison/burn are handled separately)
@@ -4708,6 +4766,7 @@ class SkillService:
                     target.shield -= 1
                     shield_absorbed += 1
                     min_absorbed = True
+                    self._deduct_shield_layer_amount(target, 1)
                 # 子单位 HP 仍可吸收这1点最低伤害（与原伤害吸收顺序一致：盾→子单位→HP）
                 if not min_absorbed:
                     sub_unit_buffs_min = [b for b in target.buffs
@@ -4948,7 +5007,8 @@ class SkillService:
             )
 
         # 暴击延迟触发器收集
-        if dmg_result.is_critical and self.trigger_service and not self._recursion_guard:
+        if (dmg_result.is_critical and self.trigger_service
+                and not self._recursion_guard and not self._crit_trigger_suppressed()):
             # 按暴击hit数累加，而非每个目标只算1次
             crit_hit_count = sum(1 for c in dmg_result.hit_crits if c) if dmg_result.hit_crits else 1
             # 暴击目标を同時に記録（PS 130096等のon_critical PSがcrit_targetを使用するため）
@@ -5833,6 +5893,84 @@ class SkillService:
 
         return reflect_transfers
 
+    def _crit_trigger_suppressed(self) -> bool:
+        """执行中の技能が suppress_own_crit_triggers を持つ場合、その伤害暴击を
+        暴击触发器として登録しない。
+
+        152301 PS1 130192「やるじゃない、乗ったわ！」のため：
+        「ご指名」状態の敵への味方の攻撃が会心になるたびに自身が追撃するが、
+        追撃そのものが会心になると再び自分自身の追撃を呼んでしまい、
+        フルクリティカル時に無限追撃になる。そのため PS1 自身の暴击は
+        トリガーとして登録しない（AS1 等その他スキルの暴击は従来どおり登録される）。
+        """
+        sid = self._current_skill_id
+        if not sid or not self.data_loader:
+            return False
+        try:
+            parsed = self.data_loader.get_parsed_skill_data(sid)
+        except Exception:
+            return False
+        return bool(parsed.get('suppress_own_crit_triggers')) if parsed else False
+
+    # ==================== 层数盾(layer shield) ====================
+    # 152301 AS2 120187「次ッ！次ッ！まとめて次ッ！」Lv11+:
+    #   「自身に対し最大HP×25%のシールドを付与し…シールドは1回攻撃を受けると消滅する」
+    # AS冷却0のため盾は何层でも重なる。1回の攻撃で消費されるのは
+    #   **1层のみ** で、残りの层は保持される（用户指定）。
+    # 各层は layer_group で「盾buff + 会心率/会心ダメージbuff」を束ね、
+    # 消耗时は同组をまとめて落とす（「バフはシールドと同時に消滅する」）。
+
+    def _deduct_shield_layer_amount(self, target: UnitState, amount: int) -> None:
+        """通用盾(shield)が吸收されたとき、各层盾buffの残留盾量を古い層から順に減算する。
+
+        层数盾では BuffState.shield_amount を「その层の残量」として維持し、
+        层消耗時にその残量だけ target.shield から差し引く。
+        层盾buffが無い場合は何もしない（既存キャラの挙動に影響しない）。
+        """
+        if amount <= 0:
+            return
+        remaining = amount
+        for b in list(getattr(target, 'buffs', []) or []):
+            if remaining <= 0:
+                break
+            if not getattr(b, 'layer_group', ''):
+                continue
+            if b.effect_type not in ("shield", "Shield"):
+                continue
+            cur = max(0, int(getattr(b, 'shield_amount', 0)))
+            take = min(cur, remaining)
+            if take:
+                b.shield_amount = cur - take
+                remaining -= take
+
+    def _consume_one_shield_layer(self, target: UnitState) -> bool:
+        """層数盾を1层だけ消費する。消费されたらTrue。
+
+        最早に付与された1层（buff列表顺序 = 付与顺序）を選び、その层の残留盾値だけ
+        target.shield から差し引き、同じ layer_group の buff/debuff をまとめて除去する。
+        残りの层はそのまま保持される。
+        """
+        layer_buffs = [b for b in list(getattr(target, 'buffs', []) or [])
+                       if getattr(b, 'layer_group', '')
+                       and b.effect_type in ("shield", "Shield")]
+        if not layer_buffs:
+            return False
+        victim = layer_buffs[0]
+        group = victim.layer_group
+        remaining_shield = max(0, int(getattr(victim, 'shield_amount', 0)))
+        removed_shield = 0
+        if remaining_shield > 0 and target.shield > 0:
+            removed_shield = min(remaining_shield, target.shield)
+            target.shield -= removed_shield
+        target.buffs = [b for b in target.buffs if getattr(b, 'layer_group', '') != group]
+        target.debuffs = [d for d in target.debuffs if getattr(d, 'layer_group', '') != group]
+        _layer_count = len([b for b in target.buffs
+                            if getattr(b, 'layer_group', '')
+                            and b.effect_type in ("shield", "Shield")])
+        _log.info("[SHIELD_LAYER] %s: layer consumed group=%s removed_shield=%d remaining_layers=%d (shield_total=%d)",
+                  target.name, group, removed_shield, _layer_count, target.shield)
+        return True
+
     def _apply_damage_defer_crit_triggers(self, deferred_crit_actions: list) -> None:
         """收集延迟暴击触发器到 _pending_crit_triggers（在 execute_skill 末尾统一触发）。
 
@@ -5922,6 +6060,7 @@ class SkillService:
                 remaining -= target.physical_shield
                 target.physical_shield = 0
         if remaining > 0 and target.shield > 0:
+            _layer_gen_before = target.shield
             if remaining <= target.shield:
                 shield_absorbed += remaining
                 target.shield -= remaining
@@ -5930,6 +6069,8 @@ class SkillService:
                 shield_absorbed += target.shield
                 remaining -= target.shield
                 target.shield = 0
+            # 層数盾: 各层残留盾量を同期減算
+            self._deduct_shield_layer_amount(target, _layer_gen_before - target.shield)
         return shield_absorbed, remaining
 
     def _process_enchant_damage_for_target(self, caster: UnitState, target_info: dict,
@@ -7688,6 +7829,22 @@ class SkillService:
             )
             _ = _bidir_link_map  # 占位变量保留（_build_aura_buff_state内部已处理bidir_link）
 
+            # === 层数盾(layer shield) ===
+            # flags.one_layer_per_attack=true 的盾: 每次施放生成一个新的盾层组（layer_group）。
+            # 「1回攻撃を受けると消滅する」を「1层だけ消費し、残り层は保持」で実装する。
+            # 同一次施放で付与される联动buff（会心率/会心ダメージ等）は
+            # flags.link_to_layer=true により同じ layer_group を共有し、盾层と同時に消滅する。
+            _one_layer = bool(effect_flags_aura.get('one_layer_per_attack'))
+            if _one_layer and effect.effect_type == "shield":
+                import uuid as _uuid_layer
+                self._current_layer_group = (
+                    f"shieldlayer_{caster.unit_id}_{target.unit_id}_{_uuid_layer.uuid4().hex[:8]}"
+                )
+                _log.info("[SHIELD_LAYER] %s -> %s: new shield layer group=%s",
+                          caster.name, target.name, self._current_layer_group)
+            if self._current_layer_group and (_one_layer or effect_flags_aura.get('link_to_layer')):
+                aura.layer_group = self._current_layer_group
+
             # P0-2 阶段5-2：Knockout refresh 处理独立为 _handle_knockout_refresh 方法
             # 检查目标是否已有Knockout debuff，保留duration更长的
             is_new_knockout, _should_skip_knockout = self._handle_knockout_refresh(
@@ -7756,6 +7913,12 @@ class SkillService:
             else:
                 aura_added = self.aura_service.add_aura(target, aura)
             if not aura_added:
+                # 层数盾: add_aura 被拦截(免疫/block_buffs)时回滚已加的聚合盾值，避免孤儿盾
+                if _one_layer and _shield_value_for_buff > 0:
+                    _rollback = min(_shield_value_for_buff, target.shield)
+                    target.shield -= _rollback
+                    _log.info("[SHIELD_LAYER] %s: shield layer aura blocked, rolled back %d shield (remaining=%d)",
+                              target.name, _rollback, target.shield)
                 _log.info("[AURA_APPLY] %s -> %s: SKIPPED (blocked by immunity/BlockSpecificAura)",
                           caster.name, target.name)
                 continue
@@ -8070,6 +8233,81 @@ class SkillService:
         }
         aura_details.append(aura_detail_dict)
 
+    def _select_ally_lowest_hp_ratio_element_first(
+        self,
+        caster: UnitState,
+        battlefield: BattlefieldState,
+        flags: dict,
+    ) -> List[UnitState]:
+        """「指定属性を優先し、最もHP割合が低い他の味方単体」索敌（153301 AS2 120189）。
+
+        文本：「シャイ属性を優先して最もHP割合が低い**他の**味方単体」。
+
+        与既有路径的区别（三者均不等价，故新增本方法）：
+        - `ally_single` + `lowest_hp_priority`（aura 路径）：_apply_aura 内该分支**强制含自身**
+          并对全体存活友方取最低，无法表达「他の味方」。
+        - `ally_single_lowest_hp`：按残りHP **绝对值**，本技能要求 **HP割合**。
+        - `ally_single_include_self`：只做「自身以外优先」，无属性优先、无 HP 排序。
+
+        排序：属性命中优先 → HP 比例升序（截断万分之一，与项目 HP 比例精度规则一致）
+        → 距离施法者由近及远（tiebreak）。
+
+        flags:
+            `ally_lowest_hp_ratio_element_first` = {
+                "element": 3,          # 优先属性（1火 2水 3风 4土 5光 6暗）；可改 "elements": [..]
+                "exclude_self": true,  # 默认 true（「他の味方」）
+                "target_count": 1,     # 可选，默认 1
+            }
+        """
+        _cfg = flags.get('ally_lowest_hp_ratio_element_first') or {}
+        if not isinstance(_cfg, dict):
+            _cfg = {}
+        _elements = _cfg.get('elements')
+        if _elements is None:
+            _elements = [_cfg.get('element')] if _cfg.get('element') is not None else []
+        try:
+            _elements = {int(e) for e in _elements if e is not None}
+        except (TypeError, ValueError):
+            _elements = set()
+        _exclude_self = bool(_cfg.get('exclude_self', True))
+        _take = int(_cfg.get('target_count', 1) or 1)
+
+        from src.entities_v2.enums import Side as _SideELH
+        team = (battlefield.friend_team if caster.side == _SideELH.ALLY
+                else battlefield.enemy_team)
+        others = [u for u in team if u.is_alive
+                  and (not _exclude_self or u.unit_id != caster.unit_id)]
+        if not others:
+            _log.info("[AURA_APPLY] %s: ally_lowest_hp_ratio_element_first -> no other alive ally",
+                      caster.name)
+            return []
+
+        def _hp_ratio_key(u):
+            return int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0
+
+        # 主属性/副属性任一命中即视为「属性优先」池
+        def _is_element_hit(u):
+            if not _elements:
+                return False
+            return (getattr(u, 'element', 0) in _elements
+                    or getattr(u, 'sub_element', 0) in _elements)
+
+        element_hits = [u for u in others if _is_element_hit(u)] if _elements else []
+        pool = element_hits if element_hits else others
+        if not element_hits and _elements:
+            _log.info("[AURA_APPLY] %s: ally_lowest_hp_ratio_element_first -> no ally with element %s, "
+                      "fallback to all others", caster.name, sorted(_elements))
+
+        pool.sort(key=lambda u: (_hp_ratio_key(u),
+                                 self.target_service._get_sort_key(caster, u)))
+        result = pool[:_take]
+        _log.info("[AURA_APPLY] %s: ally_lowest_hp_ratio_element_first(elements=%s, exclude_self=%s, "
+                  "pool=%d) -> %s (hp_pct=%s)",
+                  caster.name, sorted(_elements), _exclude_self, len(pool),
+                  [t.name for t in result],
+                  [f"{_hp_ratio_key(t) * 100:.1f}%" for t in result])
+        return result
+
     def _select_aura_targets(
         self,
         caster: UnitState,
@@ -8152,7 +8390,14 @@ class SkillService:
         # Use cached damage targets if available (ensures aura effects target the same unit as damage)
         cached_targets = getattr(self, '_block_damage_targets', None)
         _eff_tid = getattr(effect, 'target_identifier', None)
-        if effect.target_type == "crit_target":
+        if _aura_flags.get('ally_lowest_hp_ratio_element_first'):
+            # 153301 AS2 120189「シャイ属性を優先して最もHP割合が低い他の味方単体」
+            # 必须最先处理：该语义无法用 ally_single/lowest_hp_priority 表达（后者强制含自身）。
+            targets = self._select_ally_lowest_hp_ratio_element_first(
+                caster, battlefield, _aura_flags)
+            if not targets:
+                return None
+        elif effect.target_type == "crit_target":
             # crit_target: on_crit block中使用，指向当前暴击目标
             crit_target = getattr(self, '_on_crit_target', None)
             if crit_target and crit_target.is_alive:
@@ -8920,6 +9165,44 @@ class SkillService:
             value = value * hp_ratio
             _log.info("[AURA_APPLY] %s: HP-scaling buff hp_ratio=%.3f value %.1f -> %.1f",
                       caster.name, hp_ratio, original_value, value)
+
+        # scale_by_ally_element_count: 按「自身以外の指定属性友方の人数」缩放 value（上限あり）。
+        # 153301 PS2 130195「シャイ属性の味方の防御力を上昇させる。自身以外で編成されている
+        # シャイ属性の味方1人につき{def}%上昇させ、3人を上限とする」。
+        # 注意：缩放的是**每个目标各自获得的值**，与目标集合本身（含自身）无关。
+        _el_scale = effect_flags_aura.get('scale_by_ally_element_count')
+        if isinstance(_el_scale, dict) and value:
+            _es_elements = _el_scale.get('elements')
+            if _es_elements is None:
+                _es_elements = ([_el_scale.get('element')]
+                                if _el_scale.get('element') is not None else [])
+            try:
+                _es_elements = {int(e) for e in _es_elements if e is not None}
+            except (TypeError, ValueError):
+                _es_elements = set()
+            _es_exclude_self = bool(_el_scale.get('exclude_self', True))
+            _es_max = int(_el_scale.get('max_count', 0) or 0)
+            from src.entities_v2.enums import Side as _SideES
+            _es_team = (battlefield.friend_team if caster.side == _SideES.ALLY
+                        else battlefield.enemy_team)
+            _es_others = [
+                u for u in _es_team
+                if u.is_alive
+                and (not _es_exclude_self or u.unit_id != caster.unit_id)
+                and (not _es_elements
+                     or getattr(u, 'element', 0) in _es_elements
+                     or getattr(u, 'sub_element', 0) in _es_elements)
+            ]
+            _es_count = len(_es_others)
+            if _es_max > 0:
+                _es_count = min(_es_count, _es_max)
+            _es_before = value
+            value = value * _es_count
+            _log.info("[AURA_APPLY] %s: scale_by_ally_element_count elements=%s matched=%d%s "
+                      "value %.1f -> %.1f",
+                      caster.name, sorted(_es_elements), _es_count,
+                      (f" (capped at {_es_max})" if _es_max > 0 else ""),
+                      _es_before, value)
 
         # === duration / hit_limited_from_dur 计算 ===
         dur_type = getattr(effect, 'duration_type', None) or "action"
@@ -9756,6 +10039,9 @@ class SkillService:
         link_mode = effect_flags.get('link_mode', 'to_caster')
         unremovable = effect_flags.get('unremovable', False)
         is_sharing = effect_flags.get('is_sharing', False)
+        # 联动消失（153301 AS2 120189）：「解除不可だが、シールドと同時に消滅する」
+        # 持有者身上同名/同 effect_type 的 buff 消失时，此 link 一并清除（见 aura_service.check_expiration）。
+        _dl_linked_buff_id = effect_flags.get('linked_buff_id', '') or ''
         duration = getattr(effect, 'duration', -1)
         if duration is None:
             duration = -1
@@ -9816,6 +10102,7 @@ class SkillService:
                     duration=duration,
                     duration_type=duration_type,
                     just_applied=True,
+                    linked_buff_id=_dl_linked_buff_id,
                 )
                 target.damage_links.append(entry)
                 applied.append({
@@ -9850,6 +10137,7 @@ class SkillService:
                 duration=duration,
                 duration_type=duration_type,
                 just_applied=True,
+                linked_buff_id=_dl_linked_buff_id,
             )
             caster_unit.damage_links.append(entry_out)
             # Primary target gets incoming entry (pairing record for death cleanup)
@@ -9864,6 +10152,7 @@ class SkillService:
                 duration=duration,
                 duration_type=duration_type,
                 just_applied=True,
+                linked_buff_id=_dl_linked_buff_id,
             )
             primary_unit.damage_links.append(entry_in)
             applied.append({
@@ -9899,6 +10188,7 @@ class SkillService:
                     duration=duration,
                     duration_type=duration_type,
                     just_applied=True,
+                    linked_buff_id=_dl_linked_buff_id,
                 )
                 target.damage_links.append(entry_out)
                 # Caster gets incoming entry (pairing record for death cleanup)
@@ -9913,6 +10203,7 @@ class SkillService:
                     duration=duration,
                     duration_type=duration_type,
                     just_applied=True,
+                    linked_buff_id=_dl_linked_buff_id,
                 )
                 caster.damage_links.append(entry_in)
                 applied.append({
@@ -9938,6 +10229,14 @@ class SkillService:
     def _resolve_damage_link_targets(self, caster: UnitState, effect, battlefield: BattlefieldState) -> List[UnitState]:
         """解析damage_link效果的目标列表（复用_apply_aura的目标选择逻辑）"""
         target_type = effect.target_type
+        _dl_flags = getattr(effect, 'flags', {}) or {}
+
+        # 153301 AS2 120189: 「シャイ属性を優先して最もHP割合が低い他の味方単体」と自身の間にリンク
+        # to_caster 模式下 targets 中不含施法者（施法者本身跳过 outgoing），
+        # 因此这里只返回「被保护味方」1 体即可。
+        if _dl_flags.get('ally_lowest_hp_ratio_element_first'):
+            return self._select_ally_lowest_hp_ratio_element_first(
+                caster, battlefield, _dl_flags)
 
         # 使用缓存的damage targets（与_apply_aura一致）
         cached_targets = getattr(self, '_block_damage_targets', None)
@@ -12126,6 +12425,7 @@ class SkillService:
                  "enemy_column", "enemy_row", "enemy_front", "enemy_random",
                  "enemy_highest_atk", "enemy_single_highest_atk",
                  "enemy_single_highest_spd", "enemy_single_lowest_spd",
+                 "enemy_single_highest_crit_rate",
                  "enemy_lowest_hp", "enemy_single_furthest", "last_target",
                  "enemy_back_row", "enemy_front_row",
                  "enemy_side_columns",
@@ -12270,6 +12570,15 @@ class SkillService:
                 dmg_targets,
                 key_func=lambda u: (self.damage_service._calculate_final_stat(u, "defense") if self.damage_service else u.defense,
                                     self.target_service._get_sort_key(caster, u)),
+                consume=consume_stealth
+            )
+            dmg_targets = [best] if best else []
+        elif target_type == "enemy_single_highest_crit_rate":
+            # 最も会心率の高い敵単体（152301 EX 110087）。buff込みの即時会心率で比較。
+            best = self.target_service.select_max_with_stealth(
+                dmg_targets,
+                key_func=lambda u: (self.damage_service._calculate_crit_rate(u)
+                                    if self.damage_service else u.crit_rate),
                 consume=consume_stealth
             )
             dmg_targets = [best] if best else []
@@ -13111,6 +13420,7 @@ class SkillService:
                         target.physical_shield = 0
 
                 if shield_portion > 0 and target.shield > 0:
+                    _layer_gen_before = target.shield
                     if shield_portion <= target.shield:
                         shield_absorbed += shield_portion
                         target.shield -= shield_portion
@@ -13119,6 +13429,7 @@ class SkillService:
                         shield_absorbed += target.shield
                         shield_portion -= target.shield
                         target.shield = 0
+                    self._deduct_shield_layer_amount(target, _layer_gen_before - target.shield)
 
                 # Sub-unit HP absorption
                 if shield_portion > 0:
@@ -13158,6 +13469,7 @@ class SkillService:
                         target.shield -= 1
                         shield_absorbed += 1
                         min_absorbed = True
+                        self._deduct_shield_layer_amount(target, 1)
                     if not min_absorbed:
                         sub_unit_buffs_min = [b for b in target.buffs
                                               if b.effect_type == SkillEffectType.SUB_UNIT.value and b.sub_unit_hp > 0]
@@ -13426,6 +13738,7 @@ class SkillService:
                     target.shield -= absorbed
                     shield_absorbed += absorbed
                     remaining -= absorbed
+                    self._deduct_shield_layer_amount(target, absorbed)
 
                 # Sub-unit absorption
                 if remaining > 0:
@@ -13457,6 +13770,7 @@ class SkillService:
                         target.shield -= 1
                         shield_absorbed += 1
                         min_absorbed = True
+                        self._deduct_shield_layer_amount(target, 1)
                     if not min_absorbed:
                         remaining = 1
 
@@ -14465,10 +14779,18 @@ class SkillService:
             _log.info("[SHIELD_FROM_DMG] %s: no recent damage, skip", caster.name)
             return None
 
-        shield_pct = effect.value or 0
+        # value_tag 支持：153301 EX 110088「与えたダメージの{shield}%分のシールドを自身に付与」
+        # shield tag 在数据里有 Lv10=200 / Lv15=300 的插值点，必须按等级解析而非写死常量。
+        shield_pct = effect.value
+        if shield_pct is None and getattr(effect, 'value_tag', None):
+            _sfd_resolved = self._resolve_tag_value_for_caster(caster, effect, effect.value_tag)
+            if _sfd_resolved is not None:
+                shield_pct = float(_sfd_resolved)
+                _log.info("[SHIELD_FROM_DMG] %s: resolved value_tag '%s' -> %.1f%% (Lv%d)",
+                          caster.name, effect.value_tag, shield_pct,
+                          caster.skill_levels.get(self._current_skill_id, 1))
+        shield_pct = shield_pct or 0
         shield_value = int(recent_dmg * shield_pct / 100)
-
-        # 目标解析：默认自身；支持任意target_type（如110084 めるEX「最も残りHPの少ない味方単体」）
         # 优先复用_block_damage_targets缓存（与damage效果共享索敌），否则select_targets
         sf_target_type = getattr(effect, 'target_type', 'self') or 'self'
         sf_targets = []

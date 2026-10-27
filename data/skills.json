@@ -86759,5 +86759,705 @@
         ]
       }
     }
+  },
+  "110088": {
+    "skill_id": 110088,
+    "name": "時間だ！分を弁えさせてやれ！",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 6,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合の低い敵単体、および対象に隣接する敵2体に対し威力{威力}で攻撃し、与えたダメージの{shield}%分のシールドを自身に付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          },
+          {
+            "level": 3,
+            "value": 90.27999877929688
+          },
+          {
+            "level": 4,
+            "value": 100.86000061035156
+          },
+          {
+            "level": 6,
+            "value": 106.1500015258789
+          },
+          {
+            "level": 7,
+            "value": 116.7300033569336
+          },
+          {
+            "level": 9,
+            "value": 122.0199966430664
+          },
+          {
+            "level": 10,
+            "value": 132.60000610351562
+          }
+        ]
+      },
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 200.0
+          },
+          {
+            "level": 10,
+            "value": 200.0
+          },
+          {
+            "level": 15,
+            "value": 300.0
+          }
+        ]
+      }
+    }
+  },
+  "120188": {
+    "skill_id": 120188,
+    "name": "お勉強といこうか",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合の低い敵単体に威力{威力}で攻撃し、次の攻撃での与ダメージを50%減少させるデバフを付与する（重複可）。\n生存している味方が5人以上の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 65.0
+          },
+          {
+            "level": 3,
+            "value": 69.04000091552734
+          },
+          {
+            "level": 4,
+            "value": 77.12999725341797
+          },
+          {
+            "level": 6,
+            "value": 81.16999816894531
+          },
+          {
+            "level": 7,
+            "value": 89.26000213623047
+          },
+          {
+            "level": 9,
+            "value": 93.30999755859375
+          },
+          {
+            "level": 10,
+            "value": 101.4000015258789
+          },
+          {
+            "level": 15,
+            "value": 137.8000030517578
+          }
+        ]
+      }
+    }
+  },
+  "120189": {
+    "skill_id": 120189,
+    "name": "うろたえるな、下がっていろ",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に対し、自身が1回行動を終えるまでの間攻撃力×{shield}%のシールドを付与後、シャイ属性を優先して最もHP割合が低い他の味方単体と自身の間にダメージリンクを付与し、対象の受けるダメージを100%自身に転送する状態にする。\nさらに自身と対象の味方単体に向けられるデバフを無効にする効果を付与する。\nダメージリンクとデバフ無効バフは解除不可だが、シールドと同時に消滅する。\n自身以外の味方が生存していない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 65.0
+          },
+          {
+            "level": 4,
+            "value": 75.0
+          },
+          {
+            "level": 6,
+            "value": 80.0
+          },
+          {
+            "level": 7,
+            "value": 90.0
+          },
+          {
+            "level": 9,
+            "value": 95.0
+          },
+          {
+            "level": 10,
+            "value": 105.0
+          },
+          {
+            "level": 15,
+            "value": 150.0
+          }
+        ]
+      }
+    }
+  },
+  "130194": {
+    "skill_id": 130194,
+    "name": "倒れた者の分まで戦え！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が倒された際に発動。1行動の間自身の攻撃力を{atk}%上昇させ（重複可）、1ヒットまで被ダメージを無効にするバフを付与する。さらに「お勉強といこうか」のクールタイムを解除する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.819999694824219
+          },
+          {
+            "level": 4,
+            "value": 12.460000038146973
+          },
+          {
+            "level": 6,
+            "value": 13.279999732971191
+          },
+          {
+            "level": 7,
+            "value": 14.920000076293945
+          },
+          {
+            "level": 9,
+            "value": 15.739999771118164
+          },
+          {
+            "level": 10,
+            "value": 17.5
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "130195": {
+    "skill_id": 130195,
+    "name": "誰ひとり欠けるな！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。シャイ属性の味方の防御力を上昇させる。自身以外で編成されているシャイ属性の味方1人につき{def}%上昇させ、3人を上限とする。\nこのスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。シャイ属性の味方の防御力と攻撃力を上昇させる。自身以外で編成されているシャイ属性の味方1人につき防御力を{def}%、攻撃力を{atk}%上昇させ、3人を上限とする。\nこのスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          },
+          {
+            "level": 3,
+            "value": 3.940000057220459
+          },
+          {
+            "level": 4,
+            "value": 4.820000171661377
+          },
+          {
+            "level": 6,
+            "value": 5.260000228881836
+          },
+          {
+            "level": 7,
+            "value": 6.139999866485596
+          },
+          {
+            "level": 9,
+            "value": 6.579999923706055
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 3.5
+          },
+          {
+            "level": 15,
+            "value": 7.5
+          }
+        ]
+      }
+    }
+  },
+  "110087": {
+    "skill_id": 110087,
+    "name": "滾らせてちょうだい！",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も会心率の高い敵単体に威力{威力}で7ヒット、さらに威力{威力2}で1ヒット攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 15.0
+          },
+          {
+            "level": 3,
+            "value": 15.930000305175781
+          },
+          {
+            "level": 4,
+            "value": 17.799999237060547
+          },
+          {
+            "level": 6,
+            "value": 18.729999542236328
+          },
+          {
+            "level": 7,
+            "value": 20.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 21.530000686645508
+          },
+          {
+            "level": 10,
+            "value": 23.399999618530273
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.47999954223633
+          },
+          {
+            "level": 4,
+            "value": 47.459999084472656
+          },
+          {
+            "level": 6,
+            "value": 49.95000076293945
+          },
+          {
+            "level": 7,
+            "value": 54.93000030517578
+          },
+          {
+            "level": 9,
+            "value": 57.41999816894531
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 15,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "120186": {
+    "skill_id": 120186,
+    "name": "あんたを指名するわ！幸運ね！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "前列優先で敵2体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間「ご指名」を付与する。「ご指名」は自身が倒れると解除される"
+      },
+      {
+        "min_level": 15,
+        "template": "前列優先で敵2体に威力{威力}で攻撃し、自身が2回行動を終えるまでの間「ご指名」を付与する。「ご指名」は自身が倒れると解除される"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 45.0
+          },
+          {
+            "level": 3,
+            "value": 47.79999923706055
+          },
+          {
+            "level": 4,
+            "value": 53.400001525878906
+          },
+          {
+            "level": 6,
+            "value": 56.20000076293945
+          },
+          {
+            "level": 7,
+            "value": 61.79999923706055
+          },
+          {
+            "level": 9,
+            "value": 64.58999633789062
+          },
+          {
+            "level": 10,
+            "value": 70.19999694824219
+          },
+          {
+            "level": 14,
+            "value": 90.36000061035156
+          }
+        ]
+      }
+    }
+  },
+  "120187": {
+    "skill_id": 120187,
+    "name": "次ッ！次ッ！まとめて次ッ！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で4ヒット攻撃する"
+      },
+      {
+        "min_level": 11,
+        "template": "敵単体に威力{威力}で4ヒット攻撃する。\nさらに自身に対し最大HP×25%のシールドを付与し、会心率を{crt}%・会心ダメージを{crtdmg}%上昇させる（重複可）。会心率・会心ダメージバフは解除不可だが、シールドと同時に消滅する。シールドは1回攻撃を受けると消滅する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 26.549999237060547
+          },
+          {
+            "level": 4,
+            "value": 29.65999984741211
+          },
+          {
+            "level": 6,
+            "value": 31.219999313354492
+          },
+          {
+            "level": 7,
+            "value": 34.33000183105469
+          },
+          {
+            "level": 9,
+            "value": 35.880001068115234
+          },
+          {
+            "level": 10,
+            "value": 39.0
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 7.5
+          }
+        ]
+      },
+      "crtdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 7.5
+          },
+          {
+            "level": 15,
+            "value": 13.5
+          }
+        ]
+      }
+    }
+  },
+  "130192": {
+    "skill_id": 130192,
+    "name": "やるじゃない、乗ったわ！",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「ご指名」状態の敵への味方の攻撃が会心攻撃になるたびに発動。攻撃された敵単体に威力{威力}で追撃し、自身のPPを1回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66000366210938
+          },
+          {
+            "level": 9,
+            "value": 71.7699966430664
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          },
+          {
+            "level": 15,
+            "value": 106.0
+          }
+        ]
+      }
+    }
+  },
+  "130193": {
+    "skill_id": 130193,
+    "name": "暴風ナメんじゃないわよ！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン終了時に発動。自身の会心率を{crt}%・防御力を{def}%上昇させる（重複可）"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.5
+          },
+          {
+            "level": 3,
+            "value": 2.759999990463257
+          },
+          {
+            "level": 4,
+            "value": 3.2699999809265137
+          },
+          {
+            "level": 6,
+            "value": 3.5299999713897705
+          },
+          {
+            "level": 7,
+            "value": 4.039999961853027
+          },
+          {
+            "level": 9,
+            "value": 4.300000190734863
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 7.5
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.5
+          },
+          {
+            "level": 3,
+            "value": 2.759999990463257
+          },
+          {
+            "level": 4,
+            "value": 3.2699999809265137
+          },
+          {
+            "level": 6,
+            "value": 3.5299999713897705
+          },
+          {
+            "level": 7,
+            "value": 4.039999961853027
+          },
+          {
+            "level": 9,
+            "value": 4.300000190734863
+          },
+          {
+            "level": 10,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 7.5
+          }
+        ]
+      }
+    }
   }
 }
