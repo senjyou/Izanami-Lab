@@ -248,6 +248,18 @@ class SkillService:
             for u in self._battlefield.get_all_units():
                 self.aura_service._sync_stun_freeze_flags(u)
 
+    def _will_revive(self, unit: UnitState) -> bool:
+        """该单位 HP 归零后是否还会复活（自定义木桩的复活次数未耗尽）。
+
+        给 target_survived / any_target_survived 一类「目标还活着吗」的条件用：
+        木桩配了复活时，它与战术演习敌方一样属于「延迟倒下」，不能只看
+        current_hp <= 0。
+        """
+        if unit is None:
+            return False
+        return (getattr(unit, "revive_total", 0) > getattr(unit, "revives_used", 0)
+                and getattr(unit, "current_hp", 0) <= 0)
+
     def set_branch_override(self, func: Optional[Callable[[Dict], int]]):
         """设置分支选择覆盖函数。func接收context dict，返回选中的block_id"""
         self._branch_override_func = func
@@ -1610,7 +1622,8 @@ class SkillService:
                         if self._tactical_exercise_mode:
                             is_dead = not primary_target.is_alive
                         else:
-                            is_dead = primary_target.current_hp <= 0
+                            is_dead = (primary_target.current_hp <= 0
+                                       and not self._will_revive(primary_target))
                         if is_dead:
                             _log.info("[SKILL_EXEC] %s: skipping block %d (target_survived: primary target %s is dead)",
                                       caster.name, block.block_id, primary_target.name)
@@ -1627,7 +1640,7 @@ class SkillService:
                                     any_alive = True
                                     break
                             else:
-                                if t.current_hp > 0:
+                                if t.current_hp > 0 or self._will_revive(t):
                                     any_alive = True
                                     break
                         if not any_alive:

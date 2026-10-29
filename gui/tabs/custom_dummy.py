@@ -14,6 +14,8 @@ from src.entities_v2.custom_dummy import (
     STATUS_TYPE_DISPLAY, STATUS_DISPLAY_REVERSE,
     DURATION_TYPE_DISPLAY, DURATION_DISPLAY_REVERSE,
     EFFECT_CATEGORIES,
+    MAX_DUMMY_REVIVES,
+    dummy_revive_plan_text,
     validate_dummy_config,
     filter_trigger_timings,
 )
@@ -48,8 +50,56 @@ class CustomDummyTab(ttk.Frame):
         self._build()
 
     def _build(self):
-        f = ttk.Frame(self)
-        f.pack(fill=tk.BOTH, expand=True)
+        """构建界面：整体套 Canvas + 纵向（必要时横向）滚动条。
+
+        低分辨率（如 1366x768 / 缩放 125%）下页面高度远超窗口，没有滚动条会
+        导致「注册/更新木桩」按钮被挤出可视区。与战术演习/编队页同口径：
+        scroll_frame 内全部控件按原 grid 布局，外层 Canvas 负责滚动。
+
+        额外处理（本页控件列数多，窄屏会横向溢出）：
+        - 横向滚动条仅在内容自然宽度 > 可视宽度时自动出现（`_sync_hscrollbar`）；
+        - 两段长「说明」文字的 wraplength 跟随可视宽度，避免被裁切；
+        - 鼠标滚轮仅在指针进入本 Tab 时绑定，离开即卸载（不抢其他 Tab 的滚轮）。
+        """
+        scheme = self.app._get_scheme()
+
+        canvas = tk.Canvas(self, bg=scheme["bg"], highlightthickness=0)
+        vbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        hbar = ttk.Scrollbar(self, orient="horizontal", command=canvas.xview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>",
+                          lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        self._scroll_window_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # 横向滚动条默认不占位（低分辨率下纵向像素很宝贵），需要时才 pack
+        self._scroll_canvas = canvas
+        self._scroll_vbar = vbar
+        self._scroll_hbar = hbar
+        self._hbar_visible = False
+
+        def _bind_canvas_width(event):
+            # 内容自然宽度更大时不压缩（否则列会被裁掉），改为允许横向滚动
+            natural = scroll_frame.winfo_reqwidth()
+            width = max(event.width, natural)
+            canvas.itemconfig(self._scroll_window_id, width=width)
+            self._apply_wraplength(event.width)
+            self.after_idle(self._sync_scrollbars)
+
+        canvas.bind("<Configure>", _bind_canvas_width)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        self._mousewheel_handler = _on_mousewheel
+        # 绑定到整个 Tab 而不是 Canvas：控件铺满可视区时指针很难只停在 Canvas 上
+        self.bind("<Enter>", self._on_scroll_enter)
+        self.bind("<Leave>", self._on_scroll_leave)
+        self._scroll_frame = scroll_frame
+
+        f = scroll_frame
 
         row = 0
 
@@ -105,6 +155,11 @@ class CustomDummyTab(ttk.Frame):
         self._var_note = tk.StringVar(value="")
         self._var_extra_skills = tk.StringVar(value="")
         self._var_preset = tk.StringVar(value="")
+        # ── v3 新增字段：木桩复活（机制参照战术演习 boss 换阶段）──
+        self._var_revive_count = tk.IntVar(value=0)
+        self._var_revive_mult_start = tk.DoubleVar(value=1.0)
+        self._var_revive_mult_step = tk.DoubleVar(value=0.0)
+        self._var_revive_preview = tk.StringVar(value="")
 
         r = 0
         # 第一列：名称、属性、类型、定位、位置、永久盾类型
@@ -187,6 +242,33 @@ class CustomDummyTab(ttk.Frame):
             row=r, column=1, columnspan=5, padx=5, sticky="w")
         r += 1
 
+        # ── v3：木桩复活（HP 归零后满血复活，机制同战术演习 boss 换阶段）──
+        ttk.Label(basic_lf, text="复活次数:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        ttk.Spinbox(basic_lf, textvariable=self._var_revive_count, from_=0, to=MAX_DUMMY_REVIVES,
+                    width=8).grid(row=r, column=1, padx=5, sticky="w")
+        ttk.Label(basic_lf, text="首次倍率:").grid(row=r, column=2, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_revive_mult_start, width=10).grid(
+            row=r, column=3, padx=5, sticky="w")
+        ttk.Label(basic_lf, text="每次增量:").grid(row=r, column=4, padx=5, pady=3, sticky="e")
+        ttk.Entry(basic_lf, textvariable=self._var_revive_mult_step, width=10).grid(
+            row=r, column=5, padx=5, sticky="w")
+        r += 1
+
+        ttk.Label(basic_lf, text="复活倍率预览:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
+        ttk.Label(basic_lf, textvariable=self._var_revive_preview, foreground="#9cc4ff").grid(
+            row=r, column=1, columnspan=5, padx=5, sticky="w", pady=(0, 2))
+        r += 1
+
+        self._revive_hint_label = ttk.Label(
+            basic_lf,
+            text=("说明：复活机制同战术演习换阶段——血量归零后满血复活、清除非回忆卡buff/debuff、"
+                  "AP/PP/EP保持不变；倍率作用于 HP/ATK/DEF/SPD（暴击率不变），"
+                  "基准是第一条命的进场属性。1.0+0/次 = 完全不膨胀（照搬第一条命）。"),
+            foreground="#888888", wraplength=980, justify="left")
+        self._revive_hint_label.grid(
+            row=r, column=0, columnspan=6, padx=5, pady=(0, 4), sticky="w")
+        r += 1
+
         # ── 预设 ──
         ttk.Label(basic_lf, text="预设:").grid(row=r, column=0, padx=5, pady=3, sticky="e")
         self._preset_combo = ttk.Combobox(basic_lf, textvariable=self._var_preset,
@@ -197,9 +279,12 @@ class CustomDummyTab(ttk.Frame):
         self._refresh_presets()
         r += 1
 
-        ttk.Label(basic_lf,
-                  text="说明：暴击伤害填倍率（1.5=无额外）；有利加成填额外值（0.255=3条彩S=克制1.505）；EP上限0=按EX技能自动推断",
-                  foreground="#888888").grid(row=r, column=0, columnspan=6, padx=5, pady=(0, 4), sticky="w")
+        self._calc_hint_label = ttk.Label(
+            basic_lf,
+            text="说明：暴击伤害填倍率（1.5=无额外）；有利加成填额外值（0.255=3条彩S=克制1.505）；EP上限0=按EX技能自动推断",
+            foreground="#888888", wraplength=980, justify="left")
+        self._calc_hint_label.grid(
+            row=r, column=0, columnspan=6, padx=5, pady=(0, 4), sticky="w")
         r += 1
 
         row += 1
@@ -223,7 +308,89 @@ class CustomDummyTab(ttk.Frame):
         ttk.Button(btn_row, text="注册/更新木桩", command=self._register_dummy, width=18).pack(side=tk.LEFT, padx=5)
         row += 1
 
+        # 复活倍率预览随三个输入框实时刷新
+        for _var in (self._var_revive_count, self._var_revive_mult_start,
+                     self._var_revive_mult_step):
+            _var.trace_add("write", lambda *_: self._refresh_revive_preview())
+        self._refresh_revive_preview()
+
         self._refresh_list()
+
+    def _sync_hscrollbar(self) -> None:
+        """内容自然宽度 > 可视宽度时显示横向滚动条，否则收起（省纵向像素）。"""
+        canvas = getattr(self, "_scroll_canvas", None)
+        if canvas is None:
+            return
+        need = canvas.bbox("all")
+        if not need:
+            return
+        content_w = need[2] - need[0]
+        view_w = canvas.winfo_width()
+        wanted = content_w > view_w + 1
+        if wanted and not getattr(self, "_hbar_visible", False):
+            # 先让纵向滚动条在右侧；横向条占据底部
+            self._scroll_hbar.pack(side=tk.BOTTOM, fill=tk.X, before=self._scroll_vbar)
+            self._hbar_visible = True
+        elif not wanted and getattr(self, "_hbar_visible", False):
+            self._scroll_hbar.pack_forget()
+            self._hbar_visible = False
+            canvas.xview_moveto(0.0)
+
+    def _sync_scrollbars(self) -> None:
+        """按当前可视尺寸刷新滚动条显隐（横向条按需出现，纵向条常驻）。"""
+        self._sync_hscrollbar()
+
+    # ── 滚轮绑定（指针进出本页时装卸，避免抢其他 Tab 的滚轮）──────────
+
+    def _on_scroll_enter(self, _event=None) -> None:
+        """指针进入本页 → 全局绑定滚轮（控件铺满可视区，不能只绑 Canvas）。"""
+        handler = getattr(self, "_mousewheel_handler", None)
+        if handler is None:
+            return
+        self.bind_all("<MouseWheel>", handler)
+
+    def _on_scroll_leave(self, event=None) -> None:
+        """指针真正离开本页 → 解绑滚轮。
+
+        指针移到本页子控件时 Tk 发的是 <Leave>(NotifyInferior)，这种「离开」
+        必须忽略，否则鼠标一放到输入框上滚轮就失效。
+        """
+        if getattr(event, "detail", "") == "NotifyInferior":
+            return
+        self.unbind_all("<MouseWheel>")
+
+    def _refresh_scroll_theme(self) -> None:
+        """主题切换后刷新滚动 Canvas 底色（Canvas 是原生 tk 组件，吃不到 ttk style）。"""
+        canvas = getattr(self, "_scroll_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.configure(bg=self.app._get_scheme()["bg"])
+        except Exception:
+            pass
+
+
+    def _apply_wraplength(self, view_width: int) -> None:
+        """两段长说明文字的换行宽度跟随可视宽度，避免在窄屏被横向裁切。"""
+        wrap = max(320, int(view_width) - 60)
+        for attr in ("_revive_hint_label", "_calc_hint_label"):
+            label = getattr(self, attr, None)
+            if label is not None:
+                label.configure(wraplength=wrap)
+
+    def _refresh_revive_preview(self):
+        """刷新「复活倍率预览」标签（解析失败时显示占位，不弹窗）。"""
+        try:
+            count = int(self._var_revive_count.get())
+            start = float(self._var_revive_mult_start.get())
+            step = float(self._var_revive_mult_step.get())
+        except (tk.TclError, ValueError):
+            self._var_revive_preview.set("（输入无效）")
+            return
+        text = dummy_revive_plan_text(count, start, step)
+        if count > 0 and abs(start) < 1e-9 and abs(step) < 1e-9:
+            text += "  ⚠ 倍率为 0 会把 HP 压到 1，请确认口径"
+        self._var_revive_preview.set(text)
 
     def _add_as_row(self) -> Optional[Dict[str, Any]]:
         if len(self._as_rows) >= 4:
@@ -639,9 +806,30 @@ class CustomDummyTab(ttk.Frame):
             max_extra_point=self._var_max_ep.get(),
             note=self._var_note.get(),
             extra_skill_ids=self._parse_extra_skills(),
+            revive_count=self._parse_revive_count(),
+            revive_mult_start=self._parse_revive_float(self._var_revive_mult_start, "首次复活倍率"),
+            revive_mult_step=self._parse_revive_float(self._var_revive_mult_step, "每次膨胀增量"),
             as_skills=as_skills,
             ps_skills=ps_skills,
         )
+
+    def _parse_revive_count(self) -> int:
+        try:
+            value = int(self._var_revive_count.get())
+        except (tk.TclError, ValueError):
+            raise ValueError("复活次数必须是整数")
+        if value < 0:
+            raise ValueError(f"复活次数不能为负（当前 {value}）")
+        if value > MAX_DUMMY_REVIVES:
+            raise ValueError(f"复活次数最多 {MAX_DUMMY_REVIVES}（当前 {value}）")
+        return value
+
+    def _parse_revive_float(self, var, label: str) -> float:
+        """解析倍率输入；空/非法时抛 ValueError（交由 _register_dummy 弹窗提示）。"""
+        try:
+            return float(var.get())
+        except (tk.TclError, ValueError):
+            raise ValueError(f"{label} 必须是数字")
 
     def _load_config_to_gui(self, cfg: CustomDummyConfig, dummy_index: int):
         self._dummy_index = dummy_index
@@ -668,6 +856,11 @@ class CustomDummyTab(ttk.Frame):
         self._var_max_ep.set(cfg.max_extra_point)
         self._var_note.set(cfg.note)
         self._var_extra_skills.set(", ".join(str(x) for x in cfg.extra_skill_ids))
+        # v3 复活字段
+        self._var_revive_count.set(int(cfg.revive_count or 0))
+        self._var_revive_mult_start.set(float(cfg.revive_mult_start))
+        self._var_revive_mult_step.set(float(cfg.revive_mult_step))
+        self._refresh_revive_preview()
 
         self._clear_skill_rows()
         for as_cfg in cfg.as_skills:
@@ -731,7 +924,12 @@ class CustomDummyTab(ttk.Frame):
         self._registered_ids.clear()
         dummies = self.app.data_loader.get_all_custom_dummies()
         for cid, char_data in dummies.items():
-            self._dummy_listbox.insert(tk.END, f"[{cid}] {char_data.name}")
+            cfg = self.app.data_loader.get_custom_dummy_config(cid)
+            tag = ""
+            if cfg is not None and int(cfg.revive_count or 0) > 0:
+                tag = (f"  ♻×{cfg.revive_count}"
+                       f"({cfg.revive_mult_start:.2f}+{cfg.revive_mult_step:.2f}/次)")
+            self._dummy_listbox.insert(tk.END, f"[{cid}] {char_data.name}{tag}")
             self._registered_ids.append(cid)
 
     def _on_select_dummy(self, event):

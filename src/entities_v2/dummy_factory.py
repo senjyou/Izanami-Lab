@@ -131,6 +131,9 @@ def build_dummy_unit_state(
         skill_cooldowns={},
         role_type=getattr(char, "role_type", 0),
         position_type=getattr(char, "position_type", 0),
+        revive_total=max(0, int(cfg.revive_count or 0)),
+        revive_mult_start=float(cfg.revive_mult_start),
+        revive_mult_step=float(cfg.revive_mult_step),
     )
 
 

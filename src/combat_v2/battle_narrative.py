@@ -451,6 +451,25 @@ class BattleNarrativeWriter:
         self._add(f"  ║  清除 Buff x{buffs_cleared}, Debuff x{debuffs_cleared}        ║")
         self._add(f"  ╚══════════════════════════════════════════╝")
 
+    def dummy_revive(self, unit_name: str, revive_index: int, revive_total: int,
+                     multiplier: float, new_hp: int, new_atk: int, new_def: int, new_spd: int,
+                     old_hp: int, old_atk: int, old_def: int, old_spd: int,
+                     buffs_cleared: int = 0, debuffs_cleared: int = 0,
+                     ap: int = 0, pp: int = 0, ep: float = 0.0):
+        """自定义木桩复活（机制同战术演习换阶段，倍率可配置）。"""
+        self._add(f"")
+        self._add(f"  ╔══════════════════════════════════════════╗")
+        self._add(f"  ║  ♻【木桩复活】{unit_name} 第 {revive_index}/{revive_total} 次复活  ║")
+        self._add(f"  ╠══════════════════════════════════════════╣")
+        self._add(f"  ║  膨胀倍率: ×{multiplier:.4f}")
+        self._add(f"  ║  HP:  {old_hp} → {new_hp}")
+        self._add(f"  ║  ATK: {old_atk} → {new_atk}")
+        self._add(f"  ║  DEF: {old_def} → {new_def}")
+        self._add(f"  ║  SPD: {old_spd} → {new_spd}")
+        self._add(f"  ║  清除 Buff x{buffs_cleared}, Debuff x{debuffs_cleared}")
+        self._add(f"  ║  AP={ap} PP={pp} EP={ep:g} (保持不变)")
+        self._add(f"  ╚══════════════════════════════════════════╝")
+
     def buff_applied(self, target_name: str, effect: str, source_name: str, duration: int = 0, dur_type: str = "turn", detail: str = ""):
         detail_str = f" {detail}" if detail else ""
         if dur_type == "skill":

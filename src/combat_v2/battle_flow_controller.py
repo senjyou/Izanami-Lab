@@ -12,6 +12,7 @@ src/combat_v2/battle_flow_controller.py
 
 import sys
 import re
+import math
 from typing import Optional, Dict, Any, List, Tuple, Set
 
 from ..entities_v2.battlefield_state import BattlefieldState
@@ -129,6 +130,14 @@ class BattleFlowController:
         self._unit_id_map: Dict[str, UnitState] = {}
         self._deferred_crit_triggers: list = []
 
+        # ── 自定义木桩复活（机制参照战术演习 boss 换阶段）──
+        # 第一条命的「进场属性」快照（元素协同之后，作为倍率基准）
+        self._dummy_revive_base: Dict[str, Dict[str, float]] = {}
+        # 延迟输出的复活叙事（确保出现在💀阵亡通知之后）
+        self._pending_revive_narrative: list = []
+        # 由子类接管死亡钩子时（战术演习/复合演习走各自的阶段复活），置 False
+        self._dummy_revive_enabled: bool = True
+
         # 追踪 心色見つめるムードメーカー EX技能110069「あったかいの、どうぞ♪」的目标选择
         self._ex_target_notes: list = []
 
@@ -148,6 +157,32 @@ class BattleFlowController:
         """元素协同计算完成后的钩子，供子类覆写以覆盖单位初始状态（如HP/死亡）"""
         pass
 
+    def _snapshot_dummy_revive_bases(self) -> None:
+        """快照自定义木桩「第一条命」的进场属性，作为复活膨胀倍率的基准。
+
+        必须在元素协同之后取：协同会按组队加成直接改写 max_hp/attack/defense，
+        以协同前的面板为基准会让复活把组队加成重复乘一遍。
+        """
+        for unit in self.battlefield.get_all_units():
+            if not getattr(self, "_dummy_revive_enabled", True):
+                continue
+            if getattr(unit, "revive_total", 0) <= 0:
+                continue
+            self._dummy_revive_base[unit.unit_id] = {
+                "hp": float(unit.max_hp),
+                "attack": float(unit.attack),
+                "defense": float(unit.defense),
+                "speed": float(unit.speed),
+            }
+            # 木桩阵亡与战术演习敌方一样属于「延迟倒下」（等技能结算结束才置
+            # is_alive=False）。技能内的 target_survived 类条件由
+            # SkillService._will_revive 单独处理，不切换全局 _tactical_exercise_mode，
+            # 避免影响同场真实角色的判定口径。
+            _log.info("[DUMMY_REVIVE] %s 复活配置: 次数=%d 倍率=%.2f + %.2f×/次（基准 HP=%d ATK=%d DEF=%d SPD=%d）",
+                      unit.name, unit.revive_total, unit.revive_mult_start,
+                      unit.revive_mult_step, int(unit.max_hp), unit.attack,
+                      unit.defense, unit.speed)
+
     def _log_initial_state(self) -> None:
         """叙事头部输出后的钩子，供子类输出初始状态叙事（如开局即死的单位）"""
         pass
@@ -160,6 +195,7 @@ class BattleFlowController:
 
         self._build_display_names()
         self._post_synergy_setup()
+        self._snapshot_dummy_revive_bases()
 
         _log.info("[BATTLE] 我方阵容:")
         for u in self.battlefield.friend_team:
@@ -206,6 +242,10 @@ class BattleFlowController:
                 break
 
         self.trigger_service.trigger_wave_end(self.battlefield)
+
+        # 木桩复活次数用尽后仍处于死亡态的情况下，战斗判定的「敌方全灭」才成立；
+        # 若还有剩余复活次数（例如在回合末尾才死亡、没走行动内钩子），这里补一次。
+        self._revive_pending_dummy_deaths()
 
         alive_friends = [u for u in self.battlefield.friend_team if u.is_alive]
         alive_enemies = [u for u in self.battlefield.enemy_team if u.is_alive]
@@ -290,27 +330,84 @@ class BattleFlowController:
                 return u
         return None
 
-    def _track_magokoro_as2_targets(self, skill_result: Dict[str, Any]):
+    def _track_magokoro_as2_targets(self, skill_result: Dict[str, Any],
+                                    caster: Optional[UnitState] = None):
         """追踪100303隣歩む想い AS2技能120181「献身的な愛」的目标选择。
 
-        从 skill_result 的 effects_applied 中提取 mark（标记「真心」）效果的目标名（去重），
-        记录到 _as2_target_notes 列表（每次使用一条，目标可能为空如黑暗MISS时）。
-        该技能使用频率高，GUI按目标聚合展示使用序号，此处保持逐次记录的原始数据。
+        120181 的全部效果（mark「真心」/perfect_evasion/sure_hit）都挂在同一个
+        `ally_single_highest_damage_dealt` 目标上，但**每个效果独立掷黑暗/回避**：
+        目标可能命中 mark 却被 sure_hit 命中，或 mark 被黑暗 MISS 而 sure_hit 生效。
+        因此目标必须按优先级多级兜底，否则单看 mark 会把「只有 mark 被 MISS」的那一次
+        记成空目标，GUI 汇总时该次使用序号就整个消失（实测 s7 st100 第2次只有 mark 被 MISS，
+        `[免疫减益] 暴風小隊長 阻止了 «标记「真心」»` 与 `[获得增益] 暴風小隊長 «SureHit»`
+        同时出现，而备注里 暴風小隊長 只剩 1、3、5-11 次）。
+
+        目标提取优先级：
+          1. mark「真心」——本技能名义上的主效果（正常情形均由此命中）
+          2. 其它非自身 aura（sure_hit / perfect_evasion）——mark 被 MISS 但同目标另有生效
+          3. `blocked` 摘要里的被阻止目标——全部效果都被阻止时，仍保留「本次选了谁」
+          4. 空列表——连声明目标都拿不到时保持空，序号真实性由 GUI 侧仍照常计数
+
+        记录到 _as2_target_notes 列表（每次使用一条）。该技能使用频率高，GUI按目标
+        聚合展示使用序号，此处保持逐次记录的原始数据。
         """
-        targets = []
-        seen_ids = set()
-        for applied in skill_result.get("effects_applied", []):
-            if applied.get("effect_type") != "aura":
-                continue
-            for aura in applied.get("auras", []):
-                # 献身的な愛的非self效果均为对同一友方单体（真心/回避/必中），以mark效果为准
-                if not str(aura.get("effect", "")).startswith("标记「"):
+        caster_id = getattr(caster, 'unit_id', None) if caster is not None else None
+
+        def _mark_targets(applied_list) -> list:
+            out, seen = [], set()
+            for applied in applied_list:
+                if applied.get("effect_type") != "aura":
                     continue
-                tid = aura.get("target_id")
-                tname = aura.get("target")
-                if tname and tid not in seen_ids:
-                    seen_ids.add(tid)
-                    targets.append(tname)
+                for aura in applied.get("auras", []):
+                    if not str(aura.get("effect", "")).startswith("标记「"):
+                        continue
+                    tid, tname = aura.get("target_id"), aura.get("target")
+                    if tname and tid not in seen:
+                        seen.add(tid)
+                        out.append(tname)
+            return out
+
+        def _non_self_aura_targets(applied_list) -> list:
+            """非自身代价的 aura 目标（sure_hit/perfect_evasion 等）。
+
+            只排除「自身代价」——即该效果是**减益**且目标就是施法者本人（如 120181
+            的 atk_down[self]）。注意不能简单地排除施法者 id：真心目标本身可能是
+            隣歩む想い 自己（实战日志里出现过她给自己上 标记「真心」），那种情况仍需记录。
+            """
+            out, seen = [], set()
+            for applied in applied_list:
+                if applied.get("effect_type") != "aura":
+                    continue
+                for aura in applied.get("auras", []):
+                    tid, tname = aura.get("target_id"), aura.get("target")
+                    if not tname or tid in seen:
+                        continue
+                    if caster_id is not None and tid == caster_id and applied.get("is_debuff"):
+                        continue  # 自身代价（减益打在自己身上）
+                    seen.add(tid)
+                    out.append(tname)
+            return out
+
+        def _blocked_targets(applied_list) -> list:
+            """被阻止（黑暗/免疫/闪避）但已声明过目标的效果目标，同样排除自身代价。"""
+            out, seen = [], set()
+            for applied in applied_list:
+                for b in applied.get("blocked", []) or []:
+                    tid, tname = b.get("target_id"), b.get("target")
+                    if not tname or tid in seen:
+                        continue
+                    if caster_id is not None and tid == caster_id and applied.get("is_debuff"):
+                        continue  # 自身代价
+                    seen.add(tid)
+                    out.append(tname)
+            return out
+
+        applied_list = skill_result.get("effects_applied", []) or []
+        targets = _mark_targets(applied_list)
+        if not targets:
+            targets = _non_self_aura_targets(applied_list)
+        if not targets:
+            targets = _blocked_targets(applied_list)
         self._as2_target_notes.append({"targets": targets})
 
     def _find_magokoro_char(self) -> Optional[UnitState]:
@@ -683,7 +780,7 @@ class BattleFlowController:
         # 追踪 100303隣歩む想い AS2技能120181「献身的な愛」的目标选择
         if (selected_skill == _MAGOKORO_AS2_SKILL_ID and skill_result.get("success")
                 and getattr(unit, 'character_id', 0) == _MAGOKORO_CHAR_ID):
-            self._track_magokoro_as2_targets(skill_result)
+            self._track_magokoro_as2_targets(skill_result, unit)
 
         # Guard cleanup: AS技能执行完毕后立即清理由该攻击者触发的Guard buff
         # Guard效果只在触发它的那次技能攻击中生效，后续PS技能不应享受Guard减伤
@@ -1645,10 +1742,237 @@ class BattleFlowController:
         此方法在 PAWN_DIED/PAWN_KILLED/HP_BELOW/UNIT_COUNT_BELOW 触发器之后、
         AFTER_ALLY_ATTACKED 触发器之前调用，确保复活后的单位能正常响应后续触发器。
 
+        基类实现：处理「自定义木桩复活」（`UnitState.revive_total > 0`）。
+        机制与 `TacticalExerciseController` 的 boss 换阶段**完全一致**：
+        满血复活 → 按倍率重置属性 → 清除非回忆卡/不可解除的 buff・debuff →
+        恢复眩晕/冻结标志 → 保持 AP/PP/EP → 重新加入行动轴 → 叙事延后输出。
+        战术演习/复合演习子类覆写本方法并走各自的阶段机制（不叠加木桩复活）。
+
         Args:
             newly_dead: 本次行动中新阵亡的单位列表
         """
-        pass
+        self._revive_dummies(newly_dead)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 自定义木桩复活（参照 TacticalExerciseController._resurrect_enemy）
+    # ══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _dummy_life_multiplier(unit: UnitState, revive_index: int) -> float:
+        """第 N 次复活时的属性膨胀倍率（revive_index 从 1 起；0 = 第一条命 = 1.0）。"""
+        if revive_index <= 0:
+            return 1.0
+        from ..entities_v2.custom_dummy import dummy_revive_multiplier
+        return dummy_revive_multiplier(
+            getattr(unit, "revive_mult_start", 1.0),
+            getattr(unit, "revive_mult_step", 0.0),
+            revive_index,
+        )
+
+    def _dummy_can_revive(self, unit: UnitState) -> bool:
+        """该单位是否还能按配置复活（只有木桩有 revive_total > 0）。"""
+        if not getattr(self, "_dummy_revive_enabled", True):
+            return False
+        return (getattr(unit, "revive_total", 0) > getattr(unit, "revives_used", 0))
+
+    def _revive_dummies(self, newly_dead: list) -> list:
+        """对本次阵亡中「还有复活次数」的木桩执行复活。返回实际复活的单位列表。
+
+        叙事数据只入队（`_pending_revive_narrative`），由 `_on_death_narrative_complete`
+        （或调用方）统一 flush，确保♻复活框出现在💀阵亡通知之后。
+        """
+        revived = []
+        for unit in newly_dead:
+            if unit.is_alive or not self._dummy_can_revive(unit):
+                continue
+            data = self._revive_dummy(unit)
+            if data is None:
+                continue
+            revived.append(unit)
+            self._pending_revive_narrative.append(data)
+        return revived
+
+    def _revive_dummy(self, unit: UnitState) -> Optional[Dict[str, Any]]:
+        """木桩复活：满血、属性按倍率重置、清除非回忆卡buff/debuff、AP/PP/EP不变。
+
+        与 `TacticalExerciseController._resurrect_enemy` 保持同一口径（唯一的差别
+        是倍率来源：演习用固定阶段公式，木桩用配置的 start + step×(N−1)）。
+
+        Returns:
+            叙事数据字典（供延迟输出）；无需复活时返回 None。
+        """
+        if not self._dummy_can_revive(unit):
+            return None
+
+        unit.revives_used = int(getattr(unit, "revives_used", 0)) + 1
+        n = unit.revives_used
+
+        base = self._dummy_revive_base.get(unit.unit_id)
+        if not base:
+            _log.warning("[DUMMY_REVIVE] %s 未找到第一条命属性快照，使用当前属性作为基准",
+                         unit.name)
+            base = {
+                "hp": float(unit.max_hp),
+                "attack": float(unit.attack),
+                "defense": float(unit.defense),
+                "speed": float(unit.speed),
+            }
+            self._dummy_revive_base[unit.unit_id] = base
+
+        mult = self._dummy_life_multiplier(unit, n)
+        prev_mult = self._dummy_life_multiplier(unit, n - 1)
+
+        # 保留死亡前的永久 max_hp_up 增量（与战术演习同口径）：
+        #   死亡时 max_hp = base·prev_mult + permanent_flat
+        #   复活后 max_hp = base·mult      + permanent_flat
+        death_max_hp = unit.max_hp
+        permanent_flat = int(round(death_max_hp - base["hp"] * prev_mult))
+
+        new_hp = max(1, math.floor(base["hp"] * mult + permanent_flat))
+        new_attack = max(1, math.floor(base["attack"] * mult))
+        new_defense = max(1, math.floor(base["defense"] * mult))
+        new_speed = max(1, math.floor(base["speed"] * mult))
+
+        old_hp = unit.max_hp
+        old_atk = self.damage_service._calculate_final_stat(unit, "attack")
+        old_def = self.damage_service._calculate_final_stat(unit, "defense")
+        old_spd = self.damage_service._calculate_final_stat(unit, "speed")
+
+        # 保持 AP/PP/EP 不变（与战术演习一致）
+        saved_ap = unit.current_ap
+        saved_pp = unit.current_pp
+        saved_ep = unit.current_ep
+
+        # 清除非回忆卡 buff/debuff，保留回忆卡(is_memory_buff)与不可解除(unremovable)。
+        # 旧的 revive_ 增量倍率 buff 必须清除，否则跨命累积叠加。
+        kept_buffs = [b for b in unit.buffs
+                      if (b.is_memory_buff or getattr(b, "unremovable", False))
+                      and not b.buff_id.startswith("revive_")]
+        buffs_cleared = len(unit.buffs) - len(kept_buffs)
+        kept_debuffs = [d for d in unit.debuffs
+                        if d.is_memory_buff or getattr(d, "unremovable", False)]
+        debuffs_cleared = len(unit.debuffs) - len(kept_debuffs)
+        unit.buffs = kept_buffs
+        unit.debuffs = kept_debuffs
+
+        # 状态标志位从过滤后的 debuffs 重新派生
+        unit.is_stunned = any(b.effect_type == SkillEffectType.KNOCKOUT.value
+                              for b in unit.debuffs)
+        unit.is_frozen = any(b.effect_type == SkillEffectType.FREEZE.value
+                             for b in unit.debuffs)
+
+        # 属性重置：HP/ATK/DEF/SPD 回到「第一条命 × 本次倍率」，暴击率不变
+        unit.max_hp = new_hp
+        unit.current_hp = new_hp
+        unit.attack = int(base["attack"])
+        unit.defense = int(base["defense"])
+        unit.speed = int(base["speed"])
+        unit.prev_hp_percent = 100.0
+
+        # 倍率增量以百分比 buff 形式存储（is_memory_buff=True 无条件叠加），
+        # 与 PS 技能 buff 一起参与 Base ×(1 + Σ%)，口径与战术演习阶段增量一致。
+        delta_pct = (mult - 1.0) * 100.0
+        if abs(delta_pct) > 1e-9:
+            for effect_type, label in (
+                (SkillEffectType.STATUS_ATTACK.value, "复活增量ATK"),
+                (SkillEffectType.STATUS_DEFENSE.value, "复活增量DEF"),
+                (SkillEffectType.STATUS_SPEED.value, "复活增量SPD"),
+            ):
+                unit.buffs.append(BuffState(
+                    buff_id=f"revive_{n}_{effect_type}_{unit.unit_id}",
+                    name=label,
+                    effect_type=effect_type,
+                    value=delta_pct,
+                    duration=-1,          # 永久（下一命复活时清除）
+                    timing_type=0,
+                    source_unit_id=unit.unit_id,
+                    source_skill_id=0,
+                    is_debuff=False,
+                    value_tag=0,          # 百分比
+                    is_memory_buff=True,  # 无条件叠加
+                ))
+
+        # 护盾/盾池在倒下时已被打空，复活重置为 0（避免残留孤儿盾池）
+        unit.shield = 0
+        unit.physical_shield = 0
+        unit.en_shield = 0
+
+        unit.current_ap = saved_ap
+        unit.current_pp = saved_pp
+        unit.current_ep = saved_ep
+
+        unit.is_alive = True
+        unit.is_death_notified = False
+
+        _log.info("[DUMMY_REVIVE] ==================================================")
+        _log.info("[DUMMY_REVIVE] %s 第 %d/%d 次复活（倍率 x%.4f）",
+                  unit.name, n, unit.revive_total, mult)
+        _log.info("[DUMMY_REVIVE] HP:  %d -> %d (permanent_flat=%d)",
+                  old_hp, new_hp, permanent_flat)
+        _log.info("[DUMMY_REVIVE] ATK: %d -> %d | DEF: %d -> %d | SPD: %d -> %d",
+                  old_atk, new_attack, old_def, new_defense, old_spd, new_speed)
+        _log.info("[DUMMY_REVIVE] 清除 Buff x%d, Debuff x%d",
+                  buffs_cleared, debuffs_cleared)
+        _log.info("[DUMMY_REVIVE] AP=%d PP=%d EP=%d (保持不变)",
+                  saved_ap, saved_pp, saved_ep)
+        _log.info("[DUMMY_REVIVE] ==================================================")
+
+        # 重新加入行动轴（与战术演习同规则：本轮初始在轴内且尚未行动过）
+        self._rejoin_action_axis_after_revive(unit)
+
+        return {
+            "unit_name": self._get_display_name(unit),
+            "revive_index": n,
+            "revive_total": int(unit.revive_total),
+            "multiplier": mult,
+            "new_hp": new_hp, "new_atk": new_attack,
+            "new_def": new_defense, "new_spd": new_speed,
+            "old_hp": old_hp, "old_atk": old_atk,
+            "old_def": old_def, "old_spd": old_spd,
+            "buffs_cleared": buffs_cleared, "debuffs_cleared": debuffs_cleared,
+            "ap": saved_ap, "pp": saved_pp, "ep": saved_ep,
+        }
+
+    def _rejoin_action_axis_after_revive(self, unit: UnitState) -> None:
+        """复活后按战术演习规则重新加入行动轴（本轮已行动/不在初始轴内则等下轮）。"""
+        if not (unit.current_ap > 0 or self.action_axis._is_ep_full(unit)):
+            return
+        if unit.unit_id in self._acted_this_round:
+            _log.info("[DUMMY_REVIVE] %s 本轮已行动，不重新加入行动轴", unit.name)
+            return
+        if unit.unit_id not in self._round_eligible_ids:
+            _log.info("[DUMMY_REVIVE] %s 不在本轮初始行动轴，等下一轮", unit.name)
+            return
+        # 移除行动轴中已有的同 unit_id 条目，避免重复
+        self.action_axis.action_axis = [
+            u for u in self.action_axis.action_axis if u.unit_id != unit.unit_id
+        ]
+        self.action_axis.action_axis.append(unit)
+        self.action_axis.resort_action_axis()
+        _log.info("[DUMMY_REVIVE] %s 已重新加入行动轴", unit.name)
+
+    def _revive_pending_dummy_deaths(self) -> None:
+        """安全网：复活所有「已死亡但仍有复活次数」的木桩（防漏掉钩子的路径）。
+
+        在战斗结束判定前调用，避免「本可复活却被判敌方全灭直接结束」。
+        """
+        leftovers = [u for u in self.battlefield.get_all_units()
+                     if not u.is_alive and self._dummy_can_revive(u)]
+        if not leftovers:
+            return
+        for unit in leftovers:
+            _log.warning("[DUMMY_REVIVE] 安全网：%s 死亡但未经过复活钩子，补执行复活",
+                         unit.name)
+        self._revive_dummies(leftovers)
+        if self.narrative:
+            self._flush_revive_narrative()
+
+    def _flush_revive_narrative(self) -> None:
+        """输出延迟的木桩复活叙事（确保在💀阵亡通知之后）。"""
+        for data in getattr(self, "_pending_revive_narrative", []) or []:
+            if self.narrative:
+                self.narrative.dummy_revive(**data)
+        self._pending_revive_narrative = []
 
     def _remove_caster_death_effects(self, newly_dead: list) -> None:
         """清除新阵亡单位作为「付与者」施加的所有效果（caster-death cleanup）。
@@ -1858,7 +2182,7 @@ class BattleFlowController:
         Args:
             newly_dead: 本次行动中新阵亡的单位列表
         """
-        pass
+        self._flush_revive_narrative()
 
     @staticmethod
     def _is_element_advantage(caster_elem: int, target_elem: int) -> bool:
@@ -4616,12 +4940,16 @@ class BattleFlowController:
         unit.action_phase = UnitActionPhase.IDLE
 
     def _check_battle_end(self) -> bool:
-        alive_friends = [u for u in self.battlefield.friend_team if u.is_alive]
-        alive_enemies = [u for u in self.battlefield.enemy_team if u.is_alive]
+        # 安全网：仍有复活次数的木桩必须先复活，否则某些未走复活钩子的死亡路径
+        # （例如回合末尾的 DoT 结算）会让战斗提前判「全灭」结束。
+        self._revive_pending_dummy_deaths()
 
+        alive_friends = [u for u in self.battlefield.friend_team if u.is_alive]
         if not alive_friends:
             _log.info("[BATTLE] ============ 战斗结束：我方全灭 ============")
             return True
+
+        alive_enemies = [u for u in self.battlefield.enemy_team if u.is_alive]
         if not alive_enemies:
             _log.info("[BATTLE] ============ 战斗结束：敌方全灭 ============")
             return True

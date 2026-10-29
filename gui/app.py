@@ -498,6 +498,13 @@ class MGGBattleSimulatorGUI:
                     tab._result_panel.apply_theme()
                 except Exception:
                     pass
+        # 自定义木桩Tab：外层滚动 Canvas 是原生 tk 组件，底色需手动跟主题
+        dummy_tab = getattr(self, 'dummy_tab', None)
+        if dummy_tab is not None:
+            try:
+                dummy_tab._refresh_scroll_theme()
+            except Exception:
+                pass
 
     def _start_update_check(self):
         """启动时启动更新守护进程"""

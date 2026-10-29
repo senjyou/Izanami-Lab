@@ -242,6 +242,14 @@ class UnitState:
         if self._base_max_hp_for_calc == 0:
             self._base_max_hp_for_calc = self.max_hp
 
+    # ========== 自定义木桩复活（仅木桩单位；机制参照战术演习 boss 换阶段） ==========
+    # revive_total=0 表示不复活（真实角色恒为 0）。
+    # 复活时机 = 死亡触发器处理完毕后、AFTER_ALLY_ATTACKED 之前（与战术演习同点）。
+    revive_total: int = 0          # 可复活总次数
+    revives_used: int = 0          # 已复活次数
+    revive_mult_start: float = 1.0  # 第 1 次复活的 HP/ATK/DEF/SPD 膨胀倍率
+    revive_mult_step: float = 0.0   # 每次复活的额外增量
+
     def validate(self) -> tuple[bool, str]:
         """
         验证状态一致性

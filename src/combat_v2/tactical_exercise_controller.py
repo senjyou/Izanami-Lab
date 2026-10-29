@@ -48,6 +48,8 @@ class TacticalExerciseController(BattleFlowController):
         self._is_tactical_exercise = True
         self._pending_resurrection_narrative = []  # 延迟输出的复活叙事数据
         self.skill_service._tactical_exercise_mode = True  # 战术演习模式：延迟阵亡判定
+        # 战术演习已有自己的阶段复活机制；木桩的独立复活在此关闭（避免双重复活）
+        self._dummy_revive_enabled = False
 
         # 初始化计分追踪器
         self._scoring_tracker = ScoringTracker()

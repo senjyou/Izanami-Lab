@@ -7,10 +7,12 @@ src/entities_v2/custom_dummy.py
 提供自定义木桩的配置数据类和向现有系统注入的构建函数。
 负ID避免与真实数据冲突。
 
-配置 schema 版本：2（见 DUMMY_SCHEMA_VERSION）。
+配置 schema 版本：3（见 DUMMY_SCHEMA_VERSION）。
 v1 → v2 变更：新增 level / sub_element / initial_ep / max_extra_point / note；
 序列化统一走 CustomDummyConfig.to_dict() / from_dict()，修复旧版
 `hit_count` 键与 dataclass 字段 `hit_count_legacy` 不匹配导致段数丢失的问题。
+v2 → v3 变更：新增 revive_count / revive_mult_start / revive_mult_step（木桩复活），
+旧配置缺字段走默认值（0 次复活 = 行为完全不变）。
 """
 
 from dataclasses import dataclass, field
@@ -30,7 +32,38 @@ from .enums import (
 # ── 效果配置 ──
 
 # 配置 schema 版本（写入 JSON，加载时按版本迁移）
-DUMMY_SCHEMA_VERSION = 2
+DUMMY_SCHEMA_VERSION = 3
+
+# 复活次数上限（防手滑；实际战斗里几乎没有意义超过几十次）
+MAX_DUMMY_REVIVES = 99
+# 单次膨胀倍率上限（HP/ATK/DEF/SPD 同倍率，再高只会让数值失控）
+MAX_DUMMY_REVIVE_MULT = 100.0
+
+
+def dummy_revive_multiplier(start: float, step: float, revive_index: int) -> float:
+    """第 N 次复活（N 从 1 起）的属性膨胀倍率 = start + step × (N−1)。
+
+    倍率作用于 HP/ATK/DEF/SPD，暴击率不变；基准是「第一条命」的进场属性
+    （元素协同后）。start=1.0 / step=0.0 即「完全不膨胀，照搬第一条命」。
+    下限钳到 0.0（HP 会再被钳到 ≥1），上限钳到 MAX_DUMMY_REVIVE_MULT。
+    """
+    n = max(1, int(revive_index))
+    value = float(start) + float(step) * (n - 1)
+    return min(MAX_DUMMY_REVIVE_MULT, max(0.0, value))
+
+
+def dummy_revive_plan_text(revive_count: int, start: float, step: float,
+                           preview: int = 4) -> str:
+    """给 GUI/日志用的可读倍率序列，如「1.00 ×1, 1.20 ×2, 1.40 ×3 …」。"""
+    count = max(0, int(revive_count))
+    if count <= 0:
+        return "不复活"
+    shown = min(count, max(1, int(preview)))
+    parts = [f"{dummy_revive_multiplier(start, step, i):.2f} ×{i}"
+             for i in range(1, shown + 1)]
+    if count > shown:
+        parts.append("…")
+    return ", ".join(parts)
 
 # 支持的效果类型分类
 EFFECT_CATEGORIES = {
@@ -223,6 +256,16 @@ class CustomDummyConfig:
     # 追加技能ID：直接引用技能表中的真实技能（用于复刻演习敌方 AI/技能组，
     # 或给木桩挂一个真实攻击技能）。这些技能不参与 CustomAS/PS 的构建。
     extra_skill_ids: List[int] = field(default_factory=list)
+    # ── v3 新增字段：木桩复活（机制完全参照战术演习模式的 boss 换阶段）──
+    revive_count: int = 0            # 0 = 不复活（默认，行为与旧版完全一致）
+    revive_mult_start: float = 1.0   # 第 1 次复活的属性膨胀倍率
+    revive_mult_step: float = 0.0    # 每次复活的额外增量（倍率 = start + step×(N−1)）
+
+    # ── 复活倍率便捷方法 ──
+    def revive_multiplier(self, revive_index: int) -> float:
+        """第 N 次复活（N 从 1 起）的属性膨胀倍率。"""
+        return dummy_revive_multiplier(self.revive_mult_start, self.revive_mult_step,
+                                       revive_index)
 
     # ── 序列化 ──
     def to_dict(self) -> Dict[str, Any]:
@@ -249,6 +292,9 @@ class CustomDummyConfig:
             "max_extra_point": self.max_extra_point,
             "note": self.note,
             "extra_skill_ids": list(self.extra_skill_ids),
+            "revive_count": self.revive_count,
+            "revive_mult_start": self.revive_mult_start,
+            "revive_mult_step": self.revive_mult_step,
             "permanent_shield_type": self.permanent_shield_type,
             "permanent_shield_value": self.permanent_shield_value,
             "as_skills": [
@@ -338,6 +384,11 @@ class CustomDummyConfig:
             max_extra_point=int(d.get("max_extra_point", 0) or 0),
             note=d.get("note", "") or "",
             extra_skill_ids=[int(x) for x in (d.get("extra_skill_ids") or [])],
+            revive_count=int(d.get("revive_count", 0) or 0),
+            revive_mult_start=float(d.get("revive_mult_start")
+                                    if d.get("revive_mult_start") is not None else 1.0),
+            revive_mult_step=float(d.get("revive_mult_step")
+                                   if d.get("revive_mult_step") is not None else 0.0),
             as_skills=[CustomASConfig(**_skill_common(s)) for s in (d.get("as_skills") or [])],
             ps_skills=[CustomPSConfig(**_skill_common(s), trigger_timing=s.get("trigger_timing", "BeforeAsAttacked"))
                        for s in (d.get("ps_skills") or [])],
@@ -430,6 +481,32 @@ def validate_dummy_config(cfg: CustomDummyConfig) -> List[tuple]:
     for sid in cfg.extra_skill_ids:
         if not isinstance(sid, int) or sid <= 0:
             err(f"追加技能ID必须为正整数：{sid!r}")
+    # ── 复活配置 ──
+    if cfg.revive_count < 0:
+        err(f"复活次数不能为负（当前 {cfg.revive_count}）")
+    elif cfg.revive_count > MAX_DUMMY_REVIVES:
+        err(f"复活次数最多 {MAX_DUMMY_REVIVES}（当前 {cfg.revive_count}）")
+    for label, val in (("首次复活倍率", cfg.revive_mult_start),
+                       ("每次膨胀增量", cfg.revive_mult_step)):
+        if val < 0:
+            err(f"{label} 不能为负（当前 {val}；0=不膨胀/无增量）")
+        elif val > MAX_DUMMY_REVIVE_MULT:
+            err(f"{label} 过大（当前 {val}，上限 {MAX_DUMMY_REVIVE_MULT:.0f}）")
+    if cfg.revive_count > 0:
+        # 注意：这里必须用未钳位的原始公式判断，dummy_revive_multiplier 会被钳到上限
+        highest = (float(cfg.revive_mult_start)
+                   + float(cfg.revive_mult_step) * (cfg.revive_count - 1))
+        if highest > MAX_DUMMY_REVIVE_MULT:
+            err(f"按当前配置第 {cfg.revive_count} 次复活倍率 {highest:.2f} 超过上限 "
+                f"{MAX_DUMMY_REVIVE_MULT:.0f}")
+        if cfg.revive_mult_start == 1.0 and cfg.revive_mult_step == 0.0:
+            info(f"复活 {cfg.revive_count} 次且倍率 1.00/次：每次复活都照搬第一条命属性"
+                 "（等同「满血重复打同一管血」）")
+        elif cfg.revive_mult_start != 1.0 or cfg.revive_mult_step != 0.0:
+            info(f"复活倍率序列: {dummy_revive_plan_text(cfg.revive_count, cfg.revive_mult_start, cfg.revive_mult_step)}"
+                 f"（作用于 HP/ATK/DEF/SPD，暴击率不变）")
+    elif cfg.revive_mult_start != 1.0 or cfg.revive_mult_step != 0.0:
+        warn("复活次数为 0，倍率配置不会生效")
 
     def _check_skill(s, label: str):
         if s.cooldown < 0:

@@ -80,6 +80,8 @@ class CompositeTacticController(BattleFlowController):
         self._is_composite_tactic = True
         self.skill_service._tactical_exercise_mode = True  # 延迟阵亡判定
         self._pending_resurrection_narrative = []  # 延迟输出的BOSS复活叙事数据
+        # 复合演习已有自己的 BOSS 阶段复活机制；木桩的独立复活在此关闭（避免双重复活）
+        self._dummy_revive_enabled = False
 
         # 记录BOSS阶段0基础属性
         boss = self._find_boss()
