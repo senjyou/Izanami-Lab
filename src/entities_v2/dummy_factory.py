@@ -25,6 +25,8 @@ from .custom_dummy import CustomDummyConfig
 from .enums import Side
 from .unit_state import UnitState
 
+from ..utils.constants import ENEMY_MAX_SKILL_LEVEL, LR_MAX_SKILL_LEVEL
+
 # 单位ID前缀：友方木桩用 D（Dummy），敌方统用 E（与既有实现一致，勿改）
 _DUMMY_ALLY_PREFIX = "D"
 _ENEMY_PREFIX = "E"
@@ -127,7 +129,10 @@ def build_dummy_unit_state(
         physical_shield=phys_shield,
         en_shield=en_shield,
         skills=skill_ids,
-        skill_levels={sid: 15 for sid in skill_ids},
+        # 敌方口径（enemy_style/Y演习复刻）：技能等级上限 = 10（敌方技能不存在 Lv11~15）；
+        # 队伍战木桩维持既有的 Lv15（己方 LR 角色可解到 Lv15）。
+        skill_levels={sid: (ENEMY_MAX_SKILL_LEVEL if enemy_style else LR_MAX_SKILL_LEVEL)
+                      for sid in skill_ids},
         skill_cooldowns={},
         role_type=getattr(char, "role_type", 0),
         position_type=getattr(char, "position_type", 0),

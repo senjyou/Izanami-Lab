@@ -32,6 +32,7 @@ from gui.constants import (
     PRESET_DIR,
 )
 from gui.widgets.result_table import ResultTablePanel
+from gui.widgets import battle_stats as _stats
 from gui.widgets.rdps import (
     _build_rdps_summary,
     _build_rdps_tables,
@@ -389,9 +390,11 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         # ── 开始按钮 ──
         ctrl_frame = ttk.Frame(f)
         ctrl_frame.pack(pady=10, fill="x", padx=10)
-        self.start_btn = ttk.Button(ctrl_frame, text="▶ 开始模拟", command=self._start_battle, width=20)
+        self.start_btn = ttk.Button(ctrl_frame, text="▶ 开始模拟", command=self._start_battle, width=18)
         self.start_btn.pack(side=tk.LEFT, padx=5)
-        self.log_btn = ttk.Button(ctrl_frame, text="📋 单次模拟+日志", command=self._start_single_battle_with_log, width=20)
+        self.batch_btn = ttk.Button(ctrl_frame, text="📊 批量模拟", command=self._start_batch_battle, width=16)
+        self.batch_btn.pack(side=tk.LEFT, padx=5)
+        self.log_btn = ttk.Button(ctrl_frame, text="📋 单次模拟+日志", command=self._start_single_battle_with_log, width=18)
         self.log_btn.pack(side=tk.LEFT, padx=5)
         self.rdps_log_btn = ttk.Button(ctrl_frame, text="📤 导出RDPS日志",
                                        command=lambda: _export_rdps_tracking_log(self, self._rdps_tracking_log),
@@ -399,6 +402,17 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         self.rdps_log_btn.pack(side=tk.LEFT, padx=5)
         self.progress_var = tk.StringVar(value="")
         ttk.Label(ctrl_frame, textvariable=self.progress_var).pack(side=tk.LEFT, padx=10)
+
+        # 批量场数（独立于全局「模拟次数」，避免只想点一次却跑了很多场）
+        batch_row = ttk.Frame(f)
+        batch_row.pack(pady=(0, 10), fill="x", padx=10)
+        ttk.Label(batch_row, text="批量场数:").pack(side=tk.LEFT, padx=(5, 2))
+        self._var_batch_runs = tk.IntVar(value=100)
+        ttk.Spinbox(batch_row, from_=1, to=99999, textvariable=self._var_batch_runs,
+                    width=8).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(batch_row,
+                  text="（≥5 场才输出 Roll5 期望；对数用「全局参数」页的回合上限与 RDPS 开关）",
+                  foreground="#888888").pack(side=tk.LEFT)
 
         # ── 结果输出 ──
         right_frame = ttk.Frame(paned)
@@ -478,6 +492,45 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
 
     # ─────────────────── 战斗模拟 ───────────────────
 
+    def _start_batch_battle(self):
+        """批量模拟：按本页「批量场数」跑多场，输场均/Roll5/分布 + 场均角色明细。"""
+        sel = self._get_selection()
+        if not sel["friends"] or not sel["enemies"]:
+            messagebox.showwarning("编队不完整", "请至少为己方和敌方各选择1个角色")
+            return
+        try:
+            runs = int(self._var_batch_runs.get())
+        except (tk.TclError, ValueError):
+            messagebox.showwarning("场数有误", "批量场数必须是整数")
+            return
+        if runs < 1:
+            messagebox.showwarning("场数有误", "批量场数必须 ≥ 1")
+            return
+
+        self.start_btn.config(state="disabled")
+        self.batch_btn.config(state="disabled")
+        self.log_btn.config(state="disabled")
+        self._result_panel.clear()
+        self._result_panel.append_summary(f"正在批量模拟 {runs} 场...\n")
+
+        thread = threading.Thread(target=self._run_batch_simulation, args=(sel, runs), daemon=True)
+        thread.start()
+
+    def _run_batch_simulation(self, sel, runs):
+        try:
+            self.app.data_loader.save_custom_dummies()
+            global_vals = self.app.global_tab.get_values()
+            # 只覆盖场数；回合上限 / RDPS 开关沿用全局设置，保持与其他 Tab 同口径
+            batch_vals = dict(global_vals)
+            batch_vals["runs"] = runs
+            results = self._run_batch(sel, batch_vals)
+            results["runs"] = runs
+            self.app.root.after(0, lambda: self._display_batch_results(results))
+        except Exception as e:
+            import traceback
+            err_msg = str(e) + "\n" + traceback.format_exc()
+            self.app.root.after(0, lambda msg=err_msg: self._display_error(msg))
+
     def _start_battle(self):
         sel = self._get_selection()
         if not sel["friends"] or not sel["enemies"]:
@@ -485,6 +538,7 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
             return
 
         self.start_btn.config(state="disabled")
+        self.batch_btn.config(state="disabled")
         self._result_panel.clear()
         self._result_panel.append_summary("正在模拟...\n")
 
@@ -565,6 +619,7 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
             "all_enemy_healing_received": result.all_enemy_healing_received,
             "rdps_avg": result.rdps_avg,
             "special_notes_list": result.special_notes_list,
+            "all_unit_stats": getattr(result, "all_unit_stats", []),
         }
 
     @staticmethod
@@ -575,8 +630,176 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
         cfg.enable_rdps_tracking = enable_rdps_tracking
         return cfg
 
-    def _display_results(self, results):
+    # ─────────────────── 批量模拟结果 ───────────────────
+
+    def _display_batch_results(self, results):
+        """批量模拟结果：场均/Roll5/分布 + 场均角色明细。
+
+        与「战术演习」页同口径：
+        - 得分 = 对敌方造成总伤害（含溢出）−敌方受到回复，逐场统计后取分布；
+        - Roll5 = 每日 5 次取最高的期望（公式见 `gui/widgets/battle_stats.py`）；
+        - 角色明细取**均伤**（不是最大值），伤害含溢出，与计分口径一致。
+        """
         self.start_btn.config(state="normal")
+        self.batch_btn.config(state="normal")
+        self.log_btn.config(state="normal")
+        self.progress_var.set("完成!")
+        self._result_panel.clear()
+
+        w = results
+        total = w["total_runs"]
+        if total == 0:
+            self._result_panel.append_summary("没有产生有效战斗结果。\n")
+            return
+
+        win_rate = w["wins"] / total * 100
+        avg_turns = w["total_turns"] / total
+        turn_list = w.get("turn_list") or [0]
+        min_turns = min(turn_list)
+        max_turns = max(turn_list)
+
+        # 逐场得分：对敌方总伤 − 敌方受到回复（与战术演习计分同式）
+        ally_damage = w.get("all_ally_damage", [])
+        enemy_healing_received = w.get("all_enemy_healing_received", [])
+        per_run_scores = [
+            (ally_damage[i] if i < len(ally_damage) else 0)
+            - (enemy_healing_received[i] if i < len(enemy_healing_received) else 0)
+            for i in range(total)
+        ]
+        score_stats = _stats.compute_value_stats(per_run_scores)
+
+        out = []
+        out.append("=" * 60)
+        out.append(f"  批量模拟统计 ({total} 场)")
+        out.append("=" * 60)
+        out.append(f"  胜率: {w['wins']}/{total} = {win_rate:.1f}%")
+        out.append(f"  回合: 平均{avg_turns:.1f} | 最少{min_turns} | 最多{max_turns}")
+        rate = w.get("rate", 0)
+        elapsed = w.get("elapsed", 0)
+        if rate > 0:
+            out.append(f"  效率: {rate:.1f} 场/秒 | 耗时 {elapsed:.1f} 秒")
+        out.append("=" * 60)
+
+        # ── 对敌方总伤（核心指标） ──
+        out.append("")
+        out.append("─" * 60)
+        out.append(f"  【对敌方总伤统计 ({total} 场)】")
+        out.append(f"    场均总伤: {_stats.format_avg(score_stats['mean'])}")
+        out.append("")
+        out.append(f"  分布:")
+        out.append(f"    最高: {score_stats['max']:,}")
+        out.append(f"    最低: {score_stats['min']:,}")
+        out.append(f"    Q1 (第25百分位): {score_stats['q1']:,.1f}")
+        out.append(f"    Q3 (第75百分位): {score_stats['q3']:,.1f}")
+        out.append(f"    标准差: {score_stats['stdev']:,.1f}")
+        if total >= 5:
+            out.append(f"    Roll5期望 (每日5次取最高): {score_stats['roll5_mean']:,.0f}")
+        else:
+            out.append(f"    Roll5期望: 样本不足5场，不估算（当前 {total} 场）")
+        out.append("")
+
+        dist = score_stats["distribution"]
+        if dist:
+            out.append(f"  总伤区间分布 (每{_stats.format_short_count(score_stats['bucket_size'])}一档):")
+            for lo, cnt in dist:
+                pct = cnt / total * 100 if total else 0.0
+                out.append(f"    {_stats.format_bucket_label(lo, score_stats['bucket_size'])}"
+                           f" {cnt:>5} 场 ({pct:5.1f}%)")
+            out.append("")
+
+        # 得分次要指标（对敌方总伤 − 敌方回复），便于看「回血抵消」影响
+        if enemy_healing_received and sum(enemy_healing_received) > 0:
+            out.append(f"  敌方受到回复（场均）: {_stats.format_avg(_stats.mean(enemy_healing_received))}")
+            out.append(f"  计入回复后的场均净伤: {_stats.format_avg(score_stats['mean'])}")
+            out.append("")
+
+        # ── 双方合计（场均） ──
+        out.append(f"  【我方合计（场均）】")
+        out.append(f"    造成伤害: {_stats.format_avg(_stats.mean(w.get('all_ally_damage', [])))}")
+        out.append(f"    受到伤害: {_stats.format_avg(_stats.mean(w.get('all_ally_received', [])))}")
+        out.append(f"    提供回复: {_stats.format_avg(_stats.mean(w.get('all_ally_healed', [])))}")
+        out.append("")
+        out.append(f"  【敌方合计（场均）】")
+        out.append(f"    造成伤害: {_stats.format_avg(_stats.mean(w.get('all_enemy_damage', [])))}")
+        out.append(f"    受到伤害: {_stats.format_avg(_stats.mean(w.get('all_enemy_received', [])))}")
+        out.append(f"    提供回复: {_stats.format_avg(_stats.mean(w.get('all_enemy_healed', [])))}")
+        out.append("─" * 60)
+
+        rdps_avg = w.get("rdps_avg")
+        if rdps_avg:
+            out.append(_build_rdps_summary(rdps_avg))
+
+        notes_lines = _format_special_notes_multi(w.get("special_notes_list", []), total)
+        if notes_lines:
+            out.append("")
+            out.extend(notes_lines)
+
+        self._result_panel.set_summary("\n".join(out))
+
+        # ── 角色明细（均伤口径） ──
+        tables = []
+        unit_rows = self._aggregate_unit_rows(w.get("all_unit_stats", []), total)
+        ally_rows, enemy_rows = unit_rows
+        cols = ["角色", "场均造成伤害", "场均受到伤害", "场均提供回复", "存活率"]
+        widths = [135, 130, 130, 130, 70]
+        aligns = ["w", "e", "e", "e", "center"]
+        if ally_rows:
+            tables.append({"title": "我方角色明细(场均)", "columns": cols,
+                           "rows": ally_rows, "col_widths": widths, "col_aligns": aligns})
+        if enemy_rows:
+            tables.append({"title": "敌方角色明细(场均)", "columns": cols,
+                           "rows": enemy_rows, "col_widths": widths, "col_aligns": aligns})
+        if rdps_avg:
+            tables.extend(_build_rdps_tables(rdps_avg))
+        if tables:
+            self._result_panel.set_tables(tables)
+
+    @staticmethod
+    def _aggregate_unit_rows(all_unit_stats, total):
+        """把逐场 `unit_stats` 聚合成 (我方行, 敌方行) —— 全部取**场均**。
+
+        口径与战术演习页一致：伤害含溢出（ScoringTracker 记录的口径），
+        存活率 = 存活场数 / 出场场数。
+        """
+        ally_agg: Dict[str, Dict[str, Any]] = {}
+        enemy_agg: Dict[str, Dict[str, Any]] = {}
+        for per_battle in all_unit_stats or []:
+            for uid, s in (per_battle or {}).items():
+                side = s.get("side", "ally")
+                target = ally_agg if side == "ally" else enemy_agg
+                if uid not in target:
+                    target[uid] = {"name": s.get("name", uid), "damage_dealt": 0,
+                                   "damage_received": 0, "hp_healed": 0,
+                                   "survivals": 0, "deaths": 0}
+                row = target[uid]
+                row["damage_dealt"] += s.get("damage_dealt", 0)
+                row["damage_received"] += s.get("damage_received", 0)
+                row["hp_healed"] += s.get("hp_healed", 0)
+                if s.get("alive"):
+                    row["survivals"] += 1
+                else:
+                    row["deaths"] += 1
+
+        def _rows(agg):
+            out = []
+            for uid, s in agg.items():
+                played = s["survivals"] + s["deaths"]
+                sr = s["survivals"] / played * 100 if played else 0.0
+                out.append([
+                    str(s["name"])[:18],
+                    f"{s['damage_dealt'] / total:,.1f}" if total else "0.0",
+                    f"{s['damage_received'] / total:,.1f}" if total else "0.0",
+                    f"{s['hp_healed'] / total:,.1f}" if total else "0.0",
+                    f"{sr:.1f}%",
+                ])
+            return out
+
+        return _rows(ally_agg), _rows(enemy_agg)
+
+    def _display_results(self, results):
+        """「开始模拟」按钮的结果展示（沿用全局「模拟次数」，格式保持原样）。"""
+        self.start_btn.config(state="normal")
+        self.batch_btn.config(state="normal")
         self.log_btn.config(state="normal")
         self.progress_var.set("完成!")
         self._result_panel.clear()
@@ -702,6 +925,7 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
 
     def _display_error(self, msg):
         self.start_btn.config(state="normal")
+        self.batch_btn.config(state="normal")
         self.log_btn.config(state="normal")
         self.progress_var.set("错误!")
         self._result_panel.append_summary(f"\n❌ 模拟出错:\n{msg}\n")
@@ -713,6 +937,7 @@ class TeamBattleTab(BattleTabMixin, ttk.Frame):
             return
 
         self.start_btn.config(state="disabled")
+        self.batch_btn.config(state="disabled")
         self.log_btn.config(state="disabled")
         self._result_panel.clear()
         self._result_panel.append_summary("正在单次模拟并生成日志...\n")

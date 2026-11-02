@@ -21,6 +21,7 @@ from src.entities_v2.enums import Side, Position
 from src.entities_v2.unit_state import UnitState
 from src.combat_v2.battle_flow_controller import BattleConfig
 from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.utils.constants import enemy_skill_levels
 
 from gui.constants import (
     _BASE_PATH,
@@ -600,13 +601,15 @@ class CircleBattleTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
         enemy_pos = ENEMY_SLOT_POSITION_MAP.get(pos, Position.ENEMY_LEFT_FRONT)
 
         skill_ids = enemy_data.get("skill_ids", [])
-        # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+        # 敌方技能等级：JSON 有就用 EnemySkillMaster.Level，否则回退 ENEMY_MAX_SKILL_LEVEL(=10)。
+        # 敌方技能不存在 Lv11~15（用户裁定 2026-11-02，见 src/utils/constants.py 注释）。
         raw_skill_levels = enemy_data.get("skill_levels", {})
         if raw_skill_levels:
             # JSON 的 key 是 str, 需转为 int
             skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
         else:
-            skill_levels = {sid: 15 for sid in skill_ids}
+            skill_levels = enemy_skill_levels(
+                skill_ids, self.app.data_loader.get_skill_by_id)
 
         max_ep = 0
         for sid in skill_ids:

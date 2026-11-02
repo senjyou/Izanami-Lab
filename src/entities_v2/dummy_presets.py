@@ -46,10 +46,14 @@ DEFAULT_EXERCISE_ENEMY_ID = 93109
 
 # ── 标准演习 Boss 口径常量 ──────────────────────────────────────────
 #
-# 出处：`data/tactical_exercise_enemies.json` 全部 56 个演习敌方的统计中位数。
-# 复算方法见 tests/test_exercise_dummy_enemy.py::test_standard_boss_panel_matches_median。
-#   HP 中位数 370683.5 / ATK 10411.5 / DEF 5807.5 / SPD 599 / 暴击 0.18 / AP=PP=4
-#   （56 个敌方 AP/PP 全为 4，rarity 全为 9=LR）
+# 出处：`data/tactical_exercise_enemies.json` **基线 56 个**演习敌方的统计中位数。
+# 演习敌方每期 +1（新条目始终追加到 JSON 末尾），中位数会随人口增长漂移；
+# 面板常量刻意**冻结在基线人口**，以保证跨赛季/跨版本的输出数值可比
+# （新增敌方后**不要**重新标定，否则历史对照全部失效）。
+# 复算方法见 tests/test_exercise_dummy_enemy.py::test_standard_boss_panel_is_median_of_all_exercise_enemies
+#   （测试按「前 56 个」取基线人口）。
+#   基线中位数 HP 370683.5 / ATK 10411.5 / DEF 5807.5 / SPD 599 / 暴击 0.18 / AP=PP=4
+#   （敌方 AP/PP 全为 4，rarity 全为 9=LR）
 STANDARD_BOSS_HP_REAL = 370_684     # real 模式：中位数四舍五入（会死会升阶）
 STANDARD_BOSS_ATTACK = 10_412
 STANDARD_BOSS_DEFENSE = 5_808
@@ -57,16 +61,18 @@ STANDARD_BOSS_SPEED = 599
 STANDARD_BOSS_CRIT_RATE = 0.18
 STANDARD_BOSS_AP = 4
 STANDARD_BOSS_PP = 4
-# 「1EX + 2AS + 2PS」在 56 个敌方中占 37/56≈66%，取其典型组合
+# 「1EX + 2AS + 2PS」在基线 56 个敌方中占 37/56≈66%，取其典型组合
 # = 93109 惨禍：桃園める 的真实技能组（210001 为 EX，cost 6 → EP 上限 6）
 STANDARD_BOSS_SKILL_IDS = [210001, 220012, 220013, 230251, 230007]
 # 类型/定位沿用技能组来源单位 93109（type=3 敏捷 / role_type=4 辅助），
 # 四个属性靶**只有属性不同**，其余面板完全一致，保证跨角色可比。
 STANDARD_BOSS_CHARACTER_TYPE = 3
 STANDARD_BOSS_ROLE_TYPE = 4
-# 56 个演习敌方的 rarity 全为 9（LR）。注意：模拟器不消费 rarity
+# 基线 56 个演习敌方的 rarity 全为 9（LR）。注意：模拟器不消费 rarity
 # （木桩面板是显式数值，不走稀有度成长），此处仅作为口径记录。
 STANDARD_BOSS_RARITY = 9
+# 基线人口数量（面板常量冻结所依据的敌方个数；新条目追加到末尾不影响基线）
+STANDARD_BOSS_BASELINE_COUNT = 56
 # 演习敌方只有火水土风四属（游戏内无光暗演习敌方，光暗角色只能打非克制）
 STANDARD_BOSS_ELEMENTS = {1: "火", 2: "水", 3: "风", 4: "土"}
 # 预设 key 用的英文属性名（std_boss_fire_meter 等）
@@ -215,7 +221,7 @@ def make_exercise_enemy_replica(data_loader: Any, stage: int = 10,
     )
 
 
-# ── 标准演习 Boss（56 敌方中位数口径） ──────────────────────────────
+# ── 标准演习 Boss（基线 56 敌方中位数口径，人口冻结） ──────────────
 
 def _median(values: List[float]) -> Optional[float]:
     vals = sorted(float(v) for v in values)
@@ -249,11 +255,11 @@ def exercise_element_medians(data_loader: Any, element: int) -> Dict[str, float]
 
 def make_standard_exercise_boss(data_loader: Any, element: int = 3,
                                 hp_mode: str = "meter") -> CustomDummyConfig:
-    """标准演习 Boss：56 个演习敌方的统计中位数面板。
+    """标准演习 Boss：**基线 56 个**演习敌方的统计中位数面板（人口冻结，见文件头注释）。
 
     口径（与真实演习敌方单位零差异，见 dummy_factory.build_dummy_unit_state
     的 `enemy_style=True`）：
-      - 面板取 56 敌方中位数：HP 370684 / ATK 10412 / DEF 5808 / SPD 599 / 暴击 0.18
+      - 面板取**基线 56 个**敌方中位数（新期敌方不参与标定）：HP 370684 / ATK 10412 / DEF 5808 / SPD 599 / 暴击 0.18
       - 四属（火 1 / 水 2 / 风 3 / 土 4）**只改属性**，其余面板完全相同 → 跨角色可比
       - AP=PP=4、技能组 = 1EX+2AS+2PS（210001/220012/220013/230251/230007）
       - crit_damage=1.5（= 无额外暴伤）、advantage_damage=0.0
@@ -283,7 +289,7 @@ def make_standard_exercise_boss(data_loader: Any, element: int = 3,
 
     note_lines = [
         f"标准演习 Boss（{elem_name}属，{'计量' if meter else '真实'}HP）："
-        f"面板 = 全部 56 个演习敌方的统计中位数 HP {STANDARD_BOSS_HP_REAL:,} / "
+        f"面板 = 基线 56 个演习敌方的统计中位数 HP {STANDARD_BOSS_HP_REAL:,} / "
         f"ATK {STANDARD_BOSS_ATTACK:,} / DEF {STANDARD_BOSS_DEFENSE:,} / SPD {STANDARD_BOSS_SPEED} / "
         f"暴击 {STANDARD_BOSS_CRIT_RATE} / AP=PP={STANDARD_BOSS_AP}（rarity=LR）。"
     ]
@@ -301,7 +307,7 @@ def make_standard_exercise_boss(data_loader: Any, element: int = 3,
         "四属靶只有属性不同（火1/水2/风3/土4），其余面板与技能完全一致，保证跨角色可比；"
         "游戏演习没有光/暗敌方（光暗角色只能打非克制）。"
         f"技能组 1EX+2AS+2PS = {STANDARD_BOSS_SKILL_IDS}（取自 93109 惨禍：桃園める，"
-        "该组合在 56 敌方中占 66%）；crit_damage=1.5（无额外暴伤）、advantage_damage=0。"
+        "该组合在基线 56 敌方中占 66%）；crit_damage=1.5（无额外暴伤）、advantage_damage=0。"
         "作为演习敌方上场时按 enemy_style 口径构建：单位等级 1、EP 上限 = 最大 EX 消耗（6）。"
     )
     if data_loader is not None:
@@ -359,7 +365,7 @@ def builtin_presets(data_loader: Any = None) -> List[DummyPreset]:
             presets.append(DummyPreset(
                 f"std_boss_{STANDARD_BOSS_ELEMENT_KEYS[_elem]}_{_mode}",
                 f"标准演习Boss·{_elem_name}·{_mode_name}",
-                f"56 敌方中位数面板 / {'HP 1e8 不死' if _mode == 'meter' else 'HP 370684 会升阶'} / "
+                f"基线56敌方中位数面板 / {'HP 1e8 不死' if _mode == 'meter' else 'HP 370684 会升阶'} / "
                 f"1EX+2AS+2PS / {_elem_name}属",
                 (lambda e=_elem, m=_mode: make_standard_exercise_boss(data_loader, e, m)),
                 ["演习", "标准Boss", "计量" if _mode == "meter" else "升阶"],

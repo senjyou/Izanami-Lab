@@ -139,6 +139,42 @@ LR_SKILL_LEVEL_UNLOCK_RARITY = Rarity.LR
 DEFAULT_MAX_SKILL_LEVEL = 10
 LR_MAX_SKILL_LEVEL = 15
 
+# ── 敌方（演习 / 对抗压制战等）技能等级口径 ──────────────────────────
+# **已确认（用户裁定 2026-11-02，勿再质疑）**：敌方技能的 DefaultMaxLevel 一律为 10，
+# **不存在 Lv11~Lv15**；数值一律以解包 SkillMaster 的 tag 表为准（tag 表止于 Lv10）。
+# 因此敌方单位（演习 Tab / 批量模拟 worker / 对抗压制战 Tab）在 JSON 缺 `skill_levels` 时
+# 必须回退到 10（而不是 15），否则会在 Lv11+ 才有的 block 条件（active_level_min=11 等）
+# 或 tag 表含 Lv15 插值点的技能上算出错误的数值。
+# 己方角色不受此约束（LR 可解到 Lv15，见 LR_MAX_SKILL_LEVEL）。
+ENEMY_MAX_SKILL_LEVEL = 10
+
+
+def enemy_skill_levels(skill_ids, get_skill_by_id=None):
+    """敌方单位的技能等级表（JSON 里没有 `skill_levels` 时的统一回退口径）。
+
+    规则：取该技能在解包 SkillMaster 的 `DefaultMaxLevel`，并夹到
+    `ENEMY_MAX_SKILL_LEVEL`（=10）以下；取不到技能元数据时用 10。
+    这样既能保证「演习敌方一律 Lv10」，又能兼容少数 DefaultMaxLevel=1 的敌方技能
+    （如对抗压制战的 220173 ガイザー・マウ，其 tag 表只有 Lv1）。
+
+    Args:
+        skill_ids: 技能 ID 序列
+        get_skill_by_id: 可选的 `DataLoader.get_skill_by_id`（用于读取 DefaultMaxLevel）
+
+    Returns:
+        {skill_id: level}
+    """
+    levels = {}
+    for sid in skill_ids or []:
+        lvl = ENEMY_MAX_SKILL_LEVEL
+        if get_skill_by_id is not None:
+            skill = get_skill_by_id(sid)
+            default_max = getattr(skill, "default_max_level", None) if skill else None
+            if default_max:
+                lvl = min(int(default_max), ENEMY_MAX_SKILL_LEVEL)
+        levels[sid] = lvl
+    return levels
+
 # 角色等级相关
 MAX_LEVEL_BEFORE_BONUS = 200  # 200级以前使用插值成长(CharacterStatusLerpAmountMaster)
 BONUS_LEVEL_START = 201       # 201级起使用每级加成值

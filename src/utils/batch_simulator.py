@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.utils.constants import ENEMY_MAX_SKILL_LEVEL, enemy_skill_levels
+
 # ============ Worker globals（每个进程独立拷贝） ============
 
 _worker_dl = None                 # DataLoader
@@ -195,6 +197,7 @@ def _worker_run_batch(seeds: List[int]) -> List[Dict[str, Any]]:
             'enemy_healing_received': score_data.get("enemy_healing_received", 0) if score_data else 0,
             'rdps': result.get("rdps"),
             'special_notes': result.get("special_notes"),
+            'unit_stats': score_data.get("unit_stats", {}) if score_data else {},
         })
 
     return results
@@ -417,12 +420,13 @@ def _create_tactical_enemy_worker(dl, enemy_data: Dict[str, Any], enemy_pos):
         return unit
 
     skill_ids = enemy_data.get("skill_ids", [])
-    # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+    # 敌方技能等级：JSON 有就用 EnemySkillMaster.Level，否则回退 ENEMY_MAX_SKILL_LEVEL(=10)。
+    # 敌方技能不存在 Lv11~15（用户裁定 2026-11-02，见 src/utils/constants.py 注释）。
     raw_skill_levels = enemy_data.get("skill_levels", {})
     if raw_skill_levels:
         skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
     else:
-        skill_levels = {sid: 15 for sid in skill_ids}
+        skill_levels = enemy_skill_levels(skill_ids, dl.get_skill_by_id)
 
     max_ep = 0
     for sid in skill_ids:
@@ -485,12 +489,13 @@ def _create_circle_battle_enemy_worker(dl, enemy_data: Dict[str, Any]):
     enemy_pos = Position(pos_str)
 
     skill_ids = enemy_data.get("skill_ids", [])
-    # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+    # 敌方技能等级：JSON 有就用 EnemySkillMaster.Level，否则回退 ENEMY_MAX_SKILL_LEVEL(=10)。
+    # 敌方技能不存在 Lv11~15（用户裁定 2026-11-02，见 src/utils/constants.py 注释）。
     raw_skill_levels = enemy_data.get("skill_levels", {})
     if raw_skill_levels:
         skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
     else:
-        skill_levels = {sid: 15 for sid in skill_ids}
+        skill_levels = enemy_skill_levels(skill_ids, dl.get_skill_by_id)
 
     max_ep = 0
     for sid in skill_ids:
@@ -713,6 +718,9 @@ class BatchResult:
     all_enemy_healing_received: list = field(default_factory=list)
     rdps_avg: dict = field(default_factory=dict)  # 场均 RDPS 统计
     special_notes_list: list = field(default_factory=list)
+    # 每场战斗的 ScoringTracker 单位明细（unit_id → 造成/受到/回复/存活）。
+    # 用于「场均角色明细」：与战术演习页同口径（含溢出伤害，与计分一致）。
+    all_unit_stats: list = field(default_factory=list)
 
     @property
     def win_rate(self) -> float:
@@ -1020,8 +1028,8 @@ class BatchSimulator:
         completed = 0
         t0 = time.time()
         all_rdps = []
-        all_rdps = []
         all_special_notes = []
+        all_unit_stats = []
 
         try:
             # imap_unordered: 流式处理，哪个worker先完成就返回哪个结果
@@ -1092,6 +1100,7 @@ class BatchSimulator:
             all_enemy_healing_received=all_enemy_healing_received,
             special_notes_list=all_special_notes,
             rdps_avg=self._aggregate_rdps(all_rdps),
+            all_unit_stats=all_unit_stats,
         )
 
     def _run_single_process(
@@ -1135,6 +1144,7 @@ class BatchSimulator:
         t0 = time.time()
         all_rdps = []
         all_special_notes = []
+        all_unit_stats = []
 
         for seed_batch in seed_batches:
             for seed in seed_batch:
@@ -1206,6 +1216,7 @@ class BatchSimulator:
                 all_enemy_healing_received.append(score_data.get("enemy_healing_received", 0))
                 all_rdps.append({'rdps': result.get("rdps")})
                 all_special_notes.append(result.get("special_notes"))
+                all_unit_stats.append(score_data.get("unit_stats", {}))
 
             if progress_callback:
                 progress_callback(completed, total_runs)
@@ -1235,6 +1246,7 @@ class BatchSimulator:
             all_enemy_healing_received=all_enemy_healing_received,
             special_notes_list=all_special_notes,
             rdps_avg=self._aggregate_rdps(all_rdps),
+            all_unit_stats=all_unit_stats,
         )
 
     # ============ 战术演习批量模拟 ============

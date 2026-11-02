@@ -1846,5 +1846,38 @@
     ],
     "position": 2,
     "party_id": 400275
+  },
+  "612105": {
+    "enemy_id": 612105,
+    "name": "惨禍：コトハ",
+    "character_name": "コトハ",
+    "asset_id": "154302",
+    "hp": 453357,
+    "attack": 13120,
+    "defense": 7233,
+    "speed": 592,
+    "hp_grade": 4,
+    "attack_grade": 3,
+    "defense_grade": 3,
+    "speed_grade": 3,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 1,
+    "type": 2,
+    "role_type": 5,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 1100,
+    "skill_ids": [
+      210134,
+      220480,
+      220481,
+      220482,
+      230510
+    ],
+    "position": 2,
+    "party_id": 400285
   }
 }

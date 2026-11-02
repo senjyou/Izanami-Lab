@@ -97347,5 +97347,392 @@
   "parse_notes": [
    "manual: 自身被攻击前→guard格挡；攻击者シャイ/スマート属性时guard2（敌方版，maxlv10）"
   ]
+ },
+ "210134": {
+  "skill_id": 210134,
+  "name": "無粋への制裁+",
+  "skill_type": 3,
+  "resource_cost": 7,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 5,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "remove_ep",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "target_count": 3
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "ep_gain_down",
+      "target_type": "enemy_row",
+      "target_identifier": null,
+      "value": 100,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "duration_owner": "caster",
+       "source_death_remove": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster + source_death_remove。"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 6,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster + source_death_remove。"
+  ]
+ },
+ "220480": {
+  "skill_id": 220480,
+  "name": "お姉ちゃん、見てて",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true,
+       "ignore_defense_tag": "debuff",
+       "ignore_condition": {
+        "type": "target_element",
+        "value": 3
+       }
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "dmg_dealt_down",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": 20,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "敌方版(612105)：机制与己方 120182 相同。敌方 Lv5 起有シャイ(风3)条件穿防，tag debuff(Lv1-4=0 / Lv5=25 / Lv10=50)，因此不需要 active_level_min——低等级 tag=0 自然不穿防。dmg_dealt_down 20%(duration=-1 + attack_limited=1 + stackable)。"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "敌方版(612105)：机制与己方 120182 相同。敌方 Lv5 起有シャイ(风3)条件穿防，tag debuff(Lv1-4=0 / Lv5=25 / Lv10=50)，因此不需要 active_level_min——低等级 tag=0 自然不穿防。dmg_dealt_down 20%(duration=-1 + attack_limited=1 + stackable)。"
+  ]
+ },
+ "220481": {
+  "skill_id": 220481,
+  "name": "静かな日々の邪魔をしないで",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": 10,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 3,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "status_type": "action_damage",
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "active_level_min",
+     "value": 10
+    },
+    "effects": [
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_column_highest_damage_dealt",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": {
+       "type": "target_role_in",
+       "values": [
+        1,
+        2
+       ]
+      },
+      "flags": {
+       "status_type": "confusion",
+       "confusion_dmg_reduction_tag": "konran",
+       "confusion_proxy_atk_pct": 10.0
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "敌方版(612105)：机制与己方 120183 相同。敌方 DefaultMaxLevel=10，Lv10 描述才含混乱，故 Block2 active_level_min 11→10；tag konran(Lv1-9=0 / Lv10=50) 决定混乱减伤%。Block1: enemy_column_highest_damage_dealt(累計与ダメージ最多敌所在前後列) 威力 EN + action_damage 10%/3行动。"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 7,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "敌方版(612105)：机制与己方 120183 相同。敌方 DefaultMaxLevel=10，Lv10 描述才含混乱，故 Block2 active_level_min 11→10；tag konran(Lv1-9=0 / Lv10=50) 决定混乱减伤%。Block1: enemy_column_highest_damage_dealt(累計与ダメージ最多敌所在前後列) 威力 EN + action_damage 10%/3行动。"
+  ]
+ },
+ "220482": {
+  "skill_id": 220482,
+  "name": "制服の下の負けん気+",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "add_damage",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "unremovable": true,
+       "buff_name": "制服の下の負けん気"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "敌方版(612105)：敌方描述**只有 Lv1 模板**——「自身に対し2行動の間、攻撃時に攻力×{dmg}%のダメージを追加するバフを付与する（解除不可）」：只有自身、无「他のアグレッシブ属性の味方」分支，故删除己方 120184 的 Block2；并按文本「解除不可」加 flags.unremovable + flags.buff_name。tag dmg 敌方原始值(Lv1=7.5 / Lv10=11.7)。"
+  ],
+  "display_target_priority": null,
+  "display_target_range": null,
+  "display_target_type": 1,
+  "parse_status": "manual",
+  "parse_notes": [
+   "敌方版(612105)：敌方描述**只有 Lv1 模板**——「自身に対し2行動の間、攻撃時に攻力×{dmg}%のダメージを追加するバフを付与する（解除不可）」：只有自身、无「他のアグレッシブ属性の味方」分支，故删除己方 120184 的 Block2；并按文本「解除不可」加 flags.unremovable + flags.buff_name。tag dmg 敌方原始值(Lv1=7.5 / Lv10=11.7)。"
+  ]
+ },
+ "230510": {
+  "skill_id": 230510,
+  "name": "仲間想いは変わらず+",
+  "skill_type": 2,
+  "resource_cost": 2,
+  "cooldown": 2,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "after_as_attacked",
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "is_en_attack": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_status",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "touketsu",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "status_type": "freeze"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "_notes": [
+   "敌方版(612105)：敌方描述是「**自身**が敵からアクティブスキルで攻撃された後に発動」，与己方 130188「**他のアグレッシブ属性の味方**が…」不同 → trigger_type 由 after_as_attacked_ally 改为 after_as_attacked（自身被AS攻击后，同 130002 カウンター 先例），global_condition 清空（无属性/他人条件）。效果不变：对 trigger_attacker 威力 EN 反击 + add_status(freeze, touketsu%) 1行动。"
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "敌方版(612105)：敌方描述是「**自身**が敵からアクティブスキルで攻撃された後に発動」，与己方 130188「**他のアグレッシブ属性の味方**が…」不同 → trigger_type 由 after_as_attacked_ally 改为 after_as_attacked（自身被AS攻击后，同 130002 カウンター 先例），global_condition 清空（无属性/他人条件）。效果不变：对 trigger_attacker 威力 EN 反击 + add_status(freeze, touketsu%) 1行动。"
+  ]
  }
 }

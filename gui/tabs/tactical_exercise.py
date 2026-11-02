@@ -22,6 +22,7 @@ from src.entities_v2.unit_state import UnitState
 from src.combat_v2.battle_flow_controller import BattleConfig
 from src.combat_v2.tactical_exercise_controller import TacticalExerciseController
 from src.combat_v2.battle_narrative import BattleNarrativeWriter
+from src.utils.constants import enemy_skill_levels
 
 from gui.constants import (
     _BASE_PATH,
@@ -44,6 +45,7 @@ from gui.widgets.rdps import (
 )
 from gui.dialogs.enemy_picker import EnemyPickerDialog
 from gui.optimizer_tab_mixin import OptimizeTabMixin
+from gui.widgets import battle_stats as _stats
 
 from gui.tabs.base import BattleTabMixin
 
@@ -704,12 +706,15 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
 
         # 加载敌方技能
         skill_ids = enemy_data.get("skill_ids", [])
-        # 使用 EnemySkillMaster.Level (导入时已提取), 回退到 15 (兼容旧数据)
+        # 敌方技能等级：JSON 有就用 EnemySkillMaster.Level，否则回退 ENEMY_MAX_SKILL_LEVEL(=10)。
+        # 敌方技能不存在 Lv11~15（用户裁定，见 src/utils/constants.py 注释），
+        # 回退 15 会在 Lv11+ 才出现的 block 条件或含 Lv15 插值点的 tag 上算错数值。
         raw_skill_levels = enemy_data.get("skill_levels", {})
         if raw_skill_levels:
             skill_levels = {int(k): v for k, v in raw_skill_levels.items()}
         else:
-            skill_levels = {sid: 15 for sid in skill_ids}
+            skill_levels = enemy_skill_levels(
+                skill_ids, self.app.data_loader.get_skill_by_id)
 
         # 计算最大EP
         max_ep = 0
@@ -1185,33 +1190,14 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
 
     @staticmethod
     def _calculate_quantile(data: list, q: float) -> float:
-        """计算分位数（使用线性插值法）
+        """计算分位数（线性插值法）。委托 `gui.widgets.battle_stats.quantile`。
 
         Args:
             data: 排序后的数值列表
             q: 分位点（0.0 ~ 1.0）
-
-        Returns:
-            分位数值。若数据不足则返回最接近的极值。
         """
-        if not data:
-            return 0.0
-        n = len(data)
-        if n == 1:
-            return float(data[0])
-        if n < 4:
-            # 样本不足4个时，Q1返回最小，Q3返回最大
-            if q <= 0.5:
-                return float(data[0])
-            else:
-                return float(data[-1])
-
-        idx = q * (n - 1)
-        lo = int(idx)
-        hi = min(lo + 1, n - 1)
-        frac = idx - lo
-
-        return data[lo] * (1 - frac) + data[hi] * frac
+        from gui.widgets.battle_stats import quantile as _quantile
+        return _quantile(data, q)
 
     @staticmethod
     def _find_quantile_record(sorted_records: list, q: float):
@@ -1245,31 +1231,16 @@ class TacticalExerciseTab(BattleTabMixin, OptimizeTabMixin, ttk.Frame):
             return sum(lst) / len(lst) if lst else 0.0
 
         def _stdev(lst, mean_val):
-            if len(lst) < 2:
-                return 0.0
-            variance = sum((x - mean_val) ** 2 for x in lst) / (len(lst) - 1)
-            return variance ** 0.5
+            return _stats.stdev(lst, mean_val)
 
         mean_score = _mean(all_scores)
 
-        # Roll5 期望：每日5次演习取最高分。按经验分布5次独立抽样的最大值期望：
-        # E[max of 5] = Σ_i x_(i)·[(i/N)^5 − ((i−1)/N)^5]，x_(i) 为升序第i个分数
-        n_scores = len(sorted_scores)
-        roll5_mean = 0.0
-        for i, x in enumerate(sorted_scores, start=1):
-            p_max = (i / n_scores) ** 5 - ((i - 1) / n_scores) ** 5
-            roll5_mean += x * p_max
+        # Roll5 期望（公式见 gui/widgets/battle_stats.py，与其它 Tab 共用一份实现）
+        roll5_mean = _stats.roll5_expectation(all_scores)
 
         # 得分区间分布：每1000万（1kw）一档，覆盖最低分到最高分的连续区间
-        bucket_size = 10_000_000
-        bucket_counts: Dict[int, int] = {}
-        for s in all_scores:
-            b = int(s // bucket_size)
-            bucket_counts[b] = bucket_counts.get(b, 0) + 1
-        score_distribution = []
-        if bucket_counts:
-            for b in range(min(bucket_counts), max(bucket_counts) + 1):
-                score_distribution.append((b * bucket_size, bucket_counts.get(b, 0)))
+        bucket_size = _stats.DEFAULT_BUCKET_SIZE
+        score_distribution = _stats.distribution(all_scores, bucket_size)
 
         return {
             "mean_score": mean_score,

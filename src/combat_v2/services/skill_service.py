@@ -3758,7 +3758,9 @@ class SkillService:
             self._block_evaded_targets = set()
 
         # P0-3 Phase 1: kenki_power_tag + ignore_condition 解析独立为方法
-        _ignore_def, _ignore_shld = self._apply_damage_resolve_kenki_and_ignore_cond(
+        # ignore_condition 改为 **per-target** 判定（多目标技能只对满足条件的目标穿防）：
+        # 这里拿到的是未经条件裁剪的穿防/穿盾基数，具体裁剪在 per-target 循环里做。
+        _ignore_def, _ignore_shld, _ignore_cond = self._apply_damage_resolve_kenki_and_ignore_cond(
             caster, effect, effect_flags, targets
         )
 
@@ -3831,6 +3833,19 @@ class SkillService:
                 dmg_skill_obj.hp_scaling_bonus = _per_target_bonus
                 _log.info("[HP_SCALING_PER_TARGET] %s -> %s: hp_ratio=%.3f max_bonus=%.1f%% bonus=%.1f%%",
                           caster.name, target.name, _tgt_hp_ratio, _hp_scaling_per_target_max, _per_target_bonus)
+
+            # per-target ignore_condition: 条件穿防/穿盾只对**满足条件的目标**生效
+            # （历史 bug：只看 targets[0]，首目标命中属性条件时整组都穿防）
+            if _ignore_cond is not None:
+                _tgt_cond_met = self._ignore_condition_met(target, _ignore_cond)
+                dmg_skill_obj.ignore_defense = _ignore_def if _tgt_cond_met else 0
+                dmg_skill_obj.ignore_shield = _ignore_shld if _tgt_cond_met else 0
+                _log.info("[DAMAGE_APPLY] %s: ignore_condition(%s) target=%s => %s (def=%s shld=%s)",
+                          caster.name, _ignore_cond.get('type', ''), target.name, _tgt_cond_met,
+                          dmg_skill_obj.ignore_defense, dmg_skill_obj.ignore_shield)
+            else:
+                dmg_skill_obj.ignore_defense = _ignore_def
+                dmg_skill_obj.ignore_shield = _ignore_shld
 
             # hp_scaling_def_penetrate: HP比例穿甲（天崩）
             # 参考Pスラスト实现：添加临时def_down debuff，而非设置ignore_defense
@@ -5226,14 +5241,63 @@ class SkillService:
 
         return hp_scaling_value, enemy_count_scaling_bonus
 
+    def _ignore_condition_met(self, target: UnitState, ignore_cond: dict) -> bool:
+        """`flags.ignore_condition` 的单目标判定（穿防/穿盾是否对该目标生效）。
+
+        按**每个目标**独立判定（不再只看 targets[0]）：多目标技能（enemy_row /
+        enemy_column / enemy_all）里只有满足条件的目标享受穿防，其余目标按原防御结算。
+        拆出为独立方法是为了让 damage 路径能在 per-target 循环里逐个求值
+        （历史 bug：只看首个目标 → 首目标命中属性条件时整组都穿防）。
+        """
+        if not ignore_cond:
+            return True
+        cond_type = ignore_cond.get('type', '')
+        if cond_type == 'target_has_burn':
+            return any(d.effect_type == SkillEffectType.CONFLAGRATION.value for d in target.debuffs)
+        if cond_type == 'target_has_status_ailment':
+            _status_ailment_types = {
+                SkillEffectType.CONFLAGRATION.value,
+                SkillEffectType.POISON.value,
+                SkillEffectType.FREEZE.value,
+                SkillEffectType.KNOCKOUT.value,
+                SkillEffectType.CONFUSION.value,
+                SkillEffectType.GENWAKU.value,
+            }
+            return any(d.effect_type in _status_ailment_types for d in target.debuffs)
+        if cond_type == 'target_has_poison':
+            return any(d.effect_type == SkillEffectType.POISON.value for d in target.debuffs)
+        if cond_type == 'target_has_mark':
+            _mark_name = ignore_cond.get('mark_name', '')
+            return (
+                any(d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
+                    for d in target.debuffs)
+                or any(b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
+                       for b in target.buffs)
+            )
+        if cond_type in ('target_element', 'target_element_in'):
+            _el_vals = ignore_cond.get('values')
+            if _el_vals is None:
+                _el_vals = [ignore_cond.get('value')]
+            if isinstance(_el_vals, (int, float, str)):
+                _el_vals = [_el_vals]
+            _need = {int(v) for v in _el_vals if v is not None}
+            _elems = {getattr(target, 'element', 0)}
+            _sub = getattr(target, 'sub_element', 0)
+            if _sub:
+                _elems.add(_sub)
+            return bool(_elems & _need)
+        # 未知条件类型：保持原行为（不拦穿透）
+        return True
+
     def _apply_damage_resolve_kenki_and_ignore_cond(
         self, caster: UnitState, effect, effect_flags: dict, targets: List[UnitState]
-    ) -> Tuple[int, int]:
+    ) -> Tuple[int, int, Optional[dict]]:
         """解析 kenki_power_tag 切换和条件性穿防穿盾。
 
         涵盖原 _apply_damage L3078-L3131 逻辑：
         - kenki_power_tag: 行动开始时有「剣気」mark 时切换 value_tag 并重新解析 effect.value
-        - ignore_condition: 条件不满足时禁用穿防穿盾（target_has_burn/status_ailment/poison）
+        - ignore_condition: 条件不满足时禁用穿防穿盾（target_has_burn/status_ailment/poison/
+          mark/target_element）
 
         副作用：当 kenki_power_tag 触发时，修改 effect.value_tag 和 effect.value
 
@@ -5241,10 +5305,13 @@ class SkillService:
             caster: 施法者
             effect: 技能效果对象（可能被修改 value_tag/value）
             effect_flags: effect.flags 字典
-            targets: 目标单位列表（用于 ignore_condition 检查）
+            targets: 目标单位列表（仅用于日志；条件判定改为 per-target）
 
         Returns:
-            (_ignore_def, _ignore_shld) 二元组：实际使用的穿防/穿盾值
+            `(base_ignore_def, base_ignore_shld, ignore_cond)`：
+            前两项是**未经条件裁剪**的穿防/穿盾值（tag 解析结果），
+            `ignore_cond` 非空时由调用方在 per-target 循环里用
+            `_ignore_condition_met(target, ignore_cond)` 逐个裁剪。
         """
         # kenki_power_tag: 行动开始时有剣気时切换威力tag
         kenki_power_tag = effect_flags.get('kenki_power_tag')
@@ -5272,7 +5339,7 @@ class SkillService:
                             _log.info("[KENKI_POWER] %s: re-resolved value from tag %s = %s",
                                       caster.name, kenki_power_tag, resolved)
 
-        # 条件性穿防穿盾：检查flags.ignore_condition，条件不满足时忽略穿防穿盾
+        # 条件性穿防穿盾：ignore_condition 的判定延迟到 per-target（见 _ignore_condition_met）
         _ignore_def = effect.ignore_defense
         _ignore_shld = effect.ignore_shield
         # ignore_defense_tag / ignore_shield_tag: 按技能tag解析穿防/穿盾百分比
@@ -5290,61 +5357,9 @@ class SkillService:
                 _log.info("[DAMAGE_APPLY] %s: %s='%s' resolved to %.2f%%",
                           caster.name, _ig_tag_key, _ig_tag_name, float(_ig_tag_val))
         _ignore_cond = effect_flags.get('ignore_condition')
-        if _ignore_cond and (_ignore_def or _ignore_shld) and targets:
-            _cond_type = _ignore_cond.get('type', '')
-            _cond_met = False
-            if _cond_type == 'target_has_burn':
-                _first_target = targets[0]
-                _cond_met = any(d.effect_type == SkillEffectType.CONFLAGRATION.value for d in _first_target.debuffs)
-            elif _cond_type == 'target_has_status_ailment':
-                _first_target = targets[0]
-                _status_ailment_types = {
-                    SkillEffectType.CONFLAGRATION.value,
-                    SkillEffectType.POISON.value,
-                    SkillEffectType.FREEZE.value,
-                    SkillEffectType.KNOCKOUT.value,
-                    SkillEffectType.CONFUSION.value,
-                    SkillEffectType.GENWAKU.value,
-                }
-                _cond_met = any(d.effect_type in _status_ailment_types for d in _first_target.debuffs)
-            elif _cond_type == 'target_has_poison':
-                _first_target = targets[0]
-                _cond_met = any(d.effect_type == SkillEffectType.POISON.value for d in _first_target.debuffs)
-            elif _cond_type == 'target_has_mark':
-                # 対象が指定markを所持する場合のみ穿防穿盾（120165 トリアージ・スラスト:
-                # 対象が「観察」状態の場合、この攻撃は防御力を30%無視する）
-                _first_target = targets[0]
-                _mark_name = _ignore_cond.get('mark_name', '')
-                _cond_met = (
-                    any(d.effect_type == SkillEffectType.MARK.value and getattr(d, 'name', '') == _mark_name
-                        for d in _first_target.debuffs)
-                    or any(b.effect_type == SkillEffectType.MARK.value and getattr(b, 'name', '') == _mark_name
-                           for b in _first_target.buffs)
-                )
-                _log.info("[DAMAGE_APPLY] %s: ignore_condition target_has_mark '%s' (target=%s) => %s",
-                          caster.name, _mark_name, _first_target.name, _cond_met)
-            elif _cond_type in ('target_element', 'target_element_in'):
-                # 対象の属性が指定値に一致する場合のみ穿防穿盾
-                # （120182 お姉ちゃん、見てて Lv11+「対象がシャイ属性の場合、防御力を{debuff}%無視」）
-                _first_target = targets[0]
-                _el_vals = _ignore_cond.get('values')
-                if _el_vals is None:
-                    _el_vals = [_ignore_cond.get('value')]
-                _el_vals = {int(v) for v in _el_vals if v is not None}
-                _el_elems = {getattr(_first_target, 'element', 0)}
-                _el_sub = getattr(_first_target, 'sub_element', 0)
-                if _el_sub:
-                    _el_elems.add(_el_sub)
-                _cond_met = bool(_el_elems & _el_vals)
-                _log.info("[DAMAGE_APPLY] %s: ignore_condition target_element target=%s elems=%s need=%s => %s",
-                          caster.name, _first_target.name, sorted(_el_elems), sorted(_el_vals), _cond_met)
-            if not _cond_met:
-                _ignore_def = 0
-                _ignore_shld = 0
-                _log.info("[DAMAGE_APPLY] %s: ignore_condition(%s) not met, penetration disabled",
-                          caster.name, _cond_type)
-
-        return _ignore_def, _ignore_shld
+        if not (_ignore_cond and (_ignore_def or _ignore_shld)):
+            _ignore_cond = None
+        return _ignore_def, _ignore_shld, _ignore_cond
 
     def _apply_damage_apply_conditional_power_bonus(
         self, caster: UnitState, effect, effect_flags: dict, targets: List[UnitState], dmg_skill_obj
@@ -12004,12 +12019,18 @@ class SkillService:
 
             if ep_target_count > 1:
                 # 多目标：优先从_block_damage_targets缓存获取所有被攻击目标
+                # 并按 flags.target_count 截断（缓存里可能混入其它 target_type 的候选，
+                # 不截断会把 EP 削减泄漏到 target_count 之外的单位）
                 cached_targets = getattr(self, '_block_damage_targets', None)
                 if cached_targets is not None and isinstance(cached_targets, dict):
                     for _tk, _tv in cached_targets.items():
+                        if len(all_ep_targets) >= ep_target_count:
+                            break
                         if not _tk or not isinstance(_tv, list):
                             continue
                         for _t in _tv:
+                            if len(all_ep_targets) >= ep_target_count:
+                                break
                             if _t is None or not _t.is_alive:
                                 continue
                             if any(x.get("target_id") == _t.unit_id for x in all_ep_targets):
