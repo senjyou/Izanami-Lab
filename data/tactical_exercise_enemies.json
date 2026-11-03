@@ -1912,5 +1912,38 @@
     ],
     "position": 2,
     "party_id": 400290
+  },
+  "372405": {
+    "enemy_id": 372405,
+    "name": "惨禍：月ヶ瀬ちゆる",
+    "character_name": "月ヶ瀬ちゆる",
+    "asset_id": "102303",
+    "hp": 421613,
+    "attack": 14235,
+    "defense": 6957,
+    "speed": 611,
+    "hp_grade": 2,
+    "attack_grade": 3,
+    "defense_grade": 2,
+    "speed_grade": 4,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 4,
+    "type": 2,
+    "role_type": 5,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 101,
+    "skill_ids": [
+      210136,
+      220484,
+      220485,
+      230514,
+      230515
+    ],
+    "position": 5,
+    "party_id": 400295
   }
 }

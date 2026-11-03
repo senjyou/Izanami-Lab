@@ -330676,5 +330676,38 @@
       "230512": 10,
       "230513": 10
     }
+  },
+  "372405": {
+    "enemy_id": 372405,
+    "name": "惨禍：月ヶ瀬ちゆる",
+    "asset_id": "102303",
+    "hp": 421613,
+    "attack": 14235,
+    "defense": 6957,
+    "speed": 611,
+    "hp_grade": 2,
+    "attack_grade": 3,
+    "defense_grade": 2,
+    "speed_grade": 4,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 4,
+    "type": 2,
+    "role_type": 5,
+    "rarity": 9,
+    "skill_ids": [
+      210136,
+      220484,
+      220485,
+      230514,
+      230515
+    ],
+    "skill_levels": {
+      "210136": 10,
+      "220484": 10,
+      "220485": 10,
+      "230514": 10,
+      "230515": 10
+    }
   }
 }

@@ -87976,5 +87976,210 @@
         ]
       }
     }
+  },
+  "210136": {
+    "skill_id": 210136,
+    "name": "推測通り……だね♪",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ランダムな敵単体に威力{威力}で5ヒットEN攻撃する"
+      },
+      {
+        "min_level": 10,
+        "template": "ランダムな敵単体に威力{威力}で5ヒット、さらに威力{威力2}で1ヒットEN攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 5,
+            "value": 31.200000762939453
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 9,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 39.0
+          }
+        ]
+      }
+    }
+  },
+  "220484": {
+    "skill_id": 220484,
+    "name": "コンクルージョン・ブラスト+",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ランダムな敵単体に威力{威力}でEN攻撃し（回避不可）、対象のAPとPPを2つずつ削る。\n生存している敵が3体未満の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 85.0
+          },
+          {
+            "level": 3,
+            "value": 132.60000610351562
+          },
+          {
+            "level": 10,
+            "value": 180.1999969482422
+          }
+        ]
+      }
+    }
+  },
+  "220485": {
+    "skill_id": 220485,
+    "name": "プレゼンスリザルト",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}でEN攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 10,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230514": {
+    "skill_id": 230514,
+    "name": "アナライズチェイス+",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が敵からアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に威力{威力}でEN反撃し、1行動の間対象の与ダメージを{dmg}%減少させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          },
+          {
+            "level": 3,
+            "value": 109.19999694824219
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 15.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      }
+    }
+  },
+  "230515": {
+    "skill_id": 230515,
+    "name": "イントロダクションライド+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。1ターンの間、自身のスキル威力を{buff}上昇させる（解除不可）。このスキルは1ターン目には発動しない"
+      }
+    ],
+    "template_tags": {
+      "buff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.5
+          },
+          {
+            "level": 5,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 7.5
+          }
+        ]
+      }
+    }
   }
 }
