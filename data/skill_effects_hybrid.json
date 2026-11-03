@@ -8795,12 +8795,10 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
       "ignore_defense": 0,
       "ignore_shield": 0
      },
@@ -8808,7 +8806,7 @@
       "effect_type": "lifesteal",
       "target_type": "self",
       "target_identifier": null,
-      "value": 0.0,
+      "value": null,
       "value_tag": "cure",
       "value_source": null,
       "duration": null,
@@ -8825,7 +8823,7 @@
       "effect_type": "atk_up",
       "target_type": "self",
       "target_identifier": null,
-      "value": 0.0,
+      "value": null,
       "value_tag": "atk",
       "value_source": null,
       "duration": null,
@@ -8847,8 +8845,10 @@
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(120073)：敵単体威力攻击 + 与ダメージの cure% 自身回復 + atk% 自身攻撃力上昇（重複可）。2026-11-03：移除 damage.flags.lifesteal_tag（死键修复后会与独立 lifesteal 双重回血），吸血统一走独立 lifesteal(value_tag=cure)。"
+  ]
  },
  "120074": {
   "skill_id": 120074,
@@ -19378,21 +19378,19 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
-      "effect_type": "heal",
+      "effect_type": "lifesteal",
       "target_type": "self",
       "target_identifier": null,
       "value": null,
-      "value_tag": "威力",
+      "value_tag": "cure",
       "value_source": null,
       "duration": null,
       "duration_type": null,
@@ -19405,13 +19403,44 @@
       "ignore_shield": 0
      }
     ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_killed"
+    },
+    "effects": [
+     {
+      "effect_type": "dmg_taken_up",
+      "target_type": "enemy_all",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ],
+    "level_min": 5
    }
   ],
   "display_target_priority": null,
   "display_target_range": 6,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX(210004 敌方 1213xx)：敵横一列 威力 attack + 与ダメージの cure% 自身回復（独立 lifesteal）。Lv5+（AdditionalKinds Lv5=13）「この攻撃で敵を倒した場合」→ 敵全体 被ダメージ +dmg%（重複可・永続）。2026-11-03 修正：原配置 heal 误用 value_tag=威力（会按攻击力百分比治疗），改为独立 lifesteal(cure)；并补上原文 Lv5+ 的 target_killed 分支（原配置缺失）。"
+  ]
  },
  "210005": {
   "skill_id": 210005,
@@ -24824,23 +24853,22 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "is_en_attack": true,
-       "lifesteal_tag": "cure"
+       "is_en_attack": true
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
-      "effect_type": "heal",
-      "target_type": "enemy_single",
+      "effect_type": "lifesteal",
+      "target_type": "self",
       "target_identifier": null,
       "value": null,
       "value_tag": "cure",
-      "value_source": "max_hp",
+      "value_source": null,
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
@@ -24857,8 +24885,10 @@
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(220065)：敵単体 威力 EN攻击 + 与ダメージの cure% 自身回復。2026-11-03 修正：原配置 heal 的目标是 enemy_single（敌方）、基数是 max_hp，均与原文不符；改为独立 lifesteal(self, value_tag=cure)，基数=&#34;与えたダメージ&#34;。"
+  ]
  },
  "220066": {
   "skill_id": 220066,
@@ -26877,22 +26907,47 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "is_en_attack": true,
-       "lifesteal_tag": "cure"
+       "is_en_attack": true
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
-      "effect_type": "heal",
+      "effect_type": "lifesteal",
       "target_type": "self",
       "target_identifier": null,
       "value": null,
-      "value_tag": "威力",
+      "value_tag": "cure",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_character_type",
+     "value": 2
+    },
+    "effects": [
+     {
+      "effect_type": "remove_pp",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
       "value_source": null,
       "duration": null,
       "duration_type": null,
@@ -26910,8 +26965,10 @@
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(220103 敌方 2222xx)：敵単体 威力 EN攻击 + 与ダメージの cure% 自身回復（独立 lifesteal）；対象がENタイプ(character_type=2) なら 対象のPP を1削る（同己方 120020 写法）。2026-11-03 修正：原配置 heal 误用 value_tag=威力；补上原文的 ENタイプ削PP 分支（原配置缺失）。"
+  ]
  },
  "220104": {
   "skill_id": 220104,
@@ -43357,7 +43414,7 @@
     "effects": [
      {
       "effect_type": "damage",
-      "target_type": "enemy_single",
+      "target_type": "enemy_column",
       "target_identifier": null,
       "value": null,
       "value_tag": "威力",
@@ -43365,12 +43422,35 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_survived"
+    },
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "add",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
       "ignore_defense": 0,
       "ignore_shield": 0
      }
@@ -43380,8 +43460,10 @@
   "display_target_priority": null,
   "display_target_range": 7,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX(210042 敌方 441201)：自身に最も近い敵**前後列**（enemy_column 纵列2体）威力攻击 → 主目标存活则 add 追撃。Lv11+ 才有 cure 吸血，但敌方 DefaultMaxLevel=10 且 cure tag Lv1-10 恒 0，故 Lv1-10 不配吸血。2026-11-03 修正：原配置只有单体 damage + lifesteal_tag，目标范围与追撃 block 全错（对照己方 110028 / 敌方 210083 同构写法）。"
+  ]
  },
  "210043": {
   "skill_id": 210043,
@@ -45503,9 +45585,7 @@
       "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
       "ignore_defense": 20,
       "ignore_shield": 20
      }
@@ -45531,9 +45611,7 @@
       "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
       "ignore_defense": 0,
       "ignore_shield": 0
      }
@@ -45548,23 +45626,6 @@
     "effects": [
      {
       "effect_type": "heal",
-      "target_type": "enemy_single",
-      "target_identifier": null,
-      "value": null,
-      "value_tag": "cure",
-      "value_source": "max_hp",
-      "duration": null,
-      "duration_type": null,
-      "duration_tag": null,
-      "hit_count": null,
-      "hit_count_tag": null,
-      "condition": null,
-      "flags": {},
-      "ignore_defense": 0,
-      "ignore_shield": 0
-     },
-     {
-      "effect_type": "heal_over_time",
       "target_type": "self",
       "target_identifier": null,
       "value": null,
@@ -45576,18 +45637,43 @@
       "hit_count": null,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {},
+      "flags": {
+       "heal_base": "max_hp"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "heal_over_time",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": 13.5,
+      "value_tag": null,
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "fixed",
+       "heal_base": "atk"
+      },
       "ignore_defense": 0,
       "ignore_shield": 0
      }
     ]
    }
   ],
-  "display_target_priority": null,
+  "display_target_priority": 7,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX(210081 敌方 616301)：三态分支。HP=100%：最もHP割合の低い敵単体 威力攻击 + 防御/シールド20%無視；HP>=50% 但未满：同目标 威力攻击（无穿防）；HP<50%：自身を最大HP×cure% 回復 + 2行动 HOT 威力13.5。2026-11-03 修正：原配置 damage 挂 lifesteal_tag（原文无吸血）→ 删除；B3 heal 目标是 enemy_single → 改 self；heal_over_time 补 duration=2/action 与 value=13.5；B1/B2 目标补 enemy_single_lowest_hp_ratio（原文「最もHP割合の低い敵単体」）。",
+   "EX(210081 敌方 616301)：三态分支。HP=100%：最もHP割合の低い敵単体 威力攻击 + 防御/シールド20%無視；HP>=50% 但未满：同目标 威力攻击（无穿防）；HP<50%：自身を最大HP×cure% 回復 + 2行动 HOT 威力13.5。2026-11-03 修正：原配置 damage 挂 lifesteal_tag（原文无吸血）→ 删除；B3 heal 目标是 enemy_single → 改 self；heal_over_time 补 duration=2/action 与 value=13.5；「最もHP割合の低い敵単体」按同文本的己方 110051 口径用 display_target_priority=7。"
+  ]
  },
  "210082": {
   "skill_id": 210082,
@@ -45649,7 +45735,7 @@
     "effects": [
      {
       "effect_type": "damage",
-      "target_type": "enemy_single",
+      "target_type": "enemy_column",
       "target_identifier": null,
       "value": null,
       "value_tag": "威力",
@@ -45657,12 +45743,35 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
-      "flags": {
-       "lifesteal_tag": "cure"
-      },
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_survived"
+    },
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "add",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
       "ignore_defense": 0,
       "ignore_shield": 0
      }
@@ -45672,8 +45781,10 @@
   "display_target_priority": null,
   "display_target_range": 7,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX(210083 敌方 622301)：同 210042 —— 敵前後列(enemy_column) 威力攻击 + target_survived 追撃(add)。cure 吸血仅 Lv11+ 且 tag Lv1-10 恒 0，敌方上限 10 → 不配吸血。2026-11-03 修正：原配置只有单体 damage + lifesteal_tag，目标范围与追撃 block 全错。"
+  ]
  },
  "210084": {
   "skill_id": 210084,
@@ -50009,24 +50120,72 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "is_en_attack": true,
-       "lifesteal_tag": "cure"
+       "is_en_attack": true
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      }
     ]
+   },
+   {
+    "block_id": 2,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "lifesteal",
+      "target_type": "ally_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "cure",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "lowest_hp_priority": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "heal",
+      "target_type": "ally_single",
+      "target_identifier": null,
+      "value": 0.5,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "lowest_hp_priority": true,
+       "heal_base": "max_hp",
+       "value_type": "percent"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ],
+    "level_min": 5
    }
   ],
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(220244 敌方 562305)：敵単体 威力 EN攻击；Lv5+（AdditionalKinds Lv5=9）「最もHP割合が低い味方単体」に対し 与ダメージの cure%（Lv5=25/Lv10=35）+ 最大HP×0.5% 回復。2026-11-03 修正：原配置只有 damage + lifesteal_tag（且目标是自身），缺整段 Lv5+ 回复 —— 参照己方 120100 补 lifesteal(ally_single,lowest_hp) + heal(max_hp 0.5%)。"
+  ]
  },
  "220245": {
   "skill_id": 220245,
@@ -52298,12 +52457,11 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "is_en_attack": true,
-       "lifesteal_tag": "cure"
+       "is_en_attack": true
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -52314,8 +52472,10 @@
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(220285 敌方 562306/562307)：対象が敌方 MaxLv10 → 只有「敵単体 威力 EN攻击」。Lv11+ 的「最もHP割合が低い味方回復」与 cure tag（Lv1-10 恒 0）在敌方等级区间内不可达，故不配。2026-11-03 修正：原配置挂 lifesteal_tag（死键，现会误触发 0% 吸血），已移除。"
+  ]
  },
  "220286": {
   "skill_id": 220286,
@@ -53040,22 +53200,47 @@
       "duration": null,
       "duration_type": null,
       "duration_tag": null,
-      "hit_count": null,
+      "hit_count": 1,
       "hit_count_tag": null,
       "condition": null,
       "flags": {
-       "is_en_attack": true,
-       "lifesteal_tag": "cure"
+       "is_en_attack": true
       },
       "ignore_defense": 0,
       "ignore_shield": 0
      },
      {
-      "effect_type": "heal",
+      "effect_type": "lifesteal",
       "target_type": "self",
       "target_identifier": null,
       "value": null,
-      "value_tag": "威力",
+      "value_tag": "cure",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_character_type",
+     "value": 2
+    },
+    "effects": [
+     {
+      "effect_type": "remove_pp",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
       "value_source": null,
       "duration": null,
       "duration_type": null,
@@ -53073,8 +53258,10 @@
   "display_target_priority": null,
   "display_target_range": 1,
   "display_target_type": 3,
-  "parse_status": "success",
-  "parse_notes": []
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS(220300 敌方 222211)：同 220103 —— 敵単体 威力 EN攻击 + 与ダメージの cure% 自身回復（cure Lv1=12.25/Lv3=25/Lv10=50）+ 対象がENタイプなら PP-1。2026-11-03 修正：原配置 heal 误用 value_tag=威力；补上 ENタイプ削PP 分支。"
+  ]
  },
  "220301": {
   "skill_id": 220301,
@@ -97733,6 +97920,355 @@
   "parse_status": "manual",
   "parse_notes": [
    "敌方版(612105)：敌方描述是「**自身**が敵からアクティブスキルで攻撃された後に発動」，与己方 130188「**他のアグレッシブ属性の味方**が…」不同 → trigger_type 由 after_as_attacked_ally 改为 after_as_attacked（自身被AS攻击后，同 130002 カウンター 先例），global_condition 清空（无属性/他人条件）。效果不变：对 trigger_attacker 威力 EN 反击 + add_status(freeze, touketsu%) 1行动。"
+  ]
+ },
+ "210135": {
+  "skill_id": 210135,
+  "name": "#ぽよ・オア・トリート",
+  "skill_type": 3,
+  "resource_cost": 7,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_column",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "target_survived"
+    },
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "add",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 3,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "lifesteal",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "cure",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ],
+    "level_min": 5
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 7,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX(敌方 113205)：自身に最も近い敵前後列（enemy_column）へ威力攻撃 → 攻撃後に最も近い敵単体が生存していれば add で追撃 → Lv5+（AdditionalKinds Lv5=9）与ダメージの cure% を自身回復（lifesteal）。敌方 tag cure 在 Lv1-4 恒为 0，Lv10=60%，与己方 110028 Lv11+ 的 40/60% 口径不同（己方 cure Lv1-10 恒 0，仅 Lv11 起生效）；故 block3 用 level_min=5 并直接读敌方 cure tag，不抄己方 level_min=11。"
+  ]
+ },
+ "220483": {
+  "skill_id": 220483,
+  "name": "かぷっとファンサ+",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "consume_hp",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "自傷",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "hp_base": "current_hp"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS1(敌方 113205)：**无条件**先消耗自身当前HP的 自傷%（Lv10=1.25%），再对敌单体威力攻击（Lv10=85.8）。与己方 120067 的差异：己方文本「自身が「極限」状態の場合…{自傷}%を消費する」→ 己方 block1 带 condition self_has_mark(極限)，且己方 自傷 为 Lv1-10=50%、Lv15=25%；敌方文本无「極限」条件，自傷 = Lv1-3 2.5% → Lv10 1.25%（大幅削弱），不得照抄己方 50%。"
+  ]
+ },
+ "230511": {
+  "skill_id": 230511,
+  "name": "イモータル・ヴァンパイア+",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_turn_start",
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "add_max_ap",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "dmg_dealt_up",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 2,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ],
+    "level_min": 3
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": null,
+  "display_target_type": 1,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS1(敌方 113205)：ターン開始時発動，最大AP+1（解除不可），战斗中只发动一次（once_per_battle=true，对应 Features=128）。Lv3+（AdditionalKinds Lv3=2）额外获得 2 行动内与ダメージ +dmg%（dmg tag Lv1-2=0、Lv3=10、Lv10=25）。与己方 130075 的差异：己方是 HP≤10% 触发（on_hp_below）+ 自身治疗 + 極限 mark；敌方是每战一次的回合开始型，且**没有**治疗与「極限」mark，不得照抄己方 130075。"
+  ],
+  "once_per_battle": true
+ },
+ "230512": {
+  "skill_id": 230512,
+  "name": "アウェイキング・ヴァンパイア+",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": 3,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "after_as_attacked",
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "perfect_evasion",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "hit_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS2(敌方 113205)：自身が敵からアクティブスキルで攻撃された後に発動（after_as_attacked），对攻击者威力反击（Lv10=84.8）+ 自身获得「回避1ヒット」buff。CD 3、CD更新時机 2（ターン終了時）。与己方 130076 的差异：己方带 global_condition self_lacks_mark(極限)（極限状态时本技能不发动），敌方文本**没有**该条款 → global_condition=null；且敌方 威力 Lv10=84.8 已是己方 Lv15 的数值。"
+  ]
+ },
+ "230513": {
+  "skill_id": 230513,
+  "name": "あなたにマーキング♡+",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_turn_start",
+  "global_condition": {
+   "type": "round_number",
+   "operator": ">",
+   "value": 1
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "dmg_taken_up",
+      "target_type": "enemy_single_furthest",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "hit",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS3(敌方 113205)：ターン開始時発動（1ターン目は発動しない → global_condition round_number>1），对最远敌单体付与「次に受ける攻撃の被ダメージ +dmg%（重複可）」（Lv10=20%）。与己方 130077 / 旧敌方 230191 的差异：敌方**没有** cheat_death（致死HP1耐え）条款、**没有**「戦闘中1度しか発動しない」→ 不设 once_per_battle，从第 2 回合起每回合发动、可叠层。"
   ]
  }
 }

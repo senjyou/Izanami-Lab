@@ -7548,7 +7548,7 @@ class SkillService:
                       caster.name, targets[0].name, [t.name for t in self._last_heal_targets])
         effective_atk = self.damage_service._calculate_final_stat(caster, "attack")
         effective_max_hp = self.damage_service._calculate_final_stat(caster, "max_hp")
-        _log.info("[HEAL] %s: heal_pct=%d%% base=%s atk=%d max_hp=%d targets=%d",
+        _log.info("[HEAL] %s: heal_pct=%.2f%% base=%s atk=%d max_hp=%d targets=%d",
                   caster.name, heal_pct, heal_base, effective_atk, effective_max_hp, len(targets))
 
         # split_among_targets: 总回復量（ATK×威力%）を味方人数で均等配分
@@ -7582,13 +7582,13 @@ class SkillService:
                 # 基于目标已损失HP计算治疗量
                 lost_hp = target_effective_max_hp - target.current_hp
                 heal_amount = int(lost_hp * heal_pct / 100)
-                _log.info("[HEAL] %s -> %s: heal_base=lost_hp lost_hp=%d heal_pct=%d%%",
+                _log.info("[HEAL] %s -> %s: heal_base=lost_hp lost_hp=%d heal_pct=%.2f%%",
                           caster.name, target.name, lost_hp, heal_pct)
             elif heal_base == 'consume_hp':
                 # 基于本技能consume_hp消费的HP量（如120154 私に任せて！）
                 consumed = getattr(self, '_hp_consumed', 0)
                 heal_amount = int(consumed * heal_pct / 100)
-                _log.info("[HEAL] %s -> %s: heal_base=consume_hp consumed=%d heal_pct=%d%%",
+                _log.info("[HEAL] %s -> %s: heal_base=consume_hp consumed=%d heal_pct=%.2f%%",
                           caster.name, target.name, consumed, heal_pct)
             elif heal_base == 'damage_taken_in_action':
                 # 130158 ヒートアップ・ラブ: 基于目标当次行动中受到的伤害计算治疗量

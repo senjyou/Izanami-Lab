@@ -330643,5 +330643,38 @@
       "220482": 10,
       "230510": 10
     }
+  },
+  "113205": {
+    "enemy_id": 113205,
+    "name": "惨禍：フルート・メルヴィル",
+    "asset_id": "116302",
+    "hp": 411963,
+    "attack": 17713,
+    "defense": 7230,
+    "speed": 578,
+    "hp_grade": 2,
+    "attack_grade": 5,
+    "defense_grade": 3,
+    "speed_grade": 3,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 2,
+    "type": 3,
+    "role_type": 5,
+    "rarity": 9,
+    "skill_ids": [
+      210135,
+      220483,
+      230511,
+      230512,
+      230513
+    ],
+    "skill_levels": {
+      "210135": 10,
+      "220483": 10,
+      "230511": 10,
+      "230512": 10,
+      "230513": 10
+    }
   }
 }

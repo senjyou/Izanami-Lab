@@ -254,6 +254,20 @@ class SkillDataResolver:
                             _log.info("[RESOLVER] skill=%d confusion_dmg_reduction_tag=%s resolved=%.1f",
                                       skill_id, confusion_dmg_reduction_tag, resolved_val)
 
+                    # lifesteal_tag: damage effect 内嵌吸血的 tag 名 → 解析为数值写入
+                    # flags['lifesteal']（_apply_damage 只读该数值键，见 skill_service 约 L4016）。
+                    # 2026-11-03 修：此前从不解析，导致写 lifesteal_tag 的配置回血恒为 0（死键）。
+                    lifesteal_tag = flags.get('lifesteal_tag')
+                    if lifesteal_tag:
+                        resolved_val = tag_values.get(lifesteal_tag)
+                        if resolved_val is not None:
+                            flags['lifesteal'] = resolved_val
+                            _log.info("[RESOLVER] skill=%d lifesteal_tag=%s resolved=%.2f",
+                                      skill_id, lifesteal_tag, resolved_val)
+                        else:
+                            _log.warning("[RESOLVER] skill=%d lifesteal_tag=%s 在 tag 表中不存在，"
+                                         "吸血将为 0", skill_id, lifesteal_tag)
+
                 effects.append(ResolvedEffect(
                     effect_type=effect_data.get('effect_type', 'unknown'),
                     target_type=effect_data.get('target_type', 'unknown'),

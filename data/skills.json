@@ -87746,5 +87746,235 @@
       }
     },
     "display_info": {}
+  },
+  "210135": {
+    "skill_id": 210135,
+    "name": "#ぽよ・オア・トリート",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身に最も近い敵前後列に威力{威力}で攻撃する。攻撃後に最も近い位置にいる敵単体が生存していた場合、敵単体に威力{add}でもう一度攻撃する"
+      },
+      {
+        "min_level": 5,
+        "template": "自身に最も近い敵前後列に威力{威力}で攻撃する。攻撃後に最も近い位置にいる敵単体が生存していた場合、敵単体に威力{add}でもう一度攻撃する。さらに与えたダメージの{cure}%分自身のHPを回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 65.0
+          },
+          {
+            "level": 3,
+            "value": 101.4000015258789
+          }
+        ]
+      },
+      "add": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 30.0
+          },
+          {
+            "level": 3,
+            "value": 46.79999923706055
+          }
+        ]
+      },
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 4,
+            "value": 0.0
+          },
+          {
+            "level": 5,
+            "value": 40.0
+          },
+          {
+            "level": 10,
+            "value": 60.0
+          }
+        ]
+      }
+    }
+  },
+  "220483": {
+    "skill_id": 220483,
+    "name": "かぷっとファンサ+",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の現在HPの{自傷}%を消費し、敵単体に威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "自傷": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.5
+          },
+          {
+            "level": 3,
+            "value": 2.5
+          },
+          {
+            "level": 10,
+            "value": 1.25
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 55.0
+          },
+          {
+            "level": 3,
+            "value": 85.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230511": {
+    "skill_id": 230511,
+    "name": "イモータル・ヴァンパイア+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身の最大APを1増やす（解除不可）。このスキルは戦闘中に1度しか発動しない"
+      },
+      {
+        "min_level": 3,
+        "template": "ターン開始時に発動。自身の最大APを1増やす（解除不可）。さらに自身に対し、2行動の間与ダメージを{dmg}%上昇させるバフを付与する。このスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 2,
+            "value": 0.0
+          },
+          {
+            "level": 3,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "230512": {
+    "skill_id": 230512,
+    "name": "アウェイキング・ヴァンパイア+",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 3,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルで攻撃された後に発動。攻撃してきた敵単体に対し威力{威力}で反撃し、攻撃を1ヒットだけ回避するバフを自身に付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 10,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "230513": {
+    "skill_id": 230513,
+    "name": "あなたにマーキング♡+",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。最も遠い位置にいる敵単体に対し、次に受ける攻撃の被ダメージが{dmg}%増加するデバフを付与する（重複可）。このスキルは1ターン目には発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 3,
+            "value": 10.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      }
+    }
   }
 }
