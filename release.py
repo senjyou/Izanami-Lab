@@ -443,7 +443,7 @@ def main():
         sys.exit(0)
 
     # 4. 更新本地版本号（必须在构建前完成，否则打包的程序版本号不对）
-    print("\n[1/6] 更新本地版本号...")
+    print("\n[1/8] 更新本地版本号...")
     version_file = SCRIPT_DIR / "version.py"
     version_num = version.lstrip('v')
     new_content = f'__version__ = "{version_num}"\n__repository__ = "senjyou/Izanami-Lab"\n__release_url__ = "https://github.com/senjyou/Izanami-Lab/releases"'
@@ -451,7 +451,7 @@ def main():
     print(f"  已更新 version.py 为 v{version_num}")
 
     # 5. 更新 CHANGELOG.md
-    print("\n[2/6] 更新 CHANGELOG.md...")
+    print("\n[2/8] 更新 CHANGELOG.md...")
     changelog_path = SCRIPT_DIR / "CHANGELOG.md"
     today = datetime.now().strftime("%Y-%m-%d")
     
@@ -474,6 +474,22 @@ def main():
     
     if changelog_path.exists():
         existing_content = changelog_path.read_text(encoding='utf-8')
+        # 幂等：若同名版本段已存在（重跑同一版本号补齐发布），先摘掉旧的再插，
+        # 否则每重跑一次就在文件顶部多叠一层「## vX」空壳。
+        # 事故（v1.1.2.8）：网络波动导致 release.py 跑了两遍，CHANGELOG 顶部
+        # 叠出 3 个同名 v1.1.2.8 段（2 个空壳 + 1 个真实条目）。
+        header = f"## {version} ("
+        kept = []
+        skipping = False
+        for line in existing_content.split("\n"):
+            if line.startswith(header):
+                skipping = True
+                continue
+            if skipping and line.startswith("## "):
+                skipping = False
+            if not skipping:
+                kept.append(line)
+        existing_content = "\n".join(kept).lstrip("\n")
         new_content = changelog_new_section + existing_content
     else:
         new_content = "# Changelog\n\n" + changelog_new_section
@@ -482,7 +498,7 @@ def main():
     print(f"  已更新 CHANGELOG.md")
 
     # 6. 检查并推送代码
-    print("\n[3/6] 检查并推送代码...")
+    print("\n[3/8] 检查并推送代码...")
     print("  检查 Git 状态...")
     status = run_cmd("git status --short", cwd=SCRIPT_DIR)
     if status:
@@ -531,12 +547,34 @@ def main():
     print("  推送到 GitHub...")
     run_cmd("git push", cwd=SCRIPT_DIR, retry_network=True)
 
-    # 7. 打包构建
-    print("\n[4/7] 打包构建...")
+    # 关键：打 tag 并推送。
+    # release.py 原先**从不创建 git tag**（历史上靠手工补），而
+    # dist/manifest.json 里所有热更新 URL 都是
+    #   https://cdn.jsdelivr.net/gh/{REPOSITORY}@{version}/...
+    # tag 不存在 => jsDelivr 404 => **客户端热更新全部失败**。
+    # 事故（v1.1.2.8）：Release 建成了 draft、代码也推上去了，但没打 tag，
+    # 实测 @v1.1.2.8 的 data/enemies.json 返回 404（@v1.1.2.7 正常 200）。
+    # 幂等：tag 已存在时 `git tag` 会报 "already exists"，这里显式跳过，
+    # 避免重跑补齐时因非网络错误直接 sys.exit。
+    print("\n[4/8] 打 tag 并推送...")
+    _existing = subprocess.run(['git', 'rev-parse', '--verify', '--quiet',
+                                f'refs/tags/{version}'],
+                               cwd=SCRIPT_DIR, capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
+    if _existing.returncode == 0:
+        print(f"  tag {version} 已存在，跳过创建")
+    else:
+        run_cmd(f"git tag {version}", cwd=SCRIPT_DIR)
+        print(f"  已创建 tag {version}")
+    run_cmd(f"git push origin {version}", cwd=SCRIPT_DIR, retry_network=True)
+    print(f"  已推送 tag {version}（jsDelivr 热更新可解析）")
+
+    # 8. 打包构建
+    print("\n[5/8] 打包构建...")
     run_cmd("python build.py", cwd=SCRIPT_DIR)
 
-    # 8. 创建 ZIP（必须在 manifest 之前，manifest 需计算 ZIP 的 SHA-256）
-    print("\n[5/7] 创建压缩包...")
+    # 9. 创建 ZIP（必须在 manifest 之前，manifest 需计算 ZIP 的 SHA-256）
+    print("\n[6/8] 创建压缩包...")
     app_dir = DIST_DIR / APP_NAME
     zip_path = DIST_DIR / f"Izanami-Lab_{version}.zip"
 
@@ -553,7 +591,7 @@ def main():
     print(f"  压缩包: {zip_path} ({size_mb:.1f} MB)")
 
     # 9. 生成 manifest（传入 zip_path 以计算 package_sha256）
-    print("\n[6/7] 生成 manifest.json...")
+    print("\n[7/8] 生成 manifest.json...")
     manifest = generate_manifest(DIST_DIR, version, new_features, zip_path=zip_path)
     manifest_path = DIST_DIR / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -562,7 +600,7 @@ def main():
     print(f"  已生成 manifest.json（{file_count} 个文件，类型: {manifest['update_type']})")
 
     # 10. 创建 Release（上传 ZIP + manifest + 变更文件）
-    print("\n[7/7] 创建 GitHub Release...")
+    print("\n[8/8] 创建 GitHub Release...")
 
     notes = format_release_notes(version, new_features)
     notes_file = DIST_DIR / "release_notes.md"
@@ -578,6 +616,11 @@ def main():
     print(f"  上传资产: {len(assets)} 个文件")
 
     create_release_with_retry(version, assets, notes_file)
+
+    # tag 存在时 gh 会直接建成已发布；但历史 draft 或时序问题仍需兜底转正
+    if not ensure_published(version):
+        print(f"\n  警告: Release 仍为 Draft 或状态未知，请手工确认：")
+        print(f'    gh release edit {version} --repo {REPOSITORY} --draft=false')
 
     print(f"\n{'='*60}")
     print(f"  发布完成!")
@@ -597,6 +640,39 @@ def release_exists(version: str) -> bool:
     """Release 是否已存在（查询失败时保守返回 False，让 create 自己报错）。"""
     res = _gh(['release', 'view', version, '--repo', REPOSITORY], attempts=3)
     return res.returncode == 0
+
+
+def ensure_published(version: str) -> bool:
+    """确保 Release 处于已发布状态（不是 Draft）。
+
+    GitHub 的既定行为：**`gh release create` 若对应的 git tag 在远端不存在，
+    会建成 DRAFT**（URL 变成 `releases/tag/untagged-...`），而不是报错。
+    历史上 release.py 从不打 tag，于是每次都只建出 draft —— 用户看到的就是
+    「上传成功后带 Draft 字样」。
+
+    事故（v1.1.2.8）：网络波动重跑两遍，两遍都停在 draft 且没打 tag
+    → jsDelivr 404，热更新全挂。
+
+    修法：打完 tag 后在这里显式 publish（幂等，已发布的不重复操作）。
+    """
+    res = _gh(['release', 'view', version, '--repo', REPOSITORY,
+               '--json', 'isDraft', '--jq', '.isDraft'], attempts=3)
+    if res.returncode != 0:
+        print(f"  警告: 无法查询 Release 状态，跳过 publish 检查：{_short(res.stderr)}")
+        return False
+    if (res.stdout or '').strip().lower() != 'true':
+        return True                        # 已是发布状态
+
+    print(f"  Release {version} 目前是 Draft，正在转为已发布...")
+    pub = _gh(['release', 'edit', version, '--repo', REPOSITORY, '--draft=false'],
+              attempts=3)
+    if pub.returncode != 0:
+        print(f"  错误: Draft 转发布失败：{_short(pub.stderr)}")
+        print(f"  提示: 资产已完整，可手工发布：")
+        print(f'    gh release edit {version} --repo {REPOSITORY} --draft=false')
+        return False
+    print(f"  已发布: https://github.com/{REPOSITORY}/releases/tag/{version}")
+    return True
 
 
 def create_release_with_retry(version: str, assets: list, notes_file: Path):
