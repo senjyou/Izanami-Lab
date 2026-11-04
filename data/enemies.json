@@ -330709,5 +330709,38 @@
       "230514": 10,
       "230515": 10
     }
+  },
+  "92305": {
+    "enemy_id": 92305,
+    "name": "惨禍：桃園める",
+    "asset_id": "100303",
+    "hp": 514378,
+    "attack": 14214,
+    "defense": 7632,
+    "speed": 525,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 2,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 3,
+    "type": 2,
+    "role_type": 4,
+    "rarity": 9,
+    "skill_ids": [
+      210137,
+      220486,
+      220487,
+      230516,
+      230517
+    ],
+    "skill_levels": {
+      "210137": 10,
+      "220486": 10,
+      "220487": 10,
+      "230516": 10,
+      "230517": 10
+    }
   }
 }

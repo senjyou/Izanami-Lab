@@ -345,6 +345,11 @@ class SkillService:
             primary_target = action.parameters.get('primary_target') if hasattr(action, 'parameters') else None
             damaged_targets = action.parameters.get('targets') if hasattr(action, 'parameters') else None
             total_damage = action.parameters.get('total_damage') if hasattr(action, 'parameters') else None
+            # 先保存**外层**的触发上下文，再覆盖成本次 action 的值。
+            # 顺序至关重要：若先覆盖再保存，saved 里存的就是内层自己的攻击者，
+            # 收尾时又把外层还原成内层的值（修复无效）。见循环末尾的还原处。
+            saved_trigger_attacker = getattr(self, '_trigger_attacker', None)
+            saved_primary_target = getattr(self, '_primary_target', None)
             if trigger_attacker:
                 self._trigger_attacker = trigger_attacker
             if primary_target:
@@ -566,10 +571,13 @@ class SkillService:
             # append完成后恢复窗口标记（嵌套调用继承外层值，见循环开头说明）
             self._in_before_inline_window = saved_in_before_window
 
-            if trigger_attacker:
-                self._trigger_attacker = None
-            if primary_target:
-                self._primary_target = None
+            # 恢复外层技能的触发上下文（**不能简单地清成 None**）。
+            # 内层PS执行完后必须还原成调用前的值：外层若正处于
+            # 「反击 + 对攻击者上debuff」这类流程中间，清成 None 会让外层的
+            # target_identifier=trigger_attacker 失去目标而回退到 select_targets。
+            # 无外层上下文时 saved 值本身即为 None，效果与原逻辑一致。
+            self._trigger_attacker = saved_trigger_attacker
+            self._primary_target = saved_primary_target
 
     def _run_after_ps_use_hook(self, owner: UnitState, executed_skill_id: int,
                                 battlefield: BattlefieldState) -> None:
@@ -1322,14 +1330,36 @@ class SkillService:
                 for _nd_effect in _nd_block.effects:
                     _nd_et = getattr(_nd_effect, 'effect_type', None)
                     _nd_tt = getattr(_nd_effect, 'target_type', None)
+                    _nd_tid = getattr(_nd_effect, 'target_identifier', None)
                     if _nd_et not in ATTACK_DAMAGE_EFFECT_TYPES and _nd_tt and _nd_tt.startswith('enemy'):
-                        _nd_range = self._resolve_target_range(_nd_tt)
-                        _nd_tso = type('obj', (object,), {
-                            'display_target_type': self._resolve_target_type(_nd_tt),
-                            'display_target_range': _nd_range,
-                            'display_target_priority': self._current_skill_priority,
-                        })()
-                        _nd_targets = self.target_service.select_targets(_nd_tso, caster, battlefield)
+                        if _nd_tid == "trigger_attacker":
+                            # 反击系PS的非伤害效果（如 230514 的 dmg_dealt_down）：
+                            # 实际施加对象是 _trigger_attacker，预扫描**必须**用同一目标，
+                            # 不能按普通 enemy_single 索敌。否则会把「最近的敌方」当成
+                            # 本次攻击的效果目标并入 all_block_targets，令其
+                            # target_is_self 型「被攻撃直前」PS 幻影触发。
+                            # 实测（2026-11-04，日志 step_crit_console_tactical_2026
+                            # 1104_125757）：372405 PS1 反击只打了「唯一無二の幼なじみ」，
+                            # 但「期待応える輝きの穹」的 PS 130120「運ではなく実力で」
+                            # 却被触发（白拿 guard、白扣 1PP、白进冷却）。
+                            _nd_ta = getattr(self, '_trigger_attacker', None)
+                            if _nd_ta and _nd_ta.is_alive:
+                                _nd_targets = [_nd_ta]
+                                _log.info("[NON_DMG_ENEMY_TARGETS] %s: "
+                                          "target_identifier=trigger_attacker -> %s",
+                                          caster.name, _nd_ta.name)
+                            else:
+                                # 无攻击者上下文（直接 execute_skill 测试等）：不计入，
+                                # 避免又退化成最近目标造成幻影触发
+                                _nd_targets = []
+                        else:
+                            _nd_range = self._resolve_target_range(_nd_tt)
+                            _nd_tso = type('obj', (object,), {
+                                'display_target_type': self._resolve_target_type(_nd_tt),
+                                'display_target_range': _nd_range,
+                                'display_target_priority': self._current_skill_priority,
+                            })()
+                            _nd_targets = self.target_service.select_targets(_nd_tso, caster, battlefield)
                         for _pt in _nd_targets:
                             if _pt.unit_id not in _seen_nd_ids and _pt.is_alive and _pt.side != caster.side:
                                 _seen_nd_ids.add(_pt.unit_id)
@@ -1464,16 +1494,30 @@ class SkillService:
                     for _nd_effect in _nd_block.effects:
                         _nd_et = getattr(_nd_effect, 'effect_type', None)
                         _nd_tt = getattr(_nd_effect, 'target_type', None)
+                        _nd_tid = getattr(_nd_effect, 'target_identifier', None)
                         if (_nd_et not in ATTACK_DAMAGE_EFFECT_TYPES
                                 and _nd_et != 'add_status'
                                 and _nd_tt and _nd_tt.startswith('enemy')):
-                            _nd_range = self._resolve_target_range(_nd_tt)
-                            _nd_tso = type('obj', (object,), {
-                                'display_target_type': self._resolve_target_type(_nd_tt),
-                                'display_target_range': _nd_range,
-                                'display_target_priority': self._current_skill_priority,
-                            })()
-                            _nd_targets = self.target_service.select_targets(_nd_tso, caster, battlefield)
+                            if _nd_tid == "trigger_attacker":
+                                # 同 damage 预扫描：target_identifier=trigger_attacker 的
+                                # 非伤害效果，实际对象是攻击者，不能按普通索敌选最近敌方
+                                # （否则令无关目标 target_is_self 型「被攻撃直前」PS 幻影触发）
+                                _nd_ta = getattr(self, '_trigger_attacker', None)
+                                if _nd_ta and _nd_ta.is_alive:
+                                    _nd_targets = [_nd_ta]
+                                    _log.info("[NON_DMG_ENEMY_TARGETS] %s: "
+                                              "target_identifier=trigger_attacker -> %s",
+                                              caster.name, _nd_ta.name)
+                                else:
+                                    _nd_targets = []
+                            else:
+                                _nd_range = self._resolve_target_range(_nd_tt)
+                                _nd_tso = type('obj', (object,), {
+                                    'display_target_type': self._resolve_target_type(_nd_tt),
+                                    'display_target_range': _nd_range,
+                                    'display_target_priority': self._current_skill_priority,
+                                })()
+                                _nd_targets = self.target_service.select_targets(_nd_tso, caster, battlefield)
                             for _pt in _nd_targets:
                                 if _pt.unit_id not in _seen_nd_ids and _pt.is_alive and _pt.side != caster.side:
                                     _seen_nd_ids.add(_pt.unit_id)

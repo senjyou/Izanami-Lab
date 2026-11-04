@@ -1945,5 +1945,38 @@
     ],
     "position": 5,
     "party_id": 400295
+  },
+  "92305": {
+    "enemy_id": 92305,
+    "name": "惨禍：桃園める",
+    "character_name": "桃園める",
+    "asset_id": "100303",
+    "hp": 514378,
+    "attack": 14214,
+    "defense": 7632,
+    "speed": 525,
+    "hp_grade": 3,
+    "attack_grade": 4,
+    "defense_grade": 3,
+    "speed_grade": 2,
+    "critical_rate": 0.18000000715255737,
+    "critical_rate_grade": 3,
+    "attribute": 3,
+    "type": 2,
+    "role_type": 4,
+    "rarity": 9,
+    "action_point": 4,
+    "passive_point": 4,
+    "enemy_flags": 1,
+    "character_team_master_id": 101,
+    "skill_ids": [
+      210137,
+      220486,
+      220487,
+      230516,
+      230517
+    ],
+    "position": 2,
+    "party_id": 400300
   }
 }

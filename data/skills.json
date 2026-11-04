@@ -88181,5 +88181,218 @@
         ]
       }
     }
+  },
+  "210137": {
+    "skill_id": 210137,
+    "name": "大好きをこめて+",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も残りHPの少ない敵単体に威力{威力}でEN攻撃し、自身に対して与えたダメージの125%分のシールドと、サブユニット「願い星」を1つ付与する。「願い星」は与えたダメージの125%分のHPを持ち、攻撃時に攻撃力×{dmg}%のダメージを追加する。\n加えて自身に対し「真心」を1つ付与する（解除不可）"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          },
+          {
+            "level": 5,
+            "value": 109.19999694824219
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          },
+          {
+            "level": 9,
+            "value": 5.0
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      }
+    }
+  },
+  "220486": {
+    "skill_id": 220486,
+    "name": "大切な仲間のために",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も残りHPの少ない味方単体に対し、自身が1回行動を終えるまでの間、攻撃力×{shield}%のシールドを付与する。シールドは自身が倒れると解除される。\nHPが50%未満の味方がいない場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 5,
+        "template": "最も残りHPの少ない味方単体に対し、自身が1回行動を終えるまでの間、攻撃力×{shield}%のシールドを付与する。シールドは自身が倒れると解除される。\nさらに対象が「真心」状態の場合、EXゲージを1加算する。\nHPが50%未満の味方がいない場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 75.0
+          },
+          {
+            "level": 3,
+            "value": 100.0
+          },
+          {
+            "level": 10,
+            "value": 125.0
+          }
+        ]
+      }
+    }
+  },
+  "220487": {
+    "skill_id": 220487,
+    "name": "献身的な愛+",
+    "skill_type": 1,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身の攻撃力を1行動の間{atk}%低下させ（重複可）、自身に「真心」を1つ付与する（解除不可）。\n「真心」はHP回復量を10%増加させ（重複可）、被ダメージを2.5%減少させる（重複可）。"
+      },
+      {
+        "min_level": 3,
+        "template": "自身の攻撃力を1行動の間{atk}%低下させ（重複可）、自身に「真心」を1つ付与する（解除不可）。\n「真心」はHP回復量を10%増加させ（重複可）、被ダメージを2.5%減少させる（重複可）。\nさらに1行動の間1ヒットまで{kaihi}%で回避するバフを追加で付与する"
+      },
+      {
+        "min_level": 10,
+        "template": "自身の攻撃力を1行動の間{atk}%低下させ（重複可）、自身に「真心」を1つ付与する（解除不可）。\n「真心」はHP回復量を10%増加させ（重複可）、被ダメージを2.5%減少させる（重複可）。\nさらに1行動の間2ヒットまで{kaihi}%で回避するバフを追加で付与する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          }
+        ]
+      },
+      "kaihi": {
+        "interpolation_mode": 3,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 2,
+            "value": 0.0
+          },
+          {
+            "level": 3,
+            "value": 35.0
+          },
+          {
+            "level": 5,
+            "value": 50.0
+          }
+        ]
+      }
+    }
+  },
+  "230516": {
+    "skill_id": 230516,
+    "name": "心から尽くして+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルを使用した後に発動。自身に2行動の「真心」を付与し（解除不可）、1行動の間攻撃力を{atk}%上昇させ（重複可）、EXゲージを1加算する"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 5,
+            "value": 12.5
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "230517": {
+    "skill_id": 230517,
+    "name": "募る想い+",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。最も攻撃力の高い味方のEXゲージを1加算する。\nさらに対象が「真心」状態でない場合「真心」を1つ付与し（解除不可）、対象が「真心」状態の場合攻撃力×{shield}%のシールドを付与する"
+      }
+    ],
+    "template_tags": {
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 75.0
+          },
+          {
+            "level": 10,
+            "value": 100.0
+          }
+        ]
+      }
+    }
   }
 }
