@@ -3790,6 +3790,70 @@
    "手动配置: Block1 damage(enemy_single_lowest_hp_ratio 主锚点) + damage(adjacent_enemies target_count=2) + shield_from_damage(self, value_tag=shield 200~300%)。原自动解析把shield目标错配为enemy_single且value=0（已修正）。盾基数=本技能累计与えたダメージ（含盾吸收，_most_recent_damage 口径，用户裁定）。"
   ]
  },
+ "110090": {
+  "skill_id": 110090,
+  "name": "アノマリー・アタック",
+  "skill_type": 3,
+  "resource_cost": 7,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 3,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "mark",
+      "target_type": "enemy_single",
+      "target_identifier": null,
+      "value": 3,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "mark_name": "注目",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "EX: 敵単体に威力{威力}で3ヒット（単一damage+hit_count=3） + 「注目」3層（mark value=3 + stackable → 多層付与、duration=-1）。「注目」は PS1 の触发条件 / PS2 の降攻倍率（上限5個）の基準。EX の tag は Lv15 まで插值点があるため Lv15 を保持。"
+  ]
+ },
  "120001": {
   "skill_id": 120001,
   "name": "リペアバレル",
@@ -11220,6 +11284,197 @@
    "「シャイ属性を優先して最もHP割合が低い他の味方単体」由 flags.ally_lowest_hp_ratio_element_first 实现（新增索敌：属性优先→HP比例升序→距离 tiebreak，排除自身）。",
    "「ダメージリンクとデフ無効バッフは解除不可だが、シールドと同時に消滅する」由 linked_buff_id=Shield 驱动：aura_service.check_expiration 新增 _cascade_linked_damage_links，按同源(source_skill_id+source_unit_id)精确级联清除 link；debuff_immune 走既有反向 linked_buff_id 机制。",
    "global_condition ally_alive_other_than_self_exists「自身以外の味方が生存していない場合、このスキルは発動しない」。"
+  ]
+ },
+ "120192": {
+  "skill_id": 120192,
+  "name": "ボール・インジェクション",
+  "skill_type": 1,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": null,
+  "global_condition": null,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": {
+     "type": "and",
+     "conditions": [
+      {
+       "type": "self_has_status",
+       "status_name": "偵察"
+      }
+     ]
+    },
+    "effects": [
+     {
+      "effect_type": "remove_buff",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": 3,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "level_max": 10,
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "remove_buff",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": 4,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "level_min": 11,
+       "level_max": 12,
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "remove_buff",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": 5,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "level_min": 13,
+       "level_max": 14,
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "remove_buff",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": 6,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "level_min": 15,
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "dmg_dealt_down",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "attack",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "attack_limited": 1,
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "mark",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "mark_name": "注目",
+       "stackable": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   },
+   {
+    "block_id": 2,
+    "condition": {
+     "type": "and",
+     "conditions": [
+      {
+       "type": "self_lacks_status",
+       "status_name": "偵察"
+      }
+     ]
+    },
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single_lowest_mark_count",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "mark_name": "注目"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "AS: 索敵は「注目」が最も少ない敵（enemy_single_lowest_mark_count + mark_name）。Block1=偵察状態：バフ解除3/4/5/6個（effect级 level_min/max で排他）+ dmg_dealt_down（次の攻撃 -{dmg}%、attack_limited=1）+ 注目+1。Block2=非偵察：威力{威力}攻撃。両ブロックは self_has_status/self_lacks_status で互斥。"
   ]
  },
  "130097": {
@@ -19054,6 +19309,307 @@
    "手动配置（原自动解析 failed / effect_blocks 为空）: Block1 条件 target_element=3(シャイ) → def_up(value_tag=def 3.5~7.5%, 永续, scale_by_ally_element_count{element:3, exclude_self:true, max_count:3})；Block2 active_level_min=11 → atk_up(同上计数口径, value_tag=atk 0/3.5~7.5%)。",
    "目标=全部シャイ味方（含自身）；计数只算自身以外（用户裁定，与文本「自身以外で編成されている」一致）。",
    "once_per_battle=true「このスキルは戦闘中に一度しか発動しない」。"
+  ]
+ },
+ "130198": {
+  "skill_id": 130198,
+  "name": "サイドチャネル・リード",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": 1,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "after_ally_as_attack",
+  "global_condition": {
+   "type": "condition_list",
+   "mode": "all",
+   "conditions": [
+    {
+     "type": "target_has_mark",
+     "mark_name": "注目"
+    },
+    {
+     "type": "self_lacks_status",
+     "status_name": "偵察"
+    }
+   ]
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "add_ep",
+      "target_type": "ally_single",
+      "target_identifier": "trigger_attacker",
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {},
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "crit_rate_up",
+      "target_type": "ally_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "crt",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "level_min": 11
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "dmg_taken_up",
+      "target_type": "enemy_single",
+      "target_identifier": "attacked_targets",
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "attack",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "attack_limited": 1
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 2,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS1: after_ally_as_attack + condition_list[target_has_mark 注目, self_lacks_status 偵察]。攻撃した味方(trigger_attacker)に add_ep+1、Lv11+ は crit_rate_up({crt}%,1行動,重複可,level_min=11)。攻撃された敵(primary_target)に dmg_taken_up({dmg}%,次の攻撃,attack_limited=1)。「偵察」状態では発動しない。"
+  ]
+ },
+ "130199": {
+  "skill_id": 130199,
+  "name": "テイクオーバー・フィールド",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": 1,
+  "cooldown_update_timing": 2,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "after_enemy_skill_use",
+  "global_condition": {
+   "type": "actor_has_mark",
+   "mark_name": "注目"
+  },
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "damage",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "威力",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": 1,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "level_min": 11
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "atk_down",
+      "target_type": "enemy_single",
+      "target_identifier": "trigger_attacker",
+      "value": null,
+      "value_tag": "atk",
+      "value_source": null,
+      "duration": 1,
+      "duration_type": "action",
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "mark_name": "注目",
+       "value_scales_with_target_mark_count": true,
+       "max_count": 5
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": 1,
+  "display_target_type": 3,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS2: after_enemy_skill_use + actor_has_mark 注目（ASを使った敵が注目状態）。atk_down({atk}% × min(注目層数,5), 1行動, 重複可) を trigger_attacker に。Lv11+ は同じ対象へ威力{威力}の追撃（damage に level_min=11）。倍率は flags.value_scales_with_target_mark_count + max_count=5（本次新增引擎键）。"
+  ]
+ },
+ "130200": {
+  "skill_id": 130200,
+  "name": "プレイコール",
+  "skill_type": 2,
+  "resource_cost": 1,
+  "cooldown": null,
+  "cooldown_update_timing": null,
+  "ignore_defense": 0,
+  "ignore_shield": 0,
+  "trigger_type": "on_turn_start",
+  "global_condition": null,
+  "once_per_battle": true,
+  "effect_blocks": [
+   {
+    "block_id": 1,
+    "condition": null,
+    "effects": [
+     {
+      "effect_type": "consume_hp",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "hp",
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "hp_base": "max_hp"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "shield",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": 60,
+      "value_tag": null,
+      "value_source": null,
+      "duration": null,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "shield_base": "max_hp",
+       "remove_when_depleted": true
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "stealth",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": 1,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "unremovable": true,
+       "linked_buff_id": "Shield"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "add_status",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": null,
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "status_type": "偵察",
+       "unremovable": true,
+       "linked_buff_id": "Shield"
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     },
+     {
+      "effect_type": "dmg_taken_down",
+      "target_type": "self",
+      "target_identifier": null,
+      "value": null,
+      "value_tag": "dmg",
+      "value_source": null,
+      "duration": -1,
+      "duration_type": null,
+      "duration_tag": null,
+      "hit_count": null,
+      "hit_count_tag": null,
+      "condition": null,
+      "flags": {
+       "value_type": "percent",
+       "stackable": true,
+       "unremovable": true,
+       "linked_buff_id": "Shield",
+       "level_min": 11
+      },
+      "ignore_defense": 0,
+      "ignore_shield": 0
+     }
+    ]
+   }
+  ],
+  "display_target_priority": null,
+  "display_target_range": null,
+  "display_target_type": 1,
+  "parse_status": "manual",
+  "parse_notes": [
+   "PS4: on_turn_start + once_per_battle（戦闘中に1度だけ）。consume_hp(最大HP×{hp}%) → shield(最大HP×60%, remove_when_depleted) → stealth(duration=-1, 解除不可, linked_buff_id=Shield) → 「偵察」(add_status 命名状態, 解除不可, linked=Shield) → Lv11+ dmg_taken_down({dmg}%, 重複可, 解除不可, linked=Shield)。盾が打ち空になると remove_when_depleted により duration=0 → aura_service.check_expiration の linked_buff_id 反向级联で ステルス/偵察/被ダメ減 が同時解除。連結キーは effect_type='Shield'（大文字始まり）。"
   ]
  },
  "200000": {

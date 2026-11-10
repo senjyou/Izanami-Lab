@@ -1873,6 +1873,24 @@ class TriggerService:
                       owner.name, len(enemies), result)
             return result
 
+        if cond_type in ("self_has_status", "self_lacks_status"):
+            # 检查PS持有者是否持有/不持有指定名的**命名状态**（非状态异常，如 130198/130200
+            # 的「偵察」= add_status 生成的 BuffState.effect_type="偵察"）。
+            # 与 self_has_mark / self_lacks_mark 并列：mark 走 MARK 类型，命名状态走 effect_type。
+            wanted = str(condition.get('status_name')
+                         or condition.get('value', '') or '')
+            has_status = any(
+                (b.effect_type or '') == wanted or (getattr(b, 'name', '') or '') == wanted
+                for b in (owner.buffs or [])
+            ) or any(
+                (d.effect_type or '') == wanted or (getattr(d, 'name', '') or '') == wanted
+                for d in (owner.debuffs or [])
+            )
+            result = has_status if cond_type == "self_has_status" else (not has_status)
+            _log.info("[TRIGGER_COND] %s: %s '%s' (has=%s) => %s",
+                      owner.name, cond_type, wanted, has_status, result)
+            return result
+
         if cond_type == "self_has_mark":
             # 检查PS持有者自身是否持有指定mark（用于如ストイックリコイル的前置条件）
             mark_name = condition.get('mark_name', '')

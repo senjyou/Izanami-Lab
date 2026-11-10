@@ -681,6 +681,25 @@ class SkillService:
                       sorted(_elems), sorted(_vals), _ok)
             if not _ok:
                 return False
+        elif gc_type in ('self_has_status', 'self_lacks_status'):
+            # 自身の「命名状態」（非状態異常）の有無で発動を制御する。
+            # 130198 サイドチャネル・リード「自身が『偵察』状態の場合、このスキルは発動しない」
+            # → self_lacks_status / 130199「（発動条件なし）」等で使用。
+            # 「偵察」は add_status で付与され BuffState.effect_type="偵察" を持つ。
+            _gc_status = str(gc.get('status_name') or gc.get('value', '') or '')
+            _has_gc_status = any(
+                (b.effect_type or '') == _gc_status or (getattr(b, 'name', '') or '') == _gc_status
+                for b in (caster.buffs or [])
+            ) or any(
+                (d.effect_type or '') == _gc_status or (getattr(d, 'name', '') or '') == _gc_status
+                for d in (caster.debuffs or [])
+            )
+            _gc_status_ok = _has_gc_status if gc_type == 'self_has_status' else (not _has_gc_status)
+            _log.info("[SKILL_GC] %s: [%s] %s '%s' (has=%s) => %s",
+                      caster.name, skill_name, gc_type, _gc_status,
+                      _has_gc_status, _gc_status_ok)
+            if not _gc_status_ok:
+                return False
         elif gc_type == 'self_lacks_mark':
             gc_mark_name = gc.get('mark_name', '')
             has_mark = any(
@@ -1646,6 +1665,26 @@ class SkillService:
                                 d.effect_type.lower() in _STATUS_AILMENT_TYPES2 for d in caster.debuffs
                             )
                             if not _has_ail:
+                                skip_block = True
+                                break
+                        elif st in ('self_has_status', 'self_lacks_status'):
+                            # 120192 ボール・インジェクション: 「自身が『偵察』状態の場合／
+                            # そうでない場合」で互斥分岐するため、and 组合子条件として
+                            # 命名状態（add_status 生成的 BuffState.effect_type）を判定する。
+                            # （top-level には同等の cond_type 分支があるが、and 内は別実装）
+                            _st_name = str(sub_cond.get('status_name')
+                                           or sub_cond.get('value', '') or '')
+                            _st_has = any(
+                                (b.effect_type or '') == _st_name
+                                or (getattr(b, 'name', '') or '') == _st_name
+                                for b in (caster.buffs or [])
+                            ) or any(
+                                (d.effect_type or '') == _st_name
+                                or (getattr(d, 'name', '') or '') == _st_name
+                                for d in (caster.debuffs or [])
+                            )
+                            _st_ok = _st_has if st == 'self_has_status' else (not _st_has)
+                            if not _st_ok:
                                 skip_block = True
                                 break
                     if skip_block:
@@ -4868,6 +4907,10 @@ class SkillService:
             if not min_absorbed:
                 actual_damage = 1
 
+        # 130200 プレイコール: 盾被打空时同步结算「盾消失」的联动解除
+        if shield_absorbed > 0:
+            self._expire_depleted_shields(target)
+
         return actual_damage, shield_absorbed, sub_unit_absorbs
 
     def _absorb_sub_unit_shields(self, target: UnitState, damage: int,
@@ -5993,11 +6036,12 @@ class SkillService:
     # 消耗时は同组をまとめて落とす（「バフはシールドと同時に消滅する」）。
 
     def _deduct_shield_layer_amount(self, target: UnitState, amount: int) -> None:
-        """通用盾(shield)が吸收されたとき、各层盾buffの残留盾量を古い層から順に減算する。
+        """通用盾(shield)が吸收されたとき、盾buffの残留盾量（shield_amount）を減算する。
 
         层数盾では BuffState.shield_amount を「その层の残量」として維持し、
         层消耗時にその残量だけ target.shield から差し引く。
-        层盾buffが無い場合は何もしない（既存キャラの挙動に影響しない）。
+        非层盾でも remove_when_depleted 盾（130200）は残量追跡が必要なため、
+        同じ減算を適用する（それ以外の盾 buff は挙動不変＝本メソッドで何もしない）。
         """
         if amount <= 0:
             return
@@ -6005,7 +6049,7 @@ class SkillService:
         for b in list(getattr(target, 'buffs', []) or []):
             if remaining <= 0:
                 break
-            if not getattr(b, 'layer_group', ''):
+            if not (getattr(b, 'layer_group', '') or getattr(b, 'remove_when_depleted', False)):
                 continue
             if b.effect_type not in ("shield", "Shield"):
                 continue
@@ -6014,6 +6058,39 @@ class SkillService:
             if take:
                 b.shield_amount = cur - take
                 remaining -= take
+
+    # ==================== 盾耗尽即失効（130200 プレイコール） ====================
+    # 「ステルスと『偵察』は解除不可だが、シールドの消滅と同時に解除される」。
+    # 既有联动机制（aura_service.check_expiration）只在 buff **到期**（duration==0）时
+    # 触发 linked_buff_id / linked_mark 级联，而「盾被打空」并不改 duration，
+    # 因此盾被吸收至 0 后联动对象会残留。这里在每次盾值下降后补一次「耗尽」判定：
+    # 仅处理 flags.remove_when_depleted=true 的盾（不影响既有 shield 行为）。
+
+    def _expire_depleted_shields(self, unit: UnitState) -> None:
+        """将残留盾值归零的 remove_when_depleted 盾 buff 标记为过期并触发联动清理。
+
+        调用点：主伤害/次级伤害/自伤等所有 target.shield 扣减路径。
+        判定用 BuffState.shield_amount（该盾贡献的残留值），不用 unit.shield 总量，
+        避免「其他来源的盾还剩」时误清本源盾。
+        """
+        if not self.aura_service or unit is None:
+            return
+        depleted = [b for b in list(getattr(unit, 'buffs', []) or [])
+                    if getattr(b, 'remove_when_depleted', False)
+                    and b.effect_type in ("shield", "Shield")
+                    and b.duration != 0
+                    and max(0, int(getattr(b, 'shield_amount', 0))) <= 0]
+        if not depleted:
+            return
+        for b in depleted:
+            b.duration = 0
+            _log.info("[SHIELD_DEPLETED] %s: shield '%s' depleted -> expired (linked buffs will cascade)",
+                      unit.name, getattr(b, 'name', '') or b.effect_type)
+        # 复用既有到期清理：会执行 linked_buff_id 正向/反向级联与 linked_mark 级联
+        try:
+            self.aura_service.check_expiration(unit)
+        except (AttributeError, TypeError):
+            pass
 
     def _consume_one_shield_layer(self, target: UnitState) -> bool:
         """層数盾を1层だけ消費する。消费されたらTrue。
@@ -6143,6 +6220,9 @@ class SkillService:
                 target.shield = 0
             # 層数盾: 各层残留盾量を同期減算
             self._deduct_shield_layer_amount(target, _layer_gen_before - target.shield)
+        # 130200 プレイコール: 盾被打空时同步结算「盾消失」的联动解除
+        if shield_absorbed > 0:
+            self._expire_depleted_shields(target)
         return shield_absorbed, remaining
 
     def _process_enchant_damage_for_target(self, caster: UnitState, target_info: dict,
@@ -9795,6 +9875,34 @@ class SkillService:
                 _log.info("[AURA_APPLY] %s -> %s: double_for_character_type=%d value %.1f -> %.1f",
                           caster.name, target.name, _dct, _pre_dct, final_value)
 
+        # value_scales_with_target_mark_count: 按**目标**持有的指定 mark 数量缩放 value。
+        # 130199 PS「「注目」1つにつき{atk}%低下させ（重複可）、5個を上限とする」
+        # = 对持有 N 枚「注目」的敌人施加 atk_down（N × per_mark），并把实际枚数记录到
+        #   aura.mark_stack_basis，供叙事与调试读取（重複可 = 每次触发独立付与）。
+        # 与 value_scales_with_self_mark_count（按施法者自己的 mark 数）区分：
+        # 本键统计的是**当前施加目标**身上的 mark 层数。
+        if effect_flags_aura and effect_flags_aura.get('value_scales_with_target_mark_count'):
+            _tsc_mark_name = effect_flags_aura.get('mark_name', '')
+            _tsc_max_count = int(effect_flags_aura.get('max_count', 0) or 0)
+            def _count_target_mark(_u):
+                _c = sum(int(getattr(m, 'stack_count', 1) or 1) for m in _u.buffs
+                         if m.effect_type == SkillEffectType.MARK.value
+                         and getattr(m, 'name', '') == _tsc_mark_name)
+                _c += sum(int(getattr(m, 'stack_count', 1) or 1) for m in _u.debuffs
+                          if m.effect_type == SkillEffectType.MARK.value
+                          and getattr(m, 'name', '') == _tsc_mark_name)
+                return _c
+            _tsc_count = _count_target_mark(target)
+            _tsc_effective = min(_tsc_count, _tsc_max_count) if _tsc_max_count > 0 else _tsc_count
+            _tsc_before = final_value
+            final_value = final_value * _tsc_effective
+            _log.info("[AURA_APPLY] %s -> %s: value_scales_with_target_mark_count '%s' count=%d effective=%d max=%d value %.1f -> %.1f",
+                      caster.name, target.name, _tsc_mark_name, _tsc_count,
+                      _tsc_effective, _tsc_max_count, _tsc_before, final_value)
+            # 记录缩放的枚数基准（叙事/调试用）
+            if effect_flags_aura is not None:
+                effect_flags_aura['_target_mark_basis'] = _tsc_effective
+
         # === _hlf 构造（carried_debuff payload） ===
         _hlf = {}
         if carried_debuff:
@@ -9872,6 +9980,12 @@ class SkillService:
                 aura.initial_shield_value = shield_value_for_buff
                 _log.info("[AURA_APPLY] %s -> %s: shield_decay_pct=%d initial_shield_value=%d",
                           caster.name, target.name, decay_pct, shield_value_for_buff)
+            # remove_when_depleted: 盾被打空时该盾 buff 立即失効（130200 プレイコール
+            # 「ステルスと『偵察』は…シールドの消滅と同時に解除される」の触发点）
+            if effect_flags_aura and effect_flags_aura.get('remove_when_depleted'):
+                aura.remove_when_depleted = True
+                _log.info("[AURA_APPLY] %s -> %s: shield remove_when_depleted=True (linked buffs cascade on depletion)",
+                          caster.name, target.name)
         # mark_stat_bonus: 实时属性加成（如120171「ブレイブバレット」的atk_up/crit_dmg_up）
         # 由 buff_stat_bonus字段在damage_service._calc_mark_stat_bonus 中读取聚合
         if effect_flags_aura and effect_flags_aura.get('mark_stat_bonus'):
@@ -10746,6 +10860,14 @@ class SkillService:
             if linked_mark_name:
                 aura.linked_buff_id = linked_mark_name
                 _log.info("[ADD_STATUS] %s: linked_mark set to '%s' on %s", caster.name, linked_mark_name, normalized)
+            # linked_buff_id: 与 linked_mark 同义但语义更明确（可指向任意 buff/debuff 的
+            # effect_type 或 name，如 130200「偵察」随「Shield」消失）。
+            # add_status 路径此前只认 linked_mark，导致「命名状态随盾消失」无法表达。
+            _st_linked_buff = add_status_flags.get('linked_buff_id')
+            if _st_linked_buff:
+                aura.linked_buff_id = _st_linked_buff
+                _log.info("[ADD_STATUS] %s: linked_buff_id set to '%s' on %s",
+                          caster.name, _st_linked_buff, normalized)
             if add_status_flags.get('stackable'):
                 import uuid
                 aura.buff_id = f"{caster.unit_id}_{normalized}_{target.unit_id}_{uuid.uuid4().hex[:8]}"
@@ -11082,13 +11204,41 @@ class SkillService:
                 _log.info("[REMOVE_BUFF] %s: crit_target unavailable, no targets", caster.name)
                 return None
         else:
+            # 特殊索敌类型（lowest_mark_count/highest_atk/furthest等）必须用
+            # ALL_PAWNS 取全部候选再后过滤，否则 ONE_PAWN 会先选最近敌方，
+            # 后过滤只剩 1 个候选（与 damage/add_status/aura 路径同一处理）。
+            # 130198 サイドチャネル・リード：「注目」が最も少ない敵に buff 解除 +
+            # dmg_dealt_down を付与 → remove_buff 与 dmg_dealt_down 必须命中同一目标。
+            _rb_flags = getattr(effect, 'flags', {}) or {}
+            _RB_SPECIAL_TYPES = {
+                "enemy_single_highest_atk", "enemy_single_highest_spd",
+                "enemy_single_lowest_spd", "enemy_single_furthest",
+                "enemy_single_highest_hp_ratio", "enemy_single_lowest_hp_ratio",
+                "enemy_single_highest_current_hp", "enemy_single_highest_max_hp",
+                "enemy_single_lowest_max_hp", "enemy_single_lowest_hp",
+                "enemy_single_highest_hp", "enemy_single_lowest_def",
+                "enemy_single_highest_mark_count", "enemy_single_lowest_mark_count",
+                "enemy_column_furthest", "enemy_column_mark_priority",
+                "enemy_column_highest_atk", "enemy_column_highest_hp_ratio",
+                "enemy_column_highest_damage_dealt", "enemy_column_lowest_mark_count",
+                "enemy_row_of_lowest_mark_count",
+            }
+            _rb_range = (self._resolve_target_range("enemies")
+                         if effect.target_type in _RB_SPECIAL_TYPES
+                         else self._resolve_target_range(effect.target_type))
             target_skill_obj = type('obj', (object,), {
                 'display_target_type': self._resolve_target_type(effect.target_type),
-                'display_target_range': self._resolve_target_range(effect.target_type),
+                'display_target_range': _rb_range,
                 'display_target_priority': None,
                 'target_type_name': effect.target_type,
+                'mark_priority': _rb_flags.get('mark_priority'),
             })()
             targets = self.target_service.select_targets(target_skill_obj, caster, battlefield)
+            if effect.target_type in _RB_SPECIAL_TYPES and targets:
+                targets = self._postfilter_damage_targets(
+                    effect.target_type, targets, caster, _rb_flags, consume_stealth=True)
+                _log.info("[REMOVE_BUFF] %s: special postfilter %s -> %s",
+                          caster.name, effect.target_type, [t.name for t in targets])
 
         total_removed = 0
         removed_details = []
@@ -11405,9 +11555,22 @@ class SkillService:
             original_duration_type=duration_type,
             just_applied=True,
         )
+        # 130200 プレイコール「ステルスは解除不可だが、シールドの消滅と同時に解除される」：
+        # unremovable（主动驱散无效，但自然过期/联动仍然生效）与
+        # linked_buff_id（盾消失时级联清除）均由此透传，保持与 aura 路径同一语义。
+        _st_flags = getattr(effect, 'flags', {}) or {}
+        if _st_flags.get('unremovable'):
+            aura.unremovable = True
+        _st_linked = _st_flags.get('linked_buff_id')
+        if _st_linked:
+            aura.linked_buff_id = _st_linked
+        _st_name = _st_flags.get('buff_name')
+        if _st_name:
+            aura.name = _st_name
         self.aura_service.add_aura(caster, aura)
-        _log.info("[STEALTH] %s: applied stealth dur=%s dur_type=%s value=%s",
-                  caster.name, duration, duration_type, value)
+        _log.info("[STEALTH] %s: applied stealth dur=%s dur_type=%s value=%s unremovable=%s linked=%s",
+                  caster.name, duration, duration_type, value,
+                  aura.unremovable, aura.linked_buff_id)
 
         return {
             "effect_type": "stealth",

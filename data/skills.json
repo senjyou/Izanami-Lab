@@ -88394,5 +88394,388 @@
         ]
       }
     }
+  },
+  "110090": {
+    "skill_id": 110090,
+    "name": "アノマリー・アタック",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 7,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "敵単体に威力{威力}で3ヒット攻撃し「注目」を3つ付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66000366210938
+          },
+          {
+            "level": 9,
+            "value": 71.7699966430664
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          },
+          {
+            "level": 15,
+            "value": 106.0
+          }
+        ]
+      }
+    }
+  },
+  "120192": {
+    "skill_id": 120192,
+    "name": "ボール・インジェクション",
+    "skill_type": 1,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「注目」が最も少ない敵を優先し、敵単体に以下の効果を与える。\n自身が「偵察」状態の場合、敵単体のバフを3個解除し、対象の次の攻撃での与ダメージを{dmg}%減少させるデバフと「注目」を1つ付与する。\n自身が「偵察」状態ではない場合、対象に威力{威力}で攻撃する"
+      },
+      {
+        "min_level": 11,
+        "template": "「注目」が最も少ない敵を優先し、敵単体に以下の効果を与える。\n自身が「偵察」状態の場合、敵単体のバフを4個解除し、対象の次の攻撃での与ダメージを{dmg}%減少させるデバフと「注目」を1つ付与する。\n自身が「偵察」状態ではない場合、対象に威力{威力}で攻撃する"
+      },
+      {
+        "min_level": 13,
+        "template": "「注目」が最も少ない敵を優先し、敵単体に以下の効果を与える。\n自身が「偵察」状態の場合、敵単体のバフを5個解除し、対象の次の攻撃での与ダメージを{dmg}%減少させるデバフと「注目」を1つ付与する。\n自身が「偵察」状態ではない場合、対象に威力{威力}で攻撃する"
+      },
+      {
+        "min_level": 15,
+        "template": "「注目」が最も少ない敵を優先し、敵単体に以下の効果を与える。\n自身が「偵察」状態の場合、敵単体のバフを6個解除し、対象の次の攻撃での与ダメージを{dmg}%減少させるデバフと「注目」を1つ付与する。\n自身が「偵察」状態ではない場合、対象に威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.539999961853027
+          },
+          {
+            "level": 4,
+            "value": 11.609999656677246
+          },
+          {
+            "level": 6,
+            "value": 12.149999618530273
+          },
+          {
+            "level": 7,
+            "value": 13.220000267028809
+          },
+          {
+            "level": 9,
+            "value": 13.760000228881836
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          },
+          {
+            "level": 15,
+            "value": 212.0
+          }
+        ]
+      }
+    }
+  },
+  "130198": {
+    "skill_id": 130198,
+    "name": "サイドチャネル・リード",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "他の味方が「注目」状態の敵に攻撃した後に発動。攻撃した味方単体のEXゲージを1加算する。\nさらに攻撃された敵単体に対し、次の攻撃での被ダメージを{dmg}%増加させるデバフを付与する。\n自身が「偵察」状態の場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "他の味方が「注目」状態の敵に攻撃した後に発動。攻撃した味方単体のEXゲージを1加算し、1行動の間会心率を{crt}%上昇させる（重複可）。\nさらに攻撃された敵単体に対し、次の攻撃での被ダメージを{dmg}%増加させるデバフを付与する。\n自身が「偵察」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 20.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.539999961853027
+          },
+          {
+            "level": 4,
+            "value": 11.609999656677246
+          },
+          {
+            "level": 6,
+            "value": 12.149999618530273
+          },
+          {
+            "level": 7,
+            "value": 13.220000267028809
+          },
+          {
+            "level": 9,
+            "value": 13.760000228881836
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "130199": {
+    "skill_id": 130199,
+    "name": "テイクオーバー・フィールド",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「注目」状態の敵がアクティブスキルを使用した後に発動。1行動の間、対象の攻撃力を低下させる。\n「注目」1つにつき{atk}%低下させ （重複可）、5個を上限とする"
+      },
+      {
+        "min_level": 11,
+        "template": "「注目」状態の敵がアクティブスキルを使用した後に発動。対象の敵単体に威力{威力}で攻撃し、1行動の間、対象の攻撃力を低下させる。\n「注目」1つにつき{atk}%低下させ （重複可）、5個を上限とする"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.5
+          },
+          {
+            "level": 3,
+            "value": 7.760000228881836
+          },
+          {
+            "level": 4,
+            "value": 8.270000457763672
+          },
+          {
+            "level": 6,
+            "value": 8.520000457763672
+          },
+          {
+            "level": 7,
+            "value": 9.029999732971191
+          },
+          {
+            "level": 9,
+            "value": 9.279999732971191
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      },
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 100.0
+          },
+          {
+            "level": 15,
+            "value": 156.0
+          }
+        ]
+      }
+    }
+  },
+  "130200": {
+    "skill_id": 130200,
+    "name": "プレイコール",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。自身のHPを最大HP×{hp}%消費して、自身に対し最大HP×60%のシールドを付与する。\nさらにステルスと「偵察」を付与する。ステルスと「偵察」は解除不可だが、シールドの消滅と同時に解除される。\nこのスキルは戦闘中に1度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "ターン開始時に発動。自身のHPを最大HP×{hp}%消費して、自身に対し最大HP×60%のシールドを付与する。\nさらにステルスと「偵察」、および被ダメージを{dmg}%減少させる効果を付与する（重複可）。ステルスと「偵察」、被ダメージ減少バフは解除不可だが、シールドの消滅と同時に解除される。\nこのスキルは戦闘中に1度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 25.0
+          },
+          {
+            "level": 3,
+            "value": 23.31999969482422
+          },
+          {
+            "level": 4,
+            "value": 19.959999084472656
+          },
+          {
+            "level": 6,
+            "value": 18.280000686645508
+          },
+          {
+            "level": 7,
+            "value": 14.920000076293945
+          },
+          {
+            "level": 9,
+            "value": 13.239999771118164
+          },
+          {
+            "level": 10,
+            "value": 10.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 5.0
+          },
+          {
+            "level": 15,
+            "value": 10.0
+          }
+        ]
+      }
+    }
   }
 }

@@ -744,9 +744,16 @@ class TargetService:
                         _log.info("[STEALTH_CONSUME] %s: skill-based stealth EXPIRED (duration=0)", unit.name)
                     return True
                 else:
-                    # 兜底：未知 duration_type，按行动制处理（不消耗）
-                    _log.info("[STEALTH_CONSUME] %s: unknown dur_type=%s, treat as action-based (duration unchanged %d)",
-                              unit.name, dur_type, b.duration)
+                    # 兜底：未知/未指定 duration_type → 按「行动制」处理（触发不消耗 duration）。
+                    # 130200 プレイコール 的ステルス是永续（duration=-1、duration_type 未指定），
+                    # 由 linked_buff_id 随盾消失解除，因此这里保持 duration 不变是正确的。
+                    # 仅在 duration < 0 且无 duration_type 时不打「unknown」噪音日志。
+                    if dur_type or b.duration >= 0:
+                        _log.info("[STEALTH_CONSUME] %s: unknown dur_type=%s, treat as action-based (duration unchanged %d)",
+                                  unit.name, dur_type, b.duration)
+                    else:
+                        _log.info("[STEALTH_CONSUME] %s: permanent stealth triggered, duration unchanged (%d)",
+                                  unit.name, b.duration)
                     return True
         return False
 

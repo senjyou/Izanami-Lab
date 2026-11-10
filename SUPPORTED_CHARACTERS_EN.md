@@ -109,6 +109,7 @@ The simulator currently supports a limited set of characters. More will be added
 | 歩む先に新たな日常を     | コトハ          |
 | 氷の魔女           | フィカーツィア・ラトロワ |
 | 暴風小隊長          | 崔亦菲          |
+| 理想求める運営委員      | エヴィ・レーナルト    |
 
 ## Tactical Exercise Enemies
 
