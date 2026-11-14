@@ -1422,15 +1422,26 @@ class BattleFlowController:
             )
             phase1_actions.extend(after_self)
 
+            # ===== 收集 Phase 1a-react: AS攻撃への反応（同一窗口，按速度排序）=====
+            # after_as_attacked / after_as_attacked_ally（被AS攻击后反击）与
+            # after_ally_as_attack（友方AS后追撃）在游戏里同属一个「AS攻击反应」时机，
+            # 彼此之间按速度决定先后（用户裁定）。
+            # 实例：敌方コトハ PS[仲間想いは変わらず+](230510, after_as_attacked,
+            # speed 592) 与己方繋がり合う母娘の絆 PS[ストレラ](130184,
+            # after_ally_as_attack, speed 879) 必须同阶段按速度排序 → ストレラ 先。
+            # 该窗口位于纯守方反应(after_ally_attacked/after_self_attacked)之后、
+            # 暴击触发(Phase1a-crit)之前：保持「被攻撃反応先于暴击PS」的既有实战结论
+            # （如 230426 ヒートアップ・ラブ+ 先于 130047 ラッキー4！）。
+            phase1_react_actions = []
             after_as_attacked = self.trigger_service.trigger_after_as_attacked(
                 damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
             )
-            phase1_actions.extend(after_as_attacked)
+            phase1_react_actions.extend(after_as_attacked)
 
             after_as_ally = self.trigger_service.trigger_after_as_attacked_ally(
                 damaged_targets, self.battlefield, actor=unit, primary_target=primary_target
             )
-            phase1_actions.extend(after_as_ally)
+            phase1_react_actions.extend(after_as_ally)
 
             # 回忆卡受击触发（trigger=after_ally_attacked，如400244 回復被ダメ時）
             self._apply_memory_card_effects_on_ally_attacked(damaged_targets)
@@ -1457,13 +1468,16 @@ class BattleFlowController:
             # _execute_charge_release 在调用本方法前更新），此处仅收集触发器
             phase1b_actions = self.trigger_service.trigger_skill_use_count(unit, self.battlefield)
 
-            # ===== 收集 Phase 2: AS攻撃後追撃 =====
-            phase2_actions = []
+            # ===== 收集 Phase 2: AS攻击反应窗口（与 Phase1a-react 同池）=====
+            # after_ally_as_attack（友方AS后追撃）与被AS攻击后反应(after_as_attacked /
+            # after_as_attacked_ally)同属一个时机，最终一起按速度排序执行；
+            # 收集仍留在 Phase2 位置（需要 damaged_targets/primary_target 已确定），
+            # 执行时并入 phase1_react_actions。
             after_ally_as = self.trigger_service.trigger_after_ally_as_attack(
                 unit, skill_id, damaged_targets, self.battlefield,
                 primary_target=primary_target,
             )
-            phase2_actions.extend(after_ally_as)
+            phase1_react_actions.extend(after_ally_as)
 
             # ===== 收集 Phase 3: 主动技能结束后 =====
             phase3_actions = self.trigger_service.trigger_after_as_attack(
@@ -1473,8 +1487,9 @@ class BattleFlowController:
 
             # 记录PP快照（所有阶段合并）
             all_for_snapshot = (phase1_cumulative_actions + phase1_actions
+                                + phase1_react_actions
                                 + phase1_crit_actions
-                                + phase1b_actions + phase2_actions + phase3_actions)
+                                + phase1b_actions + phase3_actions)
             self._pp_snapshot_before_as_triggers = {}
             for a in all_for_snapshot:
                 o = a.instance.owner
@@ -1499,17 +1514,16 @@ class BattleFlowController:
                           _log_prefix, len(phase1_actions))
             self._execute_trigger_actions(phase1_actions, unit)
 
-            # ===== 执行 Phase 1a-crit: 暴击触发器（被攻撃反応之后执行，无视速度快慢） =====
-            if phase1_crit_actions:
-                phase1_crit_actions.sort(
-                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
-                )
-                _log.info("[POST_AS_TRIGGERS] %s Phase1a-crit (暴撃): %d actions",
-                          _log_prefix, len(phase1_crit_actions))
-            self._execute_trigger_actions(phase1_crit_actions, unit)
-            self._flush_deferred_crit_triggers(unit)
-
             # ===== 执行 Phase 1b: 技能使用次数 =====
+            # 必须在 Phase1a-react（AS攻击反应）之前：
+            # 「自分のAS使用で発動する自身のPS」属于本行动的直接结果，
+            # 早于「被这次攻击激怒的敌方/友方反应」。若放到 react 之后，
+            # react 里的反击（如 230510 仲間想いは変わらず+ 付与冻结）会先施加冻结，
+            # 导致技能计数PS（130152 リラックスだよ～♪）执行时被判 frozen 而跳过，
+            # 被迫延后到下一次行动才触发（日志 step_crit_console_tactical_20261114_124514：
+            # L3945 条件已满足并 matched，L4084 反击冻结，L4106 才 SKIPPED）。
+            # 用户裁定：技能计数类PS先于「AS攻击反应」执行，
+            # 130152 与 130081 都应早于 130184 ストレラ。
             if phase1b_actions:
                 phase1b_actions.sort(
                     key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
@@ -1521,14 +1535,30 @@ class BattleFlowController:
             self._reset_skill_use_count_after_as(phase1b_actions)
             self._flush_deferred_crit_triggers(unit)
 
-            # ===== 执行 Phase 2: AS攻撃後追撃 =====
-            if phase2_actions:
-                phase2_actions.sort(
+            # ===== 执行 Phase 1a-react: AS攻击反应窗口（被AS攻击后反击 + 友方AS后追撃）=====
+            # 三者同属一个时机，按速度排序（calculate_priority 越小=速度越快=越先执行）。
+            if phase1_react_actions:
+                phase1_react_actions.sort(
                     key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
                 )
-                _log.info("[POST_AS_TRIGGERS] %s Phase2: %d actions",
-                          _log_prefix, len(phase2_actions))
-            self._execute_trigger_actions(phase2_actions, unit)
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a-react (AS攻击反应): %d actions, order=%s",
+                          _log_prefix, len(phase1_react_actions),
+                          [(a.instance.owner.name, a.skill_id) for a in phase1_react_actions])
+            self._execute_trigger_actions(phase1_react_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== 执行 Phase 1a-crit: 暴击触发器（被攻撃反応之后执行，无视速度快慢） =====
+            if phase1_crit_actions:
+                phase1_crit_actions.sort(
+                    key=lambda a: self.trigger_service.calculate_priority(a.instance.owner)
+                )
+                _log.info("[POST_AS_TRIGGERS] %s Phase1a-crit (暴撃): %d actions",
+                          _log_prefix, len(phase1_crit_actions))
+            self._execute_trigger_actions(phase1_crit_actions, unit)
+            self._flush_deferred_crit_triggers(unit)
+
+            # ===== Phase 2 的 after_ally_as_attack 已并入 Phase1a-react 窗口执行 =====
+            # （与 after_as_attacked / after_as_attacked_ally 同阶段、按速度排序）
             self._flush_deferred_crit_triggers(unit)
 
             # ===== 执行 Phase 3: 主动技能结束后 =====

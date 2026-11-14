@@ -98161,7 +98161,7 @@
       "flags": {
        "value_type": "percent",
        "duration_owner": "caster",
-       "source_death_remove": true
+       "source_death_remove": false
       },
       "ignore_defense": 0,
       "ignore_shield": 0
@@ -98170,14 +98170,14 @@
    }
   ],
   "_notes": [
-   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster + source_death_remove。"
+   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster，source_death_remove=false：敌方原文只说「自身が1回行動を終えるまでの間」，没有我方 110085 那句「EX減速デバフは自身が倒れると解除される」；实测敌方倒下（战术演习换阶段）也不解除，只在其真正完成下一次行动时结束。"
   ],
   "display_target_priority": null,
   "display_target_range": 6,
   "display_target_type": 3,
   "parse_status": "manual",
   "parse_notes": [
-   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster + source_death_remove。"
+   "敌方版(612105 惨禍：コトハ)：机制与己方 110085 相同；tag 威力用敌方原始插值(Lv1=17.5 / Lv3=27.3 / Lv10=37.1)。remove_ep=1 每目标(target_count=3)；ep_gain_down 100% duration=1/action + duration_owner=caster，source_death_remove=false：敌方原文只说「自身が1回行動を終えるまでの間」，没有我方 110085 那句「EX減速デバフは自身が倒れると解除される」；实测敌方倒下（战术演习换阶段）也不解除，只在其真正完成下一次行动时结束。"
   ]
  },
  "220480": {

@@ -1020,12 +1020,17 @@ class SkillService:
         被内层 230500 结束时清掉 → 本次伤害用了加攻前的 ATK）。
         """
         self._skill_exec_depth = getattr(self, '_skill_exec_depth', 0) + 1
+        # 嵌套执行时保存/恢复「dealt_mult 已参与本次攻击」标记：内层PS会重置该标记，
+        # 若不在返回时还原，外层技能末尾的 attack_limited 清理会误判为「未应用」
+        # 而漏消耗 dmg_dealt_down（与 _caster_buffs_active_during_damage 同口径）。
+        _saved_dealt_applied = getattr(self, '_dealt_mult_applied_this_skill', False)
         try:
             return self._execute_skill_impl(caster, skill_id, battlefield,
                                             skip_cost=skip_cost,
                                             defer_crit_triggers=defer_crit_triggers)
         finally:
             self._skill_exec_depth -= 1
+            self._dealt_mult_applied_this_skill = _saved_dealt_applied
 
     def _execute_skill_impl(self, caster: UnitState, skill_id: int,
                       battlefield: BattlefieldState, skip_cost: bool = False,
@@ -1156,6 +1161,12 @@ class SkillService:
         kills_occurred = False
         self._debuffs_applied_this_skill = set()
         self._caster_buffs_active_during_damage = set()
+        # 本技能内 dealt_mult 是否真的参与过某次攻击的伤害结算。
+        # 用于 dmg_dealt_down 的 attack_limited 消耗判定：主伤害与子单位/附魔/追加伤害
+        # 同属「一次攻击」，只要攻击周期内任一乘区路径实际乘过 dealt_mult，就算 buff
+        # 已完整应用于本次攻击；若整个技能只走 hp_ratio_damage 主伤害（该路径不乘
+        # dealt_mult），则不得消耗 —— 否则会「减伤未生效却被消耗」而白掉一层。
+        self._dealt_mult_applied_this_skill = False
 
         # 预扫描所有damage block的索敌目标，确定cover候选
         # 仅当技能有damage效果时才重新扫描，否则保留外层技能的预扫描结果（PS技能无damage效果）
@@ -3495,7 +3506,13 @@ class SkillService:
                                     _log.info("[ATTACK_LIMITED] %s: buff %s EXPIRED (attack_limited reached 0)", unit.name, buff.effect_type)
                         # Attack-limited debuff cleanup on CASTER: dmg_dealt_down should be consumed
                         # when the caster attacks (performs an offensive action)
-                        if is_caster_only:
+                        # 但「一次攻击」= 整个攻击周期（主伤害 + 子单位/附魔/追加伤害）：
+                        # dealt_mult 必须真正参与过结算，buff 才算完整应用并消耗。
+                        # 仅走 hp_ratio_damage 主伤害时该路径不乘 dealt_mult（见
+                        # _apply_hp_ratio_damage），此时消耗会让「减伤未生效却白掉一层」
+                        # （实机：120155 苦手なのはそこだね！ 攻击后仍应保留 220480 的
+                        #  dmg_dealt_down，否则下一次攻击的子单位伤害少 20% 减伤）。
+                        if is_caster_only and self._dealt_mult_applied_this_skill:
                             for debuff in list(unit.debuffs):
                                 if debuff.attack_limited > 0 and debuff.buff_id not in self._debuffs_applied_this_skill:
                                     # dmg_dealt_down consumed when the unit attacks
@@ -3506,6 +3523,14 @@ class SkillService:
                                         if debuff.attack_limited <= 0:
                                             unit.debuffs = [d for d in unit.debuffs if d.buff_id != debuff.buff_id]
                                             _log.info("[ATTACK_LIMITED] %s: caster debuff %s EXPIRED (attack_limited reached 0)", unit.name, debuff.effect_type)
+                        elif is_caster_only:
+                            _skipped_dealt = [d for d in unit.debuffs
+                                              if d.attack_limited > 0
+                                              and d.effect_type == SkillEffectType.DEALT_DAMAGE.value
+                                              and d.buff_id not in self._debuffs_applied_this_skill]
+                            if _skipped_dealt:
+                                _log.info("[ATTACK_LIMITED] %s: caster debuff %s SKIPPED (dealt_mult not applied this attack, reserved)",
+                                          unit.name, SkillEffectType.DEALT_DAMAGE.value)
 
         # 層数盾(layer shield): 1回の攻撃につき1层だけ消費する。
         # 「シールドは1回攻撃を受けると消滅する」を「多层时也仅掉1层、剩余层保留」で実装。
@@ -4026,6 +4051,8 @@ class SkillService:
             dmg_result = self.damage_service.calculate_damage(caster, target, dmg_skill_obj,
                                                                 is_cover_damage=is_cover_damage,
                                                                 on_crit_callback=self._make_on_crit_callback(caster, battlefield))
+            # calculate_damage 内部乘入 dealt_mult → 本次攻击已消耗减伤乘区
+            self._dealt_mult_applied_this_skill = True
             actual_damage = dmg_result.total_damage
             shield_absorbed = 0
 
@@ -4526,6 +4553,7 @@ class SkillService:
         dmg_result = self.damage_service.calculate_damage(
             caster, target, dmg_skill_obj, is_cover_damage=is_cover_damage,
             on_crit_callback=self._make_on_crit_callback(caster, battlefield))
+        self._dealt_mult_applied_this_skill = True
         actual_damage = dmg_result.total_damage
         target.current_hp = 0
         # 累计到 block_damage_total (供 split_heal_by_damage 读取)
@@ -6357,6 +6385,8 @@ class SkillService:
                 advantage = self.damage_service._get_attribute_factor(caster.element, target.element, caster)
 
                 dmg *= a_dealt_mult * b_received_mult * advantage
+                # 子单位伤害乘入了持有者 dealt_mult → 本次攻击已消耗减伤乘区
+                self._dealt_mult_applied_this_skill = True
 
                 # guard减伤：含旧版buff guard与新版特殊机制guard（standalone架势/cover附带），
                 # 与damage/HP比例伤害路径一致（_get_guard_multiplier统一判定）
@@ -6552,6 +6582,8 @@ class SkillService:
                 a_advantage = self.damage_service._get_attribute_factor(caster.element, target.element, caster)
 
                 dmg *= a_dealt_mult * b_received_mult * a_advantage
+                # 追加伤害乘入了持有者 dealt_mult → 本次攻击已消耗减伤乘区
+                self._dealt_mult_applied_this_skill = True
 
                 # guard减伤：含旧版buff guard与新版特殊机制guard（standalone架势/cover附带），
                 # 与damage/HP比例伤害路径一致（_get_guard_multiplier统一判定）
@@ -6763,6 +6795,8 @@ class SkillService:
                     b_advantage = self.damage_service._get_attribute_factor(caster.element, target.element, caster)
 
                     dmg *= b_dealt_mult * c_received_mult * b_advantage
+                    # 附魔伤害乘入了持有者 dealt_mult → 本次攻击已消耗减伤乘区
+                    self._dealt_mult_applied_this_skill = True
 
                     # guard减伤：含旧版buff guard与新版特殊机制guard（standalone架势/cover附带），
                     # 与damage/HP比例伤害路径一致（_get_guard_multiplier统一判定）
@@ -6930,6 +6964,7 @@ class SkillService:
                 _adj_dmg_result = self.damage_service.calculate_damage(
                     caster, _adj_target, _splash_skill_obj,
                     on_crit_callback=None)
+                self._dealt_mult_applied_this_skill = True
                 _adj_actual_dmg = _adj_dmg_result.total_damage
                 # 盾吸收：与主伤害/子单位一致（EN盾→物理盾→通用盾）
                 _adj_shield_absorbed, _adj_remaining = self._absorb_secondary_shields(
@@ -11935,7 +11970,8 @@ class SkillService:
                               caster.name)
                 for target in _ta_alive:
                     old_ep = target.current_ep
-                    self.resource_service.generate_ep(target, value)
+                    # add_ep 属于「得られるEXゲージ」，同样受 EpGainDown 衰减
+                    self.resource_service.generate_ep(target, value, apply_ep_gain_down=True)
                     actual_gain = target.current_ep - old_ep
                     ep_targets.append({
                         "target": target.name,
@@ -12015,7 +12051,8 @@ class SkillService:
 
                 for target in alive_targets:
                     old_ep = target.current_ep
-                    self.resource_service.generate_ep(target, per_target)
+                    # add_ep 属于「得られるEXゲージ」，同样受 EpGainDown 衰减
+                    self.resource_service.generate_ep(target, per_target, apply_ep_gain_down=True)
                     actual_gain = target.current_ep - old_ep
                     ep_targets.append({
                         "target": target.name,
@@ -12050,7 +12087,8 @@ class SkillService:
                                       caster.name, cond_type, cond_target.name, cond_target.current_ep)
                             return {"effect_type": "add_ep", "targets": [], "skipped": True}
                 old_ep = caster.current_ep
-                self.resource_service.generate_ep(caster, value)
+                # add_ep 属于「得られるEXゲージ」，同样受 EpGainDown 衰减
+                self.resource_service.generate_ep(caster, value, apply_ep_gain_down=True)
                 actual_gain = caster.current_ep - old_ep
                 ep_targets.append({
                     "target": caster.name,

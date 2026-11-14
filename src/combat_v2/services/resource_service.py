@@ -105,8 +105,13 @@ class ResourceService:
             return
         old = unit.current_ep
         cap = unit.max_extra_point
-        # EpGainDown debuff仅影响自然回EP（AS/PS技能释放自动回EP、每行动+1），
-        # 不影响技能效果中的直接EP增减（如add_ep效果的EP+1）
+        # EpGainDown debuff（「得られるEXゲージが-100%」）作用于**一切 EX 槽获得**：
+        #   - 自然回EP：AS/PS 释放自动回EP、每行动+1（battle_flow_controller 调用点）
+        #   - 技能效果的 add_ep（如 130187 募る想い「EXゲージを1加算する」、
+        #     130186 心から尽くして、130043 クイックブースト 等）
+        # 调用方需传 apply_ep_gain_down=True 才生效。
+        # 旧注释曾断言「不影响 add_ep」，与实测不符：实测在 EpGainDown 期间
+        # 募る想い 的 add_ep 不应涨 EP（日志 step_crit_console_tactical_20261114_123418）。
         reduction_pct = 0.0
         if apply_ep_gain_down:
             for d in unit.debuffs:
