@@ -2250,6 +2250,346 @@ class BatchSimulator:
         }
 
 
+    # ============ バトルシミュレート（爬塔） ============
+
+    def run_batch_simulation_tower(
+        self,
+        panel_config,
+        friends_chars: List[int],
+        friend_positions: List[Any],
+        enemies_data: List[Dict[str, Any]],
+        max_turns: int = 10,
+        total_runs: int = 100,
+        positions_ally: List[Any] = None,
+        progress_callback: Callable[[int, int], None] = None,
+        batch_size: int = None,
+        memory_cards: list = None,
+        enable_rdps: bool = True,
+    ) -> Dict[str, Any]:
+        """执行「バトルシミュレート（爬塔）」多进程批量模拟。
+
+        Args:
+            enemies_data: 该层 5 个敌人的烘焙数据（含 level / skill_levels）
+            max_turns: 回合上限（爬塔固定 10）
+            其余参数与 run_batch_circle 一致
+        """
+        if positions_ally is None:
+            from src.entities_v2.enums import Position
+            positions_ally = [
+                Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+                Position.ALLY_RIGHT_FRONT,
+                Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+                Position.ALLY_RIGHT_BACK,
+            ]
+        if batch_size is None:
+            batch_size = self.DEFAULT_BATCH_SIZE
+
+        base_seed = int(time.time() * 1000000) % (2**31)
+        seeds = [(base_seed + i) % (2**31) for i in range(total_runs)]
+        seed_batches = [seeds[i:i + batch_size] for i in range(0, len(seeds), batch_size)]
+
+        print(f"\n  [多进程爬塔] 总场数={total_runs} 批次={len(seed_batches)} "
+              f"每批={batch_size} Workers={min(self.max_workers, len(seed_batches))}")
+
+        try:
+            return self._run_multiprocess_tower(
+                panel_config, friends_chars, friend_positions,
+                enemies_data, max_turns, total_runs,
+                positions_ally, seed_batches, progress_callback,
+                memory_cards=memory_cards, enable_rdps=enable_rdps,
+            )
+        except Exception as e:
+            print(f"  [WARN] 多进程爬塔失败，回退到单进程模式: {e}")
+            traceback.print_exc()
+            return self._run_single_process_tower(
+                panel_config, friends_chars, friend_positions,
+                enemies_data, max_turns, total_runs,
+                positions_ally, seed_batches, progress_callback,
+                memory_cards=memory_cards, enable_rdps=enable_rdps,
+            )
+
+    # ── 单场复现（供 GUI 按 seed 导出叙事日志） ──
+
+    def replay_tower_single(
+        self,
+        panel_config,
+        friend_positions: List[Any],
+        enemies_data: List[Dict[str, Any]],
+        max_turns: int,
+        seed: int,
+        positions_ally: List[Any] = None,
+        memory_cards: list = None,
+        enable_rdps: bool = False,
+        with_narrative: bool = True,
+    ) -> Dict[str, Any]:
+        """按给定 seed 复现单场爬塔战斗（与批量模拟同一构建口径）。
+
+        Returns:
+            {"result": 战斗结果 dict, "narrative": BattleNarrativeWriter | None}
+        """
+        from src.entities_v2.battlefield_state import BattlefieldState
+        from src.entities_v2.enums import Side, Position
+        from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+        from src.combat_v2.battle_narrative import BattleNarrativeWriter
+        from src.data.stat_calculator import StatCalculator
+
+        dl = self.data_loader
+        if positions_ally is None:
+            positions_ally = [
+                Position.ALLY_LEFT_FRONT, Position.ALLY_CENTER_FRONT,
+                Position.ALLY_RIGHT_FRONT,
+                Position.ALLY_LEFT_BACK, Position.ALLY_CENTER_BACK,
+                Position.ALLY_RIGHT_BACK,
+            ]
+        lerp = dl.load_level_lerp_data()
+        sc = StatCalculator(lerp, data_loader=dl)
+        pl = panel_config.get_player_config()
+
+        random.seed(seed)
+
+        bf = BattlefieldState()
+        for i, cid in enumerate(friend_positions):
+            if cid is not None:
+                pos = positions_ally[i] if i < len(positions_ally) else Position.ALLY_CENTER_FRONT
+                u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ALLY, pos)
+                if u:
+                    bf.add_unit(u)
+
+        for enemy_data in enemies_data:
+            eu = create_simulation_tower_enemy(dl, enemy_data)
+            if eu:
+                bf.add_unit(eu)
+
+        bf.memory_cards = list(memory_cards) if memory_cards else []
+
+        bc = BattleConfig()
+        bc.max_turns = max_turns
+        bc.enable_rdps = enable_rdps
+
+        narrative = BattleNarrativeWriter() if with_narrative else None
+        controller = BattleFlowController(bf, data_loader=dl, config=bc, narrative=narrative)
+        result = controller.execute_battle()
+        return {"result": result, "narrative": narrative}
+
+    def _run_multiprocess_tower(
+        self, panel_config, friends_chars, friend_positions,
+        enemies_data, max_turns, total_runs,
+        positions_ally, seed_batches, progress_callback,
+        memory_cards=None, enable_rdps: bool = True,
+    ):
+        self._ensure_dummy_persisted(list(friends_chars or []))
+        n_workers = min(self.max_workers, len(seed_batches))
+
+        init_args = (
+            self._data_dir,
+            panel_config,
+            friends_chars,
+            friend_positions,
+            enemies_data,
+            max_turns,
+            positions_ally,
+            memory_cards if memory_cards else [],
+            enable_rdps,
+            self._user_data_dir,
+        )
+
+        mp_ctx = mp.get_context('spawn')
+        pool = mp_ctx.Pool(
+            processes=n_workers,
+            initializer=_worker_init_tower,
+            initargs=init_args,
+        )
+
+        wins = 0
+        losses = 0
+        total_turns = 0
+        turn_list: List[int] = []
+        all_ally_damage = []
+        all_ally_received = []
+        all_ally_healed = []
+        all_enemy_damage = []
+        all_enemy_received = []
+        all_enemy_healed = []
+        all_enemy_healing_received = []
+        all_unit_stats = []
+        all_special_notes = []
+        # 每场记录（index / seed / winner / turns）：供 GUI 事后按 seed 复现并导出叙事日志
+        run_records: List[Dict[str, Any]] = []
+        completed = 0
+        t0 = time.time()
+
+        try:
+            for batch_results in pool.imap_unordered(_worker_run_batch_tower, seed_batches):
+                for stats in batch_results:
+                    completed += 1
+                    turns = stats.get('total_turns', 0)
+                    total_turns += turns
+                    turn_list.append(turns)
+                    if stats['winner'] == 'FRIEND':
+                        wins += 1
+                    else:
+                        losses += 1
+                    run_records.append({
+                        'index': completed,
+                        'seed': stats.get('seed'),
+                        'winner': stats['winner'],
+                        'turns': turns,
+                    })
+                    all_ally_damage.append(stats['ally_total_damage_dealt'])
+                    all_ally_received.append(stats['ally_total_damage_received'])
+                    all_ally_healed.append(stats['ally_total_hp_healed'])
+                    all_enemy_damage.append(stats['enemy_total_damage_dealt'])
+                    all_enemy_received.append(stats['enemy_total_damage_received'])
+                    all_enemy_healed.append(stats['enemy_total_hp_healed'])
+                    all_enemy_healing_received.append(stats['enemy_healing_received'])
+                    all_unit_stats.append(stats.get('unit_stats', {}))
+                    all_special_notes.append(stats.get('special_notes'))
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+        finally:
+            pool.close()
+            pool.join()
+
+        elapsed = time.time() - t0
+
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total_runs": total_runs,
+            "total_turns": total_turns,
+            "pass_rate": wins / total_runs if total_runs > 0 else 0,
+            "turn_list": turn_list,
+            "all_ally_damage": all_ally_damage,
+            "all_ally_received": all_ally_received,
+            "all_ally_healed": all_ally_healed,
+            "all_enemy_damage": all_enemy_damage,
+            "all_enemy_received": all_enemy_received,
+            "all_enemy_healed": all_enemy_healed,
+            "all_enemy_healing_received": all_enemy_healing_received,
+            "all_unit_stats": all_unit_stats,
+            "special_notes_list": all_special_notes,
+            "run_records": run_records,
+            "elapsed": elapsed,
+            "rate": total_runs / elapsed if elapsed > 0 else 0,
+        }
+
+    def _run_single_process_tower(
+        self, panel_config, friends_chars, friend_positions,
+        enemies_data, max_turns, total_runs,
+        positions_ally, seed_batches, progress_callback,
+        memory_cards=None, enable_rdps: bool = True,
+    ):
+        from src.entities_v2.battlefield_state import BattlefieldState
+        from src.entities_v2.enums import Side, Position
+        from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+        from src.data.stat_calculator import StatCalculator
+
+        dl = self.data_loader
+        lerp = dl.load_level_lerp_data()
+        sc = StatCalculator(lerp, data_loader=dl)
+        pl = panel_config.get_player_config()
+
+        mem_cards = list(memory_cards) if memory_cards else []
+
+        wins = 0
+        losses = 0
+        total_turns = 0
+        turn_list: List[int] = []
+        all_ally_damage = []
+        all_ally_received = []
+        all_ally_healed = []
+        all_enemy_damage = []
+        all_enemy_received = []
+        all_enemy_healed = []
+        all_enemy_healing_received = []
+        all_unit_stats = []
+        all_special_notes = []
+        run_records: List[Dict[str, Any]] = []
+        completed = 0
+        t0 = time.time()
+
+        for seed_batch in seed_batches:
+            for seed in seed_batch:
+                completed += 1
+                random.seed(seed)
+
+                bf = BattlefieldState()
+
+                for i, cid in enumerate(friend_positions):
+                    if cid is not None:
+                        pos = positions_ally[i] if i < len(positions_ally) else Position.ALLY_CENTER_FRONT
+                        u = _create_unit_worker(dl, panel_config, pl, sc, cid, Side.ALLY, pos)
+                        if u:
+                            bf.add_unit(u)
+
+                for enemy_data in enemies_data:
+                    eu = create_simulation_tower_enemy(dl, enemy_data)
+                    if eu:
+                        bf.add_unit(eu)
+
+                bf.memory_cards = list(mem_cards)
+
+                bc = BattleConfig()
+                bc.max_turns = max_turns
+                bc.enable_rdps = enable_rdps
+
+                controller = BattleFlowController(bf, data_loader=dl, config=bc)
+                result = controller.execute_battle()
+
+                won = (result.get('result') == 'FINISHED' and result.get('winner') == 'FRIEND')
+                turns = result.get('total_turns', 0)
+                total_turns += turns
+                turn_list.append(turns)
+                if won:
+                    wins += 1
+                else:
+                    losses += 1
+                run_records.append({
+                    'index': completed,
+                    'seed': seed,
+                    'winner': 'FRIEND' if won else 'ENEMY',
+                    'turns': turns,
+                })
+
+                score_data = result.get('score', {}) or {}
+                all_ally_damage.append(score_data.get('ally_total_damage_dealt', 0))
+                all_ally_received.append(score_data.get('ally_total_damage_received', 0))
+                all_ally_healed.append(score_data.get('ally_total_hp_healed', 0))
+                all_enemy_damage.append(score_data.get('enemy_total_damage_dealt', 0))
+                all_enemy_received.append(score_data.get('enemy_total_damage_received', 0))
+                all_enemy_healed.append(score_data.get('enemy_total_hp_healed', 0))
+                all_enemy_healing_received.append(score_data.get('enemy_healing_received', 0))
+                all_unit_stats.append(score_data.get('unit_stats', {}))
+                all_special_notes.append(result.get('special_notes'))
+
+                if progress_callback:
+                    progress_callback(completed, total_runs)
+
+        elapsed = time.time() - t0
+
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total_runs": total_runs,
+            "total_turns": total_turns,
+            "pass_rate": wins / total_runs if total_runs > 0 else 0,
+            "turn_list": turn_list,
+            "all_ally_damage": all_ally_damage,
+            "all_ally_received": all_ally_received,
+            "all_ally_healed": all_ally_healed,
+            "all_enemy_damage": all_enemy_damage,
+            "all_enemy_received": all_enemy_received,
+            "all_enemy_healed": all_enemy_healed,
+            "all_enemy_healing_received": all_enemy_healing_received,
+            "all_unit_stats": all_unit_stats,
+            "special_notes_list": all_special_notes,
+            "run_records": run_records,
+            "elapsed": elapsed,
+            "rate": total_runs / elapsed if elapsed > 0 else 0,
+        }
+
+
 # ============ 联合战术演习 Worker ============
 
 _worker_composite_cfg = None
@@ -2523,6 +2863,188 @@ def _worker_run_batch_composite(seeds: List[int]) -> List[Dict[str, Any]]:
             'unit_stats': unit_stats,
             'rdps': result.get("rdps"),
             'special_notes': result.get("special_notes"),
+        })
+
+    return results
+
+
+# ============ バトルシミュレート（爬塔） ============
+
+_worker_tower_cfg = None
+
+
+def create_simulation_tower_enemy(dl, enemy_data: Dict[str, Any]):
+    """创建爬塔敌方单位（多敌 + 行等级 1-15）。
+
+    与对抗压制战/复合战术的关键差异：
+    - level 来自烘焙数据（11-900），不是 1
+    - skill_levels 直取 EnemySkillMaster.Level（1-15），不受 ENEMY_MAX_SKILL_LEVEL 夹取
+    - unit_id 必须含 slot，否则同敌人多槽位会被 add_unit 去重覆盖
+    """
+    from src.entities_v2.unit_state import UnitState
+    from src.entities_v2.enums import Side, Position
+
+    pos = enemy_data.get("position", 1)
+    pos_str = ENEMY_SLOT_POSITION_MAP_WORKER.get(pos, "enemy_left_front")
+    enemy_pos = Position(pos_str)
+
+    skill_ids = list(enemy_data.get("skill_ids") or [])
+    raw_levels = enemy_data.get("skill_levels") or {}
+    skill_levels = {}
+    for sid in skill_ids:
+        lvl = raw_levels.get(str(sid), raw_levels.get(sid, 1))
+        skill_levels[int(sid)] = int(lvl)
+
+    max_ep = 0
+    for sid in skill_ids:
+        sk = dl.get_skill_by_id(sid)
+        if sk and sk.skill_type == 3:
+            max_ep = max(max_ep, sk.resource_cost)
+
+    unit_id = f"E_{enemy_data['enemy_id']}_{enemy_data.get('slot', pos)}"
+
+    return UnitState(
+        unit_id=unit_id,
+        name=enemy_data.get("name", "???"),
+        side=Side.ENEMY,
+        position=enemy_pos,
+        character_id=enemy_data["enemy_id"],
+        level=int(enemy_data.get("level") or 1),
+        element=enemy_data.get("attribute", 1),
+        sub_element=enemy_data.get("sub_attribute") or 0,
+        character_type=enemy_data.get("type", 1),
+        max_hp=enemy_data["hp"],
+        current_hp=enemy_data["hp"],
+        attack=enemy_data["attack"],
+        defense=enemy_data["defense"],
+        speed=enemy_data["speed"],
+        crit_rate=enemy_data["critical_rate"],
+        crit_damage=0.0,
+        advantage_damage=0.0,
+        initial_active_point=enemy_data.get("action_point", 2),
+        initial_passive_point=enemy_data.get("passive_point", 2),
+        max_extra_point=max_ep,
+        current_ap=enemy_data.get("action_point", 2),
+        current_pp=enemy_data.get("passive_point", 2),
+        current_ep=0,
+        skills=skill_ids,
+        skill_levels=skill_levels,
+        skill_cooldowns={},
+        role_type=enemy_data.get("role_type", 0),
+    )
+
+
+def _worker_init_tower(data_dir: str,
+                       panel_config: Any,
+                       friends_chars: List[int],
+                       friend_positions: List[Any],
+                       enemies_data: List[Dict[str, Any]],
+                       max_turns: int,
+                       positions_ally: List[Any],
+                       mem_cards_data: list = None,
+                       enable_rdps: bool = True,
+                       user_data_dir: str = None):
+    """爬塔 worker 初始化。"""
+    from src.data.data_loader import DataLoader
+    from src.data.stat_calculator import StatCalculator
+
+    _silence_worker_battle_logging()
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg, _worker_tower_cfg, _worker_mem_cards
+
+    dl = DataLoader(user_data_dir=user_data_dir or None)
+    dl._data_dir = Path(data_dir)
+    dl.load_all()
+    dl.load_custom_dummies()
+
+    sc = StatCalculator(dl.load_level_lerp_data(), data_loader=dl)
+
+    _worker_dl = dl
+    _worker_panel_config = panel_config
+    _worker_player_config = panel_config.get_player_config()
+    _worker_stat_calculator = sc
+    _worker_cfg = {
+        'friends_chars': list(friends_chars),
+        'friend_positions': list(friend_positions),
+        'positions_ally': list(positions_ally),
+        'enable_rdps': enable_rdps,
+    }
+    _worker_tower_cfg = {
+        'enemies_data': enemies_data,
+        'max_turns': max_turns,
+    }
+    _worker_mem_cards = list(mem_cards_data) if mem_cards_data else []
+
+
+def _worker_run_batch_tower(seeds: List[int]) -> List[Dict[str, Any]]:
+    """爬塔 worker: 运行一批战斗，返回每场统计。
+
+    胜负判据：只有 FINISHED + winner==FRIEND 才算胜；TIMEOUT 一律算负
+    （修正 tactical 路径里 TIMEOUT 既不算胜也不算负的问题）。
+    """
+    from src.entities_v2.battlefield_state import BattlefieldState
+    from src.entities_v2.enums import Side, Position
+    from src.combat_v2.battle_flow_controller import BattleFlowController, BattleConfig
+
+    global _worker_dl, _worker_panel_config, _worker_player_config
+    global _worker_stat_calculator, _worker_cfg, _worker_tower_cfg, _worker_mem_cards
+
+    dl = _worker_dl
+    pc = _worker_panel_config
+    pl = _worker_player_config
+    sc = _worker_stat_calculator
+    cfg = _worker_cfg
+    tc = _worker_tower_cfg
+
+    enemies_data = tc['enemies_data']
+    max_turns = tc['max_turns']
+
+    results = []
+
+    for seed in seeds:
+        random.seed(seed)
+
+        bf = BattlefieldState()
+
+        for i, cid in enumerate(cfg['friend_positions']):
+            if cid is not None:
+                pos = cfg['positions_ally'][i] if i < len(cfg['positions_ally']) else Position.ALLY_CENTER_FRONT
+                u = _create_unit_worker(dl, pc, pl, sc, cid, Side.ALLY, pos)
+                if u:
+                    bf.add_unit(u)
+
+        for enemy_data in enemies_data:
+            eu = create_simulation_tower_enemy(dl, enemy_data)
+            if eu:
+                bf.add_unit(eu)
+
+        bf.memory_cards = list(_worker_mem_cards)
+
+        bc = BattleConfig()
+        bc.max_turns = max_turns
+        bc.enable_rdps = cfg.get('enable_rdps', True)
+
+        controller = BattleFlowController(bf, data_loader=dl, config=bc)
+        result = controller.execute_battle()
+
+        won = (result.get('result') == 'FINISHED' and result.get('winner') == 'FRIEND')
+
+        score_data = result.get('score', {}) or {}
+        results.append({
+            'seed': seed,
+            'winner': 'FRIEND' if won else 'ENEMY',
+            'result': result.get('result', 'UNKNOWN'),
+            'total_turns': result.get('total_turns', 0),
+            'ally_total_damage_dealt': score_data.get('ally_total_damage_dealt', 0),
+            'ally_total_damage_received': score_data.get('ally_total_damage_received', 0),
+            'ally_total_hp_healed': score_data.get('ally_total_hp_healed', 0),
+            'enemy_total_damage_dealt': score_data.get('enemy_total_damage_dealt', 0),
+            'enemy_total_damage_received': score_data.get('enemy_total_damage_received', 0),
+            'enemy_total_hp_healed': score_data.get('enemy_total_hp_healed', 0),
+            'enemy_healing_received': score_data.get('enemy_healing_received', 0),
+            'unit_stats': score_data.get('unit_stats', {}),
+            'special_notes': result.get('special_notes'),
         })
 
     return results

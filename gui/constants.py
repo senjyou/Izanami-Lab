@@ -196,6 +196,7 @@ PRESET_DIR = _USER_DATA / "presets"
 TACTICAL_PRESET_DIR = _USER_DATA / "tactical_presets"
 CIRCLE_PRESET_DIR = _USER_DATA / "circle_presets"
 COMPOSITE_PRESET_DIR = _USER_DATA / "composite_presets"
+TOWER_PRESET_DIR = _USER_DATA / "tower_presets"
 GLOBAL_CONFIG_PATH = _USER_DATA / "global_config.json"
 CHAR_CONFIG_PATH = _USER_DATA / "char_config.json"
 FAVORITES_PATH = _USER_DATA / "favorites.json"   # 角色/回忆卡收藏（独立于 char_config）

@@ -67,6 +67,7 @@ class DataLoader:
         self._tactical_exercise_enemies: Optional[Dict[int, Dict]] = None
         self._circle_battle_enemies: Optional[Dict[str, Dict]] = None
         self._composite_tactic_enemies: Optional[Dict[str, Any]] = None
+        self._simulation_towers: Optional[Dict[str, Any]] = None
 
         self._custom_characters: Dict[int, CharacterData] = {}
         self._custom_skills: Dict[int, SkillData] = {}
@@ -106,6 +107,7 @@ class DataLoader:
         self.load_tactical_exercise_enemies()
         self.load_circle_battle_enemies()
         self.load_composite_tactic_enemies()
+        self.load_simulation_towers()
         self.load_custom_dummies()
         print("[OK] 所有数据加载完成")
 
@@ -801,6 +803,49 @@ class DataLoader:
         if enemies and boss_index < len(enemies):
             return enemies[boss_index]
         return None
+
+    # ─────────────────── バトルシミュレート（爬塔） ───────────────────
+
+    def load_simulation_towers(self) -> Dict[str, Any]:
+        """加载「バトルシミュレート（爬塔）」数据：5 塔 x 550 层。
+
+        数据由 `scripts/build_simulation_tower.py` 从 split_data 烘焙生成，
+        每层的敌人属性已按 `base + per_level * (level - 1)` 展开，
+        `skill_levels` 为 EnemySkillMaster.Level（1–15），不经 ENEMY_MAX_SKILL_LEVEL 夹取。
+        """
+        if self._simulation_towers is not None:
+            return self._simulation_towers
+        self._simulation_towers = {}
+        raw = self._load_json("simulation_tower.json")
+        if not raw:
+            return self._simulation_towers
+        self._simulation_towers = raw
+        towers = raw.get("towers", {})
+        floors = sum(t.get("floor_count", 0) for t in towers.values())
+        print(f"[OK] 已加载战斗模拟(爬塔)数据 ({len(towers)} 个塔, {floors} 层)")
+        return self._simulation_towers
+
+    def get_simulation_towers(self) -> Dict[str, Any]:
+        """获取全部塔（键为塔 id 字符串）。"""
+        if self._simulation_towers is None:
+            self.load_simulation_towers()
+        return (self._simulation_towers or {}).get("towers", {})
+
+    def get_simulation_tower(self, tower_id) -> Optional[Dict]:
+        """获取单个塔的数据。"""
+        return self.get_simulation_towers().get(str(tower_id))
+
+    def get_simulation_floor(self, tower_id, floor: int) -> Optional[Dict]:
+        """获取某个塔的某一层数据（含 enemies / max_turn）。"""
+        tower = self.get_simulation_tower(tower_id)
+        if not tower:
+            return None
+        return tower.get("floors", {}).get(str(floor))
+
+    def get_simulation_tower_list(self) -> List[Dict]:
+        """按塔 id 排序返回塔列表（供 GUI 选择器使用）。"""
+        towers = self.get_simulation_towers()
+        return [towers[k] for k in sorted(towers, key=lambda x: int(x))]
 
     def load_skill_master_names(self) -> Dict[int, str]:
         if self._skill_master_names is not None:

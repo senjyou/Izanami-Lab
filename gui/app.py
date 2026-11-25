@@ -66,6 +66,7 @@ from gui.dialogs.account_dialog import AccountManagerDialog
 from gui.tabs.team_battle import TeamBattleTab
 from gui.tabs.tactical_exercise import TacticalExerciseTab
 from gui.tabs.circle_battle import CircleBattleTab
+from gui.tabs.simulation_tower import SimulationTowerTab
 from gui.tabs.composite_tactic import CompositeTacticExerciseTab
 # ── gui 包：非战斗 Tab（阶段5抽取） ──
 from gui.tabs.global_params import GlobalParamsTab
@@ -165,6 +166,7 @@ class MGGBattleSimulatorGUI:
         self.step_crit_tab = StepCritTab(self.notebook, self)
         self.tactical_tab = TacticalExerciseTab(self.notebook, self)
         self.circle_tab = CircleBattleTab(self.notebook, self)
+        self.tower_tab = SimulationTowerTab(self.notebook, self)
         self.composite_tab = CompositeTacticExerciseTab(self.notebook, self)
 
         self.notebook.add(self.global_tab, text="全局参数")
@@ -174,6 +176,7 @@ class MGGBattleSimulatorGUI:
         self.notebook.add(self.step_crit_tab, text="逐步暴击")
         self.notebook.add(self.tactical_tab, text="战术演习")
         self.notebook.add(self.circle_tab, text="对抗压制战")
+        self.notebook.add(self.tower_tab, text="战斗模拟")
         self.notebook.add(self.composite_tab, text="复合战术演习")
 
         # 主题下拉框（置于 Notebook 标签行右侧）
