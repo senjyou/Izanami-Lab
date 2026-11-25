@@ -678,6 +678,33 @@ class DamageService:
                 _log.info("[DMG_TAKEN_DOWN_THRESHOLD] %s: %d buff(s) expired (hit_limited reached 0)",
                           defender.name, len(_dtd_expired))
 
+            # 防守方 hit_limited 减伤 buff 的按 hit 消耗（「Nヒットまで被ダメージをX%減少」）。
+            # 与上方 dmg_taken_down_threshold 的「仅减伤生效才消耗」不同，本类是
+            # 「最多 N 次受击都减伤」：只要该 hit 实际命中了持有者就消耗 1 次。
+            # 消耗后重算 damage_received_mult，使后续 hit 不再吃这次减伤。
+            _def_hit_limited_consumed = False
+            for _dhl_b in defender.buffs:
+                if getattr(_dhl_b, 'hit_limited', 0) <= 0:
+                    continue
+                if _dhl_b.effect_type != SkillEffectType.RECEIVED_DAMAGE.value:
+                    continue
+                # 带 attack_limited 的走 per-skill 计数（由 aura 层处理），此处不重复消耗
+                if getattr(_dhl_b, 'attack_limited', 0) > 0:
+                    continue
+                _dhl_b.hit_limited -= 1
+                _def_hit_limited_consumed = True
+                _log.info("[DEF_HIT_LIMITED] %s: buff %s hit_limited %d->%d (after hit[%d])",
+                          defender.name, _dhl_b.name, _dhl_b.hit_limited + 1, _dhl_b.hit_limited, i_hit + 1)
+                if _dhl_b.hit_limited <= 0:
+                    defender.buffs = [x for x in defender.buffs if x.buff_id != _dhl_b.buff_id]
+                    _log.info("[DEF_HIT_LIMITED] %s: buff %s EXPIRED (hit_limited reached 0)",
+                              defender.name, _dhl_b.name)
+            if _def_hit_limited_consumed:
+                damage_received_mult = self._get_damage_received_multiplier(
+                    defender, damage_element=skill_damage_element, attacker=attacker)
+                _log.info("[DEF_HIT_LIMITED] %s: recalculated received_mult=%.4f for subsequent hits",
+                          defender.name, damage_received_mult)
+
             # 暴击回调：在当前hit伤害计算完毕后调用，使后续hit能享受易伤效果
             # 回调可能修改defender的debuffs（如施加dmg_taken_up），需重算damage_received_mult
             if is_crit and on_crit_callback:
@@ -1051,6 +1078,29 @@ class DamageService:
         _log.info("[DEBUG_RCVD] %s: net=%.4f result=%.4f",
                   unit.name, net, result)
         return result
+
+    def _get_shield_damage_multiplier(self, unit: UnitState, damage_element: int = 0) -> float:
+        """「シールドで受けるダメージ」乘区（120193 / 120194 Lv11+）。
+
+        与 _get_damage_received_multiplier 分开：只有 shield_damage_only=True 的
+        ReceivedDamage 效果进入此乘区，正=护盾承伤增加（护盾被更快打穿），负=减少。
+
+        返回「额外穿透比例」：实际 HP 伤害 = 原值 + shield_absorbed * 本返回值。
+        """
+        net = 0.0
+        for container in (unit.buffs, unit.debuffs):
+            for b in container:
+                if b.effect_type != SkillEffectType.RECEIVED_DAMAGE.value:
+                    continue
+                if not getattr(b, 'shield_damage_only', False):
+                    continue
+                b_elem = getattr(b, 'damage_element', 0)
+                if damage_element != 0 and b_elem != 0 and b_elem != damage_element:
+                    continue
+                # buff(减伤) → 负值；debuff(增伤) → 正值（与 _aggregate 的符号约定一致）
+                val = self._normalize_buff_value(b)
+                net += val if b.is_debuff else -val
+        return net
 
     def _get_heal_received_multiplier(self, unit: UnitState) -> float:
         """受到治疗量乘区: 1.0 + ReceivedHealing buff总和 - ReceivedHealing debuff总和

@@ -77341,7 +77341,7 @@
   },
   "400226": {
     "skill_id": 400226,
-    "name": "攻撃上昇毎T開始【コミ・クレ】",
+    "name": "攻撃上昇毎T開始【コミカル・クレバー】",
     "skill_type": 2,
     "skill_kind": 2,
     "resource_cost": 0,
@@ -102180,5 +102180,1954 @@
         ]
       }
     }
+  },
+  "110089": {
+    "skill_id": 110089,
+    "name": "ビッグプレーは突然に",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「勝負」状態ではない場合、敵横一列に威力{威力}で攻撃する。\n「勝負」状態の場合、敵単体に威力{威力2}で5ヒット攻撃する"
+      },
+      {
+        "min_level": 11,
+        "template": "「勝負」状態ではない場合、敵横一列に威力{威力}で攻撃する。\n「勝負」状態の場合、敵単体に威力{威力2}で5ヒット攻撃し、1行動の間与ダメージを{dmg}%減少させるデバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 37.16999816894531
+          },
+          {
+            "level": 4,
+            "value": 41.529998779296875
+          },
+          {
+            "level": 6,
+            "value": 43.709999084472656
+          },
+          {
+            "level": 7,
+            "value": 48.060001373291016
+          },
+          {
+            "level": 9,
+            "value": 50.2400016784668
+          },
+          {
+            "level": 10,
+            "value": 54.599998474121094
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 65.0
+          }
+        ]
+      }
+    }
+  },
+  "120190": {
+    "skill_id": 120190,
+    "name": "モーレツドリブル",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最も攻撃力の高い敵単体に威力{威力}で攻撃し、所持しているシールドを全て解除する。\nさらに対象と同じ縦一列の他の敵単体に威力{威力2}で攻撃し、行動速度を50低下させ、次の攻撃での与ダメージを10%減少させる。\n「勝負」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 50.0
+          },
+          {
+            "level": 3,
+            "value": 53.11000061035156
+          },
+          {
+            "level": 4,
+            "value": 59.33000183105469
+          },
+          {
+            "level": 6,
+            "value": 62.439998626708984
+          },
+          {
+            "level": 7,
+            "value": 68.66000366210938
+          },
+          {
+            "level": 9,
+            "value": 71.7699966430664
+          },
+          {
+            "level": 10,
+            "value": 78.0
+          },
+          {
+            "level": 15,
+            "value": 94.80000305175781
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          },
+          {
+            "level": 15,
+            "value": 113.76000213623047
+          }
+        ]
+      }
+    }
+  },
+  "120191": {
+    "skill_id": 120191,
+    "name": "わたしが決める",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「勝負」状態ではない場合、敵横一列に威力{威力}で攻撃する。\n「勝負」状態の場合、敵単体に威力{威力2}で攻撃する"
+      },
+      {
+        "min_level": 11,
+        "template": "「勝負」状態ではない場合、敵横一列に威力{威力}で攻撃する。\n「勝負」状態の場合、敵単体に威力{威力2}で攻撃し、与えたダメージの15%分自身のHPを回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 60.0
+          },
+          {
+            "level": 3,
+            "value": 63.72999954223633
+          },
+          {
+            "level": 4,
+            "value": 71.19999694824219
+          },
+          {
+            "level": 6,
+            "value": 74.93000030517578
+          },
+          {
+            "level": 7,
+            "value": 82.4000015258789
+          },
+          {
+            "level": 9,
+            "value": 86.12999725341797
+          },
+          {
+            "level": 10,
+            "value": 93.5999984741211
+          },
+          {
+            "level": 15,
+            "value": 120.4800033569336
+          }
+        ]
+      },
+      "威力2": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          },
+          {
+            "level": 15,
+            "value": 200.8000030517578
+          }
+        ]
+      }
+    }
+  },
+  "130196": {
+    "skill_id": 130196,
+    "name": "準備運動は大事",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身がアクティブスキルまたはEXスキルを使用した後に発動。自身に対し1行動の間、1ヒットまで被ダメージを{dmg}%減少させる効果と、向けられるデバフを1つまで無効にする効果を付与する。\n「勝負」状態の場合、このスキルは発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "自身がアクティブスキルまたはEXスキルを使用した後に発動。自身に対し1行動の間、1ヒットまで被ダメージを{dmg}%減少させる効果と、向けられるデバフを1つまで無効にする効果を付与する。さらに味方3体の攻撃力を1行動の間{atk}%上昇させる。\n「勝負」状態の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 10.539999961853027
+          },
+          {
+            "level": 4,
+            "value": 11.609999656677246
+          },
+          {
+            "level": 6,
+            "value": 12.149999618530273
+          },
+          {
+            "level": 7,
+            "value": 13.220000267028809
+          },
+          {
+            "level": 9,
+            "value": 13.760000228881836
+          },
+          {
+            "level": 10,
+            "value": 15.0
+          }
+        ]
+      },
+      "atk": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "130197": {
+    "skill_id": 130197,
+    "name": "試合はここから",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPが40%以下になった際に発動。敵前後列に威力{威力}で攻撃し、自身に「勝負」を付与する（解除不可）。\nこのスキルは戦闘中に一度しか発動しない"
+      },
+      {
+        "min_level": 11,
+        "template": "自身のHPが40%以下になった際に発動。敵前後列に威力{威力}で攻撃し、自身に「勝負」を付与する（解除不可）。さらに自身に対し、アクティブスキルの使用で獲得するEXゲージを100%増加させるバフを付与する。\nこのスキルは戦闘中に一度しか発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 11,
+            "value": 124.80000305175781
+          },
+          {
+            "level": 15,
+            "value": 160.63999938964844
+          }
+        ]
+      }
+    }
+  },
+  "110091": {
+    "skill_id": 110091,
+    "name": "鉄母の湯治",
+    "skill_type": 3,
+    "skill_kind": 1,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "前列優先で敵横一列の所持しているシールドを全て解除し、威力{威力}で攻撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 90.0
+          },
+          {
+            "level": 3,
+            "value": 95.5999984741211
+          },
+          {
+            "level": 4,
+            "value": 106.80000305175781
+          },
+          {
+            "level": 6,
+            "value": 112.4000015258789
+          },
+          {
+            "level": 7,
+            "value": 123.5999984741211
+          },
+          {
+            "level": 9,
+            "value": 129.19000244140625
+          },
+          {
+            "level": 10,
+            "value": 140.39999389648438
+          },
+          {
+            "level": 15,
+            "value": 190.8000030517578
+          }
+        ]
+      }
+    }
+  },
+  "120193": {
+    "skill_id": 120193,
+    "name": "システマ・プロビティエＡ",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 2,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "前列優先で敵横一列に威力{威力}で攻撃し、対象がシールドで受けるダメージを{debuff}%増加させるデバフを付与する。1～3体の間で攻撃対象となる敵の数が少ないほど、威力が+50まで、デバフ値が+50%まで増加する"
+      },
+      {
+        "min_level": 11,
+        "template": "前列優先で敵横一列に威力{威力}で攻撃し、対象がシールドで受けるダメージを{debuff}%増加させるデバフを付与する。1～3体の間で攻撃対象となる敵の数が少ないほど、威力が+50まで、デバフ値が+50%まで増加する。\nさらに味方全体に対し、シールドで受けるダメージを{shdmg}%減少させるバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 80.0
+          },
+          {
+            "level": 3,
+            "value": 84.97000122070312
+          },
+          {
+            "level": 4,
+            "value": 94.93000030517578
+          },
+          {
+            "level": 6,
+            "value": 99.91000366210938
+          },
+          {
+            "level": 7,
+            "value": 109.86000061035156
+          },
+          {
+            "level": 9,
+            "value": 114.83999633789062
+          },
+          {
+            "level": 10,
+            "value": 124.80000305175781
+          }
+        ]
+      },
+      "debuff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 12.5
+          },
+          {
+            "level": 3,
+            "value": 13.319999694824219
+          },
+          {
+            "level": 4,
+            "value": 14.960000038146973
+          },
+          {
+            "level": 6,
+            "value": 15.779999732971191
+          },
+          {
+            "level": 7,
+            "value": 17.420000076293945
+          },
+          {
+            "level": 9,
+            "value": 18.239999771118164
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      },
+      "shdmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 12.5
+          },
+          {
+            "level": 15,
+            "value": 20.0
+          }
+        ]
+      }
+    }
+  },
+  "120194": {
+    "skill_id": 120194,
+    "name": "温度調節は完璧です",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「湯冷め」状態の敵を優先して敵単体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間「湯冷め」を付与する。\nさらに自身に対し、自身が1回行動を終えるまでの間3ヒットまで「湯冷め」状態の敵からの被ダメージを{dmg}%減少させる効果を付与する"
+      },
+      {
+        "min_level": 11,
+        "template": "「湯冷め」状態の敵を優先して敵単体に威力{威力}で攻撃し、自身が1回行動を終えるまでの間「湯冷め」を付与する。\nさらに自身に対し、自身が1回行動を終えるまでの間3ヒットまで「湯冷め」状態の敵からの被ダメージを{dmg}%減少させる効果を付与し、さらに自身以外の味方全体に対し1ヒットまでの同じ被ダメージ減少効果を付与する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 20.0
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          },
+          {
+            "level": 15,
+            "value": 25.0
+          }
+        ]
+      }
+    }
+  },
+  "130201": {
+    "skill_id": 130201,
+    "name": "鉄壁の湯けむり",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "（同時発動制限）他の味方が「湯冷め」状態の敵に攻撃される前に発動。行動が終了するまでの間攻撃を自身に引き寄せ、{guard}%をガードし肩代わりする"
+      },
+      {
+        "min_level": 11,
+        "template": "（同時発動制限）他の味方が「湯冷め」状態の敵に攻撃される前に発動。行動が終了するまでの間攻撃を自身に引き寄せ、{guard}%をガードし肩代わりする。\nさらに攻撃してくる敵単体に対し、次に受ける攻撃での被ダメージを{dmg}%増加させるデバフを付与する（重複可）"
+      }
+    ],
+    "template_tags": {
+      "guard": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 10.0
+          },
+          {
+            "level": 3,
+            "value": 11.100000381469727
+          },
+          {
+            "level": 4,
+            "value": 13.300000190734863
+          },
+          {
+            "level": 6,
+            "value": 14.399999618530273
+          },
+          {
+            "level": 7,
+            "value": 16.600000381469727
+          },
+          {
+            "level": 9,
+            "value": 17.700000762939453
+          },
+          {
+            "level": 10,
+            "value": 20.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 12.5
+          },
+          {
+            "level": 15,
+            "value": 16.5
+          }
+        ]
+      }
+    }
+  },
+  "130202": {
+    "skill_id": 130202,
+    "name": "覗きは許しません",
+    "skill_type": 2,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "「湯冷め」状態の敵からの攻撃を受けた直後に発動。攻撃してきた敵単体および隣接する敵に対し威力{威力}で反撃する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 40.0
+          },
+          {
+            "level": 3,
+            "value": 42.47999954223633
+          },
+          {
+            "level": 4,
+            "value": 47.459999084472656
+          },
+          {
+            "level": 6,
+            "value": 49.95000076293945
+          },
+          {
+            "level": 7,
+            "value": 54.93000030517578
+          },
+          {
+            "level": 9,
+            "value": 57.41999816894531
+          },
+          {
+            "level": 10,
+            "value": 62.400001525878906
+          },
+          {
+            "level": 15,
+            "value": 84.80000305175781
+          }
+        ]
+      }
+    }
+  },
+  "110092": {
+    "skill_id": 110092,
+    "name": "必殺カウンター、わわっ！？",
+    "skill_type": 3,
+    "skill_kind": 2,
+    "resource_cost": 8,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方全体に対し、5ヒットまで被ダメージを{dmg}%減少させる効果を付与する"
+      },
+      {
+        "min_level": 11,
+        "template": "味方全体に対し、5ヒットまで被ダメージを{dmg}%減少させる効果を付与する。\nさらに味方全体に2行動の間、行動時に威力{cure}でHPを回復する効果を付与し、敵全体に2行動の間、攻撃力{debuff}%の継続ダメージを与える"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 32.5
+          },
+          {
+            "level": 3,
+            "value": 34.439998626708984
+          },
+          {
+            "level": 4,
+            "value": 38.310001373291016
+          },
+          {
+            "level": 6,
+            "value": 40.25
+          },
+          {
+            "level": 7,
+            "value": 44.130001068115234
+          },
+          {
+            "level": 9,
+            "value": 46.06999969482422
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          }
+        ]
+      },
+      "cure": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      },
+      "debuff": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 0.0
+          },
+          {
+            "level": 10,
+            "value": 0.0
+          },
+          {
+            "level": 11,
+            "value": 10.0
+          },
+          {
+            "level": 15,
+            "value": 15.0
+          }
+        ]
+      }
+    }
+  },
+  "120195": {
+    "skill_id": 120195,
+    "name": "サウナでゆっくり♪",
+    "skill_type": 1,
+    "skill_kind": 4,
+    "resource_cost": 1,
+    "cooldown": 2,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身のHPを威力{威力}で回復する。\n自身が「湯上り」状態の場合、「湯上り」を解除する。\n自身のHPが60%以上の場合、このスキルは発動しない"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          },
+          {
+            "level": 3,
+            "value": 36.0
+          },
+          {
+            "level": 4,
+            "value": 38.0
+          },
+          {
+            "level": 6,
+            "value": 39.0
+          },
+          {
+            "level": 7,
+            "value": 41.0
+          },
+          {
+            "level": 9,
+            "value": 42.0
+          },
+          {
+            "level": 10,
+            "value": 45.0
+          },
+          {
+            "level": 15,
+            "value": 55.0
+          }
+        ]
+      }
+    }
+  },
+  "120196": {
+    "skill_id": 120196,
+    "name": "のぼせないようにね！",
+    "skill_type": 1,
+    "skill_kind": 1,
+    "resource_cost": 1,
+    "cooldown": 1,
+    "cooldown_update_timing": 2,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "最もHP割合が低い敵単体を対象として威力{威力}でEN攻撃し、最もHP割合の低い味方単体に対して与えたダメージ×{shield}%分のシールドを与える。\nさらに対象の敵単体に隣接する敵2体に対して威力50でEN攻撃する。\n加えて自身が「湯上り」状態の場合、自身のEXゲージを1加算する。\n自身が「湯上り」状態ではない場合、自身のHPを最大HP×10%回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          }
+        ]
+      },
+      "shield": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 150.0
+          },
+          {
+            "level": 10,
+            "value": 150.0
+          },
+          {
+            "level": 15,
+            "value": 200.0
+          }
+        ]
+      }
+    }
+  },
+  "120197": {
+    "skill_id": 120197,
+    "name": "火力上げてくよ！",
+    "skill_type": 1,
+    "skill_kind": 3,
+    "resource_cost": 1,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "自身が「湯上り」状態の場合、最もHP割合が低い敵単体に対し2行動の間、攻撃力×15%の継続ダメージを与え、自身のEXゲージを1加算する。\n自身が「湯上り」状態ではない場合、最もHP割合が低い敵単体に対して威力{威力}でEN攻撃し、自身のHPを最大HP×10%回復する"
+      }
+    ],
+    "template_tags": {
+      "威力": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 100.0
+          },
+          {
+            "level": 3,
+            "value": 106.22000122070312
+          },
+          {
+            "level": 4,
+            "value": 118.66000366210938
+          },
+          {
+            "level": 6,
+            "value": 124.87999725341797
+          },
+          {
+            "level": 7,
+            "value": 137.3300018310547
+          },
+          {
+            "level": 9,
+            "value": 143.5500030517578
+          },
+          {
+            "level": 10,
+            "value": 156.0
+          },
+          {
+            "level": 15,
+            "value": 212.0
+          }
+        ]
+      }
+    }
+  },
+  "130203": {
+    "skill_id": 130203,
+    "name": "これがととのいだー！",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 2,
+    "cooldown": null,
+    "cooldown_update_timing": null,
+    "default_max_level": 10,
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。後列優先で味方横一列に対し、3ヒットまで被ダメージを{dmg}%減少させる効果を付与する。\nさらに自身のHPが60%以上の場合、自身に対し「湯上り」（自身以外解除不可）と、被ダメージを15%減少させる効果を付与する。被ダメージ減少効果は解除不可だが、「湯上り」と同時に解除される"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 2,
+        "values": [
+          {
+            "level": 1,
+            "value": 32.5
+          },
+          {
+            "level": 3,
+            "value": 34.439998626708984
+          },
+          {
+            "level": 4,
+            "value": 38.310001373291016
+          },
+          {
+            "level": 6,
+            "value": 40.25
+          },
+          {
+            "level": 7,
+            "value": 44.130001068115234
+          },
+          {
+            "level": 9,
+            "value": 46.06999969482422
+          },
+          {
+            "level": 10,
+            "value": 50.0
+          },
+          {
+            "level": 15,
+            "value": 67.5
+          }
+        ]
+      }
+    }
+  },
+  "400264": {
+    "skill_id": 400264,
+    "name": "攻撃1行動上昇【左列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。左列後衛の味方の攻撃力を1行動の間{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 750.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400277": {
+    "skill_id": 400277,
+    "name": "会心ダメージ上昇毎T終了【右列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン終了時に発動。右列後衛の味方の会心ダメージを{crtdmg}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "crtdmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.5
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400283": {
+    "skill_id": 400283,
+    "name": "回復【タンク】",
+    "skill_type": 2,
+    "skill_kind": 4,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 8
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "2ターンごとのターン終了時に発動。タンクの味方のHPを最大HPの{cure}%回復する"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400267": {
+    "skill_id": 400267,
+    "name": "攻撃上昇【亦菲】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。崔亦菲の攻撃力を{atk}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400268": {
+    "skill_id": 400268,
+    "name": "会心率上昇【キュート】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。キュート属性の味方の会心率を{crt}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "crt": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400269": {
+    "skill_id": 400269,
+    "name": "HP上昇【ラトロワ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。フィカーツィア・ラトロワのHPを{hp}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "hp": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2000.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400270": {
+    "skill_id": 400270,
+    "name": "攻撃1行動減少【敵(指定)】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "フィカーツィア・ラトロワ[氷の魔女]が会心攻撃を受けた際に発動。攻撃してきた敵単体の攻撃力を1行動の間30%低下させる"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400278": {
+    "skill_id": 400278,
+    "name": "防御上昇【フィー】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。フィー・ドレーゼの防御力を{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400279": {
+    "skill_id": 400279,
+    "name": "物理ダメージ減少【敵アグレッシブ】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。アグレッシブ属性の敵全員に対し、物理攻撃で与えるダメージを{dmg}%減少させる"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 2.0999999046325684
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400280": {
+    "skill_id": 400280,
+    "name": "攻撃減少【敵中央列前衛】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。中央列前衛の敵の攻撃力を{atk}下降させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 525.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400284": {
+    "skill_id": 400284,
+    "name": "速度上昇【オルガ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。オルガ・ヴォルコワの行動速度を{spd}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "spd": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 35.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400285": {
+    "skill_id": 400285,
+    "name": "防御上昇【エレーナ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。エレーナ・パステルコワの防御力を{def}上昇させる"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 500.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400286": {
+    "skill_id": 400286,
+    "name": "回復量上昇【アグレッシブ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。アグレッシブ属性の味方のHP回復量を{buff}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "buff": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1.2000000476837158
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400271": {
+    "skill_id": 400271,
+    "name": "被ダメージ減少毎T開始【前衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "ターン開始時に発動。味方前衛に次に受ける被ダメージを{dmg}%減少させるバフを付与する"
+      }
+    ],
+    "template_tags": {
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400272": {
+    "skill_id": 400272,
+    "name": "状態異常無効【右列後衛】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。右列後衛の味方に対し、向けられる状態異常を1つ無効にするバフを付与する"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400273": {
+    "skill_id": 400273,
+    "name": "属性別ステータス低下【敵ALL】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。敵全体に対し、対象の属性に応じて、以下のデバフを付与する。\n・アグレッシブ属性：1行動の間、攻撃力を{atk}・行動速度を{spd}低下させる\n・スマート属性：1行動の間、防御力を{def}・会心率を{crt}%低下させる\n・シャイ属性：1行動の間、攻撃力を{atk}・会心率を{crt}%低下させる\n・キュート属性：1行動の間、防御力を{def}・行動速度を{spd}低下させる\n・コミカル属性：次の攻撃での与ダメージを{dmg}%低下させる\n・クレバー属性：次に受ける攻撃での被ダメージを{dmg2}%増加させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1250.0
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400275": {
+    "skill_id": 400275,
+    "name": "回復量減少1T開始【敵ALL】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "1ターン目のターン開始時に発動。1ターンの間、敵全体のHP回復量を{cure}%減少させる"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400281": {
+    "skill_id": 400281,
+    "name": "毒2行動【敵(指定)】",
+    "skill_type": 2,
+    "skill_kind": 3,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 4
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "味方が敵からパッシブスキルで攻撃された後に発動。攻撃してきた敵単体に対し、2行動の毒を付与する。毒は行動タイミングごとに現在HPの10%のダメージを受ける。\nこのスキルは戦闘中に3回しか発動しない"
+      }
+    ],
+    "template_tags": {},
+    "display_info": {}
+  },
+  "400282": {
+    "skill_id": 400282,
+    "name": "防御上昇【敏捷タイプ】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。敏捷タイプの味方の防御力を{def}上昇させる。"
+      }
+    ],
+    "template_tags": {
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 600.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400274": {
+    "skill_id": 400274,
+    "name": "属性別ステータス上昇【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "戦闘開始時に発動。味方全体に対し、対象の属性に応じて、以下のバフを付与する。\n・アグレッシブ属性：1行動の間、攻撃力を{atk}・行動速度を{spd}上昇させる\n・スマート属性：1行動の間、防御力を{def}・会心率を{crt}%上昇させる\n・シャイ属性：1行動の間、攻撃力を{atk}・会心率を{crt}%上昇させる\n・キュート属性：1行動の間、防御力を{def}・行動速度を{spd}上昇させる\n・コミカル属性：次の攻撃での与ダメージを{dmg}%上昇させる\n・クレバー属性：次に受ける攻撃での被ダメージを{dmg2}%減少させる"
+      }
+    ],
+    "template_tags": {
+      "atk": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1250.0
+          }
+        ]
+      },
+      "spd": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 70.0
+          }
+        ]
+      },
+      "def": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 1000.0
+          }
+        ]
+      },
+      "crt": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 5.0
+          }
+        ]
+      },
+      "dmg": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          }
+        ]
+      },
+      "dmg2": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 3.5
+          }
+        ]
+      }
+    },
+    "display_info": {}
+  },
+  "400276": {
+    "skill_id": 400276,
+    "name": "回復量上昇1T開始【ALL】",
+    "skill_type": 2,
+    "skill_kind": 2,
+    "resource_cost": 0,
+    "cooldown": 0,
+    "cooldown_update_timing": null,
+    "default_max_level": 1,
+    "features": 0,
+    "skill_level_pattern_id": 11,
+    "additional_kinds": [
+      {
+        "level": 1,
+        "value": 2
+      }
+    ],
+    "descriptions": [
+      {
+        "min_level": 1,
+        "template": "1ターン目のターン開始時に発動。1ターンの間、味方全体のHP回復量を{cure}%上昇させる"
+      }
+    ],
+    "template_tags": {
+      "cure": {
+        "interpolation_mode": 1,
+        "values": [
+          {
+            "level": 1,
+            "value": 7.0
+          }
+        ]
+      }
+    },
+    "display_info": {}
   }
 }

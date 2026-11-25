@@ -503,6 +503,10 @@
       {
         "character_id": 113302,
         "rarity": "N/A"
+      },
+      {
+        "character_id": 113303,
+        "rarity": "N/A"
       }
     ],
     "114": [
@@ -693,6 +697,10 @@
       {
         "character_id": 143301,
         "rarity": "N/A"
+      },
+      {
+        "character_id": 143302,
+        "rarity": "N/A"
       }
     ],
     "148": [
@@ -716,6 +724,10 @@
     "145": [
       {
         "character_id": 145301,
+        "rarity": "N/A"
+      },
+      {
+        "character_id": 145302,
         "rarity": "N/A"
       }
     ],

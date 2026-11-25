@@ -62,6 +62,7 @@ class BuffState:
     target_hp_ratio_higher_than_self: bool = False  # 条件增伤(130155 Lv11+): 仅对HP比例高于自身的敌人生效
     link_mode: str = ""  # damage_link专用: "bidirectional"=双向链接，空=单向
     block_status_list: list = field(default_factory=list)  # BlockSpecificAura专用: 被免疫的状态类型列表（如["knockout"]）
+    shield_damage_only: bool = False  # 仅作用于「用护盾承伤」的乘区（120193 シールドで受けるダメージ±X%）
     block_status_count: int = 0  # BlockSpecificAura专用: 阻止状态异常次数限制，0=无限制，>0=阻止N个状态后消耗
     block_debuffs: bool = False  # BlockBuffByType扩展: True=阻止全debuff新付与（如141301 風紀委員会の管轄だよ～ L11+ デバフ無効）
     block_buffs: bool = False  # BlockBuffByType扩展: True=阻止全buff新付与（如230169 バフシャット「対象に向けられるバフを無効にする」）

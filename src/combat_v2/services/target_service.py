@@ -596,11 +596,21 @@ class TargetService:
                 result = [u for u in candidates if self._is_front_row(u)]
                 _log.info("[TARGET]   LINE: target_type_name=%s -> force FRONT row (%d units)",
                           target_type_name, len(result))
+                # 友方行目标：该行为空时回退到另一行（G2，见 145302 PS2 130203
+                # 「後列優先で味方横一列」——全前排编队时后列为空，不得整条技能空放）
+                if not result and target_type_name.startswith('ally'):
+                    result = [u for u in candidates if self._is_back_row(u)]
+                    _log.info("[TARGET]   LINE: %s -> front empty, fallback BACK row (%d units)",
+                              target_type_name, len(result))
                 return result
             if target_type_name and target_type_name.endswith('_back'):
                 result = [u for u in candidates if self._is_back_row(u)]
                 _log.info("[TARGET]   LINE: target_type_name=%s -> force BACK row (%d units)",
                           target_type_name, len(result))
+                if not result and target_type_name.startswith('ally'):
+                    result = [u for u in candidates if self._is_front_row(u)]
+                    _log.info("[TARGET]   LINE: %s -> back empty, fallback FRONT row (%d units)",
+                              target_type_name, len(result))
                 return result
             # 显式检查 enemy_back_row（endswith在某些环境下可能不生效）
             if target_type_name == 'enemy_back_row':

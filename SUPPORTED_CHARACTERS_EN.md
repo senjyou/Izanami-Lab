@@ -110,6 +110,9 @@ The simulator currently supports a limited set of characters. More will be added
 | 氷の魔女           | フィカーツィア・ラトロワ |
 | 暴風小隊長          | 崔亦菲          |
 | 理想求める運営委員      | エヴィ・レーナルト    |
+| 心弾む運営委員        | フィー・ドレーゼ     |
+| 湯けむりの慈母        | オルガ・ヴォルコワ    |
+| ととのう頑張り屋       | エレーナ・パステルコワ  |
 
 ## Tactical Exercise Enemies
 

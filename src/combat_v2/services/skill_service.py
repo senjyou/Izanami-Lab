@@ -3850,7 +3850,7 @@ class SkillService:
         effect_flags = getattr(effect, 'flags', {}) or {}
         hp_scaling_flag = effect_flags.get('hp_scaling')
         hp_scaling_value, enemy_count_scaling_bonus = self._apply_damage_compute_scaling(
-            caster, effect, effect_flags, battlefield
+            caster, effect, effect_flags, battlefield, targets=targets
         )
 
         total_damage = 0
@@ -4885,6 +4885,21 @@ class SkillService:
                 shield_absorbed += _sub_absorbed
                 sub_unit_absorbs.extend(_sub_absorbs)
 
+        # 「シールドで受けるダメージ±X%」乘区（120193「シールドで受けるダメージを増加させるデバフ」、
+        # 120194 Lv11+「シールドで受けるダメージを減少させるバフ」）：
+        # 只有被护盾吸收的那部分参与缩放，HP 直击部分不受影响。
+        if shield_absorbed > 0 and hasattr(self, 'damage_service') and self.damage_service:
+            _is_en = (getattr(caster, 'character_type', 1) == 2)
+            _shield_mult = self.damage_service._get_shield_damage_multiplier(
+                target, damage_element=(2 if _is_en else 1))
+            if _shield_mult != 0:
+                _extra = int(shield_absorbed * _shield_mult)
+                if _extra != 0:
+                    _log.info("[SHIELD_DMG] %s: shield_absorbed=%d mult=%.4f -> hp_extra=%d",
+                              target.name, shield_absorbed, _shield_mult, _extra)
+                    shield_portion = max(0, shield_portion) + max(0, _extra)
+                    shield_absorbed = max(0, shield_absorbed - max(0, _extra))
+
         actual_damage = shield_portion + direct_damage
         # 非闪避命中最低1点伤害，可作用于护盾或HP
         if actual_damage <= 0 and dmg_result.total_damage > 0:
@@ -5265,7 +5280,8 @@ class SkillService:
                         targets_hit[-1]["shield_expired"] = shield_name
 
     def _apply_damage_compute_scaling(
-        self, caster: UnitState, effect, effect_flags: dict, battlefield: BattlefieldState
+        self, caster: UnitState, effect, effect_flags: dict, battlefield: BattlefieldState,
+        targets: list = None
     ) -> Tuple[float, float]:
         """计算 hp_scaling 和 enemy_count_scaling 增伤加成。
 
@@ -5354,6 +5370,26 @@ class SkillService:
                     _log.info("[DAMAGE_APPLY] %s: dmg_scale_by_enemy_count alive=%d initial=%d ratio=%.3f bonus=%.1f%%",
                               caster.name, _alive_enemies, _initial_count, _ec_ratio, enemy_count_scaling_bonus)
 
+        # scale_by_hit_target_count: 「1〜3体の間で攻撃対象となる敵の数が少ないほど威力+Nまで」
+        # （120193 システマ・プロビティエＡ）。命中目标数 3→0、2→N/2、1→N（线性）。
+        # 与 dmg_scale_by_enemy_count（按存活数/初始数）不同，这里按**本次实际命中数**。
+        _sbht = effect_flags.get('scale_by_hit_target_count')
+        if isinstance(_sbht, dict) and targets is not None:
+            _sb_max = float(_sbht.get('max', _sbht.get('power_bonus_max', 50)) or 0)
+            _sb_max_tag = _sbht.get('max_tag')
+            if _sb_max_tag and hasattr(self, '_resolver') and self._resolver:
+                _lvl = caster.skill_levels.get(self._current_skill_id, 1)
+                _meta = self.data_loader.get_skill_by_id(self._current_skill_id)
+                if _meta:
+                    _tv = self._resolver._resolve_template_tags(_meta, _lvl)
+                    if _tv.get(_sb_max_tag) is not None:
+                        _sb_max = float(_tv[_sb_max_tag])
+            _n = len([t for t in targets if getattr(t, 'is_alive', True)])
+            if 0 < _n < 3 and _sb_max > 0:
+                _bonus = _sb_max * (3 - _n) / 2.0
+                enemy_count_scaling_bonus += _bonus
+                _log.info("[DAMAGE_APPLY] %s: scale_by_hit_target_count n=%d bonus=+%.1f%%",
+                          caster.name, _n, _bonus)
         return hp_scaling_value, enemy_count_scaling_bonus
 
     def _ignore_condition_met(self, target: UnitState, ignore_cond: dict) -> bool:
@@ -7921,6 +7957,10 @@ class SkillService:
         value, duration, hit_limited_from_dur, timing, original_dur_type = self._compute_aura_value_duration(
             caster, effect, battlefield, effect_flags_aura
         )
+        # 「対象となる敵の数が少ないほど…デバフ値が+N%まで増加」（120193）：
+        # 按本次 damage 的实际命中目标数放大 aura 值。
+        value = self._apply_hit_target_count_value_scaling(effect_flags_aura, value, targets)
+
         # dur_type 用于后续 aura_detail_dict 显示，与 _compute_aura_value_duration 内部保持一致
         # 归一化：source_action 语义上是「按施法者行动计数」，叙事/详情标签统一显示为 "action"（行动），
         # 否则 battle_narrative 会落到 else 分支渲染成「回合」，与「自身がN回行動を終えるまでの間」不符。
@@ -8175,6 +8215,27 @@ class SkillService:
         if blocked_details:
             result["blocked"] = blocked_details
         return result
+
+    def _apply_hit_target_count_value_scaling(self, effect_flags: dict, value: float,
+                                              targets) -> float:
+        """「対象となる敵の数が少ないほど…デバフ値が+N%まで増加」（120193）。
+
+        与 damage 的 scale_by_hit_target_count 同系数：命中 3 体→0、2 体→N/2、1 体→N（线性）。
+        effect.flags.scale_by_hit_target_count 可用 max / value_bonus_pct_max 两种键名。
+        """
+        spec = (effect_flags or {}).get('scale_by_hit_target_count')
+        if not isinstance(spec, dict) or targets is None:
+            return value
+        bonus_max = float(spec.get('value_bonus_pct_max',
+                                   spec.get('max', spec.get('power_bonus_max', 0))) or 0)
+        max_count = int(spec.get('max_count', 3) or 3)
+        n = len([t for t in targets if getattr(t, 'is_alive', True)])
+        if bonus_max <= 0 or n >= max_count or n <= 0:
+            return value
+        factor = 1.0 + (bonus_max * (max_count - n) / max(max_count - 1, 1)) / 100.0
+        _log.info("[AURA_VALUE_SCALE] hit_target_count n=%d/%d -> value %.2f x%.3f = %.2f",
+                  n, max_count, value, factor, value * factor)
+        return value * factor
 
     def _apply_aura_shield_effect(
         self,
@@ -10133,6 +10194,11 @@ class SkillService:
             aura.value = aura.value * hp_ratio
             _log.info("[AURA_APPLY] %s: hp_ratio_dynamic_direct on %s (frozen at application: value %.4f -> %.4f, hp_ratio=%.4f)",
                       caster.name, mapped_effect_type, original_value, aura.value, hp_ratio)
+
+        # 「シールドで受けるダメージ±X%」只作用于护盾吸收部分（120193/120194）。
+        if effect_flags_aura.get('shield_damage_only'):
+            aura.shield_damage_only = True
+            _log.info("[AURA_APPLY] %s: shield_damage_only on %s", caster.name, mapped_effect_type)
 
         # hp_ratio_dynamic_inverse: 动态增益（如130059），增益值随持有者实时HP比例反比变化
         # HP=100%→0%, HP=0%→max, 线性插值

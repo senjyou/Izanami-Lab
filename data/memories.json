@@ -4662,5 +4662,362 @@
         "skill_master_id": 400266
       }
     ]
+  },
+  "10031": {
+    "memory_id": 10031,
+    "name": "ふしぎないろ",
+    "description": "……ユウヤのいろ、ちょっとふしぎ。",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 8,
+        "skill_master_id": 400264
+      }
+    ]
+  },
+  "10032": {
+    "memory_id": 10032,
+    "name": "マジカル・ラブパワー！",
+    "description": "翠蘭ちゃん特製、\\nとっておきのタコさんウィンナーをあげるね。",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 32,
+        "skill_master_id": 400277
+      }
+    ]
+  },
+  "10033": {
+    "memory_id": 10033,
+    "name": "ナージャの椅子",
+    "description": "えへへ、お父様のお膝の上……どんな椅子より魅力的です♪",
+    "rarity": 1,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": 3,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400283
+      }
+    ]
+  },
+  "20096": {
+    "memory_id": 20096,
+    "name": "鈍感男への意趣返し",
+    "description": "（どう調整して欲しいか、詳しい話をしたことはなかったのに……）\n……ムカつく。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 152,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400267
+      },
+      {
+        "character_attribute": 4,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400268
+      }
+    ]
+  },
+  "20097": {
+    "memory_id": 20097,
+    "name": "静かな夜に、グラスを交わす",
+    "description": "随分な思い上がりだ。\\nここで夜風に当たっていただけだ。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 153,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400269
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": false,
+        "party_position": null,
+        "skill_master_id": 400270
+      }
+    ]
+  },
+  "20098": {
+    "memory_id": 20098,
+    "name": "わたしのしたいこと",
+    "description": "ふぅ……いっぱい練習した。\\nどの競技も、少しできるようになった。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 113,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400278
+      },
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": false,
+        "party_position": null,
+        "skill_master_id": 400279
+      }
+    ]
+  },
+  "20099": {
+    "memory_id": 20099,
+    "name": "ふたりきりになるコスト",
+    "description": "中の出来事は……倉庫の中であったことは！\\n絶対絶対、絶対に！　誰にも言わないように！",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 117,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400074
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400280
+      }
+    ]
+  },
+  "20100": {
+    "memory_id": 20100,
+    "name": "いつもより綺麗ですね",
+    "description": "この浴衣というものは、どう着るのが正しいのでしょうか。\\n袖は分かりますが、腕を通した後が分からず……",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 143,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400174
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": 143,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400284
+      }
+    ]
+  },
+  "20101": {
+    "memory_id": 20101,
+    "name": "頑張り屋へのご褒美",
+    "description": "えへへ、慣れちゃえば簡単だよ。\\nそんなに力もいらないし。",
+    "rarity": 2,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": 145,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400285
+      },
+      {
+        "character_attribute": 1,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400286
+      }
+    ]
+  },
+  "30039": {
+    "memory_id": 30039,
+    "name": "私らしく",
+    "description": "ただ、そういう未来も……いいかもしれないと、そう思っただけだ。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 7,
+        "skill_master_id": 400271
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": 32,
+        "skill_master_id": 400272
+      }
+    ]
+  },
+  "30041": {
+    "memory_id": 30041,
+    "name": "サプライズ大作戦！？",
+    "description": "シリウスシュガーを助けてくれて、ありがとう！！",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400273
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400275
+      }
+    ]
+  },
+  "30043": {
+    "memory_id": 30043,
+    "name": "紡いだ絆のカタチ",
+    "description": "後輩クン、とびっきりいい写真にしてちょうだい！",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": false,
+        "party_position": null,
+        "skill_master_id": 400281
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": 4,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400282
+      }
+    ]
+  },
+  "30045": {
+    "memory_id": 30045,
+    "name": "穏やかな日々",
+    "description": "がんばる毎日の合間に訪れた、めるの無防備で愛らしいおやすみタイム。",
+    "rarity": 3,
+    "highlights": [
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400274
+      },
+      {
+        "character_attribute": null,
+        "character_base_master_id": null,
+        "character_master_id": null,
+        "character_role": null,
+        "character_team_master_id": null,
+        "character_type": null,
+        "is_targeting_friendly_party": true,
+        "party_position": null,
+        "skill_master_id": 400276
+      }
+    ]
   }
 }

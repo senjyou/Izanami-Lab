@@ -842,6 +842,8 @@ class BattleFlowController:
                 self._apply_memory_card_effects_by_trigger("on_any_kill", actor=unit, target=unit)
 
             hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield)
+            # 回忆卡 hp_below（400287「味方のHPが50%以下になった際に発動」）
+            self._apply_memory_card_hp_below_trigger()
             self._execute_global_trigger_actions(hp_below_actions)
 
             cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield)
@@ -924,6 +926,8 @@ class BattleFlowController:
                     # hp_below triggers FIRST (priority over after_ally_attacked for same character,
                     # e.g. ぽよぽよプロテクト(130041) before イケてる♡イケてる(130025))
                     hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
+                    # 回忆卡 hp_below（400287「味方のHPが50%以下になった際に発動」）
+                    self._apply_memory_card_hp_below_trigger()
                     self._execute_global_trigger_actions(hp_below_normal)
                     # Track which owners had hp_below triggers fire (used to suppress after_ally_attacked)
                     owners_with_hp_below = set()
@@ -957,7 +961,10 @@ class BattleFlowController:
                     self._execute_trigger_actions(after_as_attacked, unit)
 
                     # 回忆卡受击触发（trigger=after_ally_attacked，如400244 回復被ダメ時）
-                    self._apply_memory_card_effects_on_ally_attacked(damaged_targets)
+                    self._apply_memory_card_effects_on_ally_attacked(
+                        damaged_targets, attacker=unit,
+                        is_critical=self._skill_result_any_crit(skill_result))
+                    
 
                     # 非AS技能的累计伤害触发器检查（保持原路径）
                     _per_hit_resets = self._compute_per_hit_reset_values(unique_damaged)
@@ -1221,6 +1228,8 @@ class BattleFlowController:
                 self._apply_memory_card_effects_by_trigger("on_any_kill", actor=unit, target=unit)
 
             hp_below_actions = self.trigger_service.trigger_hp_below(self.battlefield)
+            # 回忆卡 hp_below（400287「味方のHPが50%以下になった際に発動」）
+            self._apply_memory_card_hp_below_trigger()
             self._execute_global_trigger_actions(hp_below_actions)
 
             cumulative_dmg_actions = self.trigger_service.trigger_cumulative_damage(self.battlefield)
@@ -1383,6 +1392,8 @@ class BattleFlowController:
 
             unique_damaged = list({u.unit_id: u for u in damaged_targets}.values())
             hp_below_normal = self.trigger_service.trigger_hp_below(self.battlefield, unique_damaged)
+            # 回忆卡 hp_below（400287「味方のHPが50%以下になった際に発動」）
+            self._apply_memory_card_hp_below_trigger()
             self._execute_global_trigger_actions(hp_below_normal)
             owners_with_hp_below = set()
             for a in hp_below_normal:
@@ -1444,7 +1455,9 @@ class BattleFlowController:
             phase1_react_actions.extend(after_as_ally)
 
             # 回忆卡受击触发（trigger=after_ally_attacked，如400244 回復被ダメ時）
-            self._apply_memory_card_effects_on_ally_attacked(damaged_targets)
+            self._apply_memory_card_effects_on_ally_attacked(
+                damaged_targets, attacker=unit,
+                is_critical=self._skill_result_any_crit(skill_result))
 
             _as_primary_target = getattr(self.skill_service, '_last_primary_target', None)
             after_own_action = self.trigger_service.trigger_after_own_action(
@@ -4191,7 +4204,75 @@ class BattleFlowController:
 
         _log.info("[MEMORY] ============ 回忆卡效果处理完成 (trigger=%s) ============", trigger_type)
 
-    def _apply_memory_card_effects_on_ally_attacked(self, damaged_targets: list) -> None:
+    def _apply_memory_card_hp_below_trigger(self) -> None:
+        """回忆卡 trigger=hp_below（400287「味方のHPが50%以下になった際に発動」）。
+
+        判定：任一同阵营存活单位的 HP 比例 <= trigger.hp_threshold_pct。
+        复用 once_per_battle / max_uses 语义，与受击技能一致。
+        """
+        if not self.battlefield.memory_cards:
+            return
+        for card in self.battlefield.memory_cards:
+            card_name = getattr(card, 'name', f"回忆卡#{getattr(card, 'card_id', '?')}")
+            for highlight in card.highlights:
+                skill_id = highlight.skill_master_id
+                if not skill_id:
+                    continue
+                effect_data = self.data_loader.get_memory_effect(skill_id)
+                if not effect_data:
+                    continue
+                trigger = effect_data.get("trigger", {}) or {}
+                if trigger.get("type") != "hp_below":
+                    continue
+                thr = float(trigger.get("hp_threshold_pct", 50) or 50)
+                team = (self.battlefield.friend_team
+                        if getattr(highlight, 'is_targeting_friendly_party', True)
+                        else self.battlefield.enemy_team)
+                hit = [u for u in team
+                       if u.is_alive and u.max_hp > 0
+                       and (u.current_hp / u.max_hp) * 100.0 <= thr]
+                if not hit:
+                    continue
+                if effect_data.get("once_per_battle", False):
+                    if skill_id in self.battlefield.memory_card_once_triggered:
+                        continue
+                max_uses = int(trigger.get("max_uses", 0) or 0)
+                if max_uses > 0 and self.battlefield.memory_card_use_count.get(skill_id, 0) >= max_uses:
+                    continue
+                skill_name = self.data_loader.get_skill_name(skill_id)
+                _log.info("[MEMORY]   hp_below: skill=%d [%s] trigger (hp<=%.0f%%, %d units)",
+                          skill_id, skill_name, thr, len(hit))
+                applied = self._apply_memory_card_structured_effect(
+                    card_name, highlight, skill_id, skill_name,
+                    expected_trigger="hp_below", actor=None, target=hit[0]
+                )
+                if applied:
+                    if effect_data.get("once_per_battle", False):
+                        self.battlefield.memory_card_once_triggered.add(skill_id)
+                    if max_uses > 0:
+                        self.battlefield.memory_card_use_count[skill_id] = (
+                            self.battlefield.memory_card_use_count.get(skill_id, 0) + 1
+                        )
+
+    @staticmethod
+    def _skill_result_any_crit(skill_result: dict) -> bool:
+        """本次技能是否出现过会心（供回忆卡「会心攻撃を受けた際」判定）。"""
+        if not isinstance(skill_result, dict):
+            return False
+        if skill_result.get("any_critical") or skill_result.get("is_critical"):
+            return True
+        for applied in skill_result.get("effects_applied", []) or []:
+            if applied.get("crit"):
+                return True
+            for t in applied.get("targets", []) or []:
+                if t.get("crit"):
+                    return True
+                if any(t.get("hit_crits") or []):
+                    return True
+        return False
+
+    def _apply_memory_card_effects_on_ally_attacked(self, damaged_targets: list,
+                                                   attacker=None, is_critical: bool = False) -> None:
         """友方单位受到攻击后触发回忆卡受击效果（trigger=after_ally_attacked）
 
         对应描述「味方が攻撃を受けた直後に発動」的回忆卡技能（如400244 回復被ダメ時）。
@@ -4229,24 +4310,52 @@ class BattleFlowController:
 
                 skill_name = self.data_loader.get_skill_name(skill_id)
 
-                if not effect_data.get("once_per_battle", False):
-                    _log.info("[MEMORY]   skill=%d [%s] 非once_per_battle受击技能，跳过", skill_id, skill_name)
+                # only_on_critical：描述「会心攻撃を受けた際」（400270 转写字段），非会心不触发
+                if trigger.get("only_on_critical") and not is_critical:
+                    _log.info("[MEMORY]   skill=%d [%s] 仅在会心受击时触发，本次非会心，跳过",
+                              skill_id, skill_name)
                     continue
 
-                # 战斗内仅1次：已触发过则跳过
-                if skill_id in self.battlefield.memory_card_once_triggered:
-                    continue
+                # once_per_battle 由「硬闸门」改为可选修饰符：
+                #   无该字段 = 每次受击都可触发（如 400270 无次数限制）
+                #   显式 true = 战斗内仅 1 次（400244 等既有条目行为不变）
+                # max_uses = 战斗内 N 次上限（400281「このスキルは戦闘中に3回しか発動しない」）
+                if effect_data.get("once_per_battle", False):
+                    if skill_id in self.battlefield.memory_card_once_triggered:
+                        continue
+                max_uses = int(trigger.get("max_uses", 0) or 0)
+                if max_uses > 0:
+                    used = self.battlefield.memory_card_use_count.get(skill_id, 0)
+                    if used >= max_uses:
+                        continue
 
                 blocks = effect_data.get("blocks", [])
                 if not blocks:
                     continue
 
-                _log.info("[MEMORY]   skill=%d [%s] -> 受击触发 (once_per_battle)", skill_id, skill_name)
+                _log.info("[MEMORY]   skill=%d [%s] -> 受击触发 (once=%.0f max_uses=%d)",
+                          skill_id, skill_name, float(bool(effect_data.get("once_per_battle"))), max_uses)
 
                 applied_any = False
                 for block in blocks:
                     target_type = block.get("target_type", "highlight_targets")
                     effects = block.get("effects", [])
+                    block_condition = block.get("condition")
+
+                    # trigger_attacker：目标为该次攻击的攻击者（400270/400281「攻撃してきた敵単体」）
+                    if target_type == "trigger_attacker":
+                        if attacker is None or not attacker.is_alive:
+                            _log.info("[MEMORY]   skill=%d trigger_attacker 不可用（无攻击者）", skill_id)
+                            continue
+                        if block_condition and not self._memory_block_condition_ok(block_condition, attacker):
+                            continue
+                        _log.info("[MEMORY]     -> %s (trigger_attacker)", attacker.name)
+                        for effect in effects:
+                            self._apply_structured_effect_to_unit(
+                                card_name, attacker, skill_id, skill_name, effect
+                            )
+                            applied_any = True
+                        continue
 
                     # 受击目标：命中但未死亡的友方单位（依次对每个受击单位施加）
                     for target_unit in ally_hit:
@@ -4261,9 +4370,14 @@ class BattleFlowController:
                             )
                             applied_any = True
 
-                # 标记已触发（战斗内仅1次）：仅在实际施加效果后才标记
+                # 仅在实际施加效果后才登记次数
                 if applied_any:
-                    self.battlefield.memory_card_once_triggered.add(skill_id)
+                    if effect_data.get("once_per_battle", False):
+                        self.battlefield.memory_card_once_triggered.add(skill_id)
+                    if int(trigger.get("max_uses", 0) or 0) > 0:
+                        self.battlefield.memory_card_use_count[skill_id] = (
+                            self.battlefield.memory_card_use_count.get(skill_id, 0) + 1
+                        )
 
         _log.info("[MEMORY] ============ 回忆卡受击效果处理完成 ============")
 
@@ -4306,6 +4420,45 @@ class BattleFlowController:
             targets.append(unit)
 
         return targets
+
+    def _memory_block_condition_ok(self, cond: dict, unit: UnitState) -> bool:
+        """回忆卡 block 级条件判定（目标维度）。
+
+        目前支持：
+        - {"type": "target_element", "value"|"values": [...]}  目标属性（主/副属性任一命中）
+        - {"type": "target_is_front_row"} / {"type": "target_is_back_row"}
+        - {"type": "target_has_mark", "mark_name": "..."} / target_without_mark
+        - {"type": "active_level_min", "value": N}（memory 路径无技能等级，恒真）
+        其他未知条件一律视为 True（保持向后兼容，不静默丢弃效果）。
+        """
+        if not isinstance(cond, dict):
+            return True
+        ctype = cond.get("type")
+        if ctype == "target_element":
+            values = cond.get("values")
+            if values is None:
+                single = cond.get("value")
+                values = [single] if single is not None else []
+            if not values:
+                return True
+            return any(self._unit_matches_attribute(unit, int(v)) for v in values)
+        if ctype == "target_is_front_row":
+            return self._is_front_row(unit)
+        if ctype == "target_is_back_row":
+            return self._is_back_row(unit)
+        if ctype in ("target_has_mark", "target_without_mark"):
+            mark_name = cond.get("mark_name", "")
+            if not mark_name:
+                return True
+            has = any(
+                getattr(b, 'name', '') == mark_name
+                for b in (getattr(unit, 'buffs', []) or []) + (getattr(unit, 'debuffs', []) or [])
+            )
+            return has if ctype == "target_has_mark" else (not has)
+        if ctype == "active_level_min":
+            return True
+        _log.info("[MEMORY]      unknown block condition type=%s (treated as True)", ctype)
+        return True
 
     def _unit_matches_attribute(self, unit: UnitState, attr: int) -> bool:
         """角色属性匹配：主属性或副属性任一命中即匹配（双属性角色副属性也触发回忆卡属性highlight）。"""
@@ -4543,6 +4696,7 @@ class BattleFlowController:
             target_type = block.get("target_type", "highlight_targets")
             effects = block.get("effects", [])
             block_party_position = block.get("party_position")
+            block_condition = block.get("condition")
 
             # on_any_kill 的 target_type 固定为 highlight_targets（不需动态索敌）
             if trigger_type == "on_any_kill":
@@ -4557,6 +4711,9 @@ class BattleFlowController:
 
             for target_unit in targets:
                 if not target_unit.is_alive:
+                    continue
+                # block 级条件（400273/400274「対象の属性に応じて」的 6 分支靠此分流）
+                if block_condition and not self._memory_block_condition_ok(block_condition, target_unit):
                     continue
                 _log.info("[MEMORY]       -> %s (position=%s)", target_unit.name, target_unit.position)
                 for effect in effects:
@@ -4579,6 +4736,22 @@ class BattleFlowController:
                                   用于"変動"类技能对不同位置施加不同效果。
         """
         if target_type in ("highlight_targets", "ally_position", "enemy_position"):
+            # enemy_position 是显式敌方语义：不采用 highlight.is_targeting_friendly_party
+            # （原始数据存在 flag 错标，如 400280「敵中央列前衛」被标成 friendly=true，
+            #   会导致 debuff 打到自家；30043 的 400280/400281 同卡两条 flag 互相矛盾）。
+            if target_type == "enemy_position":
+                pos_mask = (block_party_position if block_party_position is not None
+                            else getattr(highlight, 'party_position', None))
+                out = []
+                for u in self.battlefield.enemy_team:
+                    if not u.is_alive:
+                        continue
+                    if pos_mask is not None:
+                        bit = self._POSITION_BITMASK_MAP.get(u.position, 0)
+                        if bit == 0 or (pos_mask & bit) == 0:
+                            continue
+                    out.append(u)
+                return out
             if block_party_position is not None and target_type == "ally_position":
                 return self._resolve_memory_card_targets_with_position(
                     highlight, block_party_position
@@ -4793,6 +4966,13 @@ class BattleFlowController:
             damage_element=damage_element,
             attack_limited=attack_limited,
             original_duration_type=original_duration_type,
+            # BlockSpecificAura（400272「状態異常を1つ無効」）：原缺失 → buff 存在但不免疫
+            block_status_list=list(effect.get("block_status_list") or []),
+            block_status_count=int(effect.get("block_status_count", 0) or 0),
+            # 防守侧次数限制（「Nヒットまで被ダメージ減少」，400271）
+            hit_limited=int(effect.get("hit_limited", 0) or 0),
+            # 解除不可（「解除不可」类 buff，如履历里的 mark 联动）
+            unremovable=bool(effect.get("unremovable", False)),
         )
 
         success = self.aura_service.add_aura(target_unit, buff)

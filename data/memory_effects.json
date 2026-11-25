@@ -5999,7 +5999,7 @@
   },
   "400226": {
     "skill_id": 400226,
-    "name": "攻撃上昇毎T開始【コミ・クレ】",
+    "name": "攻撃上昇毎T開始【コミカル・クレバー】",
     "description": "ターン開始時に発動。コミカル属性とクレバー属性の味方の攻撃力を1000上昇させる",
     "trigger": {
       "type": "turn_start"
@@ -7042,6 +7042,33 @@
       }
     ]
   },
+  "400264": {
+    "skill_id": 400264,
+    "name": "攻撃1行動上昇【左列後衛】",
+    "description": "戦闘開始時に発動。左列後衛の味方の攻撃力を1行動の間750上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 8,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 750,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
   "400265": {
     "skill_id": 400265,
     "name": "HP・防御上昇【イーニァ＆クリスカ】",
@@ -7100,6 +7127,1113 @@
             "timing_type": 3,
             "is_memory_buff": true,
             "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400267": {
+    "skill_id": 400267,
+    "name": "攻撃上昇【亦菲】",
+    "description": "戦闘開始時に発動。崔亦菲の攻撃力を1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400268": {
+    "skill_id": 400268,
+    "name": "会心率上昇【キュート】",
+    "description": "戦闘開始時に発動。キュート属性の味方の会心率を1%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 1,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400269": {
+    "skill_id": 400269,
+    "name": "HP上昇【ラトロワ】",
+    "description": "戦闘開始時に発動。フィカーツィア・ラトロワのHPを2000上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 2000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400270": {
+    "skill_id": 400270,
+    "name": "攻撃1行動減少【敵(指定)】",
+    "description": "フィカーツィア・ラトロワ[氷の魔女]が会心攻撃を受けた際に発動。攻撃してきた敵単体の攻撃力を1行動の間30%低下させる",
+    "trigger": {
+      "type": "after_ally_attacked",
+      "only_on_critical": true
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "trigger_attacker",
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 30,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400277": {
+    "skill_id": 400277,
+    "name": "会心ダメージ上昇毎T終了【右列後衛】",
+    "description": "ターン終了時に発動。右列後衛の味方の会心ダメージを1.5%上昇させる",
+    "trigger": {
+      "type": "turn_end"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 32,
+        "effects": [
+          {
+            "effect_type": "CriticalBonusModification",
+            "value": 1.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400278": {
+    "skill_id": 400278,
+    "name": "防御上昇【フィー】",
+    "description": "戦闘開始時に発動。フィー・ドレーゼの防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400279": {
+    "skill_id": 400279,
+    "name": "物理ダメージ減少【敵アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の敵全員に対し、物理攻撃で与えるダメージを2.1%減少させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 2.1,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400283": {
+    "skill_id": 400283,
+    "name": "回復【タンク】",
+    "description": "2ターンごとのターン終了時に発動。タンクの味方のHPを最大HPの2%回復する",
+    "trigger": {
+      "type": "periodic_end",
+      "periodic_turn": 2
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "Heal",
+            "value": 2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_max_hp"
+          }
+        ]
+      }
+    ]
+  },
+  "400284": {
+    "skill_id": 400284,
+    "name": "速度上昇【オルガ】",
+    "description": "戦闘開始時に発動。オルガ・ヴォルコワの行動速度を35上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusSpeed",
+            "value": 35,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400271": {
+    "skill_id": 400271,
+    "name": "被ダメージ減少毎T開始【前衛】",
+    "description": "ターン開始時に発動。味方前衛に次に受ける被ダメージを5%減少させるバフを付与する",
+    "trigger": {
+      "type": "turn_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_front_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400272": {
+    "skill_id": 400272,
+    "name": "状態異常無効【右列後衛】",
+    "description": "戦闘開始時に発動。右列後衛の味方に対し、向けられる状態異常を1つ無効にするバフを付与する",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_position",
+        "party_position": 32,
+        "effects": [
+          {
+            "effect_type": "BlockSpecificAura",
+            "value": 1,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "block_status_list": [
+              "knockout",
+              "freeze",
+              "poison",
+              "conflagration",
+              "darkness",
+              "confusion",
+              "genwaku"
+            ],
+            "block_status_count": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400273": {
+    "skill_id": 400273,
+    "name": "属性別ステータス低下【敵ALL】",
+    "description": "戦闘開始時に発動。敵全体に対し、対象の属性に応じて、以下のデバフを付与する。\n・アグレッシブ属性：1行動の間、攻撃力を1250・行動速度を70低下させる\n・スマート属性：1行動の間、防御力を1000・会心率を5%低下させる\n・シャイ属性：1行動の間、攻撃力を1250・会心率を5%低下させる\n・キュート属性：1行動の間、防御力を1000・行動速度を70低下させる\n・コミカル属性：次の攻撃での与ダメージを3.5%低下させる\n・クレバー属性：次に受ける攻撃での被ダメージを3.5%増加させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            1
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            1
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            2
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            2
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 5,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            3
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 6,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            3
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 7,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            4
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 8,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            4
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 9,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            5
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0,
+            "attack_limited": 1
+          }
+        ]
+      },
+      {
+        "block_id": 10,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            5
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0,
+            "attack_limited": 1
+          }
+        ]
+      },
+      {
+        "block_id": 11,
+        "target_type": "enemy_front_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            6
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1
+          }
+        ]
+      },
+      {
+        "block_id": 12,
+        "target_type": "enemy_back_row",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            6
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400274": {
+    "skill_id": 400274,
+    "name": "属性別ステータス上昇【ALL】",
+    "description": "戦闘開始時に発動。味方全体に対し、対象の属性に応じて、以下のバフを付与する。\n・アグレッシブ属性：1行動の間、攻撃力を1250・行動速度を70上昇させる\n・スマート属性：1行動の間、防御力を1000・会心率を5%上昇させる\n・シャイ属性：1行動の間、攻撃力を1250・会心率を5%上昇させる\n・キュート属性：1行動の間、防御力を1000・行動速度を70上昇させる\n・コミカル属性：次の攻撃での与ダメージを3.5%上昇させる\n・クレバー属性：次に受ける攻撃での被ダメージを3.5%減少させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            1
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            2
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 3,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            3
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 1250,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusCriticalChance",
+            "value": 5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 4,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            4
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 1000,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          },
+          {
+            "effect_type": "StatusSpeed",
+            "value": 70,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 5,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            5
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "DealtDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "damage_element": 0,
+            "attack_limited": 1
+          }
+        ]
+      },
+      {
+        "block_id": 6,
+        "target_type": "ally_all",
+        "condition": {
+          "type": "target_element",
+          "values": [
+            6
+          ]
+        },
+        "effects": [
+          {
+            "effect_type": "ReceivedDamage",
+            "value": 3.5,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "attack_limited": 1
+          }
+        ]
+      }
+    ]
+  },
+  "400275": {
+    "skill_id": 400275,
+    "name": "回復量減少1T開始【敵ALL】",
+    "description": "1ターン目のターン開始時に発動。1ターンの間、敵全体のHP回復量を7%減少させる",
+    "trigger": {
+      "type": "turn_start",
+      "turn_number": 1
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_front_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 7,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "turn",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "target_type": "enemy_back_row",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 7,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "turn",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400276": {
+    "skill_id": 400276,
+    "name": "回復量上昇1T開始【ALL】",
+    "description": "1ターン目のターン開始時に発動。1ターンの間、味方全体のHP回復量を7%上昇させる",
+    "trigger": {
+      "type": "turn_start",
+      "turn_number": 1
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "ally_all",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 7,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": 1,
+            "duration_type": "turn",
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400281": {
+    "skill_id": 400281,
+    "name": "毒2行動【敵(指定)】",
+    "description": "味方が敵からパッシブスキルで攻撃された後に発動。攻撃してきた敵単体に対し、2行動の毒を付与する。毒は行動タイミングごとに現在HPの10%のダメージを受ける。\nこのスキルは戦闘中に3回しか発動しない",
+    "trigger": {
+      "type": "after_ally_attacked",
+      "max_uses": 3
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "trigger_attacker",
+        "effects": [
+          {
+            "effect_type": "Poison",
+            "value": 0.1,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 2,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "target_current_hp",
+            "poison_damage_pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  "400282": {
+    "skill_id": 400282,
+    "name": "防御上昇【敏捷タイプ】",
+    "description": "戦闘開始時に発動。敏捷タイプの味方の防御力を600上昇させる。",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 600,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400285": {
+    "skill_id": 400285,
+    "name": "防御上昇【エレーナ】",
+    "description": "戦闘開始時に発動。エレーナ・パステルコワの防御力を500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusDefense",
+            "value": 500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400286": {
+    "skill_id": 400286,
+    "name": "回復量上昇【アグレッシブ】",
+    "description": "戦闘開始時に発動。アグレッシブ属性の味方のHP回復量を1.2%上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "ReceivedHealing",
+            "value": 1.2,
+            "value_tag": 0,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400280": {
+    "skill_id": 400280,
+    "name": "攻撃減少【敵中央列前衛】",
+    "description": "戦闘開始時に発動。中央列前衛の敵の攻撃力を525下降させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_position",
+        "party_position": 2,
+        "effects": [
+          {
+            "effect_type": "StatusAttack",
+            "value": 525,
+            "value_tag": 1,
+            "is_buff": false,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400288": {
+    "skill_id": 400288,
+    "name": "HP上昇【タンク】",
+    "description": "戦闘開始時に発動。タンクのHPを1500上昇させる",
+    "trigger": {
+      "type": "battle_start"
+    },
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "highlight_targets",
+        "effects": [
+          {
+            "effect_type": "StatusMaxHp",
+            "value": 1500,
+            "value_tag": 1,
+            "is_buff": true,
+            "duration": -1,
+            "duration_type": null,
+            "timing_type": 3,
+            "is_memory_buff": true
+          }
+        ]
+      }
+    ]
+  },
+  "400287": {
+    "skill_id": 400287,
+    "name": "幻惑1行動【敵最高与ダメージ】",
+    "description": "味方のHPが50%以下になった際に発動。最も累計与ダメージの高い敵単体に1行動の幻惑を付与する。幻惑はダメージ効果を回復効果へと変換する。回復値は本来のダメージ値の50%となる。\nこのスキルは戦闘中に1度しか発動しない",
+    "trigger": {
+      "type": "hp_below",
+      "hp_threshold_pct": 50
+    },
+    "once_per_battle": true,
+    "blocks": [
+      {
+        "block_id": 1,
+        "target_type": "enemy_single_highest_damage_dealt",
+        "effects": [
+          {
+            "effect_type": "Genwaku",
+            "value": 50,
+            "value_tag": 0,
+            "is_buff": false,
+            "duration": 1,
+            "duration_type": "action",
+            "timing_type": 3,
+            "is_memory_buff": true,
+            "value_source": "damage_to_heal_ratio"
           }
         ]
       }
