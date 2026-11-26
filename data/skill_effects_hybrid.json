@@ -107,7 +107,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "status_type": "burn"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -261,7 +262,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -460,7 +463,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -1667,7 +1672,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -1812,7 +1819,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -1870,7 +1879,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -2032,7 +2043,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -2505,7 +2518,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "status_type": "burn"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -2999,7 +3013,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -3331,7 +3347,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -3614,7 +3632,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "プラーフカ"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -4350,7 +4370,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -4671,7 +4693,9 @@
               "type": "hp_threshold_cross",
               "value": 70
             },
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -5835,7 +5859,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "status_type": "burn"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -6237,7 +6262,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -7369,7 +7396,9 @@
               "type": "target_hp_above",
               "value": 80
             },
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -7502,7 +7531,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -7587,7 +7618,9 @@
               "type": "target_hp_above",
               "pct": 90
             },
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -8177,7 +8210,9 @@
                 3
               ]
             },
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -9120,7 +9155,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "status_type": "burn"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -9205,7 +9241,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -10087,14 +10125,12 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "mark_priority": "サンタタグ"
+              "mark_priority": "サンタタグ",
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -10107,7 +10143,8 @@
     "display_target_type": 2,
     "parse_status": "success",
     "parse_notes": [
-      "AS2: column_mark_priority(santa_tag) EN damage, Lv11+ dmg_dealt_down(1action,stackable)"
+      "AS2: column_mark_priority(santa_tag) EN damage, Lv11+ dmg_dealt_down(1action,stackable)",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "120087": {
@@ -11509,12 +11546,10 @@
             "duration_tag": null,
             "hit_count": 1,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
-              "is_en_attack": true
+              "is_en_attack": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -11547,7 +11582,8 @@
     "display_target_type": 2,
     "parse_status": "success",
     "parse_notes": [
-      "PS: on_skill_use_count(3), Lv11+ highest_ep EN damage, atk_up(permanent,stackable)"
+      "PS: on_skill_use_count(3), Lv11+ highest_ep EN damage, atk_up(permanent,stackable)",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "130098": {
@@ -12261,7 +12297,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -15098,7 +15136,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -15965,7 +16005,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -16493,7 +16535,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -19747,7 +19791,7 @@
             "target_type": "enemy_single_highest_atk",
             "target_identifier": null,
             "value": null,
-            "value_tag": "stun",
+            "value_tag": null,
             "value_source": null,
             "duration": 1,
             "duration_type": "action",
@@ -19755,7 +19799,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -19817,7 +19863,16 @@
       {
         "block_id": 2,
         "condition": {
-          "type": "target_killed"
+          "type": "and",
+          "conditions": [
+            {
+              "type": "target_killed"
+            },
+            {
+              "type": "active_level_min",
+              "value": 5
+            }
+          ]
         },
         "effects": [
           {
@@ -21037,7 +21092,9 @@
             "hit_count": 1,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "hit_limited": 1
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -21075,7 +21132,8 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "原文（EX）：最もHP割合の低い敵単体に威力{威力}で攻撃。さらに味方全体に1ヒットだけ攻撃を回避するバフを付与。Lv10+はAPを1削る→damage(lowest_hp_ratio)+perfect_evasion(ally_all, hit=1)+B2 remove_ap。原配置回避目标错成敌人（给敌方加回避）、并重复了 damage。"
+      "原文（EX）：最もHP割合の低い敵単体に威力{威力}で攻撃。さらに味方全体に1ヒットだけ攻撃を回避するバフを付与。Lv10+はAPを1削る→damage(lowest_hp_ratio)+perfect_evasion(ally_all, hit=1)+B2 remove_ap。原配置回避目标错成敌人（给敌方加回避）、并重复了 damage。",
+      "补齐死值：perfect_evasion 缺 flags.hit_limited（引擎 10046 行读取，缺省=按duration），原文为「1ヒットだけ回避」→ hit_limited=1"
     ]
   },
   "210018": {
@@ -21124,7 +21182,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -21383,7 +21443,7 @@
             "target_type": "enemy_single_highest_atk",
             "target_identifier": null,
             "value": null,
-            "value_tag": "stun",
+            "value_tag": null,
             "value_source": null,
             "duration": 1,
             "duration_type": "action",
@@ -21391,7 +21451,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "knockout"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -21746,7 +21808,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -21794,7 +21858,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -22659,7 +22725,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -23159,7 +23227,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -23218,7 +23288,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -23277,7 +23349,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -24105,7 +24179,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -24208,7 +24284,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -26328,7 +26406,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -26558,7 +26638,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -27339,7 +27421,7 @@
             "target_type": "enemy_single",
             "target_identifier": null,
             "value": null,
-            "value_tag": "stun",
+            "value_tag": null,
             "value_source": null,
             "duration": 1,
             "duration_type": "action",
@@ -27351,7 +27433,7 @@
               "value": 70
             },
             "flags": {
-              "status_type": "stun"
+              "status_type": "knockout"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -28725,8 +28807,17 @@
       {
         "block_id": 2,
         "condition": {
-          "type": "target_element",
-          "value": 2
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 5
+            },
+            {
+              "type": "target_element",
+              "value": 2
+            }
+          ]
         },
         "effects": [
           {
@@ -28749,7 +28840,7 @@
             "ignore_shield": 0
           }
         ],
-        "level_min": 5
+        "level_min": null
       }
     ],
     "display_target_priority": 2,
@@ -28808,7 +28899,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -30432,7 +30525,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -30556,7 +30651,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -31908,7 +32005,7 @@
             "target_type": "enemy_single",
             "target_identifier": null,
             "value": null,
-            "value_tag": "stun",
+            "value_tag": null,
             "value_source": null,
             "duration": 1,
             "duration_type": "action",
@@ -31919,7 +32016,9 @@
               "type": "hp_threshold_cross",
               "value": 50
             },
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -33026,8 +33125,17 @@
       {
         "block_id": 3,
         "condition": {
-          "type": "self_has_mark",
-          "mark_name": "powerful"
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 5
+            },
+            {
+              "type": "self_has_mark",
+              "mark_name": "powerful"
+            }
+          ]
         },
         "effects": [
           {
@@ -33050,7 +33158,7 @@
             "ignore_shield": 0
           }
         ],
-        "level_min": 5
+        "level_min": null
       }
     ],
     "display_target_priority": null,
@@ -36796,7 +36904,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -38297,7 +38407,7 @@
     "name": "エモーショナルエッジ",
     "skill_type": 2,
     "resource_cost": 1,
-    "cooldown": 0,
+    "cooldown": null,
     "cooldown_update_timing": null,
     "ignore_defense": 0,
     "ignore_shield": 0,
@@ -38353,9 +38463,11 @@
       {
         "block_id": 2,
         "condition": {
-          "type": "level_min",
+          "type": "active_level_min",
+          "value": 5,
           "level_min": 5
         },
+        "level_min": null,
         "effects": [
           {
             "effect_type": "perfect_evasion",
@@ -39022,7 +39134,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "remove_all": true
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -39032,23 +39146,6 @@
             "target_identifier": null,
             "value": null,
             "value_tag": "威力",
-            "value_source": null,
-            "duration": null,
-            "duration_type": null,
-            "duration_tag": null,
-            "hit_count": null,
-            "hit_count_tag": null,
-            "condition": null,
-            "flags": {},
-            "ignore_defense": 0,
-            "ignore_shield": 0
-          },
-          {
-            "effect_type": "remove_buff",
-            "target_type": "self",
-            "target_identifier": null,
-            "value": null,
-            "value_tag": null,
             "value_source": null,
             "duration": null,
             "duration_type": null,
@@ -41826,7 +41923,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -44206,13 +44305,11 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -44225,7 +44322,8 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: Block1=damage(pwr)+mark(リズミカル,1action). Block2(pre-skill check for mark)=damage(威力2)+Lv11+ dmg_dealt_down(dmg,1action,stackable)"
+      "AS: Block1=damage(pwr)+mark(リズミカル,1action). Block2(pre-skill check for mark)=damage(威力2)+Lv11+ dmg_dealt_down(dmg,1action,stackable)",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "130121": {
@@ -45087,12 +45185,10 @@
             "target_type": "enemy_single",
             "value_tag": "dmg",
             "hit_count": 1,
-            "flags": {
-              "hp_ratio_base": "max_hp",
-              "hp_ratio_pct": 10
-            },
+            "flags": {},
             "ignore_defense": 0,
-            "ignore_shield": 0
+            "ignore_shield": 0,
+            "value_source": "consumed_hp"
           }
         ]
       },
@@ -45118,7 +45214,8 @@
     "display_target_range": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: consume 10% maxHP, hp_ratio_dmg=enemy(consumedHP*dmg%), if HP>=70% also remove_ap 1 from target"
+      "AS: consume 10% maxHP, hp_ratio_dmg=enemy(consumedHP*dmg%), if HP>=70% also remove_ap 1 from target",
+      "修正死键：flags.hp_ratio_base/hp_ratio_pct 引擎不读 → effect.value_source=consumed_hp（消费分HP由同block的consume_hp提供）"
     ]
   },
   "120125": {
@@ -45609,7 +45706,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "狼心"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -45671,7 +45770,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "狼心"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -49140,7 +49241,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -50883,7 +50986,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -51200,8 +51305,17 @@
       {
         "block_id": 3,
         "condition": {
-          "type": "self_has_mark",
-          "mark_name": "powerful"
+          "type": "and",
+          "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 11
+            },
+            {
+              "type": "self_has_mark",
+              "mark_name": "powerful"
+            }
+          ]
         },
         "effects": [
           {
@@ -51224,7 +51338,7 @@
             "ignore_shield": 0
           }
         ],
-        "level_min": 11
+        "level_min": null
       }
     ],
     "display_target_priority": null,
@@ -52954,7 +53068,9 @@
               "type": "target_hp_above",
               "pct": 90
             },
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -55094,7 +55210,10 @@
     "effect_blocks": [
       {
         "block_id": 1,
-        "condition": null,
+        "condition": {
+          "type": "active_level_min",
+          "value": 11
+        },
         "effects": [
           {
             "effect_type": "damage",
@@ -55138,7 +55257,8 @@
             "ignore_defense": 0,
             "ignore_shield": 0
           }
-        ]
+        ],
+        "level_min": null
       }
     ],
     "display_target_priority": null,
@@ -55194,14 +55314,18 @@
             "value_tag": "def",
             "value_source": null,
             "duration": 1,
-            "duration_type": "attacker_action",
+            "duration_type": "action",
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": null,
+            "condition": {
+              "type": "target_hp_below",
+              "value": 50
+            },
             "flags": {
               "value_type": "percent",
-              "level_min": 11
+              "level_min": 11,
+              "duration_owner": "caster"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -55405,13 +55529,11 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -55424,7 +55546,9 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "AS: 「サンタタグ」が付与された敵がいる列を優先し 敵前後列に 威力 EN + Lv11+ 1行動の dmg_dealt_down({dmg}%, 重複可)。120086 と同一（現行は対象 enemy_single / damage 重複）。"
+      "AS: 「サンタタグ」が付与された敵がいる列を優先し 敵前後列に 威力 EN + Lv11+ 1行動の dmg_dealt_down({dmg}%, 重複可)。120086 と同一（現行は対象 enemy_single / damage 重複）。",
+      "修正 Lv11 效果泄漏：dmg_dealt_down 原文仅 Lv11+，补 flags.level_min=11（Lv11 才追加「1行動の間、与ダメージを{dmg}%減少させるデバフ（重複可）」）",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "220252": {
@@ -55612,6 +55736,10 @@
         "condition": {
           "type": "and",
           "conditions": [
+            {
+              "type": "active_level_min",
+              "value": 11
+            },
             {
               "type": "on_crit",
               "once_per_skill": true
@@ -55837,7 +55965,10 @@
       },
       {
         "block_id": 2,
-        "condition": null,
+        "condition": {
+          "type": "target_hp_below",
+          "value": 35
+        },
         "effects": [
           {
             "effect_type": "damage",
@@ -56495,7 +56626,19 @@
             },
             "ignore_defense": 0,
             "ignore_shield": 0
-          },
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": {
+          "type": "self_mark_count",
+          "mark_name": "コスモル",
+          "operator": ">=",
+          "value": 3
+        },
+        "level_min": null,
+        "effects": [
           {
             "effect_type": "dmg_dealt_down",
             "target_type": "enemy_single",
@@ -56543,7 +56686,12 @@
     "ignore_defense": 0,
     "ignore_shield": 0,
     "trigger_type": null,
-    "global_condition": null,
+    "global_condition": {
+      "type": "self_mark_count",
+      "mark_name": "コスモル",
+      "operator": ">=",
+      "value": 1
+    },
     "effect_blocks": [
       {
         "block_id": 1,
@@ -56567,7 +56715,8 @@
             },
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "mark_name": "コスモル"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -56590,7 +56739,8 @@
             },
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "mark_name": "コスモル"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -56614,7 +56764,8 @@
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "hit_limited": 3
+              "hit_limited": 3,
+              "mark_name": "コスモル"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -56637,7 +56788,8 @@
             },
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "mark_name": "コスモル"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -56921,7 +57073,12 @@
     "effect_blocks": [
       {
         "block_id": 1,
-        "condition": null,
+        "condition": {
+          "type": "self_mark_count",
+          "mark_name": "コスモル",
+          "value": 1,
+          "operator": ">="
+        },
         "effects": [
           {
             "effect_type": "sure_hit",
@@ -56975,9 +57132,7 @@
             "flags": {
               "mark_name": "ネヴュリム",
               "is_buff_mark": false,
-              "stackable": true,
-              "require_self_mark": "コスモル",
-              "min_marks": 1
+              "stackable": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -57022,7 +57177,8 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "原文：敵全体に威力{威力}でEN攻撃（回避不可）。自身に「コスモル」が付与されていた場合、対象に「ネヴュリム」を1つ付与。3つ以上なら2つ→damage(enemy_all, EN)+mark(ネヴュリム, コスモル所持時1つ/Lv別3つ以上で追加1つ)。原配置把「回避不可」误写成给敌人 perfect_evasion（等于给敌方加闪避），且完全缺 mark。"
+      "原文：敵全体に威力{威力}でEN攻撃（回避不可）。自身に「コスモル」が付与されていた場合、対象に「ネヴュリム」を1つ付与。3つ以上なら2つ→damage(enemy_all, EN)+mark(ネヴュリム, コスモル所持時1つ/Lv別3つ以上で追加1つ)。原配置把「回避不可」误写成给敌人 perfect_evasion（等于给敌方加闪避），且完全缺 mark。",
+      "修正死键：flags.require_self_mark/min_marks 引擎不读 → block.condition=self_mark_count(コスモル>=1)，blk1 的 >=3 分支保留（先匹配高门槛）"
     ]
   },
   "220272": {
@@ -57154,7 +57310,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -57818,11 +57976,19 @@
             "condition": null,
             "flags": {
               "mark_name": "ほてり",
-              "stackable": true
+              "stackable": true,
+              "apply_count": 2
             },
             "ignore_defense": 0,
             "ignore_shield": 0
-          },
+          }
+        ]
+      },
+      {
+        "block_id": 2,
+        "condition": null,
+        "level_min": null,
+        "effects": [
           {
             "effect_type": "mark",
             "target_type": "enemy_single_furthest",
@@ -57838,7 +58004,8 @@
             "condition": null,
             "flags": {
               "mark_name": "ほてり",
-              "stackable": true
+              "stackable": true,
+              "apply_count": 2
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -58313,7 +58480,8 @@
             "condition": null,
             "flags": {
               "lowest_hp_priority": true,
-              "heal_base": "atk"
+              "heal_base": "atk",
+              "target_count_lv15": 2
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -58323,17 +58491,8 @@
       {
         "block_id": 2,
         "condition": {
-          "type": "and",
-          "conditions": [
-            {
-              "type": "active_level_min",
-              "value": 11
-            },
-            {
-              "type": "active_level_max",
-              "value": 11
-            }
-          ]
+          "type": "active_level_min",
+          "value": 11
         },
         "effects": [
           {
@@ -58361,17 +58520,8 @@
       {
         "block_id": 3,
         "condition": {
-          "type": "and",
-          "conditions": [
-            {
-              "type": "active_level_min",
-              "value": 12
-            },
-            {
-              "type": "active_level_max",
-              "value": 12
-            }
-          ]
+          "type": "active_level_min",
+          "value": 12
         },
         "effects": [
           {
@@ -58399,17 +58549,8 @@
       {
         "block_id": 4,
         "condition": {
-          "type": "and",
-          "conditions": [
-            {
-              "type": "active_level_min",
-              "value": 13
-            },
-            {
-              "type": "active_level_max",
-              "value": 13
-            }
-          ]
+          "type": "active_level_min",
+          "value": 13
         },
         "effects": [
           {
@@ -58437,17 +58578,8 @@
       {
         "block_id": 5,
         "condition": {
-          "type": "and",
-          "conditions": [
-            {
-              "type": "active_level_min",
-              "value": 14
-            },
-            {
-              "type": "active_level_max",
-              "value": 14
-            }
-          ]
+          "type": "active_level_min",
+          "value": 14
         },
         "effects": [
           {
@@ -58469,7 +58601,9 @@
             "ignore_defense": 0,
             "ignore_shield": 0
           }
-        ]
+        ],
+        "level_min": null,
+        "level_max": 14
       },
       {
         "block_id": 6,
@@ -58494,7 +58628,8 @@
             "flags": {
               "lowest_hp_priority": true,
               "target_count": 2,
-              "heal_base": "atk"
+              "heal_base": "atk",
+              "target_count_lv15": 2
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -61668,7 +61803,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "poison"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -66635,9 +66772,7 @@
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "activation_condition": {
-                "type": "attacker_hp_ratio_higher_than_self"
-              }
+              "attacker_hp_ratio_gt_self": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -66650,7 +66785,8 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true"
+      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true",
+      "修正死键：activation_condition{attacker_hp_ratio_higher_than_self} 引擎不读 → flags.attacker_hp_ratio_gt_self=True（130103 同机制）"
     ]
   },
   "230246": {
@@ -68323,7 +68459,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "level_min": 11
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -70319,9 +70457,7 @@
             "flags": {
               "value_type": "percent",
               "stackable": true,
-              "activation_condition": {
-                "type": "attacker_hp_ratio_higher_than_self"
-              }
+              "attacker_hp_ratio_gt_self": true
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -70334,7 +70470,8 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true. 镜像 230245 配置"
+      "PS: on_turn_start. Block1 dmg_taken_down(self, dmg%, permanent, stackable, duration_type=action) with activation_condition attacker_hp_ratio_higher_than_self (自分よりHP割合が高い相手から攻撃時のみ発動). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition. 重複可=stackable=true. 镜像 230245 配置",
+      "修正死键：activation_condition{attacker_hp_ratio_higher_than_self} 引擎不读 → flags.attacker_hp_ratio_gt_self=True（130103 同机制）"
     ]
   },
   "230294": {
@@ -70991,7 +71128,8 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "burn_damage_pct": 30
+              "burn_damage_pct": 30,
+              "status_type": "burn"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -73977,10 +74115,8 @@
             "condition": null,
             "flags": {
               "value_type": "percent",
-              "activation_condition": {
-                "type": "self_hp_below",
-                "value_tag": "hp"
-              }
+              "threshold_pct": true,
+              "threshold_base": "hp"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -73993,7 +74129,8 @@
     "display_target_type": 1,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: on_turn_start, once per battle (cooldown=99). Block1 dmg_taken_down(self, value=30% fixed, permanent, duration_type=action) with activation_condition self_hp_below(hp tag) (自身HPが最大HPのhp%以下の場合にのみ被ダメージ30%減少). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition (hp tag 阈值由 skill_tag_values 提供). 30 是固定值减伤 (非 value_tag=hp, hp 是阈值条件)"
+      "PS: on_turn_start, once per battle (cooldown=99). Block1 dmg_taken_down(self, value=30% fixed, permanent, duration_type=action) with activation_condition self_hp_below(hp tag) (自身HPが最大HPのhp%以下の場合にのみ被ダメージ30%減少). activation_condition 是自定义条件, 需代码侧在 damage 计算时检查 buff.flags.activation_condition (hp tag 阈值由 skill_tag_values 提供). 30 是固定值减伤 (非 value_tag=hp, hp 是阈值条件)",
+      "修正死键：activation_condition{self_hp_below} 引擎不读 → flags.threshold_pct/threshold_base（130359 同机制）"
     ]
   },
   "230360": {
@@ -84517,7 +84654,7 @@
         "effects": [
           {
             "effect_type": "mark",
-            "target_type": "enemy_single",
+            "target_type": "enemy_single_lowest_mark_count",
             "target_identifier": null,
             "value": 1,
             "value_tag": null,
@@ -84529,8 +84666,7 @@
             "hit_count_tag": null,
             "condition": null,
             "flags": {
-              "mark_name": "神鳴り",
-              "priority_no_mark": true
+              "mark_name": "神鳴り"
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -84563,7 +84699,8 @@
     "display_target_type": 2,
     "parse_status": "manual",
     "parse_notes": [
-      "PS: ターン開始 敵1体に神鳴りmark + 味方前衛dmg-30% (神鳴り所持相手から)"
+      "PS: ターン開始 敵1体に神鳴りmark + 味方前衛dmg-30% (神鳴り所持相手から)",
+      "修正死键：flags.priority_no_mark 引擎不读 → target_type=enemy_single_lowest_mark_count（引擎原生支持，语义=优先选「神鳴り」最少的敌人）"
     ]
   },
   "220362": {
@@ -88924,12 +89061,10 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
-              "heal_base": "atk"
+              "heal_base": "atk",
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -88942,7 +89077,8 @@
     "display_target_type": 2,
     "parse_status": "success",
     "parse_notes": [
-      "EX: shield all allies (ATK × shield%, attacker_action end) + Lv11+ HOT (ATK × 威力%, 2 actions)"
+      "EX: shield all allies (ATK × shield%, attacker_action end) + Lv11+ HOT (ATK × 威力%, 2 actions)",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "120083": {
@@ -93616,7 +93752,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "stun"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           },
@@ -99366,7 +99504,9 @@
             "hit_count": null,
             "hit_count_tag": null,
             "condition": null,
-            "flags": {},
+            "flags": {
+              "status_type": "burn"
+            },
             "ignore_defense": 0,
             "ignore_shield": 0
           }
@@ -110125,12 +110265,10 @@
             "target_type": "enemy_single",
             "value_tag": "dmg",
             "hit_count": 1,
-            "flags": {
-              "hp_ratio_base": "max_hp",
-              "hp_ratio_pct": 10
-            },
+            "flags": {},
             "ignore_defense": 0,
-            "ignore_shield": 0
+            "ignore_shield": 0,
+            "value_source": "consumed_hp"
           }
         ]
       },
@@ -110157,7 +110295,8 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "F0a手动重写：与 120124（レイズ）原文及TemplateTags逐字一致（脚本校验text+tags全等），效果结构沿用该已验证配置；resource_cost/cooldown/cooldown_update_timing/display_* 取本技能 SkillMaster。"
+      "F0a手动重写：与 120124（レイズ）原文及TemplateTags逐字一致（脚本校验text+tags全等），效果结构沿用该已验证配置；resource_cost/cooldown/cooldown_update_timing/display_* 取本技能 SkillMaster。",
+      "修正死键：flags.hp_ratio_base/hp_ratio_pct 引擎不读 → effect.value_source=consumed_hp（消费分HP由同block的consume_hp提供）"
     ]
   },
   "220389": {
@@ -110859,13 +110998,11 @@
             "duration_tag": null,
             "hit_count": null,
             "hit_count_tag": null,
-            "condition": {
-              "type": "active_level_min",
-              "value": 11
-            },
+            "condition": null,
             "flags": {
               "value_type": "percent",
-              "stackable": true
+              "stackable": true,
+              "level_min": 11
             },
             "ignore_defense": 0,
             "ignore_shield": 0
@@ -110878,7 +111015,9 @@
     "display_target_type": 3,
     "parse_status": "manual",
     "parse_notes": [
-      "F0a手动重写：与 120116（リフレイン）原文及TemplateTags逐字一致（脚本校验text+tags全等），效果结构沿用该已验证配置；resource_cost/cooldown/cooldown_update_timing/display_* 取本技能 SkillMaster。"
+      "F0a手动重写：与 120116（リフレイン）原文及TemplateTags逐字一致（脚本校验text+tags全等），效果结构沿用该已验证配置；resource_cost/cooldown/cooldown_update_timing/display_* 取本技能 SkillMaster。",
+      "修正 Lv11 效果泄漏：dmg_dealt_down 原文仅 Lv11+，补 flags.level_min=11（Lv11 才追加「1行動の間与ダメージを{dmg}%減少させるデバフ（重複可）」）",
+      "修正 effect 级死键：condition.type=active_level_min 引擎不读（实测 Lv1/Lv11 均生效），改为 flags.level_min=11"
     ]
   },
   "220396": {

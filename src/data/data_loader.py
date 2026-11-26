@@ -77,10 +77,19 @@ class DataLoader:
         self._custom_dummy_configs: Dict[int, CustomDummyConfig] = {}
         self._custom_dummy_count: int = 0
 
-    def _load_json(self, filename: str) -> Any:
+    def _load_json(self, filename: str, optional: bool = False) -> Any:
+        """读取 data/ 下的 JSON。
+
+        optional=True 用于「历史兼容/可能不存在」的数据文件：缺失时不打印告警、
+        直接返回空 dict，由调用方走后备来源。
+        区分必要性：旧版兼容路径（如 character_teams.json 已被
+        character_team_mapping.json 的 teams 段取代）缺失属正常状态，
+        打 WARN 会让每次启动都出现并不存在的「数据缺失」提示。
+        """
         path = self._data_dir / filename
         if not path.exists():
-            print(f"  [WARN] 数据文件不存在: {path}")
+            if not optional:
+                print(f"  [WARN] 数据文件不存在: {path}")
             return {}
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -610,7 +619,8 @@ class DataLoader:
         if self._team_data is not None:
             return self._team_data
         try:
-            team_data = self._load_json("character_teams.json")
+            # 旧格式：已被 character_team_mapping.json 的 teams 段取代，缺失属正常
+            team_data = self._load_json("character_teams.json", optional=True)
             if team_data:
                 self._team_data = {int(t["team_id"]): t.get("name", "") for t in team_data}
                 return self._team_data

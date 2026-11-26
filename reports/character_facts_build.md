@@ -1,7 +1,7 @@
 # 角色事实词典构建报告
 
-- 语料行数：7171（CharacterBaseMaster, CharacterMaster, CharacterTeamMaster, CharacterSchoolMaster, HomeSpeechMaster, SnsPostMaster）
-- 语料摘要（sha1）：`afd7d31d8ffeba1a9412f5476bb9ab6d35e0fd78`
+- 语料行数：7316（CharacterBaseMaster, CharacterMaster, CharacterTeamMaster, CharacterSchoolMaster, HomeSpeechMaster, SnsPostMaster）
+- 语料摘要（sha1）：`ad6c1d14b543f41b8ccacc507d1fb94c542ecd14`
 - 已记载事实：702（全部通过 corpus 行 + 校验词校验）
 - 未记载项探针：472，其中 472 个零命中，0 个非零命中
 

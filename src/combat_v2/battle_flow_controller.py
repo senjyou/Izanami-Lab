@@ -4824,9 +4824,22 @@ class BattleFlowController:
             return [min(enemies, key=lambda u: int((u.current_hp / u.max_hp) * 10000) / 10000 if u.max_hp > 0 else 0)]
         if target_type == "enemy_single_highest_ep":
             return [max(enemies, key=lambda u: u.current_ep)]
+        if target_type == "enemy_single_lowest_def":
+            return [min(enemies, key=lambda u: u.defense)]
+        if target_type == "enemy_single_highest_def":
+            return [max(enemies, key=lambda u: u.defense)]
+        # 400287「最も累計与ダメージの高い敵単体」：按 damage_dealt_total 降序，
+        # 同值按距离施法者近优先（与技能路径 ally_single_highest_damage_dealt 的口径一致）
+        if target_type in ("enemy_single_highest_damage_dealt",
+                           "enemy_single_highest_damage"):
+            return [max(enemies, key=lambda u: (getattr(u, 'damage_dealt_total', 0),))]
 
-        # 未知 target_type，回退到 highlight 条件
-        _log.info("[MEMORY]     未知 target_type=%s，回退 highlight_targets", target_type)
+        # 未知 target_type：回退 highlight 条件**并在日志中告警**。
+        # 回退本身是既有兼容行为（旧卡可能依赖），但静默回退会让「效果打到错误的阵营」
+        # 这类 bug 无法被发现（400287 曾因未登记 enemy_single_highest_damage_dealt
+        # 而把对敌 debuff 挂到了自家友方身上）。故此处用 WARNING 级别留痕。
+        _log.warning("[MEMORY]     未知 target_type=%s，回退 highlight_targets（可能导致阵营错位，请登记该类型）",
+                     target_type)
         return self._resolve_memory_card_targets(highlight)
 
     def _apply_structured_effect_to_unit(self, card_name: str, target_unit: UnitState,

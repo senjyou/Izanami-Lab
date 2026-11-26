@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "corpus_digest": "afd7d31d8ffeba1a9412f5476bb9ab6d35e0fd78",
-  "corpus_line_count": 7171,
+  "corpus_digest": "ad6c1d14b543f41b8ccacc507d1fb94c542ecd14",
+  "corpus_line_count": 7316,
   "fact_count": 702,
   "probe_count": 472,
   "coverage_gaps": [
@@ -6369,7 +6369,7 @@
       "status": "recorded",
       "statement": "崔亦菲 的首页语音「『奴ら』のいない平和な世界、か……壽鳳たちも連れてきてやりたかったわ。……そうすれば暇つぶしとか、麻雀の相手に困ることもなかったしね！」。",
       "corpus_line": "HomeSpeechMaster#15230101",
-      "verify_token": "Speech=『奴ら』のいない平和な世界、か……壽鳳たちも連れてきてやりたかったわ。……そうすれば暇つぶしとか、麻雀の相手に困ることもなかったしね！"
+      "verify_token": "Speech=『奴ら』のいない平和な世界、か……壽鳳たちも連れてきてやりたかったわ。\n……そうすれば暇つぶしとか、麻雀の相手に困ることもなかったしね！"
     },
     {
       "fact_id": "f_153_title",
